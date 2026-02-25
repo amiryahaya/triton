@@ -1,0 +1,164 @@
+# ============================================
+# Go
+# ============================================
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# Build directories
+bin/
+dist/
+build/
+
+# Go module cache (if vendoring)
+/go/pkg/mod/
+
+# ============================================
+# macOS
+# ============================================
+
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# macOS specific
+*.localized
+
+# ============================================
+# IDEs and Editors
+# ============================================
+
+# VS Code
+.vscode/
+*.code-workspace
+.history/
+
+# JetBrains (GoLand, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Testing and Coverage
+# ============================================
+
+coverage.txt
+coverage.html
+coverage/
+*.cover
+*.cov
+
+# ============================================
+# Project Specific
+# ============================================
+
+# Output reports (user can choose to commit these)
+# Uncomment if you don't want to commit reports
+# *.json
+# *.csv
+# *.html
+
+# Temporary scan results
+tmp/
+temp/
+*.tmp
+
+# Local configuration (may contain sensitive paths)
+.triton.yaml
+.triton.yml
+config.local.yaml
+config.local.yml
+
+# Log files
+*.log
+logs/
+
+# ============================================
+# Security
+# ============================================
+
+# Private keys (never commit these!)
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_rsa.pub
+id_ecdsa
+id_ecdsa.pub
+id_ed25519
+id_ed25519.pub
+.ssh/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Secrets
+secrets.yaml
+secrets.yml
+secrets.json
+*.secret

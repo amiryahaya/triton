@@ -2,14 +2,20 @@ package scanner
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/google/uuid"
 )
 
 type CertificateModule struct {
@@ -24,38 +30,35 @@ func (m *CertificateModule) Name() string {
 	return "certificates"
 }
 
-func (m *CertificateModule) Scan(ctx context.Context, target string, findings chan<- *model.Finding) error {
-	return filepath.Walk(target, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip errors, continue scanning
-		}
+func (m *CertificateModule) Category() model.ModuleCategory {
+	return model.CategoryPassiveFile
+}
 
-		if info.IsDir() {
-			if m.shouldSkipDir(path) {
-				return filepath.SkipDir
+func (m *CertificateModule) ScanTargetType() model.ScanTargetType {
+	return model.TargetFilesystem
+}
+
+func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
+	return walkTarget(walkerConfig{
+		target:    target,
+		config:    m.config,
+		matchFile: m.isCertificateFile,
+		processFile: func(path string) error {
+			certs, err := m.parseCertificateFile(path)
+			if err != nil {
+				return nil // Skip parse errors
+			}
+
+			for _, cert := range certs {
+				finding := m.createFinding(path, cert)
+				select {
+				case findings <- finding:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 			return nil
-		}
-
-		if !m.isCertificateFile(path) {
-			return nil
-		}
-
-		certs, err := m.parseCertificateFile(path)
-		if err != nil {
-			return nil // Skip parse errors
-		}
-
-		for _, cert := range certs {
-			finding := m.createFinding(path, cert)
-			select {
-			case findings <- finding:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-
-		return nil
+		},
 	})
 }
 
@@ -63,15 +66,6 @@ func (m *CertificateModule) isCertificateFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".pem" || ext == ".crt" || ext == ".cer" ||
 		ext == ".der" || ext == ".p7b" || ext == ".p7c"
-}
-
-func (m *CertificateModule) shouldSkipDir(path string) bool {
-	for _, exclude := range m.config.ExcludePatterns {
-		if strings.Contains(path, exclude) {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *CertificateModule) parseCertificateFile(path string) ([]*x509.Certificate, error) {
@@ -108,31 +102,67 @@ func (m *CertificateModule) parseCertificateFile(path string) ([]*x509.Certifica
 }
 
 func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *model.Finding {
+	now := time.Now()
+	notBefore := cert.NotBefore
+	notAfter := cert.NotAfter
+
+	keySize := m.extractKeySize(cert)
+
+	// Build algorithm name with key size for PQC lookup
+	algoWithSize := fmt.Sprintf("%s-%d", m.publicKeyAlgoName(cert), keySize)
+
+	asset := &model.CryptoAsset{
+		ID:           uuid.New().String(),
+		Function:     "Certificate authentication",
+		Algorithm:    algoWithSize,
+		KeySize:      keySize,
+		Subject:      cert.Subject.String(),
+		Issuer:       cert.Issuer.String(),
+		SerialNumber: cert.SerialNumber.String(),
+		NotBefore:    &notBefore,
+		NotAfter:     &notAfter,
+		IsCA:         cert.IsCA,
+	}
+	crypto.ClassifyCryptoAsset(asset)
+
 	return &model.Finding{
-		Type: "certificate",
-		Path: path,
-		CryptoAsset: &model.CryptoAsset{
-			Type:         "certificate",
-			Subject:      cert.Subject.String(),
-			Issuer:       cert.Issuer.String(),
-			SerialNumber: cert.SerialNumber.String(),
-			NotBefore:    cert.NotBefore.Unix(),
-			NotAfter:     cert.NotAfter.Unix(),
-			Algorithm:    cert.SignatureAlgorithm.String(),
-			KeySize:      m.estimateKeySize(cert),
-			IsCA:         cert.IsCA,
+		ID:       uuid.New().String(),
+		Category: 5, // Certificate scanning
+		Source: model.FindingSource{
+			Type: "file",
+			Path: path,
 		},
-		Confidence: 1.0,
+		CryptoAsset: asset,
+		Confidence:  0.95,
+		Module:      "certificates",
+		Timestamp:   now,
 	}
 }
 
-func (m *CertificateModule) estimateKeySize(cert *x509.Certificate) int {
-	// Estimate key size based on public key type
+func (m *CertificateModule) publicKeyAlgoName(cert *x509.Certificate) string {
 	switch cert.PublicKeyAlgorithm {
 	case x509.RSA:
-		// We'd need to parse the actual key to get size
-		return 2048 // Default assumption
+		return "RSA"
 	case x509.ECDSA:
+		return "ECDSA-P"
+	case x509.Ed25519:
+		return "Ed25519"
+	default:
+		return "Unknown"
+	}
+}
+
+func (m *CertificateModule) extractKeySize(cert *x509.Certificate) int {
+	switch cert.PublicKeyAlgorithm {
+	case x509.RSA:
+		if pub, ok := cert.PublicKey.(*rsa.PublicKey); ok {
+			return pub.N.BitLen()
+		}
+		return 2048
+	case x509.ECDSA:
+		if pub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
+			return pub.Curve.Params().BitSize
+		}
 		return 256
 	case x509.Ed25519:
 		return 256

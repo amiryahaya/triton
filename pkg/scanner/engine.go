@@ -2,187 +2,179 @@ package scanner
 
 import (
 	"context"
-	"path/filepath"
+	"fmt"
+	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/google/uuid"
 )
 
+// Module is the interface that all scanner modules must implement.
+type Module interface {
+	Name() string
+	Category() model.ModuleCategory
+	ScanTargetType() model.ScanTargetType
+	Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error
+}
+
+// Engine orchestrates concurrent module execution and finding collection.
 type Engine struct {
 	config  *config.Config
 	modules []Module
-	results *Results
 }
 
-type Module interface {
-	Name() string
-	Scan(ctx context.Context, target string, findings chan<- *model.Finding) error
-}
-
-type Results struct {
-	SBOM     *model.SBOM
-	CBOM     *model.CBOM
-	Findings []*model.Finding
-	Stats    ScanStats
-	mu       sync.RWMutex
-}
-
-type ScanStats struct {
-	FilesScanned      int64
-	CertificatesFound int64
-	KeysFound         int64
-	LibrariesFound    int64
-	ServicesFound     int64
-	StartTime         int64
-	EndTime           int64
-}
-
+// Progress reports scan progress to the UI.
 type Progress struct {
 	Percent  float64
 	Status   string
 	Complete bool
 	Error    error
-	Results  *Results
+	Result   *model.ScanResult
 }
 
-type Finding struct {
-	Type        string
-	Path        string
-	Component   *model.Component
-	CryptoAsset *model.CryptoAsset
-	Confidence  float64
-}
-
+// New creates a new Engine with an empty module list.
 func New(cfg *config.Config) *Engine {
 	return &Engine{
-		config:  cfg,
-		results: &Results{},
-		modules: []Module{
-			NewCertificateModule(cfg),
-			NewKeyModule(cfg),
-			NewPackageModule(cfg),
-		},
+		config: cfg,
 	}
 }
 
-func (e *Engine) Scan(progressCh chan<- Progress) {
+// RegisterModule adds a module to the engine.
+func (e *Engine) RegisterModule(m Module) {
+	e.modules = append(e.modules, m)
+}
+
+// RegisterDefaultModules registers the built-in scanner modules.
+func (e *Engine) RegisterDefaultModules() {
+	e.RegisterModule(NewCertificateModule(e.config))
+	e.RegisterModule(NewKeyModule(e.config))
+	e.RegisterModule(NewPackageModule(e.config))
+}
+
+// Scan executes all registered modules against configured targets.
+func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.ScanResult {
 	defer close(progressCh)
 
-	targets := e.getScanTargets()
-	totalTargets := len(targets)
+	start := time.Now()
 
-	ctx := context.Background()
+	hostname, _ := os.Hostname()
+	result := &model.ScanResult{
+		ID: uuid.New().String(),
+		Metadata: model.ScanMetadata{
+			Timestamp:   start,
+			Hostname:    hostname,
+			OS:          runtime.GOOS,
+			ScanProfile: e.config.Profile,
+			Targets:     e.config.ScanTargets,
+			ToolVersion: "0.1.0",
+		},
+	}
+
 	findings := make(chan *model.Finding, 100)
-
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, e.config.Workers)
+	var mu sync.Mutex
 
 	// Collector goroutine
+	var collectorWg sync.WaitGroup
+	collectorWg.Add(1)
 	go func() {
+		defer collectorWg.Done()
 		for f := range findings {
-			e.results.AddFinding(f)
+			mu.Lock()
+			result.Findings = append(result.Findings, *f)
+			mu.Unlock()
 		}
 	}()
 
-	// Scan targets
-	for i, target := range targets {
+	// Build module-target pairs
+	type moduleTarget struct {
+		module Module
+		target model.ScanTarget
+	}
+	var pairs []moduleTarget
+	for _, m := range e.modules {
+		if !e.shouldRunModule(m) {
+			continue
+		}
+		targets := e.getTargetsForModule(m)
+		for _, t := range targets {
+			pairs = append(pairs, moduleTarget{module: m, target: t})
+		}
+	}
+
+	totalPairs := len(pairs)
+
+	// Execute with semaphore for concurrency control
+	var wg sync.WaitGroup
+	workers := e.config.Workers
+	if workers < 1 {
+		workers = 1
+	}
+	semaphore := make(chan struct{}, workers)
+
+	for i, pair := range pairs {
 		wg.Add(1)
 		semaphore <- struct{}{}
 
-		go func(idx int, t string) {
+		go func(idx int, mt moduleTarget) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
 
-			for _, module := range e.modules {
-				if e.shouldRunModule(module.Name()) {
-					module.Scan(ctx, t, findings)
-				}
-			}
+			err := mt.module.Scan(ctx, mt.target, findings)
 
-			progressCh <- Progress{
-				Percent: float64(idx+1) / float64(totalTargets),
-				Status:  filepath.Base(t),
+			if totalPairs > 0 {
+				p := Progress{
+					Percent: float64(idx+1) / float64(totalPairs),
+					Status:  mt.module.Name() + ": " + mt.target.Value,
+				}
+				if err != nil {
+					p.Error = fmt.Errorf("module %s failed on %s: %w", mt.module.Name(), mt.target.Value, err)
+				}
+				progressCh <- p
 			}
-		}(i, target)
+		}(i, pair)
 	}
 
 	wg.Wait()
 	close(findings)
+	collectorWg.Wait()
 
-	// Generate SBOM/CBOM from findings
-	e.results.SBOM = e.generateSBOM()
-	e.results.CBOM = e.generateCBOM()
+	result.Metadata.Duration = time.Since(start)
+	result.Summary = model.ComputeSummary(result.Findings)
 
 	progressCh <- Progress{
 		Percent:  1.0,
 		Status:   "Scan complete",
 		Complete: true,
-		Results:  e.results,
+		Result:   result,
 	}
+
+	return result
 }
 
-func (e *Engine) getScanTargets() []string {
-	// TODO: Implement proper target discovery based on OS
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{
-			"/Applications",
-			"/System/Library",
-			"/usr/local",
-			"/etc",
+// getTargetsForModule filters config targets by the module's ScanTargetType.
+func (e *Engine) getTargetsForModule(m Module) []model.ScanTarget {
+	var targets []model.ScanTarget
+	for _, t := range e.config.ScanTargets {
+		if t.Type == m.ScanTargetType() {
+			targets = append(targets, t)
 		}
-	case "linux":
-		return []string{
-			"/usr",
-			"/etc",
-			"/opt",
-		}
-	case "windows":
-		return []string{
-			`C:\Program Files`,
-			`C:\ProgramData`,
-			`C:\Windows\System32`,
-		}
-	default:
-		return []string{"."}
 	}
+	return targets
 }
 
-func (e *Engine) shouldRunModule(name string) bool {
+// shouldRunModule checks if a module should run based on config.Modules filter.
+func (e *Engine) shouldRunModule(m Module) bool {
 	if len(e.config.Modules) == 0 {
 		return true
 	}
-	for _, m := range e.config.Modules {
-		if m == name {
+	for _, name := range e.config.Modules {
+		if name == m.Name() {
 			return true
 		}
 	}
 	return false
-}
-
-func (e *Engine) generateSBOM() *model.SBOM {
-	// TODO: Generate CycloneDX SBOM from findings
-	return &model.SBOM{}
-}
-
-func (e *Engine) generateCBOM() *model.CBOM {
-	// TODO: Generate CycloneDX CBOM from findings
-	return &model.CBOM{}
-}
-
-func (r *Results) AddFinding(f *model.Finding) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.Findings = append(r.Findings, f)
-
-	switch f.Type {
-	case "certificate":
-		r.Stats.CertificatesFound++
-	case "key":
-		r.Stats.KeysFound++
-	case "library":
-		r.Stats.LibrariesFound++
-	}
 }

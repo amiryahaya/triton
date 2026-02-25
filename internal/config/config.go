@@ -2,6 +2,8 @@ package config
 
 import (
 	"runtime"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 type Config struct {
@@ -15,6 +17,7 @@ type Config struct {
 	ExcludePatterns []string
 	MaxFileSize     int64
 	Workers         int
+	ScanTargets     []model.ScanTarget
 }
 
 type ScanProfile struct {
@@ -71,7 +74,40 @@ func Load(profile string) *Config {
 		ExcludePatterns: defaultExcludePatterns(),
 		MaxFileSize:     100 * 1024 * 1024, // 100MB
 		Workers:         workers,
+		ScanTargets:     defaultScanTargets(p.Depth),
 	}
+}
+
+func defaultScanTargets(depth int) []model.ScanTarget {
+	var targets []model.ScanTarget
+
+	switch runtime.GOOS {
+	case "darwin":
+		targets = []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: "/Applications", Depth: depth},
+			{Type: model.TargetFilesystem, Value: "/System/Library", Depth: depth},
+			{Type: model.TargetFilesystem, Value: "/usr/local", Depth: depth},
+			{Type: model.TargetFilesystem, Value: "/etc", Depth: depth},
+		}
+	case "linux":
+		targets = []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: "/usr", Depth: depth},
+			{Type: model.TargetFilesystem, Value: "/etc", Depth: depth},
+			{Type: model.TargetFilesystem, Value: "/opt", Depth: depth},
+		}
+	case "windows":
+		targets = []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: `C:\Program Files`, Depth: depth},
+			{Type: model.TargetFilesystem, Value: `C:\ProgramData`, Depth: depth},
+			{Type: model.TargetFilesystem, Value: `C:\Windows\System32`, Depth: depth},
+		}
+	default:
+		targets = []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: ".", Depth: depth},
+		}
+	}
+
+	return targets
 }
 
 func defaultIncludePatterns() []string {

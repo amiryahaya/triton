@@ -1,0 +1,337 @@
+package scanner
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// Compile-time interface compliance check
+var _ Module = (*KeyModule)(nil)
+
+func TestKeyModuleInterface(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+	assert.Equal(t, "keys", m.Name())
+}
+
+func TestKeyModuleCategory(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+	assert.Equal(t, model.CategoryPassiveFile, m.Category())
+}
+
+func TestKeyModuleScanTargetType(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
+}
+
+func TestParseRSAPrivateKey(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyContent := `-----BEGIN RSA PRIVATE KEY-----
+MIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJRrMtWPmWnK/vL0s3gJTo9Lnlw
+LpF4HKqkXCsM5WiB3TD7pzR8SKpN6ACmpWECAwEAAQJAS6EUQnVDIR6pkMOEDgDH
+KqlREQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+-----END RSA PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "test.key")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	finding := collected[0]
+
+	assert.NotEmpty(t, finding.ID)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "rsa-private", finding.CryptoAsset.Function)
+	assert.Equal(t, "RSA", finding.CryptoAsset.Algorithm)
+	assert.NotEmpty(t, finding.CryptoAsset.PQCStatus, "PQC classification should be applied")
+}
+
+func TestKeyFindingShape(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyContent := `-----BEGIN RSA PRIVATE KEY-----
+MIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJRrMtWPmWnK/vL0s3gJTo9Lnlw
+-----END RSA PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "test.key")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	m.Scan(context.Background(), target, findings)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+
+	assert.Equal(t, 5, finding.Category)
+	assert.Equal(t, "file", finding.Source.Type)
+	assert.Equal(t, "keys", finding.Module)
+	assert.Equal(t, 0.8, finding.Confidence)
+}
+
+func TestDetectKeyTypeAndAlgorithm(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+
+	tests := []struct {
+		name          string
+		content       string
+		wantKeyType   string
+		wantAlgorithm string
+	}{
+		{"RSA private", "-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----", "rsa-private", "RSA"},
+		{"EC private", "-----BEGIN EC PRIVATE KEY-----\ndata\n-----END EC PRIVATE KEY-----", "ec-private", "ECDSA"},
+		{"PKCS8 private", "-----BEGIN PRIVATE KEY-----\ndata\n-----END PRIVATE KEY-----", "pkcs8-private", "Unknown"},
+		{"Public key", "-----BEGIN PUBLIC KEY-----\ndata\n-----END PUBLIC KEY-----", "public", "Unknown"},
+		{"OpenSSH private", "-----BEGIN OPENSSH PRIVATE KEY-----\ndata\n-----END OPENSSH PRIVATE KEY-----", "openssh-private", "Unknown"},
+		{"RSA public", "-----BEGIN RSA PUBLIC KEY-----\ndata\n-----END RSA PUBLIC KEY-----", "rsa-public", "RSA"},
+		{"No key header", "some random data with SECTION and EC references", "", ""},
+		{"Certificate PEM", "-----BEGIN CERTIFICATE-----\ndata\n-----END CERTIFICATE-----", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyType, algo := m.detectKeyTypeAndAlgorithm(tt.content)
+			assert.Equal(t, tt.wantKeyType, keyType)
+			assert.Equal(t, tt.wantAlgorithm, algo)
+		})
+	}
+}
+
+func TestParseECPrivateKey(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyContent := `-----BEGIN EC PRIVATE KEY-----
+MHQCAQEEIODiAsKBChlFSt/C+6yxMqfBlH80IwLPqYaOEMkSgGdmoAcGBSuBBAAi
+oWQDYgAE0Y/ip/T8KBxmFnlPPGGZasFzBMk3FO3iKSrkk5vWsadRXsfrFWxEIBbK
+-----END EC PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "ec.key")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "ec-private", finding.CryptoAsset.Function)
+	assert.Equal(t, "ECDSA", finding.CryptoAsset.Algorithm)
+}
+
+func TestParsePKCS8Key(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyContent := `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgdata
+-----END PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "pkcs8.pem")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "pkcs8-private", finding.CryptoAsset.Function)
+}
+
+func TestParseOpenSSHKey(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyContent := `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+-----END OPENSSH PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "id_ed25519")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "openssh-private", finding.CryptoAsset.Function)
+}
+
+func TestParsePublicKey(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyContent := `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAdata
+-----END PUBLIC KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "test.pub")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "public", finding.CryptoAsset.Function)
+}
+
+func TestIsKeyFile(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+
+	// Should match
+	assert.True(t, m.isKeyFile("/path/to/server.key"))
+	assert.True(t, m.isKeyFile("/path/to/cert.pem"))
+	assert.True(t, m.isKeyFile("/path/to/key.priv"))
+	assert.True(t, m.isKeyFile("/path/to/key.pub"))
+	assert.True(t, m.isKeyFile("/home/user/.ssh/id_rsa"))
+	assert.True(t, m.isKeyFile("/home/user/.ssh/id_ecdsa"))
+	assert.True(t, m.isKeyFile("/home/user/.ssh/id_ed25519"))
+	assert.True(t, m.isKeyFile("/home/user/.ssh/id_rsa.pub"))
+	assert.True(t, m.isKeyFile("/path/to/private_key.pem"))
+	assert.True(t, m.isKeyFile("/path/to/public_key.pem"))
+
+	// Should NOT match (previously caused false positives)
+	assert.False(t, m.isKeyFile("/home/user/private_notes.txt"))
+	assert.False(t, m.isKeyFile("/var/private/data.json"))
+	assert.False(t, m.isKeyFile("/path/to/readme.txt"))
+	assert.False(t, m.isKeyFile("/path/to/image.png"))
+}
+
+func TestNonKeyPEMFileSkipped(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write a certificate PEM (not a key) — should be skipped
+	certContent := `-----BEGIN CERTIFICATE-----
+MIIBkTCB+wIJALbHnMO4ZY3WMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
+-----END CERTIFICATE-----`
+
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	err := os.WriteFile(certFile, []byte(certContent), 0644)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "certificate PEM files should not produce key findings")
+}
+
+func TestRandomTextFileSkipped(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// A file with "EC" and "SECTION" in content but no key header
+	content := "This SECTION discusses EC curves and ECDSA REJECT criteria"
+	textFile := filepath.Join(tmpDir, "notes.pem")
+	err := os.WriteFile(textFile, []byte(content), 0644)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "files without key PEM headers should not produce findings")
+}
+
+func TestKeyScanNonExistentDir(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/nonexistent", Depth: 1}
+
+	err := m.Scan(context.Background(), target, findings)
+	close(findings)
+	_ = err
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected)
+}
+
+func TestKeyScanUnreadableFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	keyFile := filepath.Join(tmpDir, "unreadable.key")
+	err := os.WriteFile(keyFile, []byte("data"), 0000)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected)
+
+	os.Chmod(keyFile, 0644)
+}

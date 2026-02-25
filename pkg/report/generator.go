@@ -19,19 +19,14 @@ func New(outputDir string) *Generator {
 	return &Generator{outputDir: outputDir}
 }
 
-// GenerateCycloneDX outputs SBOM/CBOM in CycloneDX JSON format
-func (g *Generator) GenerateCycloneDX(sbom *model.SBOM, cbom *model.CBOM, filename string) error {
-	// For MVP, we'll output a combined report
+// GenerateCycloneDX outputs scan results in JSON format
+func (g *Generator) GenerateCycloneDX(result *model.ScanResult, filename string) error {
 	report := struct {
-		GeneratedAt string              `json:"generatedAt"`
-		SBOM        *model.SBOM         `json:"sbom"`
-		CBOM        *model.CBOM         `json:"cbom"`
-		Summary     map[string]interface{} `json:"summary"`
+		GeneratedAt string            `json:"generatedAt"`
+		Result      *model.ScanResult `json:"result"`
 	}{
 		GeneratedAt: time.Now().Format(time.RFC3339),
-		SBOM:        sbom,
-		CBOM:        cbom,
-		Summary:     g.generateSummary(cbom),
+		Result:      result,
 	}
 
 	data, err := json.MarshalIndent(report, "", "  ")
@@ -43,7 +38,7 @@ func (g *Generator) GenerateCycloneDX(sbom *model.SBOM, cbom *model.CBOM, filena
 }
 
 // GenerateCSV creates a CSV report matching the Malaysian government format
-func (g *Generator) GenerateCSV(findings []*model.Finding, filename string) error {
+func (g *Generator) GenerateCSV(result *model.ScanResult, filename string) error {
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -53,7 +48,6 @@ func (g *Generator) GenerateCSV(findings []*model.Finding, filename string) erro
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	// Write headers matching the sample format
 	headers := []string{
 		"No.",
 		"Sistem / Aplikasi",
@@ -68,20 +62,19 @@ func (g *Generator) GenerateCSV(findings []*model.Finding, filename string) erro
 		return err
 	}
 
-	// Write findings
-	for i, f := range findings {
+	for i, f := range result.Findings {
 		if f.CryptoAsset == nil {
 			continue
 		}
 
 		record := []string{
 			fmt.Sprintf("%d", i+1),
-			f.Path,
-			f.Type,
-			f.CryptoAsset.Type,
+			f.Source.Path,
+			f.CryptoAsset.Function,
+			f.CryptoAsset.Function,
 			f.CryptoAsset.Algorithm,
 			fmt.Sprintf("%d", f.CryptoAsset.KeySize),
-			g.classifyCriticality(f),
+			g.classifyCriticality(&f),
 			f.CryptoAsset.PQCStatus,
 		}
 		if err := writer.Write(record); err != nil {
@@ -93,7 +86,7 @@ func (g *Generator) GenerateCSV(findings []*model.Finding, filename string) erro
 }
 
 // GenerateHTML creates an HTML report for presentation
-func (g *Generator) GenerateHTML(findings []*model.Finding, filename string) error {
+func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) error {
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -112,21 +105,27 @@ func (g *Generator) GenerateHTML(findings []*model.Finding, filename string) err
 	</style>
 </head>
 <body>
-	<h1>🔍 Triton Cryptographic Inventory Report</h1>
+	<h1>Triton Cryptographic Inventory Report</h1>
 	<p>Generated: %s</p>
-	
+	<p>Total Findings: %d | Safe: %d | Transitional: %d | Deprecated: %d | Unsafe: %d</p>
+
 	<table>
 		<tr>
 			<th>No.</th>
 			<th>Path</th>
-			<th>Type</th>
+			<th>Function</th>
 			<th>Algorithm</th>
 			<th>Key Size</th>
 			<th>PQC Status</th>
 		</tr>
-`, time.Now().Format("2006-01-02 15:04:05"))
+`, time.Now().Format("2006-01-02 15:04:05"),
+		result.Summary.TotalFindings,
+		result.Summary.Safe,
+		result.Summary.Transitional,
+		result.Summary.Deprecated,
+		result.Summary.Unsafe)
 
-	for i, f := range findings {
+	for i, f := range result.Findings {
 		if f.CryptoAsset == nil {
 			continue
 		}
@@ -139,8 +138,8 @@ func (g *Generator) GenerateHTML(findings []*model.Finding, filename string) err
 			<td>%d</td>
 			<td class="%s">%s</td>
 		</tr>
-`, i+1, f.Path, f.CryptoAsset.Type, f.CryptoAsset.Algorithm, 
-   f.CryptoAsset.KeySize, f.CryptoAsset.PQCStatus, f.CryptoAsset.PQCStatus)
+`, i+1, f.Source.Path, f.CryptoAsset.Function, f.CryptoAsset.Algorithm,
+			f.CryptoAsset.KeySize, f.CryptoAsset.PQCStatus, f.CryptoAsset.PQCStatus)
 	}
 
 	html += `
@@ -149,40 +148,6 @@ func (g *Generator) GenerateHTML(findings []*model.Finding, filename string) err
 </html>`
 
 	return os.WriteFile(filename, []byte(html), 0644)
-}
-
-func (g *Generator) generateSummary(cbom *model.CBOM) map[string]interface{} {
-	summary := map[string]interface{}{
-		"totalAssets":   len(cbom.CryptoAssets),
-		"safe":          0,
-		"transitional":  0,
-		"deprecated":    0,
-		"unsafe":        0,
-		"certificates":  0,
-		"keys":          0,
-	}
-
-	for _, asset := range cbom.CryptoAssets {
-		switch asset.PQCStatus {
-		case "SAFE":
-			summary["safe"] = summary["safe"].(int) + 1
-		case "TRANSITIONAL":
-			summary["transitional"] = summary["transitional"].(int) + 1
-		case "DEPRECATED":
-			summary["deprecated"] = summary["deprecated"].(int) + 1
-		case "UNSAFE":
-			summary["unsafe"] = summary["unsafe"].(int) + 1
-		}
-
-		if asset.Type == "certificate" {
-			summary["certificates"] = summary["certificates"].(int) + 1
-		}
-		if asset.Type == "key" {
-			summary["keys"] = summary["keys"].(int) + 1
-		}
-	}
-
-	return summary
 }
 
 func (g *Generator) classifyCriticality(f *model.Finding) string {

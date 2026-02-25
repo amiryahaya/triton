@@ -1,0 +1,287 @@
+package model
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestScanResultJSON(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	result := ScanResult{
+		ID: "scan-001",
+		Metadata: ScanMetadata{
+			Timestamp:   now,
+			Hostname:    "testhost",
+			OS:          "darwin",
+			ScanProfile: "quick",
+			Targets: []ScanTarget{
+				{Type: TargetFilesystem, Value: "/etc", Depth: 3},
+			},
+			Duration:    5 * time.Second,
+			ToolVersion: "0.1.0",
+		},
+		Systems: []System{
+			{ID: "sys-1", Name: "TestApp", InUse: true},
+		},
+		Findings: []Finding{
+			{
+				ID:       "f-1",
+				Category: 5,
+				Source:   FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+				CryptoAsset: &CryptoAsset{
+					ID:        "cbom-1",
+					Algorithm: "RSA-2048",
+					KeySize:   2048,
+				},
+				Confidence: 0.95,
+				Module:     "certificates",
+				Timestamp:  now,
+			},
+		},
+		Summary: Summary{TotalFindings: 1, Transitional: 1},
+	}
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var decoded ScanResult
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, result.ID, decoded.ID)
+	assert.Equal(t, result.Metadata.Hostname, decoded.Metadata.Hostname)
+	assert.Equal(t, result.Metadata.OS, decoded.Metadata.OS)
+	assert.Equal(t, result.Metadata.ScanProfile, decoded.Metadata.ScanProfile)
+	assert.Len(t, decoded.Metadata.Targets, 1)
+	assert.Equal(t, result.Metadata.Duration, decoded.Metadata.Duration)
+	assert.Len(t, decoded.Systems, 1)
+	assert.Len(t, decoded.Findings, 1)
+	assert.Equal(t, result.Summary.TotalFindings, decoded.Summary.TotalFindings)
+}
+
+func TestSystemJSONRoundTrip(t *testing.T) {
+	sys := System{
+		ID:                "sys-1",
+		Name:              "Portal Kerajaan",
+		Purpose:           "Portal perkhidmatan awam",
+		URL:               "https://portal.gov.my",
+		ServiceMode:       "Online",
+		TargetCustomer:    "Rakyat Malaysia",
+		Components:        []string{"Apache", "OpenSSL"},
+		ThirdPartyModules: []string{"mod_ssl"},
+		ExternalAPIs:      []string{"MyKAD API"},
+		CriticalityLevel:  "Tinggi",
+		DataCategory:      "Sulit",
+		InUse:             true,
+		Developer:         "MAMPU",
+		Vendor:            "Internal",
+		CBOMRefs:          []string{"CBOM #1", "CBOM #2"},
+		CryptoAssets: []CryptoAsset{
+			{ID: "cbom-1", Algorithm: "RSA-2048"},
+		},
+	}
+
+	data, err := json.Marshal(sys)
+	require.NoError(t, err)
+
+	var decoded System
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, sys.ID, decoded.ID)
+	assert.Equal(t, sys.Name, decoded.Name)
+	assert.Equal(t, sys.Purpose, decoded.Purpose)
+	assert.Equal(t, sys.URL, decoded.URL)
+	assert.Equal(t, sys.ServiceMode, decoded.ServiceMode)
+	assert.Equal(t, sys.TargetCustomer, decoded.TargetCustomer)
+	assert.Equal(t, sys.Components, decoded.Components)
+	assert.Equal(t, sys.ThirdPartyModules, decoded.ThirdPartyModules)
+	assert.Equal(t, sys.ExternalAPIs, decoded.ExternalAPIs)
+	assert.Equal(t, sys.CriticalityLevel, decoded.CriticalityLevel)
+	assert.Equal(t, sys.DataCategory, decoded.DataCategory)
+	assert.Equal(t, sys.InUse, decoded.InUse)
+	assert.Equal(t, sys.Developer, decoded.Developer)
+	assert.Equal(t, sys.Vendor, decoded.Vendor)
+	assert.Equal(t, sys.CBOMRefs, decoded.CBOMRefs)
+	assert.Len(t, decoded.CryptoAssets, 1)
+
+	// InUse=false is preserved (no omitempty)
+	sys.InUse = false
+	data, err = json.Marshal(sys)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"inUse":false`)
+}
+
+func TestFindingJSONRoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	finding := Finding{
+		ID:       "f-1",
+		Category: 5,
+		Source: FindingSource{
+			Type: "file",
+			Path: "/etc/ssl/cert.pem",
+		},
+		CryptoAsset: &CryptoAsset{
+			ID:        "cbom-1",
+			Algorithm: "RSA-2048",
+			KeySize:   2048,
+			PQCStatus: "TRANSITIONAL",
+		},
+		Confidence: 0.95,
+		Module:     "certificates",
+		Timestamp:  now,
+	}
+
+	data, err := json.Marshal(finding)
+	require.NoError(t, err)
+
+	var decoded Finding
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, finding.ID, decoded.ID)
+	assert.Equal(t, finding.Category, decoded.Category)
+	assert.Equal(t, finding.Source.Type, decoded.Source.Type)
+	assert.Equal(t, finding.Source.Path, decoded.Source.Path)
+	require.NotNil(t, decoded.CryptoAsset)
+	assert.Equal(t, finding.CryptoAsset.Algorithm, decoded.CryptoAsset.Algorithm)
+	assert.Equal(t, finding.Confidence, decoded.Confidence)
+	assert.Equal(t, finding.Module, decoded.Module)
+}
+
+func TestCryptoAssetJSONRoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	notAfter := now.Add(365 * 24 * time.Hour)
+	asset := CryptoAsset{
+		ID:                "cbom-1",
+		SystemName:        "Portal",
+		Function:          "Certificate authentication",
+		Algorithm:         "RSA-2048",
+		Library:           "OpenSSL 3.0",
+		KeySize:           2048,
+		Purpose:           "TLS",
+		CryptoAgility:     "Supported",
+		PQCStatus:         "TRANSITIONAL",
+		MigrationPriority: 50,
+		BreakYear:         2035,
+		Subject:           "CN=portal.gov.my",
+		Issuer:            "CN=DigiCert",
+		SerialNumber:      "1234",
+		NotBefore:         &now,
+		NotAfter:          &notAfter,
+		IsCA:              false,
+	}
+
+	data, err := json.Marshal(asset)
+	require.NoError(t, err)
+
+	var decoded CryptoAsset
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, asset.ID, decoded.ID)
+	assert.Equal(t, asset.SystemName, decoded.SystemName)
+	assert.Equal(t, asset.Function, decoded.Function)
+	assert.Equal(t, asset.Algorithm, decoded.Algorithm)
+	assert.Equal(t, asset.Library, decoded.Library)
+	assert.Equal(t, asset.KeySize, decoded.KeySize)
+	assert.Equal(t, asset.Purpose, decoded.Purpose)
+	assert.Equal(t, asset.CryptoAgility, decoded.CryptoAgility)
+	assert.Equal(t, asset.PQCStatus, decoded.PQCStatus)
+	assert.Equal(t, asset.MigrationPriority, decoded.MigrationPriority)
+	assert.Equal(t, asset.BreakYear, decoded.BreakYear)
+	assert.Equal(t, asset.Subject, decoded.Subject)
+	require.NotNil(t, decoded.NotBefore)
+	require.NotNil(t, decoded.NotAfter)
+	assert.Equal(t, asset.NotBefore.Unix(), decoded.NotBefore.Unix())
+	assert.Equal(t, asset.NotAfter.Unix(), decoded.NotAfter.Unix())
+
+	// Certificate-specific fields use omitempty
+	minimal := CryptoAsset{ID: "cbom-2", Algorithm: "AES-256"}
+	data, err = json.Marshal(minimal)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "subject")
+	assert.NotContains(t, string(data), "issuer")
+	assert.NotContains(t, string(data), "notBefore")
+}
+
+func TestFindingSourceTypes(t *testing.T) {
+	tests := []struct {
+		name   string
+		source FindingSource
+	}{
+		{
+			name:   "file source",
+			source: FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+		},
+		{
+			name:   "process source",
+			source: FindingSource{Type: "process", PID: 1234},
+		},
+		{
+			name:   "network source",
+			source: FindingSource{Type: "network", Endpoint: "192.168.1.1:443"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.source)
+			require.NoError(t, err)
+
+			var decoded FindingSource
+			err = json.Unmarshal(data, &decoded)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.source.Type, decoded.Type)
+		})
+	}
+}
+
+func TestComputeSummary(t *testing.T) {
+	findings := []Finding{
+		{CryptoAsset: &CryptoAsset{PQCStatus: "SAFE"}},
+		{CryptoAsset: &CryptoAsset{PQCStatus: "SAFE"}},
+		{CryptoAsset: &CryptoAsset{PQCStatus: "TRANSITIONAL"}},
+		{CryptoAsset: &CryptoAsset{PQCStatus: "DEPRECATED"}},
+		{CryptoAsset: &CryptoAsset{PQCStatus: "UNSAFE"}},
+		{CryptoAsset: nil}, // no crypto asset
+	}
+
+	summary := ComputeSummary(findings)
+
+	assert.Equal(t, 6, summary.TotalFindings)
+	assert.Equal(t, 5, summary.TotalCryptoAssets)
+	assert.Equal(t, 2, summary.Safe)
+	assert.Equal(t, 1, summary.Transitional)
+	assert.Equal(t, 1, summary.Deprecated)
+	assert.Equal(t, 1, summary.Unsafe)
+}
+
+func TestComputeSummaryEmpty(t *testing.T) {
+	summary := ComputeSummary([]Finding{})
+
+	assert.Equal(t, 0, summary.TotalFindings)
+	assert.Equal(t, 0, summary.TotalCryptoAssets)
+	assert.Equal(t, 0, summary.Safe)
+	assert.Equal(t, 0, summary.Transitional)
+	assert.Equal(t, 0, summary.Deprecated)
+	assert.Equal(t, 0, summary.Unsafe)
+}
+
+func TestScanTargetTypes(t *testing.T) {
+	assert.Equal(t, ScanTargetType(0), TargetFilesystem)
+	assert.Equal(t, ScanTargetType(1), TargetNetwork)
+	assert.Equal(t, ScanTargetType(2), TargetProcess)
+}
+
+func TestModuleCategoryConstants(t *testing.T) {
+	assert.Equal(t, ModuleCategory(0), CategoryPassiveFile)
+	assert.Equal(t, ModuleCategory(1), CategoryPassiveCode)
+	assert.Equal(t, ModuleCategory(2), CategoryActiveRuntime)
+	assert.Equal(t, ModuleCategory(3), CategoryActiveNetwork)
+}

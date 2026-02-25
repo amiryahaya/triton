@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner"
 )
 
@@ -65,8 +67,7 @@ func Execute() error {
 
 type scanModel struct {
 	progress  progress.Model
-	scanner   *scanner.Engine
-	results   *scanner.Results
+	result    *model.ScanResult
 	err       error
 	done      bool
 	statusMsg string
@@ -119,15 +120,15 @@ func (m scanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m scanModel) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("\n❌ Error: %v\n\n", m.err)
+		return fmt.Sprintf("\nError: %v\n\n", m.err)
 	}
 
 	if m.done {
-		return fmt.Sprintf("\n✅ %s\n\nReport saved to: %s\n\n", m.statusMsg, outputFile)
+		return fmt.Sprintf("\n%s\n\nReport saved to: %s\n\n", m.statusMsg, outputFile)
 	}
 
 	return fmt.Sprintf(
-		"\n🔍 Triton Scanner - %s\n\n%s\n\n%s\n\nPress Ctrl+C to cancel\n",
+		"\nTriton Scanner - %s\n\n%s\n\n%s\n\nPress Ctrl+C to cancel\n",
 		scanProfile,
 		m.statusMsg,
 		m.progress.View(),
@@ -141,17 +142,19 @@ func (m scanModel) runScan() tea.Cmd {
 			cfg.Modules = modules
 		}
 
-		m.scanner = scanner.New(cfg)
+		eng := scanner.New(cfg)
+		eng.RegisterDefaultModules()
 
 		progressCh := make(chan scanner.Progress)
-		go m.scanner.Scan(progressCh)
+		ctx := context.Background()
+		go eng.Scan(ctx, progressCh)
 
 		for p := range progressCh {
 			if p.Error != nil {
 				return scanMsg{err: p.Error}
 			}
 			if p.Complete {
-				m.results = p.Results
+				m.result = p.Result
 				return scanMsg{done: true, status: p.Status}
 			}
 			return scanMsg{progress: p.Percent, status: p.Status}

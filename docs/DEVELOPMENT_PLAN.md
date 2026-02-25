@@ -1,105 +1,39 @@
 # Triton Development Plan
+
 ## SBOM/CBOM Scanner for PQC Compliance
 
-**Version:** 1.1  
-**Target:** MVP in 4 weeks for partner buy-in  
-**Methodology:** Test-Driven Development (TDD) + Code Review + QA Gates  
-**Language:** Go (beginner-friendly guide included)
-
----
-
-## 0. Go for Beginners - Quick Reference
-
-### 0.1 Essential Go Concepts
-
-**Package Structure:**
-```go
-package main        // Entry point package
-package scanner     // Library package
-
-import (
-    "fmt"           // Standard library
-    "github.com/..." // External package
-)
-```
-
-**Key Differences from Other Languages:**
-| Concept | Go Way | Notes |
-|---------|--------|-------|
-| Visibility | Capitalized = public, lowercase = private | `Name` vs `name` |
-| Error handling | Explicit `if err != nil` | No exceptions |
-| Types | After variable name | `var count int` |
-| Pointers | `*Type` for pointer, `&` for address | Safer than C |
-| Structs | Like classes without inheritance | Use composition |
-
-**Common Patterns:**
-```go
-// Error handling (this is idiomatic Go)
-result, err := someFunction()
-if err != nil {
-    return err  // Always handle errors!
-}
-
-// Struct definition
-type Person struct {
-    Name string
-    Age  int
-}
-
-// Method (receiver is like 'this')
-func (p Person) Greet() string {
-    return "Hello, " + p.Name
-}
-
-// Interface (implicit implementation)
-type Greeter interface {
-    Greet() string
-}
-```
-
-### 0.2 Essential Commands
-```bash
-# Run tests
-go test ./...
-
-# Run specific test
-go test -v -run TestName ./pkg/scanner
-
-# Run with coverage
-go test -cover ./...
-
-# Format code (always do this!)
-go fmt ./...
-
-# Build
-go build -o bin/triton main.go
-
-# Run
-go run main.go --profile quick
-
-# Download dependencies
-go mod tidy
-
-# View documentation
-go doc package.Function
-```
-
-### 0.3 Go Resources
-- **Tour of Go:** https://tour.golang.org (interactive tutorial)
-- **Go by Example:** https://gobyexample.com (cookbook style)
-- **Effective Go:** https://go.dev/doc/effective_go (best practices)
+**Version:** 2.0
+**Target:** MVP in 5 weeks — standalone CLI for partner buy-in
+**Methodology:** Test-Driven Development (TDD) + Code Review + QA Gates
+**Language:** Go 1.21+
+**Go Quick Reference:** See `docs/GO_QUICK_REFERENCE.md`
 
 ---
 
 ## 1. Project Overview
 
 ### 1.1 Goals
-- Build a lightweight, cross-platform SBOM/CBOM scanner
-- Support Malaysian government PQC compliance (2030 deadline)
-- Generate reports matching government format
+
+- Scan systems for all cryptographic assets across 9 categories (see §3)
+- Classify each asset for Post-Quantum Cryptography (PQC) readiness
+- Assess crypto-agility — can the system migrate to PQC algorithms?
+- Generate reports in **Malaysian government format** (Jadual 1 SBOM & Jadual 2 CBOM)
+- Support macOS (primary) and Linux (secondary), Windows best-effort
 - Outperform PCert (Java) in speed and memory efficiency
 
-### 1.2 Success Criteria
+### 1.2 Scope Decisions
+
+| Decision | Status | Notes |
+|----------|--------|-------|
+| Standalone CLI | **MVP** | Single binary, no server |
+| Client-server mode | **Deferred** | Future: agent reports to central server |
+| CI/CD pipeline | **Deferred** | Set up after code stabilizes |
+| Government format (Jadual 1 & 2) | **Primary output** | Exact column match required |
+| CycloneDX JSON | Secondary | For interoperability |
+| HTML dashboard | Secondary | For presentations |
+
+### 1.3 Success Criteria
+
 | Metric | Target |
 |--------|--------|
 | Scan 1TB disk | < 2 hours |
@@ -107,33 +41,59 @@ go doc package.Function
 | Binary size | < 50MB |
 | False positive rate | < 5% |
 | Test coverage | > 80% |
-| Code review pass | 100% |
-| QA gate pass | 100% |
+| Scanning categories | 9 of 9 |
+| Government format compliance | Jadual 1 + Jadual 2 exact match |
 
 ---
 
-## 2. Development Methodology: TDD + Code Review + QA
+## 2. The 9 Scanning Categories
 
-### 2.1 Development Cycle
+All categories from the CBOM-scanning reference must be implemented. Each is assigned to a phase below.
+
+| # | Category | Type | Phase | Description |
+|---|----------|------|-------|-------------|
+| 1 | Binaries in use | Active/Runtime | 3 | Running processes with crypto (lsof, /proc) |
+| 2 | Binaries on disk | Passive/File | 2 | Executables with crypto patterns (strings, symbols) |
+| 3 | Cryptographic libraries | Passive/File | 2 | libcrypto, libssl, mbedtls, wolfssl, etc. |
+| 4 | Kernel modules | Passive/File | 2 | Crypto in .ko files (Linux only, skip macOS) |
+| 5 | Certificates & keys | Passive/File | 2 | PEM/DER/PKCS file-based certificates and keys |
+| 6 | Executable scripts | Passive/Code | 3 | Crypto calls in .py, .sh, .rb, .pl, etc. |
+| 7 | Web applications | Passive/Code | 3 | Crypto patterns in .php, .js, .go, .java, etc. |
+| 8 | Network applications | Active/Network | 3 | TLS/SSH/IPsec service detection on listening ports |
+| 9 | Network protocols | Active/Network | 3 | Active TLS probing, cipher suite enumeration |
+
+**Type classifications:**
+- **Passive/File** — Read files on disk, no system interaction
+- **Passive/Code** — Pattern-match source code files
+- **Active/Runtime** — Inspect running processes
+- **Active/Network** — Probe network services
+
+---
+
+## 3. Development Methodology
+
+### 3.1 TDD Cycle (Daily)
+
+```
+Red    → Write failing test (define desired behavior)
+Green  → Write minimal code to pass (make it work)
+Refactor → Clean up, optimize (make it right)
+```
+
+### 3.2 Development Cycle (Per Phase)
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  WEEKLY CYCLE                                           │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐   │
-│  │   TDD   │→│  Review │→│   QA    │→│  Merge  │   │
-│  │ Red-Green│  │ Checklist│  │  Gate   │  │         │   │
-│  │ Refactor│  │         │  │         │  │         │   │
+│  │   TDD   │→│  Review  │→│   QA    │→│  Merge  │   │
+│  │Red-Green│  │ Checklist│  │  Gate   │  │         │   │
+│  │Refactor │  │          │  │         │  │         │   │
 │  └─────────┘  └─────────┘  └─────────┘  └─────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 TDD Cycle (Daily)
-```
-Red  → Write failing test (think about what you want)
-Green → Write minimal code to pass (make it work)
-Refactor → Clean up, optimize (make it right)
-```
-
-### 2.3 Code Review Checklist (End of Each Phase)
+### 3.3 Code Review Checklist (End of Each Phase)
 
 **Before requesting review:**
 - [ ] All tests pass (`go test ./...`)
@@ -141,468 +101,348 @@ Refactor → Clean up, optimize (make it right)
 - [ ] No linting errors (`golangci-lint run`)
 - [ ] Code formatted (`go fmt ./...`)
 - [ ] Documentation updated
-- [ ] Commit messages are clear
 
 **Reviewer checks:**
 - [ ] Code follows Go conventions
 - [ ] Error handling is complete
 - [ ] No obvious bugs or edge cases missed
-- [ ] Performance is acceptable
 - [ ] Security considerations addressed
 
-### 2.4 QA Gate (End of Each Phase)
+See `docs/CODE_REVIEW_CHECKLIST.md` for full checklist.
 
-**Functional QA:**
-- [ ] Feature works as specified
-- [ ] Edge cases handled
-- [ ] Error messages are helpful
-- [ ] Documentation is accurate
+### 3.4 QA Gate (End of Each Phase)
 
-**Performance QA:**
-- [ ] Memory usage acceptable
-- [ ] Speed acceptable
-- [ ] No resource leaks
+**Functional:** Feature works, edge cases handled, error messages helpful
+**Performance:** Memory acceptable, speed acceptable, no resource leaks
+**Integration:** Works with other modules, no regressions
 
-**Integration QA:**
-- [ ] Works with other modules
-- [ ] No regression in existing features
+See `docs/QA_GATE_CHECKLIST.md` for full checklist.
 
 ---
 
-## 3. Phase Breakdown with Review & QA Gates
+## 4. Phase Breakdown
 
-### Phase 1: Foundation (Week 1)
-**Goal:** Core engine with certificate scanning
+### Phase 1: Foundation & Data Model (Week 1)
 
-#### Week 1 Tasks
+**Goal:** Redesigned data model, new module interface, engine scaffold, test fixtures
+
+#### Key Changes from Current Code
+
+The current data model (`pkg/model/types.go`) is file-level — each Finding points to a file path. Government reports (Jadual 1 & 2) are **system/application-level** — findings must be grouped by the system they belong to. Phase 1 redesigns the data model to support both.
+
+#### Tasks
 
 | Day | Task | Tests | Deliverable |
 |-----|------|-------|-------------|
-| 1 | Project setup, CI/CD | N/A | GitHub Actions workflow |
-| 2 | Config system | Test config loading | Config package |
-| 3 | Engine scaffold | Test engine lifecycle | Engine with mock modules |
-| 4 | Certificate scanner | Test PEM/DER parsing | Certificate module |
-| 5 | Report generator | Test JSON/CSV output | Report package |
+| 1 | Redesign data model: ScanResult → System → Finding → CryptoAsset | Unit tests for all types, JSON serialization round-trip | New `pkg/model/` types |
+| 2 | New Module interface with Category enum (passive/active/code) and scan target types (filesystem/network/process) | Interface compliance tests with mock modules | Updated `pkg/scanner/engine.go` |
+| 3 | Config system: add scan targets, network ranges, system grouping hints | Config loading, validation, profile tests | Updated `internal/config/` |
+| 4 | Engine scaffold: concurrent module execution, category-based scheduling | Engine lifecycle tests, concurrency tests | Working engine with mock modules |
+| 5 | Test fixtures: sample certs, keys, binaries, scripts. Integration test. | Fixture validation tests | `test/fixtures/` directory |
 
-#### Phase 1 Code Review (Day 5)
-**Reviewer:** Self-review + document in README
+#### Data Model (New)
 
-**Checklist:**
-- [ ] Project structure follows Go conventions
-- [ ] All packages have proper documentation comments
-- [ ] No `panic()` calls (use error returns)
-- [ ] Configuration is validated
-- [ ] Tests are meaningful (not just coverage padding)
-
-#### Phase 1 QA Gate (Day 5)
-**Test on your Mac:**
-```bash
-# Build and run
-make build
-./bin/triton --profile quick
-
-# Check it doesn't crash
-# Check output files are created
-ls -la *.json *.csv *.html
+```
+ScanResult
+├── Metadata (timestamp, tool info, scan config)
+├── Systems []System           ← NEW: for Jadual 1
+│   ├── Name, Purpose, URL
+│   ├── ServiceMode, TargetCustomer
+│   ├── Components []string
+│   ├── ThirdPartyModules []string
+│   ├── CriticalityLevel
+│   └── CBOMRefs []string      ← links to CBOM entries
+├── Findings []Finding         ← raw scan results
+│   ├── Category (1-9)
+│   ├── Source (file path / process / network endpoint)
+│   ├── CryptoAsset
+│   │   ├── Algorithm, KeySize, Function
+│   │   ├── Library, PQCStatus, CryptoAgility
+│   │   └── MigrationPriority
+│   └── Confidence, Timestamp
+└── Summary
+    ├── PQC stats (safe/transitional/deprecated/unsafe)
+    └── Crypto-agility score
 ```
 
-**QA Checklist:**
-- [ ] Binary runs without errors
-- [ ] Help text is clear (`./bin/triton --help`)
-- [ ] Progress bar displays correctly
-- [ ] Output files are valid JSON/CSV/HTML
+#### Phase 1 QA Gate
 
----
-
-### Phase 2: Core Scanners (Week 2)
-**Goal:** Key, package, and library scanning
-
-#### Week 2 Tasks
-
-| Day | Task | Tests | Deliverable |
-|-----|------|-------|-------------|
-| 6 | Key scanner | Test key type detection | Key module |
-| 7 | Package scanner | Test brew/dpkg/rpm | Package module |
-| 8 | Library scanner | Test shared lib detection | Library module |
-| 9 | Process scanner | Test process enumeration | Process module |
-| 10 | Integration | Test full scan flow | Integrated scanner |
-
-#### Phase 2 Code Review (Day 10)
-**Reviewer:** Peer review (if available) or detailed self-review
-
-**Checklist:**
-- [ ] Each scanner has comprehensive tests
-- [ ] Error handling covers all error paths
-- [ ] No hardcoded paths (use configuration)
-- [ ] Resource cleanup (files closed, etc.)
-- [ ] Concurrent code is safe (if any)
-
-**Go-Specific Review:**
-- [ ] Proper use of `defer` for cleanup
-- [ ] Context cancellation handled
-- [ ] No goroutine leaks
-- [ ] Channel usage is correct
-
-#### Phase 2 QA Gate (Day 10)
-**Test on real data:**
 ```bash
-# Run on your Mac's actual system
-./bin/triton --profile standard -o week2-test.json
-
-# Check results
-head week2-test.json
-cat week2-test.csv
+make build && make test
+# All tests pass, coverage > 80%
+# Engine runs with mock modules, collects findings, groups into systems
 ```
 
-**QA Checklist:**
-- [ ] Finds certificates on your system
-- [ ] Finds keys on your system
-- [ ] Finds packages (brew list)
-- [ ] No false positives (check a few findings)
-- [ ] Performance acceptable (< 5 min for standard scan)
-
 ---
 
-### Phase 3: Service & Config Scanning (Week 3)
-**Goal:** TLS configs, service detection, PQC assessment
+### Phase 2: File-Based Scanners (Week 2)
 
-#### Week 3 Tasks
+**Goal:** Implement categories 2, 3, 4, 5 — all passive filesystem scanning
 
-| Day | Task | Tests | Deliverable |
-|-----|------|-------|-------------|
-| 11 | Service discovery | Test port scanning | Service module |
-| 12 | TLS config parser | Test Apache/Nginx parsing | Config scanner |
-| 13 | Cipher detection | Test TLS handshake | Cipher module |
-| 14 | PQC assessment | Test risk scoring | Assessment engine |
-| 15 | Report polish | Test all output formats | Complete reports |
+Covers: binaries on disk, cryptographic libraries, kernel modules, certificates & keys, packages
 
-#### Phase 3 Code Review (Day 15)
-**Reviewer:** Thorough review - this is critical functionality
+#### Tasks
 
-**Checklist:**
-- [ ] PQC classification matches NIST standards
-- [ ] TLS parsing handles all common formats
-- [ ] Service detection is safe (no exploits)
-- [ ] Reports match government format exactly
-- [ ] Edge cases handled (expired certs, etc.)
+| Day | Task | Category | Tests | Deliverable |
+|-----|------|----------|-------|-------------|
+| 6 | Certificate & key scanner — improve existing: parse X.509 fully (key sizes, algorithms, expiry, issuer/subject), support PKCS#8/12 | 5 | Parse real certs from fixtures, verify extracted fields | `pkg/scanner/certificate.go`, `key.go` |
+| 7 | Library scanner — find crypto shared libraries (libcrypto, libssl, mbedtls, wolfssl, etc.) via filesystem search + `ldd`/`otool` for dependency chains | 3 | Mock filesystem tests, library detection accuracy | `pkg/scanner/library.go` |
+| 8 | Binary-on-disk scanner — `strings` + symbol table analysis for crypto patterns in ELF/Mach-O executables | 2 | Detect known patterns in test binaries | `pkg/scanner/binary.go` |
+| 9 | Kernel module scanner — strings on .ko files for crypto references (Linux only, graceful skip on macOS) | 4 | Linux fixture tests, macOS skip test | `pkg/scanner/kernel.go` |
+| 10 | Package scanner — improve existing brew/dpkg/rpm; integration test for all file-based scanners | — | End-to-end scan of test directory, result aggregation | `pkg/scanner/package.go` |
 
-**Security Review:**
-- [ ] No hardcoded credentials
-- [ ] Input validation on all external data
-- [ ] Safe file path handling
-- [ ] No command injection vulnerabilities
+#### Detection Patterns
 
-#### Phase 3 QA Gate (Day 15)
-**Test PQC classification:**
+Each file-based scanner uses a crypto pattern registry (see `docs/SYSTEM_ARCHITECTURE.md` §9):
+
+- **Certificates:** File extensions (.pem, .crt, .cer, .der, .p12, .pfx, .jks) + PEM headers
+- **Keys:** PEM headers (`BEGIN.*PRIVATE KEY`), SSH key formats
+- **Libraries:** Known filenames (libcrypto.so, libssl.so, libmbedcrypto.so, etc.)
+- **Binaries:** String patterns (AES, RSA, SHA, ECDSA, etc.) + symbol exports
+- **Kernel modules:** `/lib/modules/*/kernel/crypto/*.ko` + strings analysis
+
+#### Phase 2 QA Gate
+
 ```bash
-# Run comprehensive scan
-./bin/triton --profile comprehensive -o week3-test.json
-
-# Verify PQC classifications
-grep -o '"pqcStatus": "[^"]*"' week3-test.json | sort | uniq -c
+# Run on your Mac
+./bin/triton --profile standard
+# Should find: certificates, keys, libraries on the system
+# Verify findings have proper key sizes, algorithms, PQC status
 ```
 
-**QA Checklist:**
-- [ ] PQC classifications look correct
-- [ ] Report format matches sample CSVs
-- [ ] HTML report is readable
-- [ ] Risk scores make sense
-- [ ] No crashes on edge cases
+---
+
+### Phase 3: Runtime & Active Scanners (Week 3)
+
+**Goal:** Implement categories 1, 6, 7, 8, 9 — runtime inspection, code analysis, network probing
+
+#### Tasks
+
+| Day | Task | Category | Tests | Deliverable |
+|-----|------|----------|-------|-------------|
+| 11 | Binaries-in-use scanner — enumerate processes (`ps`/`/proc`), detect crypto in running binary memory maps, link to libraries | 1 | Mock process list tests, library linkage detection | `pkg/scanner/process.go` |
+| 12 | Script scanner — pattern-match crypto calls in source files (.py, .sh, .rb, .pl) | 6 | Detect hashlib, openssl, crypto imports in fixture scripts | `pkg/scanner/script.go` |
+| 13 | Web application scanner — crypto patterns in web source (.php, .js, .go, .java, .ts) | 7 | Detect crypto API usage in fixture web files | `pkg/scanner/webapp.go` |
+| 14 | Network application scanner — enumerate listening ports (`ss`/`lsof`/`netstat`), classify protocols (TLS/SSH/IPsec), map to processes | 8 | Mock port list, protocol classification tests | `pkg/scanner/network.go` |
+| 15 | Network protocol scanner — active TLS handshake probing (extract cipher suites, certificate chains), SSH algorithm enumeration | 9 | TLS probe against test server, cipher parsing | `pkg/scanner/protocol.go` |
+
+#### Safety Notes
+
+- **Network scanning requires explicit opt-in** — not included in `quick` or `standard` profiles
+- Active probes only target explicitly specified hosts/ranges
+- Process inspection may require elevated privileges — degrade gracefully
+- All network operations have configurable timeouts
+
+#### Phase 3 QA Gate
+
+```bash
+# Full scan including active categories (needs --profile comprehensive + targets)
+./bin/triton --profile comprehensive --targets 192.168.1.0/24
+# Should find: running crypto processes, scripts with crypto, network services
+# Verify network probing returns cipher suites and certificate info
+```
 
 ---
 
-### Phase 4: Polish & Demo (Week 4)
-**Goal:** Cross-platform builds, performance, demo
+### Phase 4: PQC Assessment & Reports (Week 4)
 
-#### Week 4 Tasks
+**Goal:** Crypto-agility assessment, system grouping, government-format reports
+
+#### Tasks
 
 | Day | Task | Tests | Deliverable |
 |-----|------|-------|-------------|
-| 16 | Windows support | Test on Windows VM | Windows binary |
-| 17 | Performance | Benchmark tests | Optimized scanner |
-| 18 | Air-gapped mode | Test offline operation | Offline support |
-| 19 | Demo data | Test with sample certs | Demo package |
-| 20 | Documentation | Final review | Partner presentation |
+| 16 | Crypto-agility assessment — analyze each system for migration capability: hybrid PQC support, algorithm diversity, library update paths | Agility scoring tests with known scenarios | `pkg/crypto/agility.go` |
+| 17 | PQC migration priority scoring — enhanced from current basic system: factor in criticality, exposure, agility, algorithm break timeline | Priority calculation tests | Enhanced `pkg/crypto/pqc.go` |
+| 18 | System grouper — map raw findings to System/Application entities for Jadual 1; heuristics for grouping by process, path, network endpoint | Grouping tests with mixed findings | `pkg/report/grouper.go` |
+| 19 | Jadual 1 CSV (SBOM) + Jadual 2 CSV (CBOM) — exact government column match | CSV output tests against sample files | `pkg/report/jadual.go` |
+| 20 | JSON export (Triton schema) + HTML summary report with PQC dashboard | Output format tests, HTML rendering | `pkg/report/generator.go` |
 
-#### Phase 4 Code Review (Day 20)
-**Reviewer:** Final comprehensive review
+#### Jadual 1 — SBOM Format (System-Level)
 
-**Checklist:**
-- [ ] All previous review items addressed
-- [ ] Performance benchmarks documented
-- [ ] Cross-platform code is clean
-- [ ] No TODO comments left in code
-- [ ] README is complete and accurate
+Exact columns from government sample:
 
-**Final QA Gate (Day 20)**
-**Full system test:**
+| Column | Source |
+|--------|--------|
+| No. | Auto-increment |
+| Sistem / Aplikasi | System.Name |
+| Tujuan/Penggunaan | System.Purpose |
+| URL | System.URL |
+| Mod Perkhidmatan | System.ServiceMode |
+| Sasaran Pelanggan | System.TargetCustomer |
+| Komponen Perisian | System.Components (joined) |
+| Modul Third-party | System.ThirdPartyModules (joined) |
+| External APIs / Perkhidmatan | System.ExternalAPIs (joined) |
+| Aras Kritikal | System.CriticalityLevel |
+| Kategori Data | System.DataCategory |
+| Adakah sistem/Aplikasi sedang digunakan | System.InUse (Ya/Tidak) |
+| Pembangun Sistem/Aplikasi | System.Developer |
+| Nama vendor | System.Vendor |
+| Adakah Agensi mempunyai kepakaran | Manual field (default placeholder) |
+| Adakah agensi mempunyai peruntukan khas? | Manual field (default placeholder) |
+| Pautan ke CBOM | CBOM reference IDs |
+
+#### Jadual 2 — CBOM Format (Crypto-Asset-Level)
+
+Exact columns from government sample:
+
+| Column | Source |
+|--------|--------|
+| No. | Auto-increment |
+| # (CBOM) | CBOM reference ID (e.g., "CBOM #1") |
+| Sistem/Aplikasi | Parent System.Name |
+| Fungsi Cryptographic | CryptoAsset.Function |
+| Algoritma yang digunakan | CryptoAsset.Algorithm |
+| Library/Modul | CryptoAsset.Library |
+| Panjang Kunci | CryptoAsset.KeySize |
+| Tujuan/Penggunaan | CryptoAsset.Purpose |
+| Sokongan Crypto-Agility | CryptoAsset.CryptoAgility assessment text |
+
+#### Phase 4 QA Gate
+
+```bash
+# Generate all report formats
+./bin/triton --profile comprehensive -o reports/
+
+# Verify Jadual 1
+head reports/jadual_1_sbom.csv  # Check column headers match exactly
+# Verify Jadual 2
+head reports/jadual_2_cbom.csv  # Check column headers match exactly
+
+# Compare with sample format
+diff <(head -1 reports/jadual_1_sbom.csv) <(head -1 docs/sample/Jadual_1_SBOM.csv)
+diff <(head -1 reports/jadual_2_cbom.csv) <(head -1 docs/sample/Jadual_2_CBOM.csv)
+```
+
+---
+
+### Phase 5: Polish & Demo (Week 5)
+
+**Goal:** Cross-platform testing, performance optimization, demo preparation
+
+#### Tasks
+
+| Day | Task | Tests | Deliverable |
+|-----|------|-------|-------------|
+| 21 | Cross-platform testing — macOS (primary), Linux (secondary) | Run full test suite on both platforms | Platform compatibility report |
+| 22 | Performance optimization — profiling, memory reduction, parallel I/O | Benchmark tests, memory profiling | Optimized scanner |
+| 23 | Windows support — file-based scanners only (categories 2-5), graceful skip for active scanners | Windows build test | Windows binary |
+| 24 | Demo data — sample scan results, walkthrough script, presentation materials | Demo scenario end-to-end | Demo package |
+| 25 | Documentation — README, usage guide, architecture docs finalized | Doc completeness check | Final documentation |
+
+#### Phase 5 QA Gate (Final)
+
 ```bash
 # Build all platforms
 make build-all
 
-# Test each binary
-./bin/triton-darwin-arm64 --version
-./bin/triton-darwin-arm64 --profile quick
+# Full system test on macOS
+./bin/triton --profile comprehensive --targets localhost
+ls -la reports/
 
-# Verify outputs
-ls -la *.json *.csv *.html
+# Verify all output formats
+file reports/jadual_1_sbom.csv
+file reports/jadual_2_cbom.csv
+file reports/triton-report.json
+file reports/triton-report.html
+
+# Performance benchmark
+time ./bin/triton --profile quick /usr/local
 ```
 
 **Final QA Checklist:**
-- [ ] All binaries run on target platforms
+- [ ] All binaries build successfully (macOS arm64, macOS amd64, Linux amd64, Windows amd64)
+- [ ] All 9 scanning categories produce results on macOS
+- [ ] Jadual 1 & 2 CSV headers match government sample exactly
+- [ ] HTML report renders correctly
 - [ ] Demo scenario works end-to-end
-- [ ] Documentation is complete
-- [ ] Partner presentation ready
+- [ ] Test coverage > 80% across all packages
 - [ ] No known critical bugs
+- [ ] Documentation complete
 
 ---
 
-## 4. Testing Strategy
+## 5. Testing Strategy
 
-### 4.1 Test Fixtures
-Create these test files in `test/fixtures/`:
+### 5.1 Test Fixtures
 
 ```
 test/
 ├── fixtures/
 │   ├── certificates/
-│   │   ├── rsa-2048.pem       # TRANSITIONAL
-│   │   ├── rsa-4096.pem       # SAFE
-│   │   ├── ecdsa-p256.pem     # TRANSITIONAL
-│   │   ├── ed25519.pem        # TRANSITIONAL
-│   │   └── expired.pem        # Edge case
+│   │   ├── rsa-2048.pem          # TRANSITIONAL
+│   │   ├── rsa-4096.pem          # SAFE
+│   │   ├── ecdsa-p256.pem        # TRANSITIONAL
+│   │   ├── ed25519.pem           # TRANSITIONAL
+│   │   ├── expired.pem           # Edge case
+│   │   └── selfsigned-ca.pem     # CA cert
 │   ├── keys/
 │   │   ├── rsa-private.pem
 │   │   ├── ec-private.pem
+│   │   ├── pkcs8-private.pem     # PKCS#8 format
 │   │   └── openssh-ed25519
+│   ├── binaries/
+│   │   └── crypto-test           # Small binary with crypto strings
+│   ├── scripts/
+│   │   ├── crypto-python.py      # hashlib, cryptography imports
+│   │   ├── crypto-shell.sh       # openssl commands
+│   │   └── crypto-node.js        # crypto module usage
+│   ├── webapp/
+│   │   ├── crypto-php.php        # openssl_* function calls
+│   │   └── crypto-java.java      # javax.crypto usage
 │   └── configs/
 │       ├── apache-ssl.conf
 │       └── nginx-ssl.conf
 ```
 
-### 4.2 Writing Your First Test
+### 5.2 Test Commands
 
-**Step 1: Create test file** (name ends with `_test.go`):
-```go
-// pkg/scanner/certificate_test.go
-package scanner
-
-import (
-    "testing"
-    "github.com/stretchr/testify/assert"
-)
-
-// Test function must start with "Test"
-func TestIsCertificateFile(t *testing.T) {
-    // Arrange
-    m := &CertificateModule{}
-    
-    // Act
-    result := m.isCertificateFile("/etc/ssl/cert.pem")
-    
-    // Assert
-    assert.True(t, result)
-}
-```
-
-**Step 2: Run test**:
 ```bash
-go test -v ./pkg/scanner -run TestIsCertificateFile
-```
+# Run all tests
+go test -v ./...
 
-**Step 3: See it fail (Red)**, then write code to make it pass (Green)
+# Run a single test
+go test -v -run TestCertificateParsing ./pkg/scanner
 
-### 4.3 Test Coverage
+# Run tests for a package
+go test -v ./pkg/scanner/...
 
-**Check coverage:**
-```bash
-go test -cover ./...
-```
-
-**Generate HTML report:**
-```bash
+# Coverage report
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out -o coverage.html
 open coverage.html
+
+# Benchmarks
+go test -bench=. ./pkg/scanner/...
 ```
+
+### 5.3 Test Conventions
+
+- Test files: `*_test.go` in the same package
+- Test functions: `TestXxx(t *testing.T)` for unit tests
+- Benchmark functions: `BenchmarkXxx(b *testing.B)` for performance
+- Table-driven tests for multiple input/output scenarios
+- Use `testify/assert` for assertions
+- Mock external dependencies (filesystem, network, processes)
 
 ---
 
-## 5. Code Review Process
+## 6. Deferred Items
 
-### 5.1 Self-Review Template
+These are explicitly **not** in the MVP scope:
 
-Before asking for review, answer these:
-
-```markdown
-## Self-Review Checklist
-
-### Functionality
-- [ ] Does it solve the problem?
-- [ ] Are all requirements met?
-- [ ] Are edge cases handled?
-
-### Code Quality
-- [ ] Is the code readable?
-- [ ] Are variable names clear?
-- [ ] Are functions small and focused?
-- [ ] Is there duplicated code?
-
-### Testing
-- [ ] Are there tests for new code?
-- [ ] Do all tests pass?
-- [ ] Is coverage > 80%?
-
-### Go Specific
-- [ ] Is error handling complete?
-- [ ] Are resources properly closed?
-- [ ] Is the code formatted?
-- [ ] Are there any linting errors?
-
-### Documentation
-- [ ] Are exported functions documented?
-- [ ] Is the README updated?
-- [ ] Are complex parts explained?
-```
-
-### 5.2 Review Request Template
-
-When requesting review, provide:
-
-```markdown
-## Review Request: Phase X Complete
-
-### What Changed
-- Added certificate scanner
-- Implemented PEM/DER parsing
-- Added PQC classification
-
-### Test Results
-```
-$ go test -cover ./...
-ok      github.com/amiryahaya/triton/pkg/scanner    0.5s    coverage: 85.3%
-```
-
-### Known Issues
-- None
-
-### Questions for Reviewer
-- Is the error handling pattern correct?
-- Should I add more edge case tests?
-```
+| Item | Reason | When |
+|------|--------|------|
+| CI/CD pipeline | Code still evolving rapidly | After Phase 3 stabilizes |
+| Client-server mode | MVP is standalone assessment | Post-MVP (v2) |
+| Web UI | CLI + reports sufficient for partner demo | Post-MVP |
+| Database storage | File-based output sufficient for MVP | Post-MVP |
+| Auto-update | Manual distribution for MVP | Post-MVP |
+| PKCS#11/HSM scanning | Specialized hardware, low priority | Post-MVP |
 
 ---
 
-## 6. CI/CD Pipeline
-
-### 6.1 GitHub Actions Workflow
-Already included in `.github/workflows/ci.yml`:
-
-- Runs on every push and PR
-- Tests on Ubuntu and macOS
-- Checks code coverage
-- Builds cross-platform binaries
-- Runs linter
-
-### 6.2 Interpreting CI Results
-
-**Green checkmark:** All good, proceed
-
-**Red X:** Check the logs
-```
-Click on the failed job → Read the error message → Fix locally → Push again
-```
-
-**Common CI failures:**
-- Tests failing → Fix the test or the code
-- Linting errors → Run `go fmt ./...` and `golangci-lint run`
-- Coverage too low → Add more tests
-- Build failure → Check imports and dependencies
-
----
-
-## 7. Troubleshooting Guide
-
-### 7.1 Common Go Errors
-
-**"undefined: SomeFunction"**
-```
-→ Check import path
-→ Check function name spelling
-→ Check if package is in go.mod
-```
-
-**"cannot find package"**
-```
-→ Run `go mod tidy`
-→ Check internet connection
-→ Check import path is correct
-```
-
-**"imported and not used"**
-```
-→ Remove unused import
-→ Or use `_` prefix: `import _ "package"` (for side effects)
-```
-
-**"declared but not used"**
-```
-→ Remove unused variable
-→ Or use `_ = variableName` to silence
-```
-
-### 7.2 Common TDD Mistakes
-
-**Testing implementation instead of behavior:**
-```go
-// BAD: Tests internal details
-func TestInternalCounter(t *testing.T) {
-    s := &Scanner{}
-    s.internalCounter = 5  // Don't test internals!
-}
-
-// GOOD: Tests behavior
-func TestScannerFindsCertificates(t *testing.T) {
-    results := scanner.Scan("/path")
-    assert.NotEmpty(t, results.Certificates)
-}
-```
-
-**Not testing error cases:**
-```go
-// Always test what happens on errors
-func TestScannerHandlesInvalidPath(t *testing.T) {
-    _, err := scanner.Scan("/nonexistent")
-    assert.Error(t, err)
-}
-```
-
----
-
-## 8. Daily Standup Template
-
-```
-## Date: YYYY-MM-DD
-
-### Yesterday
-- Completed: [what tests/code]
-- Blockers: [any issues]
-
-### Today
-- Goal: [what to write]
-- Tests: [what tests to write first]
-
-### Phase Progress
-- Phase X: Y/5 days complete
-- Next review: [date]
-
-### Concerns
-- [Any risks or blockers]
-```
-
----
-
-## 9. Definition of Done
+## 7. Definition of Done
 
 ### For Each Task:
 - [ ] Tests written first (Red)
@@ -612,23 +452,28 @@ func TestScannerHandlesInvalidPath(t *testing.T) {
 - [ ] Coverage > 80%
 - [ ] Linter passes
 - [ ] Self-review completed
-- [ ] Documentation updated
 - [ ] Committed with clear message
 
 ### For Each Phase:
 - [ ] All phase tasks complete
 - [ ] Phase code review passed
 - [ ] Phase QA gate passed
-- [ ] Review checklist signed off
 - [ ] Ready for next phase
+
+### For MVP:
+- [ ] All 9 scanning categories implemented
+- [ ] Jadual 1 & 2 output matches government format
+- [ ] Crypto-agility assessment produces meaningful results
+- [ ] Demo runs successfully on macOS
+- [ ] Documentation complete
 
 ---
 
-## 10. Emergency Procedures
+## 8. Emergency Procedures
 
 ### If Falling Behind:
-1. **Cut scope, not quality** — Remove features, keep tests
-2. **Simplify** — Hardcode instead of configure, add config later
+1. **Cut scope, not quality** — Remove categories 4 (kernel) and 9 (protocol probing) first, they are lowest priority
+2. **Simplify** — Hardcode system grouping instead of auto-detection
 3. **Ask for help** — Don't struggle alone for > 2 hours
 
 ### If Tests Are Hard to Write:
@@ -636,36 +481,19 @@ func TestScannerHandlesInvalidPath(t *testing.T) {
 2. **Start with a smaller test** — Test one function, not whole module
 3. **Use mocks** — Isolate the code under test
 
-### If Stuck on a Bug:
-1. **Write a test that reproduces it**
-2. **Add logging** — `fmt.Printf("DEBUG: value=%v\n", value)`
-3. **Use debugger** — `delve` or VS Code debugger
-4. **Take a break** — 15 minutes away from screen
-
----
-
-## 11. Next Steps
-
-### Right Now:
-1. **Extract the tarball** on your Mac
-2. **Run `go mod tidy`** to download dependencies
-3. **Run `make build`** to verify it compiles
-4. **Run `go test ./...`** to see current test status
-
-### This Week:
-1. **Day 1:** Set up CI/CD (push to GitHub, verify Actions run)
-2. **Day 2:** Write first test for certificate parser
-3. **Day 3:** Make test pass
-4. **Day 4:** Write more tests, refactor
-5. **Day 5:** Phase 1 code review + QA gate
-
-### Questions?
-- Go syntax: https://gobyexample.com
-- Testing: https://pkg.go.dev/testing
-- This plan: Check the appropriate section above
+### Priority Order (if time constrained):
+1. Certificates & keys (category 5) — already partially done
+2. Libraries (category 3) — high value for PQC assessment
+3. Network protocols (category 9) — TLS cipher visibility
+4. Scripts & web apps (categories 6, 7) — code-level crypto discovery
+5. Binaries on disk (category 2) — broad coverage
+6. Network applications (category 8) — service mapping
+7. Binaries in use (category 1) — runtime view
+8. Package scanner — supporting data
+9. Kernel modules (category 4) — Linux-specific, lowest priority
 
 ---
 
 **Remember:** Red → Green → Refactor → Review → QA → Merge
 
-**Quality over speed. Working code over perfect code. Tests over documentation.**
+**Quality over speed. Working code over perfect code. Government format compliance is non-negotiable.**

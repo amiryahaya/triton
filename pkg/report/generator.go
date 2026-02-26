@@ -38,16 +38,12 @@ func (g *Generator) GenerateAllReports(result *model.ScanResult) ([]string, erro
 
 	jsonFile := filepath.Join(dir, "triton-report.json")
 	htmlFile := filepath.Join(dir, "triton-report.html")
-	jadual1File := filepath.Join(dir, "Jadual_1_SBOM.csv")
-	jadual2File := filepath.Join(dir, "Jadual_2_CBOM.csv")
-	riskFile := filepath.Join(dir, "Risk_Register.csv")
+	excelFile := filepath.Join(dir, "Triton_PQC_Report.xlsx")
 
 	reports := []reportFunc{
 		{"JSON", jsonFile, func() error { return g.GenerateCycloneDX(result, jsonFile) }},
 		{"HTML", htmlFile, func() error { return g.GenerateHTML(result, htmlFile) }},
-		{"Jadual 1", jadual1File, func() error { return g.GenerateJadual1(result, jadual1File) }},
-		{"Jadual 2", jadual2File, func() error { return g.GenerateJadual2(result, jadual2File) }},
-		{"Risk Register", riskFile, func() error { return g.GenerateRiskRegister(result, riskFile) }},
+		{"Excel", excelFile, func() error { return g.GenerateExcel(result, excelFile) }},
 	}
 
 	var files []string

@@ -26,7 +26,7 @@ var (
 	modules     []string
 	format      string
 
-	validFormats = map[string]bool{"json": true, "html": true, "csv": true, "all": true}
+	validFormats = map[string]bool{"json": true, "html": true, "xlsx": true, "all": true}
 
 	rootCmd = &cobra.Command{
 		Use:   "triton",
@@ -47,7 +47,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputDir, "output-dir", "d", ".", "Output directory for reports (used with --format all)")
 	rootCmd.PersistentFlags().StringVarP(&scanProfile, "profile", "p", "standard", "Scan profile: quick, standard, comprehensive")
 	rootCmd.PersistentFlags().StringSliceVarP(&modules, "modules", "m", []string{}, "Specific modules to run (default: all)")
-	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, html, csv, all")
+	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, html, xlsx, all")
 
 	viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -170,7 +170,7 @@ func (m scanModel) View() string {
 
 func runScan(cmd *cobra.Command, args []string) error {
 	if !validFormats[format] {
-		return fmt.Errorf("invalid format %q: must be one of json, html, csv, all", format)
+		return fmt.Errorf("invalid format %q: must be one of json, html, xlsx, all", format)
 	}
 
 	fmt.Printf("Triton SBOM/CBOM Scanner v0.1.0\n")
@@ -235,20 +235,12 @@ func generateReports(result *model.ScanResult) error {
 		}
 		fmt.Printf("Report saved to: %s\n", htmlFile)
 
-	case "csv":
-		j1 := filepath.Join(outputDir, "Jadual_1_SBOM.csv")
-		j2 := filepath.Join(outputDir, "Jadual_2_CBOM.csv")
-		rr := filepath.Join(outputDir, "Risk_Register.csv")
-		if err := gen.GenerateJadual1(result, j1); err != nil {
+	case "xlsx":
+		xlsxFile := filepath.Join(outputDir, "Triton_PQC_Report.xlsx")
+		if err := gen.GenerateExcel(result, xlsxFile); err != nil {
 			return err
 		}
-		if err := gen.GenerateJadual2(result, j2); err != nil {
-			return err
-		}
-		if err := gen.GenerateRiskRegister(result, rr); err != nil {
-			return err
-		}
-		fmt.Printf("Reports saved to: %s, %s, %s\n", j1, j2, rr)
+		fmt.Printf("Report saved to: %s\n", xlsxFile)
 
 	default: // "all"
 		files, err := gen.GenerateAllReports(result)

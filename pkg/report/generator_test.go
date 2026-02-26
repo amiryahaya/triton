@@ -150,8 +150,8 @@ func TestGenerateAllReports(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
-	// Should produce at least JSON, HTML, Jadual 1, Jadual 2, Risk Register
-	require.True(t, len(files) >= 5, "expected at least 5 report files, got %d", len(files))
+	// Should produce JSON, HTML, Excel
+	require.Len(t, files, 3, "expected 3 report files, got %d", len(files))
 
 	for _, f := range files {
 		assert.True(t, strings.HasPrefix(f, dir), "file should be in output dir")

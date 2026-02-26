@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"time"
 
@@ -87,7 +88,7 @@ func (g *Generator) GenerateCSV(result *model.ScanResult, filename string) error
 
 // GenerateHTML creates an HTML report for presentation
 func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) error {
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	htmlContent := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
 	<title>Triton CBOM Report</title>
@@ -129,7 +130,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 		if f.CryptoAsset == nil {
 			continue
 		}
-		html += fmt.Sprintf(`
+		htmlContent += fmt.Sprintf(`
 		<tr>
 			<td>%d</td>
 			<td>%s</td>
@@ -138,16 +139,18 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			<td>%d</td>
 			<td class="%s">%s</td>
 		</tr>
-`, i+1, f.Source.Path, f.CryptoAsset.Function, f.CryptoAsset.Algorithm,
-			f.CryptoAsset.KeySize, f.CryptoAsset.PQCStatus, f.CryptoAsset.PQCStatus)
+`, i+1, html.EscapeString(f.Source.Path), html.EscapeString(f.CryptoAsset.Function),
+			html.EscapeString(f.CryptoAsset.Algorithm),
+			f.CryptoAsset.KeySize, html.EscapeString(f.CryptoAsset.PQCStatus),
+			html.EscapeString(f.CryptoAsset.PQCStatus))
 	}
 
-	html += `
+	htmlContent += `
 	</table>
 </body>
 </html>`
 
-	return os.WriteFile(filename, []byte(html), 0644)
+	return os.WriteFile(filename, []byte(htmlContent), 0644)
 }
 
 func (g *Generator) classifyCriticality(f *model.Finding) string {

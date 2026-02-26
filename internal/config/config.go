@@ -39,14 +39,14 @@ var Profiles = map[string]ScanProfile{
 	"standard": {
 		Name:        "standard",
 		Description: "Balanced scan of system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "services"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries"},
 		Depth:       10,
 		Workers:     8,
 	},
 	"comprehensive": {
 		Name:        "comprehensive",
 		Description: "Deep scan of entire system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "services", "processes", "configs"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel"},
 		Depth:       -1, // unlimited
 		Workers:     16,
 	},

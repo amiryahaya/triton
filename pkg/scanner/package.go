@@ -12,6 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// cryptoPackageKeywords are keywords that indicate a package provides crypto functionality.
+var cryptoPackageKeywords = []string{
+	"openssl", "libssl", "gnutls", "nss", "crypto",
+	"mbedtls", "wolfssl", "boringssl", "libressl",
+	"gnupg", "gpg", "openssh", "libssh",
+	"certbot", "ca-certificates", "p11-kit",
+	"libgcrypt", "libsodium", "nettle",
+	"openvpn", "strongswan", "ipsec", "wireguard",
+	"java", "openjdk", // Java includes crypto
+}
+
 type PackageModule struct {
 	config *config.Config
 }
@@ -80,25 +91,55 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 		}
 
 		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			sourcePath := manager + ":" + parts[0] + "@" + parts[1]
-			select {
-			case findings <- &model.Finding{
-				ID:       uuid.New().String(),
-				Category: 0,
-				Source: model.FindingSource{
-					Type: "file",
-					Path: sourcePath,
-				},
-				Confidence: 1.0,
-				Module:     "packages",
-				Timestamp:  time.Now(),
-			}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+		if len(parts) < 2 {
+			continue
+		}
+
+		pkgName := parts[0]
+		pkgVersion := parts[1]
+
+		// Filter to crypto-related packages only
+		if !isCryptoPackage(pkgName) {
+			continue
+		}
+
+		sourcePath := manager + ":" + pkgName + "@" + pkgVersion
+
+		asset := &model.CryptoAsset{
+			ID:       uuid.New().String(),
+			Function: "Installed package",
+			Library:  pkgName + " " + pkgVersion,
+			Purpose:  "System package providing crypto functionality",
+		}
+
+		select {
+		case findings <- &model.Finding{
+			ID:       uuid.New().String(),
+			Category: 0,
+			Source: model.FindingSource{
+				Type: "file",
+				Path: sourcePath,
+			},
+			CryptoAsset: asset,
+			Confidence:  0.85,
+			Module:      "packages",
+			Timestamp:   time.Now(),
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 
 	return nil
+}
+
+// isCryptoPackage checks if a package name matches known crypto-related keywords.
+func isCryptoPackage(name string) bool {
+	lower := strings.ToLower(name)
+	for _, keyword := range cryptoPackageKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/google/uuid"
+	"software.sslmate.com/src/go-pkcs12"
 )
 
 type CertificateModule struct {
@@ -44,7 +46,21 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 		config:    m.config,
 		matchFile: m.isCertificateFile,
 		processFile: func(path string) error {
+			ext := strings.ToLower(filepath.Ext(path))
+
 			certs, err := m.parseCertificateFile(path)
+
+			// JKS files can't be fully parsed but should produce a finding
+			if (ext == ".jks") && err == nil && len(certs) == 0 {
+				finding := m.createContainerFinding(path, "JKS")
+				select {
+				case findings <- finding:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				return nil
+			}
+
 			if err != nil {
 				return nil // Skip parse errors
 			}
@@ -65,13 +81,26 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 func (m *CertificateModule) isCertificateFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".pem" || ext == ".crt" || ext == ".cer" ||
-		ext == ".der" || ext == ".p7b" || ext == ".p7c"
+		ext == ".der" || ext == ".p7b" || ext == ".p7c" ||
+		ext == ".p12" || ext == ".pfx" || ext == ".jks"
 }
 
 func (m *CertificateModule) parseCertificateFile(path string) ([]*x509.Certificate, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+
+	// PKCS#12 / PFX containers
+	if ext == ".p12" || ext == ".pfx" {
+		return m.parsePKCS12(data)
+	}
+
+	// JKS (Java KeyStore) — detect magic bytes, report as opaque container
+	if ext == ".jks" {
+		return m.parseJKS(data, path)
 	}
 
 	var certs []*x509.Certificate
@@ -101,6 +130,42 @@ func (m *CertificateModule) parseCertificateFile(path string) ([]*x509.Certifica
 	return certs, nil
 }
 
+// parsePKCS12 attempts to decode a PKCS#12/PFX container.
+// Tries empty password first, then common defaults.
+func (m *CertificateModule) parsePKCS12(data []byte) ([]*x509.Certificate, error) {
+	passwords := []string{"", "changeit", "changeme"}
+	for _, pw := range passwords {
+		_, cert, caCerts, err := pkcs12.DecodeChain(data, pw)
+		if err == nil {
+			var certs []*x509.Certificate
+			if cert != nil {
+				certs = append(certs, cert)
+			}
+			certs = append(certs, caCerts...)
+			return certs, nil
+		}
+	}
+	return nil, fmt.Errorf("could not decode PKCS#12 with known passwords")
+}
+
+// jksMagic is the Java KeyStore file magic bytes (0xFEEDFEED).
+var jksMagic = []byte{0xFE, 0xED, 0xFE, 0xED}
+
+// parseJKS detects JKS files by magic bytes. Go cannot natively parse JKS,
+// so we return nil certs but the caller can still create a finding for the container.
+func (m *CertificateModule) parseJKS(data []byte, path string) ([]*x509.Certificate, error) {
+	if len(data) < 4 || !isJKSMagic(data[:4]) {
+		return nil, fmt.Errorf("not a valid JKS file")
+	}
+	// JKS detected but we can't parse it natively — return nil certs
+	// The Scan method will handle creating a basic finding for this container
+	return nil, nil
+}
+
+func isJKSMagic(b []byte) bool {
+	return len(b) >= 4 && binary.BigEndian.Uint32(b) == 0xFEEDFEED
+}
+
 func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *model.Finding {
 	now := time.Now()
 	notBefore := cert.NotBefore
@@ -108,8 +173,8 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 
 	keySize := m.extractKeySize(cert)
 
-	// Build algorithm name with key size for PQC lookup
-	algoWithSize := fmt.Sprintf("%s-%d", m.publicKeyAlgoName(cert), keySize)
+	// Build algorithm name consistent with PQC registry (e.g. RSA-2048, ECDSA-P256, Ed25519)
+	algoWithSize := m.buildCertAlgorithmName(cert, keySize)
 
 	asset := &model.CryptoAsset{
 		ID:           uuid.New().String(),
@@ -139,12 +204,39 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 	}
 }
 
-func (m *CertificateModule) publicKeyAlgoName(cert *x509.Certificate) string {
+// createContainerFinding creates a finding for a crypto container file (JKS, etc.)
+// where we detect the file type but can't parse the contents.
+func (m *CertificateModule) createContainerFinding(path, containerType string) *model.Finding {
+	asset := &model.CryptoAsset{
+		ID:       uuid.New().String(),
+		Function: containerType + " keystore",
+		Algorithm: "Unknown",
+		Purpose:  "Certificate/key container",
+	}
+	crypto.ClassifyCryptoAsset(asset)
+
+	return &model.Finding{
+		ID:       uuid.New().String(),
+		Category: 5,
+		Source: model.FindingSource{
+			Type: "file",
+			Path: path,
+		},
+		CryptoAsset: asset,
+		Confidence:  0.70,
+		Module:      "certificates",
+		Timestamp:   time.Now(),
+	}
+}
+
+// buildCertAlgorithmName builds an algorithm name consistent with the PQC registry.
+// Produces: RSA-2048, ECDSA-P256, Ed25519, etc.
+func (m *CertificateModule) buildCertAlgorithmName(cert *x509.Certificate, keySize int) string {
 	switch cert.PublicKeyAlgorithm {
 	case x509.RSA:
-		return "RSA"
+		return fmt.Sprintf("RSA-%d", keySize)
 	case x509.ECDSA:
-		return "ECDSA-P"
+		return fmt.Sprintf("ECDSA-P%d", keySize)
 	case x509.Ed25519:
 		return "Ed25519"
 	default:

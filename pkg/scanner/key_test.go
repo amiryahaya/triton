@@ -2,6 +2,13 @@ package scanner
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,7 +97,7 @@ MIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJRrMtWPmWnK/vL0s3gJTo9Lnlw
 	assert.Equal(t, 5, finding.Category)
 	assert.Equal(t, "file", finding.Source.Type)
 	assert.Equal(t, "keys", finding.Module)
-	assert.Equal(t, 0.8, finding.Confidence)
+	assert.Equal(t, 0.90, finding.Confidence)
 }
 
 func TestDetectKeyTypeAndAlgorithm(t *testing.T) {
@@ -334,4 +341,222 @@ func TestKeyScanUnreadableFile(t *testing.T) {
 	assert.Empty(t, collected)
 
 	os.Chmod(keyFile, 0644)
+}
+
+func TestPKCS8RSAKeyDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Generate a real RSA key and encode as PKCS#8
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(rsaKey)
+	require.NoError(t, err)
+
+	keyFile := filepath.Join(tmpDir, "rsa-pkcs8.pem")
+	f, err := os.Create(keyFile)
+	require.NoError(t, err)
+	err = pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Bytes})
+	require.NoError(t, err)
+	f.Close()
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "pkcs8-private", finding.CryptoAsset.Function)
+	assert.Equal(t, "RSA", finding.CryptoAsset.Algorithm)
+	assert.Equal(t, 2048, finding.CryptoAsset.KeySize)
+}
+
+func TestPKCS8ECKeyDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(ecKey)
+	require.NoError(t, err)
+
+	keyFile := filepath.Join(tmpDir, "ec-pkcs8.pem")
+	f, err := os.Create(keyFile)
+	require.NoError(t, err)
+	pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Bytes})
+	f.Close()
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "pkcs8-private", finding.CryptoAsset.Function)
+	assert.Equal(t, "ECDSA-P256", finding.CryptoAsset.Algorithm)
+	assert.Equal(t, 256, finding.CryptoAsset.KeySize)
+}
+
+func TestPKCS8Ed25519KeyDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(edKey)
+	require.NoError(t, err)
+
+	keyFile := filepath.Join(tmpDir, "ed25519-pkcs8.pem")
+	f, err := os.Create(keyFile)
+	require.NoError(t, err)
+	pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Bytes})
+	f.Close()
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "pkcs8-private", finding.CryptoAsset.Function)
+	assert.Equal(t, "Ed25519", finding.CryptoAsset.Algorithm)
+	assert.Equal(t, 256, finding.CryptoAsset.KeySize)
+}
+
+func TestSSHPublicKeyDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		filename  string
+		content   string
+		wantAlgo  string
+		wantSize  int
+	}{
+		{
+			name:     "ssh-rsa public key",
+			filename: "id_rsa.pub",
+			content:  "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ... user@host\n",
+			wantAlgo: "RSA",
+			wantSize: 0, // SSH public key format doesn't easily expose key size
+		},
+		{
+			name:     "ssh-ed25519 public key",
+			filename: "id_ed25519.pub",
+			content:  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@host\n",
+			wantAlgo: "Ed25519",
+			wantSize: 256,
+		},
+		{
+			name:     "ecdsa-sha2 public key",
+			filename: "id_ecdsa.pub",
+			content:  "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTIt... user@host\n",
+			wantAlgo: "ECDSA-P256",
+			wantSize: 256,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := filepath.Join(tmpDir, tt.name)
+			os.MkdirAll(dir, 0755)
+
+			keyFile := filepath.Join(dir, tt.filename)
+			err := os.WriteFile(keyFile, []byte(tt.content), 0644)
+			require.NoError(t, err)
+
+			m := NewKeyModule(&config.Config{})
+			findings := make(chan *model.Finding, 10)
+			target := model.ScanTarget{Type: model.TargetFilesystem, Value: dir, Depth: 1}
+
+			err = m.Scan(context.Background(), target, findings)
+			require.NoError(t, err)
+			close(findings)
+
+			finding := <-findings
+			require.NotNil(t, finding, "should find SSH public key: %s", tt.name)
+			require.NotNil(t, finding.CryptoAsset)
+			assert.Equal(t, "ssh-public", finding.CryptoAsset.Function)
+			assert.Equal(t, tt.wantAlgo, finding.CryptoAsset.Algorithm)
+			assert.Equal(t, tt.wantSize, finding.CryptoAsset.KeySize)
+		})
+	}
+}
+
+func TestAuthorizedKeysDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	content := `# SSH authorized keys
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... admin@server
+`
+	keyFile := filepath.Join(tmpDir, "authorized_keys")
+	err := os.WriteFile(keyFile, []byte(content), 0644)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "ssh-public", finding.CryptoAsset.Function)
+	assert.Equal(t, "Ed25519", finding.CryptoAsset.Algorithm)
+}
+
+func TestRSAKeySize(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	require.NoError(t, err)
+
+	keyFile := filepath.Join(tmpDir, "rsa4096.key")
+	f, err := os.Create(keyFile)
+	require.NoError(t, err)
+	pem.Encode(f, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(rsaKey),
+	})
+	f.Close()
+
+	m := NewKeyModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "RSA", finding.CryptoAsset.Algorithm)
+	assert.Equal(t, 4096, finding.CryptoAsset.KeySize)
+}
+
+func TestIsKeyFileExtended(t *testing.T) {
+	m := NewKeyModule(&config.Config{})
+
+	// New SSH file patterns
+	assert.True(t, m.isKeyFile("/home/user/.ssh/authorized_keys"))
+	assert.True(t, m.isKeyFile("/home/user/.ssh/known_hosts"))
 }

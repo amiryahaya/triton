@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/pem"
 	"math/big"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"software.sslmate.com/src/go-pkcs12"
 )
 
 // Compile-time interface compliance check
@@ -354,4 +356,144 @@ func TestParseCertificateFileInvalidPEM(t *testing.T) {
 		collected = append(collected, f)
 	}
 	assert.Empty(t, collected, "invalid PEM should produce no findings")
+}
+
+func TestParsePKCS12Certificate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a PKCS#12 file with a self-signed cert
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "pkcs12-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &rsaKey.PublicKey, rsaKey)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	// Encode to PKCS#12 with empty password
+	p12Data, err := pkcs12.Modern.Encode(rsaKey, cert, nil, "")
+	require.NoError(t, err)
+
+	p12File := filepath.Join(tmpDir, "test.p12")
+	err = os.WriteFile(p12File, p12Data, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Contains(t, finding.CryptoAsset.Algorithm, "RSA")
+	assert.Equal(t, 2048, finding.CryptoAsset.KeySize)
+	assert.Contains(t, finding.CryptoAsset.Subject, "pkcs12-test")
+}
+
+func TestParsePFXCertificate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "pfx-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	p12Data, err := pkcs12.Modern.Encode(key, cert, nil, "")
+	require.NoError(t, err)
+
+	pfxFile := filepath.Join(tmpDir, "test.pfx")
+	err = os.WriteFile(pfxFile, p12Data, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	assert.Contains(t, collected[0].CryptoAsset.Subject, "pfx-test")
+}
+
+func TestParseJKSFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a minimal JKS file with magic bytes
+	var jksData []byte
+	magic := make([]byte, 4)
+	binary.BigEndian.PutUint32(magic, 0xFEEDFEED)
+	jksData = append(jksData, magic...)
+	jksData = append(jksData, make([]byte, 100)...) // padding
+
+	jksFile := filepath.Join(tmpDir, "test.jks")
+	err := os.WriteFile(jksFile, jksData, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "JKS keystore", finding.CryptoAsset.Function)
+	assert.Equal(t, 0.70, finding.Confidence)
+}
+
+func TestIsCertificateFileExtended(t *testing.T) {
+	m := NewCertificateModule(&config.Config{})
+
+	// New extensions added in Phase 2
+	assert.True(t, m.isCertificateFile("/path/to/keystore.p12"))
+	assert.True(t, m.isCertificateFile("/path/to/keystore.pfx"))
+	assert.True(t, m.isCertificateFile("/path/to/keystore.jks"))
+	assert.True(t, m.isCertificateFile("/path/to/KEYSTORE.P12"))
+
+	// Existing extensions still work
+	assert.True(t, m.isCertificateFile("/path/to/cert.pem"))
+	assert.True(t, m.isCertificateFile("/path/to/cert.crt"))
 }

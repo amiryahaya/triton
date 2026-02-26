@@ -32,7 +32,7 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Equal(t, 10, cfg.MaxDepth)
 	assert.Contains(t, cfg.Modules, "certificates")
 	assert.Contains(t, cfg.Modules, "libraries")
-	assert.Contains(t, cfg.Modules, "services")
+	assert.Contains(t, cfg.Modules, "binaries")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -41,8 +41,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Equal(t, "comprehensive", cfg.Profile)
 	assert.Equal(t, -1, cfg.MaxDepth)
 	assert.LessOrEqual(t, cfg.Workers, runtime.NumCPU())
-	assert.Contains(t, cfg.Modules, "processes")
-	assert.Contains(t, cfg.Modules, "configs")
+	assert.Contains(t, cfg.Modules, "kernel")
+	assert.Contains(t, cfg.Modules, "binaries")
 }
 
 func TestLoadUnknownProfileFallback(t *testing.T) {

@@ -2,9 +2,18 @@ package scanner
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -39,10 +48,8 @@ func TestIntegrationEngineWithFixtures(t *testing.T) {
 	assert.NotEmpty(t, result.Metadata.Hostname)
 	assert.True(t, result.Metadata.Duration > 0)
 
-	// Should find certificates and keys from fixtures
 	assert.NotEmpty(t, result.Findings, "should have findings from fixture files")
 
-	// Verify we have certificate findings
 	var certFindings, keyFindings int
 	for _, f := range result.Findings {
 		switch f.Module {
@@ -55,7 +62,6 @@ func TestIntegrationEngineWithFixtures(t *testing.T) {
 	assert.True(t, certFindings > 0, "should find certificates from fixtures (found %d)", certFindings)
 	assert.True(t, keyFindings > 0, "should find keys from fixtures (found %d)", keyFindings)
 
-	// Verify finding structure
 	for _, f := range result.Findings {
 		assert.NotEmpty(t, f.ID, "every finding should have an ID")
 		assert.NotEmpty(t, f.Source.Type, "every finding should have a source type")
@@ -64,7 +70,6 @@ func TestIntegrationEngineWithFixtures(t *testing.T) {
 		assert.True(t, f.Confidence > 0, "every finding should have confidence > 0")
 	}
 
-	// Verify certificate findings have crypto assets with proper fields
 	for _, f := range result.Findings {
 		if f.Module == "certificates" {
 			require.NotNil(t, f.CryptoAsset, "certificate findings must have CryptoAsset")
@@ -75,7 +80,6 @@ func TestIntegrationEngineWithFixtures(t *testing.T) {
 		}
 	}
 
-	// Verify summary is computed
 	assert.Equal(t, len(result.Findings), result.Summary.TotalFindings)
 }
 
@@ -96,17 +100,14 @@ func TestIntegrationCertificateScanFixtures(t *testing.T) {
 		collected = append(collected, f)
 	}
 
-	// 6 PEM certs + 1 DER cert + 2 in chain.pem = 9 total
 	assert.GreaterOrEqual(t, len(collected), 8, "should find at least 8 certificates")
 
-	// Check algorithm diversity
 	algos := make(map[string]bool)
 	for _, f := range collected {
 		if f.CryptoAsset != nil {
 			algos[f.CryptoAsset.Algorithm] = true
 		}
 	}
-	// Should have RSA, ECDSA, and Ed25519 certs
 	assert.True(t, len(algos) >= 3, "should find at least 3 different algorithms, got: %v", algos)
 }
 
@@ -127,10 +128,8 @@ func TestIntegrationKeyScanFixtures(t *testing.T) {
 		collected = append(collected, f)
 	}
 
-	// 5 key files
 	assert.GreaterOrEqual(t, len(collected), 5, "should find at least 5 key files")
 
-	// Check key type diversity
 	keyTypes := make(map[string]bool)
 	for _, f := range collected {
 		if f.CryptoAsset != nil {
@@ -176,7 +175,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(cfg)
 	eng.RegisterDefaultModules()
 
-	assert.Len(t, eng.modules, 3)
+	assert.Len(t, eng.modules, 6)
 
 	names := make([]string, len(eng.modules))
 	for i, m := range eng.modules {
@@ -185,6 +184,9 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.Contains(t, names, "certificates")
 	assert.Contains(t, names, "keys")
 	assert.Contains(t, names, "packages")
+	assert.Contains(t, names, "libraries")
+	assert.Contains(t, names, "binaries")
+	assert.Contains(t, names, "kernel")
 }
 
 func TestShouldRunModuleWithFilter(t *testing.T) {
@@ -199,4 +201,109 @@ func TestShouldRunModuleWithFilter(t *testing.T) {
 
 	assert.True(t, eng.shouldRunModule(certModule))
 	assert.False(t, eng.shouldRunModule(keyModule))
+}
+
+func TestIntegrationAllFileBasedScanners(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Set up a mixed test directory with all scannable types
+	setupPhase2Fixtures(t, tmpDir)
+
+	cfg := &config.Config{
+		Profile: "standard",
+		Workers: 4,
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5},
+		},
+	}
+
+	eng := New(cfg)
+	eng.RegisterModule(NewCertificateModule(cfg))
+	eng.RegisterModule(NewKeyModule(cfg))
+	eng.RegisterModule(NewLibraryModule(cfg))
+	eng.RegisterModule(NewBinaryModule(cfg))
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	require.NotNil(t, result)
+	assert.NotEmpty(t, result.Findings, "should have findings from mixed test directory")
+
+	// Verify we got findings from multiple modules
+	moduleFindings := make(map[string]int)
+	for _, f := range result.Findings {
+		moduleFindings[f.Module]++
+	}
+
+	assert.True(t, moduleFindings["certificates"] > 0, "should find certificates")
+	assert.True(t, moduleFindings["keys"] > 0, "should find keys")
+	assert.True(t, moduleFindings["libraries"] > 0, "should find libraries")
+	assert.True(t, moduleFindings["binaries"] > 0, "should find binary crypto patterns")
+
+	// Verify findings from cert/key/binary modules have proper PQC classification
+	// (Library findings use library name as "algorithm", not a crypto algo)
+	for _, f := range result.Findings {
+		if f.CryptoAsset != nil && f.Module != "libraries" &&
+			f.CryptoAsset.Algorithm != "" && f.CryptoAsset.Algorithm != "Unknown" {
+			assert.NotEmpty(t, f.CryptoAsset.PQCStatus,
+				"finding for %s should have PQC status", f.CryptoAsset.Algorithm)
+		}
+	}
+
+	// Verify summary
+	assert.Equal(t, len(result.Findings), result.Summary.TotalFindings)
+	assert.True(t, result.Summary.TotalCryptoAssets > 0, "should have crypto assets in summary")
+}
+
+// setupPhase2Fixtures creates test files for integration testing of all Phase 2 scanners.
+func setupPhase2Fixtures(t *testing.T, tmpDir string) {
+	t.Helper()
+
+	// 1. Certificate
+	certDir := filepath.Join(tmpDir, "certs")
+	os.MkdirAll(certDir, 0755)
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "phase2-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	certFile, err := os.Create(filepath.Join(certDir, "test.pem"))
+	require.NoError(t, err)
+	pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	certFile.Close()
+
+	// 2. Key
+	keyDir := filepath.Join(tmpDir, "keys")
+	os.MkdirAll(keyDir, 0755)
+
+	os.WriteFile(filepath.Join(keyDir, "server.key"),
+		[]byte("-----BEGIN RSA PRIVATE KEY-----\nMIIBogIBAAJBALRiMLAHudeSA/x3hB2f\n-----END RSA PRIVATE KEY-----\n"), 0600)
+
+	// 3. Libraries
+	libDir := filepath.Join(tmpDir, "lib")
+	os.MkdirAll(libDir, 0755)
+
+	os.WriteFile(filepath.Join(libDir, "libcrypto.so.1.1"), []byte("fake library"), 0644)
+	os.WriteFile(filepath.Join(libDir, "libssl.so.3"), []byte("fake library"), 0644)
+
+	// 4. Binary with crypto strings
+	binDir := filepath.Join(tmpDir, "bin")
+	os.MkdirAll(binDir, 0755)
+
+	var binData []byte
+	binData = append(binData, 0x7f, 'E', 'L', 'F') // ELF magic
+	binData = append(binData, make([]byte, 50)...)
+	binData = append(binData, []byte("AES-256-GCM cipher enabled")...)
+	binData = append(binData, make([]byte, 10)...)
+	binData = append(binData, []byte("RSA-2048 key exchange")...)
+	os.WriteFile(filepath.Join(binDir, "crypto-app"), binData, 0755)
 }

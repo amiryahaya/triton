@@ -53,6 +53,9 @@ func (e *Engine) RegisterDefaultModules() {
 	e.RegisterModule(NewCertificateModule(e.config))
 	e.RegisterModule(NewKeyModule(e.config))
 	e.RegisterModule(NewPackageModule(e.config))
+	e.RegisterModule(NewLibraryModule(e.config))
+	e.RegisterModule(NewBinaryModule(e.config))
+	e.RegisterModule(NewKernelModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

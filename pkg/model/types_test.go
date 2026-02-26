@@ -244,12 +244,12 @@ func TestFindingSourceTypes(t *testing.T) {
 
 func TestComputeSummary(t *testing.T) {
 	findings := []Finding{
-		{CryptoAsset: &CryptoAsset{PQCStatus: "SAFE"}},
-		{CryptoAsset: &CryptoAsset{PQCStatus: "SAFE"}},
-		{CryptoAsset: &CryptoAsset{PQCStatus: "TRANSITIONAL"}},
-		{CryptoAsset: &CryptoAsset{PQCStatus: "DEPRECATED"}},
-		{CryptoAsset: &CryptoAsset{PQCStatus: "UNSAFE"}},
-		{CryptoAsset: nil}, // no crypto asset
+		{Category: 5, CryptoAsset: &CryptoAsset{PQCStatus: "SAFE"}},
+		{Category: 5, CryptoAsset: &CryptoAsset{PQCStatus: "SAFE"}},
+		{Category: 3, CryptoAsset: &CryptoAsset{PQCStatus: "TRANSITIONAL"}},
+		{Category: 2, CryptoAsset: &CryptoAsset{PQCStatus: "DEPRECATED"}},
+		{Category: 9, CryptoAsset: &CryptoAsset{PQCStatus: "UNSAFE"}},
+		{Category: 5, CryptoAsset: nil}, // no crypto asset
 	}
 
 	summary := ComputeSummary(findings)
@@ -260,6 +260,18 @@ func TestComputeSummary(t *testing.T) {
 	assert.Equal(t, 1, summary.Transitional)
 	assert.Equal(t, 1, summary.Deprecated)
 	assert.Equal(t, 1, summary.Unsafe)
+
+	// Categories scanned: 2, 3, 5, 9
+	assert.Contains(t, summary.CategoriesScanned, 2)
+	assert.Contains(t, summary.CategoriesScanned, 3)
+	assert.Contains(t, summary.CategoriesScanned, 5)
+	assert.Contains(t, summary.CategoriesScanned, 9)
+	assert.Len(t, summary.CategoriesScanned, 4)
+
+	// Categories skipped: 1, 4, 6, 7, 8
+	assert.Contains(t, summary.CategoriesSkipped, 1)
+	assert.Contains(t, summary.CategoriesSkipped, 4)
+	assert.Len(t, summary.CategoriesSkipped, 5)
 }
 
 func TestComputeSummaryEmpty(t *testing.T) {
@@ -271,6 +283,8 @@ func TestComputeSummaryEmpty(t *testing.T) {
 	assert.Equal(t, 0, summary.Transitional)
 	assert.Equal(t, 0, summary.Deprecated)
 	assert.Equal(t, 0, summary.Unsafe)
+	assert.Len(t, summary.CategoriesScanned, 0)
+	assert.Len(t, summary.CategoriesSkipped, 9)
 }
 
 func TestScanTargetTypes(t *testing.T) {

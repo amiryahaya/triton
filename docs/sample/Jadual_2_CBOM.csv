@@ -1,5 +1,5 @@
-No.,# (CBOM),Sistem/Aplikasi,Fungsi Cryptographic,Algoritma yang digunakan,Library/Modul,Panjang Kunci,Tujuan/Penggunaan,Sokongan Crypto-Agility
-1,CBOM #1,P-Cert Endpoint Server,TLS server authentication / digital signature,sha256WithRSAEncryption / RSA-4096,X.509 server certificate,4096-bit,Saluran TLS untuk data/polisi P-Cert Remote (192.168.0.236:2001),Terhad (algoritma klasik; tiada hibrid PQC dikesan)
-2,CBOM #2,OpenSSH Service,SSH host authentication / key exchange identity,ssh-ed25519 (Ed25519),OpenSSH host key,256-bit,Akses SSH ke hos sasaran 192.168.0.236:22,Ya (pelbagai algoritma host key disokong)
-3,CBOM #3,OpenSSH Service,SSH host authentication / key exchange identity,ssh-rsa (RSA),OpenSSH host key,3072-bit,Akses SSH ke hos sasaran 192.168.0.236:22,Ya (pelbagai algoritma host key disokong)
-4,CBOM #4,OpenSSH Service,SSH host authentication / key exchange identity,ecdsa-sha2-nistp256 (ECDSA),OpenSSH host key,256-bit,Akses SSH ke hos sasaran 192.168.0.236:22,Ya (pelbagai algoritma host key disokong)
+# (CBOM),System / Application,Cryptographic Function,Algorithm Used,Library / Module,Key Length,Purpose / Usage,Crypto-Agility Support
+CBOM #1,P-Cert Endpoint Server,TLS server authentication / digital signature,sha256WithRSAEncryption / RSA-4096,X.509 server certificate,4096-bit,TLS channel for P-Cert Remote data/policy (192.168.0.236:2001),Limited (classical algorithms; no hybrid PQC detected)
+CBOM #2,OpenSSH Service,SSH host authentication / key exchange identity,ssh-ed25519 (Ed25519),OpenSSH host key,256-bit,SSH access to target host 192.168.0.236:22,Yes (multiple host key algorithms supported)
+CBOM #3,OpenSSH Service,SSH host authentication / key exchange identity,ssh-rsa (RSA),OpenSSH host key,3072-bit,SSH access to target host 192.168.0.236:22,Yes (multiple host key algorithms supported)
+CBOM #4,OpenSSH Service,SSH host authentication / key exchange identity,ecdsa-sha2-nistp256 (ECDSA),OpenSSH host key,256-bit,SSH access to target host 192.168.0.236:22,Yes (multiple host key algorithms supported)

@@ -135,13 +135,22 @@ type ScanTarget struct {
 	Depth int            `json:"depth"`
 }
 
+// AllCategories is the full list of CBOM scanning categories (1-9).
+var AllCategories = []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
+
 // ComputeSummary calculates aggregate statistics from a list of findings.
 func ComputeSummary(findings []Finding) Summary {
 	s := Summary{
 		TotalFindings: len(findings),
 	}
 
+	scannedSet := make(map[int]bool)
+
 	for _, f := range findings {
+		if f.Category >= 1 && f.Category <= 9 {
+			scannedSet[f.Category] = true
+		}
+
 		if f.CryptoAsset == nil {
 			continue
 		}
@@ -156,6 +165,15 @@ func ComputeSummary(findings []Finding) Summary {
 			s.Deprecated++
 		case "UNSAFE":
 			s.Unsafe++
+		}
+	}
+
+	// Populate categories scanned/skipped
+	for _, cat := range AllCategories {
+		if scannedSet[cat] {
+			s.CategoriesScanned = append(s.CategoriesScanned, cat)
+		} else {
+			s.CategoriesSkipped = append(s.CategoriesSkipped, cat)
 		}
 	}
 

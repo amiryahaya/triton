@@ -166,6 +166,29 @@ func TestGenerateExcelExampleRowsCleared(t *testing.T) {
 			assert.NotContains(t, val, "EXAMPLE", "sheet %s row %d should not have EXAMPLE", s.name, row)
 		}
 	}
+
+	// Title row merges outside example range must be preserved
+	// 3_RiskRegister has A2:E2, 4_RiskAssessment has A2:K2
+	titleMerges := []struct {
+		sheet string
+		start string
+		end   string
+	}{
+		{"3_RiskRegister", "A2", "E2"},
+		{"4_RiskAssessment", "A2", "K2"},
+	}
+	for _, tm := range titleMerges {
+		mc, err := f.GetMergeCells(tm.sheet)
+		require.NoError(t, err)
+		found := false
+		for _, m := range mc {
+			if m.GetStartAxis() == tm.start && m.GetEndAxis() == tm.end {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "sheet %s should preserve merge %s:%s", tm.sheet, tm.start, tm.end)
+	}
 }
 
 func TestGenerateExcelInventoryHeaders(t *testing.T) {
@@ -454,24 +477,30 @@ func TestGenerateExcelRiskAssessmentData(t *testing.T) {
 	val, _ = f.GetCellValue("4_RiskAssessment", "C11")
 	assert.Equal(t, "RSA-2048", val)
 
-	// Risk column (D) should have content
+	// Row 1: RSA-2048, TRANSITIONAL, Sangat Tinggi
+	// D: Risk description
 	val, _ = f.GetCellValue("4_RiskAssessment", "D11")
-	assert.NotEmpty(t, val)
+	assert.Contains(t, val, "Sederhana")
 
-	// Impact and Likelihood should be numeric
+	// E: Risk source
+	val, _ = f.GetCellValue("4_RiskAssessment", "E11")
+	assert.Contains(t, val, "klasik")
+
+	// F: Impact = 5 (Sangat Tinggi)
 	val, _ = f.GetCellValue("4_RiskAssessment", "F11")
-	assert.NotEmpty(t, val, "impact should be populated")
+	assert.Equal(t, "5", val)
 
+	// G: Likelihood = 3 (TRANSITIONAL)
 	val, _ = f.GetCellValue("4_RiskAssessment", "G11")
-	assert.NotEmpty(t, val, "likelihood should be populated")
+	assert.Equal(t, "3", val)
 
-	// Risk Score (H) = Impact * Likelihood
+	// H: Risk Score = 5 * 3 = 15
 	val, _ = f.GetCellValue("4_RiskAssessment", "H11")
-	assert.NotEmpty(t, val, "risk score should be populated")
+	assert.Equal(t, "15", val)
 
-	// Risk Level (I)
+	// I: Risk Level = High Risk (score 15 >= 12)
 	val, _ = f.GetCellValue("4_RiskAssessment", "I11")
-	assert.NotEmpty(t, val, "risk level should be populated")
+	assert.Equal(t, "High Risk", val)
 }
 
 func TestGenerateExcelEmptyResult(t *testing.T) {
@@ -586,4 +615,192 @@ func TestRiskLevel(t *testing.T) {
 			assert.Equal(t, tt.expected, riskLevel(tt.score))
 		})
 	}
+}
+
+func TestClassifyAssetType(t *testing.T) {
+	tests := []struct {
+		function string
+		expected string
+	}{
+		{"TLS server certificate", "Certificate"},
+		{"X.509 Certificate validation", "Certificate"},
+		{"Key Exchange (ECDHE)", "Key Exchange"},
+		{"Key agreement protocol", "Key Exchange"},
+		{"TLS cipher suite", "Encryption"},
+		{"AES encryption", "Encryption"},
+		{"Digital Signature", "Digital Signature"},
+		{"Code signing", "Digital Signature"},
+		{"SHA-256 hash", "Hash"},
+		{"Message digest", "Hash"},
+		{"SSH host key", "Cryptographic Asset"},
+		{"", "Cryptographic Asset"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.function, func(t *testing.T) {
+			asset := model.CryptoAsset{Function: tt.function}
+			assert.Equal(t, tt.expected, classifyAssetType(asset))
+		})
+	}
+}
+
+func TestAssessRisk(t *testing.T) {
+	tests := []struct {
+		status   string
+		contains string
+	}{
+		{"UNSAFE", "Kritikal"},
+		{"DEPRECATED", "Tinggi"},
+		{"TRANSITIONAL", "Sederhana"},
+		{"SAFE", "Rendah"},
+		{"", "Tidak dapat dinilai"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			asset := model.CryptoAsset{PQCStatus: tt.status}
+			assert.Contains(t, assessRisk(asset), tt.contains)
+		})
+	}
+}
+
+func TestRiskSource(t *testing.T) {
+	tests := []struct {
+		status   string
+		contains string
+	}{
+		{"UNSAFE", "tidak selamat"},
+		{"DEPRECATED", "usang"},
+		{"TRANSITIONAL", "klasik"},
+		{"SAFE", "selamat kuantum"},
+		{"UNKNOWN", "tidak dapat ditentukan"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			asset := model.CryptoAsset{PQCStatus: tt.status}
+			assert.Contains(t, riskSource(asset), tt.contains)
+		})
+	}
+}
+
+func TestDeriveAssetType(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected string
+	}{
+		{"sshd (process)", "Application Stack"},
+		{"TLS Service (10.0.0.1:443)", "Application Stack"},
+		{"IoT Sensor Firmware v1.0", "Firmware"},
+		{"Thales HSM Cluster", "Hardware (HSM)"},
+		{"AWS CloudHSM", "Cloud Services"},
+		{"Azure Key Vault", "Cloud Services"},
+		{"REST API Gateway", "API Gateway"},
+		{"PostgreSQL 14.2", "Database"},
+		{"MySQL Server", "Database"},
+		{"Portal Gov", "Application Stack"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sys := model.System{Name: tt.name}
+			assert.Equal(t, tt.expected, deriveAssetType(sys))
+		})
+	}
+}
+
+func TestDeriveReadiness(t *testing.T) {
+	tests := []struct {
+		name     string
+		assets   []model.CryptoAsset
+		expected string
+	}{
+		{
+			"all safe",
+			[]model.CryptoAsset{{PQCStatus: "SAFE"}, {PQCStatus: "SAFE"}},
+			"High",
+		},
+		{
+			"one transitional",
+			[]model.CryptoAsset{{PQCStatus: "SAFE"}, {PQCStatus: "TRANSITIONAL"}},
+			"Medium",
+		},
+		{
+			"one deprecated",
+			[]model.CryptoAsset{{PQCStatus: "SAFE"}, {PQCStatus: "DEPRECATED"}},
+			"Low",
+		},
+		{
+			"one unsafe",
+			[]model.CryptoAsset{{PQCStatus: "TRANSITIONAL"}, {PQCStatus: "UNSAFE"}},
+			"Very Low",
+		},
+		{
+			"empty PQCStatus treated as transitional",
+			[]model.CryptoAsset{{PQCStatus: "SAFE"}, {PQCStatus: ""}},
+			"Medium",
+		},
+		{
+			"unknown PQCStatus treated as transitional",
+			[]model.CryptoAsset{{PQCStatus: "GARBAGE"}},
+			"Medium",
+		},
+		{
+			"no assets",
+			nil,
+			"High",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sys := model.System{CryptoAssets: tt.assets}
+			assert.Equal(t, tt.expected, deriveReadiness(sys))
+		})
+	}
+}
+
+func TestCollectAlgorithms(t *testing.T) {
+	t.Run("multiple unique", func(t *testing.T) {
+		sys := model.System{
+			CryptoAssets: []model.CryptoAsset{
+				{Algorithm: "RSA-2048"},
+				{Algorithm: "AES-256"},
+				{Algorithm: "RSA-2048"}, // duplicate
+			},
+		}
+		assert.Equal(t, "RSA-2048, AES-256", collectAlgorithms(sys))
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		sys := model.System{}
+		assert.Equal(t, "", collectAlgorithms(sys))
+	})
+
+	t.Run("single", func(t *testing.T) {
+		sys := model.System{
+			CryptoAssets: []model.CryptoAsset{{Algorithm: "Ed25519"}},
+		}
+		assert.Equal(t, "Ed25519", collectAlgorithms(sys))
+	})
+}
+
+func TestGenerateExcelInUseFalse(t *testing.T) {
+	tmpFile := t.TempDir() + "/report.xlsx"
+	g := New("")
+
+	result := &model.ScanResult{
+		Systems: []model.System{
+			{
+				Name:  "Decommissioned App",
+				InUse: false,
+			},
+		},
+	}
+
+	err := g.GenerateExcel(result, tmpFile)
+	require.NoError(t, err)
+
+	f, err := excelize.OpenFile(tmpFile)
+	require.NoError(t, err)
+	defer f.Close()
+
+	// Column L (In Use?) at data row 15 should be "Tidak"
+	val, _ := f.GetCellValue("1_SBOM", "L15")
+	assert.Equal(t, "Tidak", val)
 }

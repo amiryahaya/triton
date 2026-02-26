@@ -59,16 +59,20 @@ func (g *Generator) GenerateExcel(result *model.ScanResult, filename string) err
 	return f.Save()
 }
 
-// clearExampleRows removes the EXAMPLE data, unmerges cells, and clears
-// pre-filled data rows in all data sheets.
+// clearExampleRows removes the EXAMPLE data, unmerges cells within the
+// example range, and clears pre-filled data rows in all data sheets.
 func clearExampleRows(f *excelize.File) {
 	for _, er := range exampleRanges {
-		// Unmerge any merged cells in the example range
+		// Unmerge only merged cells that fall within the example row range
 		mc, _ := f.GetMergeCells(er.sheet)
 		for _, m := range mc {
 			start := m.GetStartAxis()
 			end := m.GetEndAxis()
-			f.UnmergeCell(er.sheet, start, end)
+			_, startRow, _ := excelize.CellNameToCoordinates(start)
+			_, endRow, _ := excelize.CellNameToCoordinates(end)
+			if startRow >= er.startRow && endRow <= er.endRow {
+				f.UnmergeCell(er.sheet, start, end)
+			}
 		}
 
 		clearCells(f, er)
@@ -381,33 +385,44 @@ func collectAlgorithms(sys model.System) string {
 }
 
 // deriveAssetType determines the asset type for the inventory sheet.
+// More-specific keywords are checked before broader ones to avoid
+// misclassification (e.g. "AWS CloudHSM" → Cloud, not HSM).
 func deriveAssetType(sys model.System) string {
 	name := strings.ToLower(sys.Name)
 	switch {
-	case strings.Contains(name, "process") || strings.Contains(name, "service"):
-		return "Application Stack"
+	case strings.Contains(name, "cloud") || strings.Contains(name, "aws") || strings.Contains(name, "azure"):
+		return "Cloud Services"
 	case strings.Contains(name, "firmware"):
 		return "Firmware"
 	case strings.Contains(name, "hsm"):
 		return "Hardware (HSM)"
-	case strings.Contains(name, "cloud") || strings.Contains(name, "aws") || strings.Contains(name, "azure"):
-		return "Cloud Services"
-	case strings.Contains(name, "api"):
-		return "API Gateway"
 	case strings.Contains(name, "database") || strings.Contains(name, "postgres") || strings.Contains(name, "mysql"):
 		return "Database"
+	case strings.Contains(name, "api") && !strings.Contains(name, "process"):
+		return "API Gateway"
+	case strings.Contains(name, "process") || strings.Contains(name, "service"):
+		return "Application Stack"
 	default:
 		return "Application Stack"
 	}
 }
 
 // deriveReadiness maps worst PQC status in the system to a readiness level.
+// Unknown/empty PQC status is treated as TRANSITIONAL (needs investigation).
 func deriveReadiness(sys model.System) string {
 	worst := "SAFE"
 	priority := map[string]int{"SAFE": 0, "TRANSITIONAL": 1, "DEPRECATED": 2, "UNSAFE": 3}
 	for _, a := range sys.CryptoAssets {
-		if priority[a.PQCStatus] > priority[worst] {
+		p, known := priority[a.PQCStatus]
+		if !known {
+			// Unknown status — treat as at least TRANSITIONAL
+			p = priority["TRANSITIONAL"]
+		}
+		if p > priority[worst] {
 			worst = a.PQCStatus
+			if !known {
+				worst = "TRANSITIONAL"
+			}
 		}
 	}
 	switch worst {

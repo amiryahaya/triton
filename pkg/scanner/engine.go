@@ -50,12 +50,22 @@ func (e *Engine) RegisterModule(m Module) {
 
 // RegisterDefaultModules registers the built-in scanner modules.
 func (e *Engine) RegisterDefaultModules() {
+	// Phase 1 & 2: Passive file scanners (Categories 2-5)
 	e.RegisterModule(NewCertificateModule(e.config))
 	e.RegisterModule(NewKeyModule(e.config))
 	e.RegisterModule(NewPackageModule(e.config))
 	e.RegisterModule(NewLibraryModule(e.config))
 	e.RegisterModule(NewBinaryModule(e.config))
 	e.RegisterModule(NewKernelModule(e.config))
+
+	// Phase 3: Code analysis (Categories 6-7)
+	e.RegisterModule(NewScriptModule(e.config))
+	e.RegisterModule(NewWebAppModule(e.config))
+
+	// Phase 3: Runtime & network (Categories 1, 8, 9)
+	e.RegisterModule(NewProcessModule(e.config))
+	e.RegisterModule(NewNetworkModule(e.config))
+	e.RegisterModule(NewProtocolModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

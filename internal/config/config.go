@@ -39,14 +39,14 @@ var Profiles = map[string]ScanProfile{
 	"standard": {
 		Name:        "standard",
 		Description: "Balanced scan of system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp"},
 		Depth:       10,
 		Workers:     8,
 	},
 	"comprehensive": {
 		Name:        "comprehensive",
 		Description: "Deep scan of entire system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "processes", "network", "protocol"},
 		Depth:       -1, // unlimited
 		Workers:     16,
 	},
@@ -63,6 +63,28 @@ func Load(profile string) *Config {
 		workers = runtime.NumCPU()
 	}
 
+	targets := defaultScanTargets(p.Depth)
+
+	// Add process and network targets for modules that need them
+	for _, mod := range p.Modules {
+		switch mod {
+		case "processes":
+			targets = append(targets, model.ScanTarget{Type: model.TargetProcess, Value: "local"})
+		case "network", "protocol":
+			// Add network target only once
+			hasNetwork := false
+			for _, t := range targets {
+				if t.Type == model.TargetNetwork {
+					hasNetwork = true
+					break
+				}
+			}
+			if !hasNetwork {
+				targets = append(targets, model.ScanTarget{Type: model.TargetNetwork, Value: "local"})
+			}
+		}
+	}
+
 	return &Config{
 		Profile:         p.Name,
 		Modules:         p.Modules,
@@ -74,7 +96,7 @@ func Load(profile string) *Config {
 		ExcludePatterns: defaultExcludePatterns(),
 		MaxFileSize:     100 * 1024 * 1024, // 100MB
 		Workers:         workers,
-		ScanTargets:     defaultScanTargets(p.Depth),
+		ScanTargets:     targets,
 	}
 }
 

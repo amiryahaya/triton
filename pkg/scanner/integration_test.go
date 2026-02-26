@@ -167,28 +167,6 @@ func TestIntegrationProgressReporting(t *testing.T) {
 	assert.NotNil(t, last.Result)
 }
 
-func TestRegisterDefaultModules(t *testing.T) {
-	cfg := &config.Config{
-		Profile: "quick",
-		Workers: 2,
-	}
-	eng := New(cfg)
-	eng.RegisterDefaultModules()
-
-	assert.Len(t, eng.modules, 6)
-
-	names := make([]string, len(eng.modules))
-	for i, m := range eng.modules {
-		names[i] = m.Name()
-	}
-	assert.Contains(t, names, "certificates")
-	assert.Contains(t, names, "keys")
-	assert.Contains(t, names, "packages")
-	assert.Contains(t, names, "libraries")
-	assert.Contains(t, names, "binaries")
-	assert.Contains(t, names, "kernel")
-}
-
 func TestShouldRunModuleWithFilter(t *testing.T) {
 	cfg := &config.Config{
 		Modules: []string{"certificates"},
@@ -254,6 +232,124 @@ func TestIntegrationAllFileBasedScanners(t *testing.T) {
 	// Verify summary
 	assert.Equal(t, len(result.Findings), result.Summary.TotalFindings)
 	assert.True(t, result.Summary.TotalCryptoAssets > 0, "should have crypto assets in summary")
+}
+
+func TestIntegrationPhase3ScriptAndWebApp(t *testing.T) {
+	tmpDir := t.TempDir()
+	setupPhase3Fixtures(t, tmpDir)
+
+	cfg := &config.Config{
+		Profile: "standard",
+		Workers: 4,
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5},
+		},
+	}
+
+	eng := New(cfg)
+	eng.RegisterModule(NewScriptModule(cfg))
+	eng.RegisterModule(NewWebAppModule(cfg))
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	require.NotNil(t, result)
+	assert.NotEmpty(t, result.Findings, "should have findings from script/webapp fixtures")
+
+	moduleFindings := make(map[string]int)
+	for _, f := range result.Findings {
+		moduleFindings[f.Module]++
+	}
+
+	assert.True(t, moduleFindings["scripts"] > 0, "should find crypto in scripts")
+	assert.True(t, moduleFindings["webapp"] > 0, "should find crypto in web apps")
+
+	// Verify PQC classification on all findings
+	for _, f := range result.Findings {
+		if f.CryptoAsset != nil {
+			assert.NotEmpty(t, f.CryptoAsset.PQCStatus,
+				"finding for %s should have PQC status", f.CryptoAsset.Algorithm)
+		}
+	}
+}
+
+func TestIntegrationPhase3AllModulesWithFixtures(t *testing.T) {
+	tmpDir := t.TempDir()
+	setupPhase2Fixtures(t, tmpDir)
+	setupPhase3Fixtures(t, tmpDir)
+
+	cfg := &config.Config{
+		Profile: "comprehensive",
+		Workers: 4,
+		Modules: []string{"certificates", "keys", "libraries", "binaries", "scripts", "webapp"},
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5},
+		},
+	}
+
+	eng := New(cfg)
+	eng.RegisterDefaultModules()
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	require.NotNil(t, result)
+	assert.NotEmpty(t, result.Findings)
+
+	moduleFindings := make(map[string]int)
+	for _, f := range result.Findings {
+		moduleFindings[f.Module]++
+	}
+
+	// All file-based scanners should produce findings
+	assert.True(t, moduleFindings["certificates"] > 0, "should find certificates")
+	assert.True(t, moduleFindings["keys"] > 0, "should find keys")
+	assert.True(t, moduleFindings["libraries"] > 0, "should find libraries")
+	assert.True(t, moduleFindings["binaries"] > 0, "should find binary crypto patterns")
+	assert.True(t, moduleFindings["scripts"] > 0, "should find script crypto patterns")
+	assert.True(t, moduleFindings["webapp"] > 0, "should find webapp crypto patterns")
+
+	// Verify summary
+	assert.Equal(t, len(result.Findings), result.Summary.TotalFindings)
+	assert.True(t, result.Summary.TotalCryptoAssets > 0)
+}
+
+// setupPhase3Fixtures creates test files for script and webapp scanners.
+func setupPhase3Fixtures(t *testing.T, tmpDir string) {
+	t.Helper()
+
+	// Script files
+	scriptDir := filepath.Join(tmpDir, "scripts")
+	os.MkdirAll(scriptDir, 0755)
+
+	os.WriteFile(filepath.Join(scriptDir, "encrypt.py"), []byte(`
+import hashlib
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+sha256_hash = hashlib.sha256(b"data").hexdigest()
+`), 0644)
+
+	os.WriteFile(filepath.Join(scriptDir, "deploy.sh"), []byte(`#!/bin/bash
+openssl aes-256-cbc -in file.txt -out file.enc
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa
+`), 0755)
+
+	// Web app files
+	webDir := filepath.Join(tmpDir, "web")
+	os.MkdirAll(webDir, 0755)
+
+	os.WriteFile(filepath.Join(webDir, "auth.php"), []byte(`<?php
+$hash = password_hash($password, PASSWORD_BCRYPT);
+$encrypted = openssl_encrypt($data, 'aes-256-cbc', $key);
+?>`), 0644)
+
+	os.WriteFile(filepath.Join(webDir, "crypto.java"), []byte(`
+import javax.crypto.Cipher;
+import java.security.MessageDigest;
+Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+MessageDigest md = MessageDigest.getInstance("SHA-256");
+`), 0644)
 }
 
 // setupPhase2Fixtures creates test files for integration testing of all Phase 2 scanners.

@@ -30,8 +30,11 @@ type AlgorithmInfo struct {
 // AlgorithmRegistry maps algorithm names to their PQC status
 var AlgorithmRegistry = map[string]AlgorithmInfo{
 	// SAFE algorithms (quantum-resistant)
-	"AES-256-GCM": {Name: "AES-256-GCM", Family: "AES", KeySize: 256, Status: SAFE, NISTStandard: true},
-	"AES-256-CBC": {Name: "AES-256-CBC", Family: "AES", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"AES-256-GCM":      {Name: "AES-256-GCM", Family: "AES", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"AES-256-CBC":      {Name: "AES-256-CBC", Family: "AES", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"AES-256-CTR":      {Name: "AES-256-CTR", Family: "AES", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"ChaCha20-Poly1305": {Name: "ChaCha20-Poly1305", Family: "ChaCha20", KeySize: 256, Status: SAFE},
+	"Bcrypt":           {Name: "Bcrypt", Family: "Password-Hash", KeySize: 0, Status: SAFE},
 	"SHA-384":     {Name: "SHA-384", Family: "SHA2", KeySize: 384, Status: SAFE, NISTStandard: true},
 	"SHA-512":     {Name: "SHA-512", Family: "SHA2", KeySize: 512, Status: SAFE, NISTStandard: true},
 	"SHA3-256":    {Name: "SHA3-256", Family: "SHA3", KeySize: 256, Status: SAFE, NISTStandard: true},
@@ -43,6 +46,7 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	// TRANSITIONAL algorithms (need migration plan)
 	"AES-128-GCM": {Name: "AES-128-GCM", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
 	"AES-128-CBC": {Name: "AES-128-CBC", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
+	"AES-128-CTR": {Name: "AES-128-CTR", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
 	"SHA-256":     {Name: "SHA-256", Family: "SHA2", KeySize: 256, Status: TRANSITIONAL, NISTStandard: true},
 	"RSA-2048":    {Name: "RSA-2048", Family: "RSA", KeySize: 2048, Status: TRANSITIONAL, BreakYear: 2035},
 	"ECDSA-P256":  {Name: "ECDSA-P256", Family: "ECDSA", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2030},

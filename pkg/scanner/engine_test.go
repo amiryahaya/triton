@@ -49,6 +49,34 @@ func TestRegisterModule(t *testing.T) {
 	assert.Equal(t, "test-module", eng.modules[0].Name())
 }
 
+func TestRegisterDefaultModules(t *testing.T) {
+	eng := New(testConfig())
+	eng.RegisterDefaultModules()
+
+	// Should register all 11 modules
+	assert.Len(t, eng.modules, 11)
+
+	names := make(map[string]bool)
+	for _, m := range eng.modules {
+		names[m.Name()] = true
+	}
+
+	// Phase 1 & 2
+	assert.True(t, names["certificates"])
+	assert.True(t, names["keys"])
+	assert.True(t, names["packages"])
+	assert.True(t, names["libraries"])
+	assert.True(t, names["binaries"])
+	assert.True(t, names["kernel"])
+
+	// Phase 3
+	assert.True(t, names["scripts"])
+	assert.True(t, names["webapp"])
+	assert.True(t, names["processes"])
+	assert.True(t, names["network"])
+	assert.True(t, names["protocol"])
+}
+
 func TestScanWithNoModules(t *testing.T) {
 	eng := New(testConfig())
 

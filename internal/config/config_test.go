@@ -33,6 +33,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "certificates")
 	assert.Contains(t, cfg.Modules, "libraries")
 	assert.Contains(t, cfg.Modules, "binaries")
+	assert.Contains(t, cfg.Modules, "scripts")
+	assert.Contains(t, cfg.Modules, "webapp")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -43,6 +45,25 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.LessOrEqual(t, cfg.Workers, runtime.NumCPU())
 	assert.Contains(t, cfg.Modules, "kernel")
 	assert.Contains(t, cfg.Modules, "binaries")
+	assert.Contains(t, cfg.Modules, "scripts")
+	assert.Contains(t, cfg.Modules, "webapp")
+	assert.Contains(t, cfg.Modules, "processes")
+	assert.Contains(t, cfg.Modules, "network")
+	assert.Contains(t, cfg.Modules, "protocol")
+
+	// Should have process and network targets
+	hasProcess := false
+	hasNetwork := false
+	for _, t := range cfg.ScanTargets {
+		if t.Type == model.TargetProcess {
+			hasProcess = true
+		}
+		if t.Type == model.TargetNetwork {
+			hasNetwork = true
+		}
+	}
+	assert.True(t, hasProcess, "comprehensive profile should include process targets")
+	assert.True(t, hasNetwork, "comprehensive profile should include network targets")
 }
 
 func TestLoadUnknownProfileFallback(t *testing.T) {

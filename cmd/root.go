@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/version"
@@ -186,6 +187,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()
 
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return runScanHeadless(eng)
+	}
+
 	progressCh := make(chan scanner.Progress, 16)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -212,6 +217,25 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	return generateReports(final.result)
+}
+
+func runScanHeadless(eng *scanner.Engine) error {
+	progressCh := make(chan scanner.Progress, 16)
+	ctx := context.Background()
+
+	go eng.Scan(ctx, progressCh)
+
+	for p := range progressCh {
+		if p.Error != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", p.Error)
+			continue
+		}
+		fmt.Printf("[%3.0f%%] %s\n", p.Percent*100, p.Status)
+		if p.Complete && p.Result != nil {
+			return generateReports(p.Result)
+		}
+	}
+	return nil
 }
 
 func generateReports(result *model.ScanResult) error {

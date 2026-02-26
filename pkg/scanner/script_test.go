@@ -361,10 +361,14 @@ openssl enc -aes-256-cbc -in plain.txt -out enc.txt
 	require.NoError(t, err)
 	close(findings)
 
-	finding := <-findings
-	require.NotNil(t, finding)
-	require.NotNil(t, finding.CryptoAsset)
-	assert.NotEmpty(t, finding.CryptoAsset.PQCStatus, "script findings should have PQC classification")
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.NotEmpty(t, collected, "should find crypto patterns")
+	require.NotNil(t, collected[0].CryptoAsset)
+	assert.NotEmpty(t, collected[0].CryptoAsset.PQCStatus, "script findings should have PQC classification")
 }
 
 func TestScriptScanEmptyDir(t *testing.T) {

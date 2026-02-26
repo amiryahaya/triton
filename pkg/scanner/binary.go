@@ -217,7 +217,7 @@ func (m *BinaryModule) scanBinaryFile(path string) ([]*model.Finding, error) {
 	}
 
 	// Verify executable magic bytes (authoritative check)
-	if len(data) < 4 || !isExecutableMagic(data[:4]) {
+	if len(data) < 2 || !isExecutableMagic(data) {
 		return nil, nil
 	}
 
@@ -346,9 +346,6 @@ func detectLanguage(path string) string {
 		defer pf.Close()
 
 		for _, sec := range pf.Sections {
-			if sec.Name == ".rsrc" || sec.Name == ".reloc" {
-				// Common in .NET
-			}
 			if sec.Name == ".go.buildinfo" {
 				return "Go"
 			}

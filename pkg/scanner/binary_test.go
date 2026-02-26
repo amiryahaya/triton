@@ -207,6 +207,16 @@ func TestBinaryScanWithFakePE(t *testing.T) {
 	}
 
 	require.NotEmpty(t, collected, "should find crypto patterns in PE binary")
+
+	for _, f := range collected {
+		assert.Equal(t, 2, f.Category)
+		assert.Equal(t, "file", f.Source.Type)
+		assert.Equal(t, "binaries", f.Module)
+		assert.Equal(t, 0.60, f.Confidence)
+		assert.NotNil(t, f.CryptoAsset)
+		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		assert.NotEmpty(t, f.Source.DetectionMethod)
+	}
 }
 
 func TestBinaryScanSkipsNonBinaries(t *testing.T) {

@@ -132,7 +132,7 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"ARIA-128":     {Name: "ARIA-128", Family: "ARIA", KeySize: 128, Status: TRANSITIONAL},
 	"SM4":          {Name: "SM4", Family: "SM4", KeySize: 128, Status: TRANSITIONAL},
 	"SEED":         {Name: "SEED", Family: "SEED", KeySize: 128, Status: TRANSITIONAL},
-	"Salsa20":      {Name: "Salsa20", Family: "Salsa20", KeySize: 256, Status: TRANSITIONAL},
+	"Salsa20":      {Name: "Salsa20", Family: "Salsa20", KeySize: 256, Status: TRANSITIONAL}, // Conservative: superseded by ChaCha20, less analysis
 
 	// Transitional protocols
 	"TLS 1.2": {Name: "TLS 1.2", Family: "TLS", KeySize: 0, Status: TRANSITIONAL},

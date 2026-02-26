@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -14,62 +13,87 @@ import (
 	"github.com/google/uuid"
 )
 
-// scriptCryptoPatterns defines regex patterns for detecting crypto usage in scripts.
-var scriptCryptoPatterns = []struct {
-	pattern   *regexp.Regexp
-	algorithm string
-	function  string
-}{
-	// Python
-	{regexp.MustCompile(`hashlib\.sha256`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`hashlib\.sha512`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`hashlib\.sha1`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`hashlib\.md5`), "MD5", "Hash function"},
-	{regexp.MustCompile(`from\s+cryptography`), "", "Cryptography library import"},
-	{regexp.MustCompile(`Fernet`), "AES-128-CBC", "Symmetric encryption (Fernet)"},
-	{regexp.MustCompile(`rsa\.generate_private_key`), "RSA", "Key generation"},
+// scriptCryptoPatterns defines patterns for detecting crypto usage in scripts.
+// Uses CryptoPattern for hybrid literal/regex matching.
+var scriptCryptoPatterns = []CryptoPattern{
+	// === Python ===
+	lit("hashlib.sha256", "SHA-256", "Hash function", "api-call"),
+	lit("hashlib.sha512", "SHA-512", "Hash function", "api-call"),
+	lit("hashlib.sha1", "SHA-1", "Hash function", "api-call"),
+	lit("hashlib.md5", "MD5", "Hash function", "api-call"),
+	rx(`from\s+cryptography`, "", "Cryptography library import", "import"),
+	lit("Fernet", "AES-128-CBC", "Symmetric encryption (Fernet)", "api-call"),
+	lit("rsa.generate_private_key", "RSA", "Key generation", "api-call"),
+	lit("pbkdf2_hmac", "PBKDF2", "Key derivation", "api-call"),
+	lit("hmac.new", "HMAC-SHA256", "HMAC authentication", "api-call"),
+	lit("hmac.compare_digest", "HMAC-SHA256", "HMAC verification", "api-call"),
+	lit("bcrypt.hashpw", "Bcrypt", "Password hashing", "api-call"),
+	lit("bcrypt.gensalt", "Bcrypt", "Password hashing", "api-call"),
+	lit("ec.SECP256R1", "ECDSA-P256", "Elliptic curve", "api-call"),
+	lit("ec.SECP384R1", "ECDSA-P384", "Elliptic curve", "api-call"),
+	lit("ec.SECP521R1", "ECDSA-P521", "Elliptic curve", "api-call"),
+	lit("ssl.create_default_context", "TLS", "TLS context creation", "api-call"),
+	lit("ssl.wrap_socket", "TLS", "TLS socket wrapping", "api-call"),
+	lit("SSLContext", "TLS", "TLS configuration", "api-call"),
 
-	// Shell (openssl commands)
-	{regexp.MustCompile(`openssl\s+genrsa`), "RSA", "Key generation"},
-	{regexp.MustCompile(`openssl\s+genpkey`), "", "Key generation"},
-	{regexp.MustCompile(`openssl\s+enc\s+-aes-256-cbc`), "AES-256-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`openssl\s+enc\s+-aes-128-cbc`), "AES-128-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`openssl\s+enc\s+-aes-256-gcm`), "AES-256-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`openssl\s+enc\s+-des3`), "3DES", "Symmetric encryption"},
-	{regexp.MustCompile(`openssl\s+dgst\s+-sha256`), "SHA-256", "Digital signature/hash"},
-	{regexp.MustCompile(`openssl\s+dgst\s+-sha512`), "SHA-512", "Digital signature/hash"},
-	{regexp.MustCompile(`openssl\s+dgst\s+-sha1`), "SHA-1", "Digital signature/hash"},
-	{regexp.MustCompile(`openssl\s+dgst\s+-md5`), "MD5", "Hash function"},
-	{regexp.MustCompile(`openssl\s+s_client`), "TLS", "TLS client connection"},
-	{regexp.MustCompile(`openssl\s+req\s+.*-x509`), "", "Certificate generation"},
+	// === Shell (openssl commands) ===
+	rx(`openssl\s+genrsa`, "RSA", "Key generation", "command"),
+	rx(`openssl\s+genpkey`, "", "Key generation", "command"),
+	rx(`openssl\s+enc\s+-aes-256-cbc`, "AES-256-CBC", "Symmetric encryption", "command"),
+	rx(`openssl\s+enc\s+-aes-128-cbc`, "AES-128-CBC", "Symmetric encryption", "command"),
+	rx(`openssl\s+enc\s+-aes-256-gcm`, "AES-256-GCM", "Symmetric encryption", "command"),
+	rx(`openssl\s+enc\s+-des3`, "3DES", "Symmetric encryption", "command"),
+	rx(`openssl\s+dgst\s+-sha256`, "SHA-256", "Digital signature/hash", "command"),
+	rx(`openssl\s+dgst\s+-sha512`, "SHA-512", "Digital signature/hash", "command"),
+	rx(`openssl\s+dgst\s+-sha1`, "SHA-1", "Digital signature/hash", "command"),
+	rx(`openssl\s+dgst\s+-md5`, "MD5", "Hash function", "command"),
+	rx(`openssl\s+s_client`, "TLS", "TLS client connection", "command"),
+	rx(`openssl\s+req\s+.*-x509`, "", "Certificate generation", "command"),
 
-	// Ruby
-	{regexp.MustCompile(`OpenSSL::PKey::RSA`), "RSA", "Key generation"},
-	{regexp.MustCompile(`OpenSSL::PKey::EC`), "ECDSA", "Key generation"},
-	{regexp.MustCompile(`OpenSSL::Cipher::AES`), "AES", "Symmetric encryption"},
-	{regexp.MustCompile(`Digest::SHA256`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`Digest::SHA512`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`Digest::SHA1`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`Digest::MD5`), "MD5", "Hash function"},
+	// === Ruby ===
+	lit("OpenSSL::PKey::RSA", "RSA", "Key generation", "api-call"),
+	lit("OpenSSL::PKey::EC", "ECDSA", "Key generation", "api-call"),
+	lit("OpenSSL::Cipher::AES", "AES", "Symmetric encryption", "api-call"),
+	lit("Digest::SHA256", "SHA-256", "Hash function", "api-call"),
+	lit("Digest::SHA512", "SHA-512", "Hash function", "api-call"),
+	lit("Digest::SHA1", "SHA-1", "Hash function", "api-call"),
+	lit("Digest::MD5", "MD5", "Hash function", "api-call"),
+	lit("OpenSSL::HMAC", "HMAC-SHA256", "HMAC authentication", "api-call"),
 
-	// Perl
-	{regexp.MustCompile(`Crypt::OpenSSL::RSA`), "RSA", "Key generation"},
-	{regexp.MustCompile(`Crypt::OpenSSL::AES`), "AES", "Symmetric encryption"},
-	{regexp.MustCompile(`Digest::SHA256`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`Digest::SHA512`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`Digest::SHA1`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`Digest::SHA\b`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`Crypt::CBC`), "", "Symmetric encryption"},
+	// === Perl ===
+	lit("Crypt::OpenSSL::RSA", "RSA", "Key generation", "import"),
+	lit("Crypt::OpenSSL::AES", "AES", "Symmetric encryption", "import"),
+	lit("Crypt::PBKDF2", "PBKDF2", "Key derivation", "import"),
+	rx(`Digest::SHA\b`, "SHA-256", "Hash function", "import"),
+	lit("Crypt::CBC", "", "Symmetric encryption", "import"),
 
-	// Generic patterns (cross-language) — split by mode for accurate classification
-	{regexp.MustCompile(`(?i)AES[-_]?256[-_]?GCM`), "AES-256-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_]?256[-_]?CBC`), "AES-256-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_]?256[-_]?CTR`), "AES-256-CTR", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_]?128[-_]?GCM`), "AES-128-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_]?128[-_]?CBC`), "AES-128-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_]?128[-_]?CTR`), "AES-128-CTR", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)RSA[-_]?2048`), "RSA-2048", "Asymmetric encryption"},
-	{regexp.MustCompile(`(?i)RSA[-_]?4096`), "RSA-4096", "Asymmetric encryption"},
+	// === PowerShell ===
+	lit("[System.Security.Cryptography.AesCryptoServiceProvider]", "AES", "Symmetric encryption", "api-call"),
+	lit("ConvertTo-SecureString", "", "Secure string conversion", "command"),
+	lit("New-Object System.Security.Cryptography", "", "Crypto object creation", "api-call"),
+	lit("Get-FileHash", "SHA-256", "File hashing", "command"),
+	lit("[System.Security.Cryptography.RSACryptoServiceProvider]", "RSA", "Asymmetric encryption", "api-call"),
+	lit("[System.Security.Cryptography.SHA256CryptoServiceProvider]", "SHA-256", "Hash function", "api-call"),
+
+	// === Batch ===
+	lit("certutil -hashfile", "SHA-256", "File hashing", "command"),
+	lit("certutil -encode", "", "Base64 encoding", "command"),
+	lit("cipher /e", "", "File encryption (EFS)", "command"),
+
+	// === Cross-language KDF/HMAC patterns ===
+	rx(`\bPBKDF2\b`, "PBKDF2", "Key derivation", "string"),
+	rx(`\bscrypt\b`, "scrypt", "Key derivation", "string"),
+	rx(`\bargon2\b`, "Argon2", "Key derivation", "string"),
+
+	// === Generic patterns (cross-language) — split by mode for accurate classification ===
+	rx(`(?i)AES[-_]?256[-_]?GCM`, "AES-256-GCM", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_]?256[-_]?CBC`, "AES-256-CBC", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_]?256[-_]?CTR`, "AES-256-CTR", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_]?128[-_]?GCM`, "AES-128-GCM", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_]?128[-_]?CBC`, "AES-128-CBC", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_]?128[-_]?CTR`, "AES-128-CTR", "Symmetric encryption", "string"),
+	rx(`(?i)RSA[-_]?2048`, "RSA-2048", "Asymmetric encryption", "string"),
+	rx(`(?i)RSA[-_]?4096`, "RSA-4096", "Asymmetric encryption", "string"),
 }
 
 // ScriptModule scans script files for crypto API usage patterns.
@@ -120,7 +144,9 @@ func (m *ScriptModule) Scan(ctx context.Context, target model.ScanTarget, findin
 func (m *ScriptModule) isScriptFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".py", ".sh", ".bash", ".zsh", ".rb", ".pl", ".pm":
+	case ".py", ".sh", ".bash", ".zsh", ".rb", ".pl", ".pm",
+		".ps1", ".psm1", // PowerShell
+		".bat", ".cmd": // Batch
 		return true
 	}
 	return false
@@ -148,11 +174,11 @@ func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
 	var findings []*model.Finding
 
 	for _, sp := range scriptCryptoPatterns {
-		if !sp.pattern.MatchString(content) {
+		if !sp.Match(content) {
 			continue
 		}
 
-		algo := sp.algorithm
+		algo := sp.Algorithm
 		if algo == "" {
 			continue // Pattern matched but no specific algorithm (e.g. generic import)
 		}
@@ -165,7 +191,7 @@ func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
 
 		asset := &model.CryptoAsset{
 			ID:        uuid.New().String(),
-			Function:  sp.function,
+			Function:  sp.Function,
 			Algorithm: algo,
 			Purpose:   "Crypto usage in script",
 		}
@@ -175,8 +201,9 @@ func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
 			ID:       uuid.New().String(),
 			Category: 6,
 			Source: model.FindingSource{
-				Type: "file",
-				Path: path,
+				Type:            "file",
+				Path:            path,
+				DetectionMethod: sp.DetectionMethod,
 			},
 			CryptoAsset: asset,
 			Confidence:  0.75,

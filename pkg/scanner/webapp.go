@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -14,86 +13,123 @@ import (
 	"github.com/google/uuid"
 )
 
-// webAppCryptoPatterns defines regex patterns for detecting crypto usage in web application source.
-var webAppCryptoPatterns = []struct {
-	pattern   *regexp.Regexp
-	algorithm string
-	function  string
-}{
-	// PHP
-	{regexp.MustCompile(`openssl_pkey_new`), "RSA", "Key generation"},
-	{regexp.MustCompile(`openssl_encrypt`), "AES", "Symmetric encryption"},
-	{regexp.MustCompile(`openssl_decrypt`), "AES", "Symmetric decryption"},
-	{regexp.MustCompile(`openssl_sign`), "RSA", "Digital signature"},
-	{regexp.MustCompile(`openssl_verify`), "RSA", "Signature verification"},
-	{regexp.MustCompile(`hash\(\s*['"]sha256['"]\s*,`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`hash\(\s*['"]sha512['"]\s*,`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`hash\(\s*['"]sha1['"]\s*,`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`hash\(\s*['"]md5['"]\s*,`), "MD5", "Hash function"},
-	{regexp.MustCompile(`password_hash\(`), "Bcrypt", "Password hashing"},
-	{regexp.MustCompile(`sodium_crypto_`), "ChaCha20-Poly1305", "Libsodium crypto"},
+// webAppCryptoPatterns defines patterns for detecting crypto usage in web application source.
+// Uses CryptoPattern for hybrid literal/regex matching.
+var webAppCryptoPatterns = []CryptoPattern{
+	// === PHP ===
+	lit("openssl_pkey_new", "RSA", "Key generation", "api-call"),
+	lit("openssl_encrypt", "AES", "Symmetric encryption", "api-call"),
+	lit("openssl_decrypt", "AES", "Symmetric decryption", "api-call"),
+	lit("openssl_sign", "RSA", "Digital signature", "api-call"),
+	lit("openssl_verify", "RSA", "Signature verification", "api-call"),
+	rx(`hash\(\s*['"]sha256['"]\s*,`, "SHA-256", "Hash function", "api-call"),
+	rx(`hash\(\s*['"]sha512['"]\s*,`, "SHA-512", "Hash function", "api-call"),
+	rx(`hash\(\s*['"]sha1['"]\s*,`, "SHA-1", "Hash function", "api-call"),
+	rx(`hash\(\s*['"]md5['"]\s*,`, "MD5", "Hash function", "api-call"),
+	lit("password_hash(", "Bcrypt", "Password hashing", "api-call"),
+	lit("sodium_crypto_", "ChaCha20-Poly1305", "Libsodium crypto", "api-call"),
 
-	// JavaScript / TypeScript / Node.js
-	{regexp.MustCompile(`crypto\.createHash\(['"]sha256['"]\)`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`crypto\.createHash\(['"]sha512['"]\)`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`crypto\.createHash\(['"]sha1['"]\)`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`crypto\.createHash\(['"]md5['"]\)`), "MD5", "Hash function"},
-	{regexp.MustCompile(`crypto\.createCipheriv\(['"]aes-256-gcm['"]\)`), "AES-256-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`crypto\.createCipheriv\(['"]aes-256-cbc['"]\)`), "AES-256-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`crypto\.createCipheriv\(['"]aes-128-gcm['"]\)`), "AES-128-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`crypto\.createCipheriv\(['"]aes-128-cbc['"]\)`), "AES-128-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`crypto\.generateKeyPairSync\(['"]rsa['"]\)`), "RSA", "Key generation"},
-	{regexp.MustCompile(`crypto\.generateKeyPairSync\(['"]ec['"]\)`), "ECDSA", "Key generation"},
-	{regexp.MustCompile(`require\(['"]crypto['"]\)`), "", "Node.js crypto module"},
-	{regexp.MustCompile(`SubtleCrypto|crypto\.subtle`), "", "Web Crypto API"},
+	// === JavaScript / TypeScript / Node.js ===
+	rx(`crypto\.createHash\(['"]sha256['"]\)`, "SHA-256", "Hash function", "api-call"),
+	rx(`crypto\.createHash\(['"]sha512['"]\)`, "SHA-512", "Hash function", "api-call"),
+	rx(`crypto\.createHash\(['"]sha1['"]\)`, "SHA-1", "Hash function", "api-call"),
+	rx(`crypto\.createHash\(['"]md5['"]\)`, "MD5", "Hash function", "api-call"),
+	rx(`crypto\.createCipheriv\(['"]aes-256-gcm['"]\)`, "AES-256-GCM", "Symmetric encryption", "api-call"),
+	rx(`crypto\.createCipheriv\(['"]aes-256-cbc['"]\)`, "AES-256-CBC", "Symmetric encryption", "api-call"),
+	rx(`crypto\.createCipheriv\(['"]aes-128-gcm['"]\)`, "AES-128-GCM", "Symmetric encryption", "api-call"),
+	rx(`crypto\.createCipheriv\(['"]aes-128-cbc['"]\)`, "AES-128-CBC", "Symmetric encryption", "api-call"),
+	rx(`crypto\.generateKeyPairSync\(['"]rsa['"]\)`, "RSA", "Key generation", "api-call"),
+	rx(`crypto\.generateKeyPairSync\(['"]ec['"]\)`, "ECDSA", "Key generation", "api-call"),
+	rx(`require\(['"]crypto['"]\)`, "", "Node.js crypto module", "import"),
+	rx(`SubtleCrypto|crypto\.subtle`, "", "Web Crypto API", "import"),
+	lit("crypto.createHmac", "HMAC-SHA256", "HMAC authentication", "api-call"),
+	lit("crypto.pbkdf2", "PBKDF2", "Key derivation", "api-call"),
 
-	// Java
-	{regexp.MustCompile(`javax\.crypto\.Cipher`), "AES", "Symmetric encryption"},
-	{regexp.MustCompile(`javax\.crypto\.KeyGenerator`), "AES", "Key generation"},
-	{regexp.MustCompile(`java\.security\.KeyPairGenerator`), "RSA", "Key pair generation"},
-	{regexp.MustCompile(`java\.security\.MessageDigest`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`Cipher\.getInstance\(["']AES/GCM`), "AES", "Symmetric encryption (GCM mode)"},
-	{regexp.MustCompile(`Cipher\.getInstance\(["']AES/CBC`), "AES", "Symmetric encryption (CBC mode)"},
-	{regexp.MustCompile(`Cipher\.getInstance\(["']RSA`), "RSA", "Asymmetric encryption"},
-	{regexp.MustCompile(`Cipher\.getInstance\(["']DESede`), "3DES", "Symmetric encryption"},
-	{regexp.MustCompile(`Cipher\.getInstance\(["']DES[/"']`), "DES", "Symmetric encryption"},
-	{regexp.MustCompile(`MessageDigest\.getInstance\(["']SHA-256["']\)`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`MessageDigest\.getInstance\(["']SHA-1["']\)`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`MessageDigest\.getInstance\(["']MD5["']\)`), "MD5", "Hash function"},
-	{regexp.MustCompile(`KeyPairGenerator\.getInstance\(["']RSA["']\)`), "RSA", "Key generation"},
-	{regexp.MustCompile(`KeyPairGenerator\.getInstance\(["']EC["']\)`), "ECDSA", "Key generation"},
+	// CryptoJS
+	lit("CryptoJS.AES.encrypt", "AES", "Symmetric encryption (CryptoJS)", "api-call"),
+	lit("CryptoJS.AES.decrypt", "AES", "Symmetric decryption (CryptoJS)", "api-call"),
+	lit("CryptoJS.SHA256", "SHA-256", "Hash function (CryptoJS)", "api-call"),
+	lit("CryptoJS.HmacSHA256", "HMAC-SHA256", "HMAC (CryptoJS)", "api-call"),
+	lit("CryptoJS.HmacSHA512", "HMAC-SHA512", "HMAC (CryptoJS)", "api-call"),
+	lit("CryptoJS.PBKDF2", "PBKDF2", "Key derivation (CryptoJS)", "api-call"),
 
-	// Go
-	{regexp.MustCompile(`"crypto/aes"`), "AES", "Symmetric encryption"},
-	{regexp.MustCompile(`"crypto/des"`), "3DES", "Symmetric encryption"},
-	{regexp.MustCompile(`"crypto/rsa"`), "RSA", "Asymmetric encryption"},
-	{regexp.MustCompile(`"crypto/ecdsa"`), "ECDSA", "Digital signature"},
-	{regexp.MustCompile(`"crypto/ed25519"`), "Ed25519", "Digital signature"},
-	{regexp.MustCompile(`"crypto/sha256"`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`"crypto/sha512"`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`"crypto/md5"`), "MD5", "Hash function"},
-	{regexp.MustCompile(`"crypto/tls"`), "TLS", "TLS configuration"},
-	{regexp.MustCompile(`"crypto/rc4"`), "RC4", "Stream cipher"},
+	// === Java / Kotlin ===
+	lit("javax.crypto.Cipher", "AES", "Symmetric encryption", "import"),
+	lit("javax.crypto.KeyGenerator", "AES", "Key generation", "import"),
+	lit("java.security.KeyPairGenerator", "RSA", "Key pair generation", "import"),
+	lit("java.security.MessageDigest", "SHA-256", "Hash function", "import"),
+	rx(`Cipher\.getInstance\(["']AES/GCM`, "AES", "Symmetric encryption (GCM mode)", "api-call"),
+	rx(`Cipher\.getInstance\(["']AES/CBC`, "AES", "Symmetric encryption (CBC mode)", "api-call"),
+	rx(`Cipher\.getInstance\(["']RSA`, "RSA", "Asymmetric encryption", "api-call"),
+	rx(`Cipher\.getInstance\(["']DESede`, "3DES", "Symmetric encryption", "api-call"),
+	rx(`Cipher\.getInstance\(["']DES[/"']`, "DES", "Symmetric encryption", "api-call"),
+	rx(`MessageDigest\.getInstance\(["']SHA-256["']\)`, "SHA-256", "Hash function", "api-call"),
+	rx(`MessageDigest\.getInstance\(["']SHA-1["']\)`, "SHA-1", "Hash function", "api-call"),
+	rx(`MessageDigest\.getInstance\(["']MD5["']\)`, "MD5", "Hash function", "api-call"),
+	rx(`KeyPairGenerator\.getInstance\(["']RSA["']\)`, "RSA", "Key generation", "api-call"),
+	rx(`KeyPairGenerator\.getInstance\(["']EC["']\)`, "ECDSA", "Key generation", "api-call"),
+	lit("javax.crypto.Mac", "HMAC-SHA256", "HMAC authentication", "import"),
+	rx(`SecretKeyFactory\.getInstance\(["']PBKDF2`, "PBKDF2", "Key derivation", "api-call"),
+	lit("SSLContext", "TLS", "TLS configuration", "api-call"),
 
-	// C# / .NET
-	{regexp.MustCompile(`System\.Security\.Cryptography`), "", "Crypto namespace import"},
-	{regexp.MustCompile(`Aes\.Create\(`), "AES", "Symmetric encryption"},
-	{regexp.MustCompile(`RSA\.Create\(`), "RSA", "Asymmetric encryption"},
-	{regexp.MustCompile(`ECDsa\.Create\(`), "ECDSA", "Digital signature"},
-	{regexp.MustCompile(`SHA256\.Create\(`), "SHA-256", "Hash function"},
-	{regexp.MustCompile(`SHA512\.Create\(`), "SHA-512", "Hash function"},
-	{regexp.MustCompile(`SHA1\.Create\(`), "SHA-1", "Hash function"},
-	{regexp.MustCompile(`MD5\.Create\(`), "MD5", "Hash function"},
+	// === Go ===
+	lit(`"crypto/aes"`, "AES", "Symmetric encryption", "import"),
+	lit(`"crypto/des"`, "3DES", "Symmetric encryption", "import"),
+	lit(`"crypto/rsa"`, "RSA", "Asymmetric encryption", "import"),
+	lit(`"crypto/ecdsa"`, "ECDSA", "Digital signature", "import"),
+	lit(`"crypto/ed25519"`, "Ed25519", "Digital signature", "import"),
+	lit(`"crypto/sha256"`, "SHA-256", "Hash function", "import"),
+	lit(`"crypto/sha512"`, "SHA-512", "Hash function", "import"),
+	lit(`"crypto/md5"`, "MD5", "Hash function", "import"),
+	lit(`"crypto/tls"`, "TLS", "TLS configuration", "import"),
+	lit(`"crypto/rc4"`, "RC4", "Stream cipher", "import"),
+	rx(`tls\.Config\{`, "TLS", "TLS configuration", "api-call"),
+	rx(`hmac\.New\(sha256\.New`, "HMAC-SHA256", "HMAC authentication", "api-call"),
 
-	// Generic patterns (work across languages) — split by mode for accurate classification
-	{regexp.MustCompile(`(?i)AES[-_/]?256[-_/]?GCM`), "AES-256-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_/]?256[-_/]?CBC`), "AES-256-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_/]?256[-_/]?CTR`), "AES-256-CTR", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_/]?128[-_/]?GCM`), "AES-128-GCM", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_/]?128[-_/]?CBC`), "AES-128-CBC", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)AES[-_/]?128[-_/]?CTR`), "AES-128-CTR", "Symmetric encryption"},
-	{regexp.MustCompile(`(?i)RSA[-_]?2048`), "RSA-2048", "Asymmetric encryption"},
-	{regexp.MustCompile(`(?i)RSA[-_]?4096`), "RSA-4096", "Asymmetric encryption"},
+	// === C# / .NET ===
+	lit("System.Security.Cryptography", "", "Crypto namespace import", "import"),
+	lit("Aes.Create(", "AES", "Symmetric encryption", "api-call"),
+	lit("RSA.Create(", "RSA", "Asymmetric encryption", "api-call"),
+	lit("ECDsa.Create(", "ECDSA", "Digital signature", "api-call"),
+	lit("SHA256.Create(", "SHA-256", "Hash function", "api-call"),
+	lit("SHA512.Create(", "SHA-512", "Hash function", "api-call"),
+	lit("SHA1.Create(", "SHA-1", "Hash function", "api-call"),
+	lit("MD5.Create(", "MD5", "Hash function", "api-call"),
+	lit("HMACSHA256", "HMAC-SHA256", "HMAC authentication", "api-call"),
+	lit("Rfc2898DeriveBytes", "PBKDF2", "Key derivation", "api-call"),
+
+	// === C/C++ (EVP / OpenSSL) ===
+	lit("EVP_EncryptInit", "AES", "Symmetric encryption (EVP)", "symbol"),
+	lit("EVP_DecryptInit", "AES", "Symmetric decryption (EVP)", "symbol"),
+	lit("EVP_DigestInit", "SHA-256", "Hash function (EVP)", "symbol"),
+	lit("EVP_PKEY_new", "RSA", "Key generation (EVP)", "symbol"),
+	lit("EVP_aes_256_gcm", "AES-256-GCM", "Symmetric encryption (EVP)", "symbol"),
+	lit("EVP_sha256", "SHA-256", "Hash function (EVP)", "symbol"),
+	lit("SSL_CTX_new", "TLS", "TLS context creation", "symbol"),
+
+	// === Swift ===
+	lit("SecKeyCreateRandomKey", "RSA", "Key generation", "api-call"),
+	lit("SecKeyCreateEncryptedData", "RSA", "Asymmetric encryption", "api-call"),
+	lit("CC_SHA256", "SHA-256", "Hash function (CommonCrypto)", "api-call"),
+
+	// === ECC curve names (cross-language) ===
+	lit("secp256k1", "ECDSA-P256", "Elliptic curve (secp256k1)", "string"),
+	lit("prime256v1", "ECDSA-P256", "Elliptic curve (prime256v1)", "string"),
+	lit("brainpoolP256r1", "ECDSA-P256", "Elliptic curve (brainpool)", "string"),
+	lit("secp384r1", "ECDSA-P384", "Elliptic curve (secp384r1)", "string"),
+
+	// === TLS context (cross-language) ===
+	rx(`ssl_set_cipher_list`, "TLS", "TLS cipher configuration", "api-call"),
+
+	// === Generic patterns (cross-language) — split by mode for accurate classification ===
+	rx(`(?i)AES[-_/]?256[-_/]?GCM`, "AES-256-GCM", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_/]?256[-_/]?CBC`, "AES-256-CBC", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_/]?256[-_/]?CTR`, "AES-256-CTR", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_/]?128[-_/]?GCM`, "AES-128-GCM", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_/]?128[-_/]?CBC`, "AES-128-CBC", "Symmetric encryption", "string"),
+	rx(`(?i)AES[-_/]?128[-_/]?CTR`, "AES-128-CTR", "Symmetric encryption", "string"),
+	rx(`(?i)RSA[-_]?2048`, "RSA-2048", "Asymmetric encryption", "string"),
+	rx(`(?i)RSA[-_]?4096`, "RSA-4096", "Asymmetric encryption", "string"),
 }
 
 // WebAppModule scans web application source files for crypto API usage patterns.
@@ -144,7 +180,10 @@ func (m *WebAppModule) Scan(ctx context.Context, target model.ScanTarget, findin
 func (m *WebAppModule) isWebAppFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".php", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".cs":
+	case ".php", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".cs",
+		".scala", ".jsp", ".kt", // JVM languages
+		".swift",                      // Swift
+		".c", ".h", ".cpp", ".cc": // C/C++
 		return true
 	}
 	return false
@@ -170,11 +209,11 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 	var findings []*model.Finding
 
 	for _, wp := range webAppCryptoPatterns {
-		if !wp.pattern.MatchString(content) {
+		if !wp.Match(content) {
 			continue
 		}
 
-		algo := wp.algorithm
+		algo := wp.Algorithm
 		if algo == "" {
 			continue // Pattern matched but no specific algorithm
 		}
@@ -187,7 +226,7 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 
 		asset := &model.CryptoAsset{
 			ID:        uuid.New().String(),
-			Function:  wp.function,
+			Function:  wp.Function,
 			Algorithm: algo,
 			Purpose:   "Crypto usage in application source",
 		}
@@ -197,8 +236,9 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 			ID:       uuid.New().String(),
 			Category: 7,
 			Source: model.FindingSource{
-				Type: "file",
-				Path: path,
+				Type:            "file",
+				Path:            path,
+				DetectionMethod: wp.DetectionMethod,
 			},
 			CryptoAsset: asset,
 			Confidence:  0.70,

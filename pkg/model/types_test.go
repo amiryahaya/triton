@@ -299,3 +299,60 @@ func TestModuleCategoryConstants(t *testing.T) {
 	assert.Equal(t, ModuleCategory(2), CategoryActiveRuntime)
 	assert.Equal(t, ModuleCategory(3), CategoryActiveNetwork)
 }
+
+func TestCryptoAssetNewFieldsJSON(t *testing.T) {
+	asset := CryptoAsset{
+		ID:              "cbom-1",
+		Algorithm:       "AES-256-GCM",
+		Language:        "Go",
+		State:           "IN_TRANSIT",
+		CryptoLibraries: []string{"crypto/tls", "crypto/aes"},
+	}
+
+	data, err := json.Marshal(asset)
+	require.NoError(t, err)
+
+	var decoded CryptoAsset
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Go", decoded.Language)
+	assert.Equal(t, "IN_TRANSIT", decoded.State)
+	assert.Equal(t, []string{"crypto/tls", "crypto/aes"}, decoded.CryptoLibraries)
+}
+
+func TestCryptoAssetNewFieldsOmitEmpty(t *testing.T) {
+	asset := CryptoAsset{ID: "cbom-2", Algorithm: "RSA-2048"}
+	data, err := json.Marshal(asset)
+	require.NoError(t, err)
+	jsonStr := string(data)
+
+	assert.NotContains(t, jsonStr, "language")
+	assert.NotContains(t, jsonStr, "state")
+	assert.NotContains(t, jsonStr, "cryptoLibraries")
+}
+
+func TestFindingSourceDetectionMethod(t *testing.T) {
+	source := FindingSource{
+		Type:            "file",
+		Path:            "/usr/bin/test",
+		DetectionMethod: "symbol",
+	}
+
+	data, err := json.Marshal(source)
+	require.NoError(t, err)
+
+	var decoded FindingSource
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, "symbol", decoded.DetectionMethod)
+}
+
+func TestFindingSourceDetectionMethodOmitEmpty(t *testing.T) {
+	source := FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"}
+	data, err := json.Marshal(source)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(data), "detectionMethod")
+}

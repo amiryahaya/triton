@@ -76,10 +76,11 @@ type Finding struct {
 
 // FindingSource discriminates between file, process, and network sources.
 type FindingSource struct {
-	Type     string `json:"type"`
-	Path     string `json:"path,omitempty"`
-	PID      int    `json:"pid,omitempty"`
-	Endpoint string `json:"endpoint,omitempty"`
+	Type            string `json:"type"`
+	Path            string `json:"path,omitempty"`
+	PID             int    `json:"pid,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	DetectionMethod string `json:"detectionMethod,omitempty"` // symbol, string, import, api-call, command, configuration, library-linkage
 }
 
 // CryptoAsset represents a cryptographic discovery for Jadual 2 rows.
@@ -97,6 +98,11 @@ type CryptoAsset struct {
 	PQCStatus         string `json:"pqcStatus,omitempty"`
 	MigrationPriority int    `json:"migrationPriority,omitempty"`
 	BreakYear         int    `json:"breakYear,omitempty"`
+
+	// Binary/library analysis
+	Language        string   `json:"language,omitempty"`        // Go, Rust, C/C++, Python, etc.
+	State           string   `json:"state,omitempty"`           // IN_TRANSIT, AT_REST, IN_USE
+	CryptoLibraries []string `json:"cryptoLibraries,omitempty"` // OpenSSL, BoringSSL, etc.
 
 	// Certificate-specific (optional)
 	Subject      string     `json:"subject,omitempty"`

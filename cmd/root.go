@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/report"
 	"github.com/amiryahaya/triton/pkg/scanner"
@@ -29,8 +30,9 @@ var (
 	validFormats = map[string]bool{"json": true, "html": true, "xlsx": true, "all": true}
 
 	rootCmd = &cobra.Command{
-		Use:   "triton",
-		Short: "SBOM/CBOM scanner for PQC compliance",
+		Use:     "triton",
+		Short:   "SBOM/CBOM scanner for PQC compliance",
+		Version: version.Version,
 		Long: `Triton scans systems to generate Software Bill of Materials (SBOM)
 and Cryptographic Bill of Materials (CBOM) for Post-Quantum Cryptography compliance.
 
@@ -173,7 +175,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid format %q: must be one of json, html, xlsx, all", format)
 	}
 
-	fmt.Printf("Triton SBOM/CBOM Scanner v0.1.0\n")
+	fmt.Printf("Triton SBOM/CBOM Scanner v%s\n", version.Version)
 	fmt.Printf("Platform: %s/%s\n\n", runtime.GOOS, runtime.GOARCH)
 
 	cfg := config.Load(scanProfile)

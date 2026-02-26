@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/google/uuid"
 )
@@ -83,7 +84,7 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 			OS:          runtime.GOOS,
 			ScanProfile: e.config.Profile,
 			Targets:     e.config.ScanTargets,
-			ToolVersion: "0.1.0",
+			ToolVersion: version.Version,
 		},
 	}
 

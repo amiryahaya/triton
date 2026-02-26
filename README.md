@@ -1,93 +1,127 @@
 # Triton - SBOM/CBOM Scanner for PQC Compliance
 
-A lightweight, cross-platform scanner for generating Software Bill of Materials (SBOM) and Cryptographic Bill of Materials (CBOM) to support Post-Quantum Cryptography (PQC) compliance.
+A lightweight, cross-platform CLI tool for generating Software Bill of Materials (SBOM) and Cryptographic Bill of Materials (CBOM) to assess Post-Quantum Cryptography (PQC) compliance.
 
-**Target:** Malaysian government critical sectors for 2030 PQC readiness.
+**Target:** Malaysian government critical infrastructure sectors for 2030 PQC readiness.
 
 ## Features
 
-- 🔍 **Multi-module scanning:** Certificates, keys, packages, libraries, services
-- ⚡ **Fast & lightweight:** Written in Go, single binary, low memory footprint
-- 🖥️ **Cross-platform:** Windows, macOS, Linux
-- 📊 **Multiple output formats:** CycloneDX JSON, CSV, HTML
-- 🛡️ **PQC classification:** SAFE, TRANSITIONAL, DEPRECATED, UNSAFE
-- 📈 **Progress tracking:** Real-time scan progress with beautiful TUI
+- **All 9 CBOM scanning categories** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, network services, protocol probing
+- **PQC classification** — every cryptographic asset rated SAFE / TRANSITIONAL / DEPRECATED / UNSAFE
+- **Crypto-agility assessment** — evaluates each system's ability to migrate to PQC algorithms
+- **Government-format Excel reports** — Jadual 1 (SBOM) and Jadual 2 (CBOM) in a single `.xlsx` workbook
+- **Multiple output formats** — CycloneDX JSON, HTML dashboard, Excel (`.xlsx`)
+- **Cross-platform** — macOS (primary), Linux, Windows
+- **Fast & lightweight** — single binary (~17 MB), concurrent scanning with progress TUI
 
-## Installation
+## Quick Start
 
 ```bash
-# Clone the repository
+# Clone and build
 git clone https://github.com/amiryahaya/triton.git
 cd triton
+make build
 
-# Build
-go build -o triton main.go
+# Run a quick scan
+./bin/triton --profile quick
 
-# Or install directly
-go install
+# Check version
+./bin/triton --version
 ```
 
 ## Usage
 
 ```bash
-# Quick scan (certificates, keys, packages only)
-./triton --profile quick
+# Quick scan — certificates, keys, packages (depth 3, 4 workers)
+./bin/triton --profile quick
 
-# Standard scan (recommended)
-./triton --profile standard
+# Standard scan — adds libraries, services (depth 10, 8 workers)
+./bin/triton --profile standard
 
-# Comprehensive scan (everything)
-./triton --profile comprehensive
+# Comprehensive scan — all categories, unlimited depth (16 workers)
+./bin/triton --profile comprehensive
 
-# Custom output file
-./triton -o my-report.json
+# Specific output format
+./bin/triton --format xlsx          # Excel only
+./bin/triton --format json          # CycloneDX JSON only
+./bin/triton --format html          # HTML dashboard only
+./bin/triton --format all           # All formats (default)
 
 # Run specific modules only
-./triton --modules certificates,keys
+./bin/triton --modules certificates,keys
+
+# Custom output directory
+./bin/triton --output-dir ./reports
 ```
+
+## Scanning Categories
+
+Triton covers all 9 categories defined by the CBOM scanning framework:
+
+| # | Category | Type | Module | Description |
+|---|----------|------|--------|-------------|
+| 1 | Binaries in use | Active/Runtime | `process` | Running processes with crypto libraries |
+| 2 | Binaries on disk | Passive/File | `binary` | Executables with crypto patterns |
+| 3 | Cryptographic libraries | Passive/File | `library` | libcrypto, libssl, mbedtls, etc. |
+| 4 | Kernel modules | Passive/File | `kernel` | Crypto in `.ko` files (Linux) |
+| 5 | Certificates & keys | Passive/File | `certificates`, `keys` | PEM/DER/PKCS certificates and private keys |
+| 6 | Executable scripts | Passive/Code | `scripts` | Crypto calls in `.py`, `.sh`, `.rb`, etc. |
+| 7 | Web applications | Passive/Code | `webapp` | Crypto patterns in `.php`, `.js`, `.go`, `.java` |
+| 8 | Network applications | Active/Network | `network` | TLS/SSH/IPsec service detection on listening ports |
+| 9 | Network protocols | Active/Network | `protocol` | Active TLS probing, cipher suite enumeration |
 
 ## Scan Profiles
 
-| Profile | Description | Modules | Duration |
-|---------|-------------|---------|----------|
-| `quick` | Fast scan of critical areas | certificates, keys, packages | ~2-5 min |
-| `standard` | Balanced system scan | + libraries, services | ~10-30 min |
-| `comprehensive` | Deep scan of entire system | + processes, configs | ~1-4 hours |
+| Profile | Categories | Depth | Workers | Use Case |
+|---------|-----------|-------|---------|----------|
+| `quick` | 2, 3, 5 | 3 | 4 | Fast check of critical crypto assets |
+| `standard` | 1-7 | 10 | 8 | Balanced system assessment |
+| `comprehensive` | 1-9 | Unlimited | 16 | Full audit including network probing |
 
 ## Output Formats
 
-The scanner generates:
-- `triton-report.json` - CycloneDX 1.6 format (machine-readable)
-- `triton-report.csv` - Government format (spreadsheet)
-- `triton-report.html` - Visual report (presentation)
+| Format | File | Description |
+|--------|------|-------------|
+| Excel | `Triton_PQC_Report.xlsx` | Government template with Jadual 1 (SBOM) + Jadual 2 (CBOM) sheets |
+| JSON | `triton-report.json` | CycloneDX 1.6 format for toolchain integration |
+| HTML | `triton-report.html` | Visual dashboard with PQC status charts |
+
+The default (`--format all`) generates all three formats.
 
 ## PQC Classification
 
 | Status | Description | Action Required |
 |--------|-------------|-----------------|
-| **SAFE** | Quantum-resistant algorithms | Monitor |
-| **TRANSITIONAL** | Needs migration plan | Plan replacement |
-| **DEPRECATED** | Replace soon | Schedule update |
-| **UNSAFE** | Immediate vulnerability | Emergency fix |
+| **SAFE** | Quantum-resistant (AES-256, SHA-384, SHA3, ML-KEM, ML-DSA) | Monitor |
+| **TRANSITIONAL** | Needs migration plan (RSA-2048, ECDSA-P256, AES-128) | Plan replacement |
+| **DEPRECATED** | Replace soon (RSA-1024, SHA-1, 3DES, MD5) | Schedule update |
+| **UNSAFE** | Immediate vulnerability (DES, RC4, MD4, NULL) | Emergency fix |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│  Triton Scanner (Go binary)             │
-│  ┌─────────────┐  ┌─────────────────┐   │
-│  │ File Scanner│  │ Crypto Scanner  │   │
-│  │ - Packages  │  │ - Certificates  │   │
-│  │ - Libraries │  │ - Keys          │   │
-│  │ - Binaries  │  │ - TLS configs   │   │
-│  └─────────────┘  └─────────────────┘   │
-│  ┌─────────────────────────────────┐    │
-│  │ Report Generator                │    │
-│  │ - CycloneDX 1.6 JSON            │    │
-│  │ - CSV (gov format)              │    │
-│  │ - HTML (visual)                 │    │
-│  └─────────────────────────────────┘    │
-└─────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  Triton CLI (Cobra + BubbleTea TUI)                    │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Scanner Engine (concurrent, semaphore-based)    │  │
+│  │                                                  │  │
+│  │  Passive/File        Passive/Code   Active       │  │
+│  │  ├─ certificates     ├─ scripts     ├─ process   │  │
+│  │  ├─ keys             └─ webapp      ├─ network   │  │
+│  │  ├─ library                         └─ protocol  │  │
+│  │  ├─ binary                                       │  │
+│  │  ├─ kernel                                       │  │
+│  │  └─ packages                                     │  │
+│  └──────────────────────────────────────────────────┘  │
+│                                                        │
+│  ┌─────────────────┐  ┌────────────────────────────┐  │
+│  │ PQC Classifier  │  │ Report Generator           │  │
+│  │ + Agility Score │  │ ├─ Excel (.xlsx, gov fmt)  │  │
+│  │                 │  │ ├─ CycloneDX JSON          │  │
+│  │                 │  │ └─ HTML dashboard           │  │
+│  └─────────────────┘  └────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
 ```
 
 ## Development
@@ -96,49 +130,68 @@ The scanner generates:
 
 ```
 triton/
-├── cmd/              # CLI commands
-├── internal/         # Internal packages
-│   ├── config/       # Configuration
-│   └── utils/        # Utilities
-├── pkg/              # Public packages
-│   ├── scanner/      # Scanning engine
-│   ├── crypto/       # PQC classification
-│   ├── model/        # Data models
-│   └── report/       # Report generation
-├── test/             # Test fixtures
-└── docs/             # Documentation
+├── cmd/                    # Cobra CLI + BubbleTea TUI
+├── internal/
+│   ├── config/             # Profile-based configuration (Viper)
+│   └── version/            # Version constant
+├── pkg/
+│   ├── scanner/            # Engine + 11 scanner modules
+│   ├── crypto/             # PQC registry, classification, agility scoring
+│   ├── model/              # Data model (ScanResult, System, Finding, CryptoAsset)
+│   └── report/             # Excel, CycloneDX JSON, HTML generators
+├── test/fixtures/          # Test certificates, keys, scripts, configs
+└── docs/                   # Development plan, architecture, code review checklist
+```
+
+### Build & Test Commands
+
+```bash
+make build          # Build for current platform → bin/triton
+make build-all      # Cross-compile (macOS/Linux/Windows, amd64/arm64)
+make test           # Run all tests
+make bench          # Run benchmarks
+make vet            # Run go vet
+make fmt            # Format code
+make lint           # Lint (golangci-lint)
+make clean          # Remove bin/
 ```
 
 ### Running Tests
 
 ```bash
-go test ./...
-```
+# All tests with coverage
+go test -cover ./...
 
-### Building for All Platforms
+# Single test
+go test -v -run TestCertificateParsing ./pkg/scanner
 
-```bash
-# macOS
-go build -o triton-darwin main.go
-
-# Linux
-go build -o triton-linux main.go
-
-# Windows
-go build -o triton.exe main.go
+# Benchmarks
+go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 ```
 
 ## Roadmap
 
-- [x] Project scaffold
-- [x] Certificate scanner
-- [x] Key scanner
-- [x] Package scanner
-- [ ] Service scanner (TLS configs)
-- [ ] Process scanner
+### MVP (Complete)
+
+- [x] Phase 1: Foundation — data model, engine, config, test fixtures
+- [x] Phase 2: File scanners — certificates, keys, libraries, binaries, kernel modules
+- [x] Phase 3: Runtime & code scanners — processes, scripts, web apps, network, protocols
+- [x] Phase 4: PQC assessment & reports — agility scoring, system grouping, Excel/JSON/HTML output
+- [x] Phase 5: Polish — version management, benchmarks, cross-platform builds, documentation
+
+### Post-MVP
+
+- [ ] CI/CD pipeline
+- [ ] Client-server mode (agent reports to central server)
+- [ ] Web UI dashboard
 - [ ] Windows certificate store support
+- [ ] PKCS#11 / HSM scanning
 - [ ] Air-gapped mode
-- [ ] Centralized reporting server
+
+## Requirements
+
+- Go 1.21+
+- macOS, Linux, or Windows
 
 ## License
 
@@ -146,6 +199,5 @@ MIT License - See LICENSE file
 
 ## Acknowledgments
 
-- Inspired by [CipherIQ CBOM Generator](https://github.com/CipherIQ/cbom-generator)
 - CycloneDX standard by OWASP
 - PQC guidance from NIST IR 8413

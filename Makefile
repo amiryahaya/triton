@@ -1,4 +1,4 @@
-.PHONY: build build-all test clean install
+.PHONY: build build-all test bench vet clean install
 
 # Build for current platform
 build:
@@ -35,6 +35,14 @@ fmt:
 # Run linter
 lint:
 	golangci-lint run
+
+# Run benchmarks
+bench:
+	go test -bench=. -benchmem ./...
+
+# Run go vet
+vet:
+	go vet ./...
 
 # Download dependencies
 deps:

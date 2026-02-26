@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/amiryahaya/triton/internal/config"
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // Compile-time interface check
@@ -69,17 +70,17 @@ func TestClassifyPort(t *testing.T) {
 		{22, "TCP", "sshd", "SSH", true},
 		{443, "TCP", "nginx", "TLS", true},
 		{8443, "TCP", "java", "TLS", true},
-		{993, "TCP", "dovecot", "TLS", true},   // IMAPS
-		{995, "TCP", "dovecot", "TLS", true},   // POP3S
-		{636, "TCP", "slapd", "TLS", true},     // LDAPS
-		{5061, "TCP", "kamailio", "TLS", true},  // SIPS
-		{1194, "UDP", "openvpn", "TLS", true},   // OpenVPN
-		{500, "UDP", "strongswan", "IPsec", true}, // IKE
+		{993, "TCP", "dovecot", "TLS", true},       // IMAPS
+		{995, "TCP", "dovecot", "TLS", true},       // POP3S
+		{636, "TCP", "slapd", "TLS", true},         // LDAPS
+		{5061, "TCP", "kamailio", "TLS", true},     // SIPS
+		{1194, "UDP", "openvpn", "TLS", true},      // OpenVPN
+		{500, "UDP", "strongswan", "IPsec", true},  // IKE
 		{4500, "UDP", "strongswan", "IPsec", true}, // NAT-T
-		{80, "TCP", "nginx", "", false},          // HTTP plain
-		{8080, "TCP", "java", "", false},         // HTTP plain
-		{5432, "TCP", "postgres", "", false},     // PostgreSQL
-		{3306, "TCP", "mysqld", "", false},       // MySQL
+		{80, "TCP", "nginx", "", false},            // HTTP plain
+		{8080, "TCP", "java", "", false},           // HTTP plain
+		{5432, "TCP", "postgres", "", false},       // PostgreSQL
+		{3306, "TCP", "mysqld", "", false},         // MySQL
 	}
 
 	for _, tt := range tests {

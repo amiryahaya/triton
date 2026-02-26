@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // cryptoPorts maps well-known ports to their crypto protocol.
@@ -21,20 +22,20 @@ var cryptoPorts = map[int]struct {
 	algorithm string
 	function  string
 }{
-	22:   {"SSH", "SSH server"},
-	443:  {"TLS", "HTTPS server"},
-	993:  {"TLS", "IMAPS server"},
-	995:  {"TLS", "POP3S server"},
-	465:  {"TLS", "SMTPS server"},
-	636:  {"TLS", "LDAPS server"},
-	989:  {"TLS", "FTPS data"},
-	990:  {"TLS", "FTPS control"},
-	5061: {"TLS", "SIPS server"},
-	8443: {"TLS", "HTTPS alt server"},
-	1194: {"TLS", "OpenVPN server"},
-	500:  {"IPsec", "IKE/IPsec"},
-	4500: {"IPsec", "IPsec NAT-T"},
-	4433: {"TLS", "TLS server"},
+	22:    {"SSH", "SSH server"},
+	443:   {"TLS", "HTTPS server"},
+	993:   {"TLS", "IMAPS server"},
+	995:   {"TLS", "POP3S server"},
+	465:   {"TLS", "SMTPS server"},
+	636:   {"TLS", "LDAPS server"},
+	989:   {"TLS", "FTPS data"},
+	990:   {"TLS", "FTPS control"},
+	5061:  {"TLS", "SIPS server"},
+	8443:  {"TLS", "HTTPS alt server"},
+	1194:  {"TLS", "OpenVPN server"},
+	500:   {"IPsec", "IKE/IPsec"},
+	4500:  {"IPsec", "IPsec NAT-T"},
+	4433:  {"TLS", "TLS server"},
 	51820: {"ChaCha20-Poly1305", "WireGuard VPN"},
 }
 
@@ -254,7 +255,7 @@ var networkCommandKeywords = []struct {
 }
 
 // classifyPort determines if a port/protocol/command combination uses crypto.
-func classifyPort(port int, protocol, command string) (algorithm string, isCrypto bool) {
+func classifyPort(port int, _, command string) (algorithm string, isCrypto bool) {
 	// Check well-known crypto ports
 	if info, ok := cryptoPorts[port]; ok {
 		return info.algorithm, true

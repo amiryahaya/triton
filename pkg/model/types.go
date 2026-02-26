@@ -166,17 +166,17 @@ func ComputeSummary(findings []Finding) Summary {
 
 	scannedSet := make(map[int]bool)
 
-	for _, f := range findings {
-		if f.Category >= 1 && f.Category <= 9 {
-			scannedSet[f.Category] = true
+	for i := range findings {
+		if findings[i].Category >= 1 && findings[i].Category <= 9 {
+			scannedSet[findings[i].Category] = true
 		}
 
-		if f.CryptoAsset == nil {
+		if findings[i].CryptoAsset == nil {
 			continue
 		}
 		s.TotalCryptoAssets++
 
-		switch f.CryptoAsset.PQCStatus {
+		switch findings[i].CryptoAsset.PQCStatus {
 		case "SAFE":
 			s.Safe++
 		case "TRANSITIONAL":

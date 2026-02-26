@@ -3,8 +3,9 @@ package crypto
 import (
 	"testing"
 
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func TestAssessCryptoAgilitySingleAlgorithm(t *testing.T) {

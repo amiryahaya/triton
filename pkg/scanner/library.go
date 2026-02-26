@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // cryptoLibPatterns defines known cryptographic shared libraries.
@@ -38,7 +39,7 @@ var cryptoLibPatterns = []struct {
 }
 
 // versionRegex matches common version patterns in strings output.
-var versionRegex = regexp.MustCompile(`(?i)(?:version|openssl)\s+(\d+\.\d+[\.\d]*[a-z]?)`)
+var versionRegex = regexp.MustCompile(`(?i)(?:version|openssl)\s+(\d+\.\d+[.\d]*[a-z]?)`)
 
 // LibraryModule scans for cryptographic shared libraries on the filesystem.
 type LibraryModule struct {
@@ -182,7 +183,7 @@ func extractVersionFromFilename(filename string) string {
 		if len(parts) >= 3 {
 			// Check if the part before .dylib is a version number
 			ver := parts[len(parts)-2]
-			if len(ver) > 0 && ver[0] >= '0' && ver[0] <= '9' {
+			if ver != "" && ver[0] >= '0' && ver[0] <= '9' {
 				return ver
 			}
 		}

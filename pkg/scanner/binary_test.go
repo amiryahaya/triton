@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/amiryahaya/triton/internal/config"
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // Compile-time interface check
@@ -51,10 +52,10 @@ func TestExtractPrintableStrings(t *testing.T) {
 	data := []byte{
 		0x00, 0x00, // padding
 		'A', 'E', 'S', '-', '2', '5', '6', // "AES-256"
-		0x00,                                     // separator
-		'R', 'S', 'A',                            // "RSA" — too short (< 4)
-		0x00,                                     // separator
-		'S', 'H', 'A', '-', '2', '5', '6',       // "SHA-256"
+		0x00,          // separator
+		'R', 'S', 'A', // "RSA" — too short (< 4)
+		0x00,                              // separator
+		'S', 'H', 'A', '-', '2', '5', '6', // "SHA-256"
 		0x00, 0x00,
 	}
 
@@ -108,8 +109,8 @@ func TestBinaryScanWithFakeELF(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	var data []byte
-	data = append(data, 0x7f, 'E', 'L', 'F') // ELF magic
-	data = append(data, make([]byte, 100)...)  // padding
+	data = append(data, 0x7f, 'E', 'L', 'F')  // ELF magic
+	data = append(data, make([]byte, 100)...) // padding
 	data = append(data, []byte("AES-256-GCM cipher suite")...)
 	data = append(data, make([]byte, 10)...)
 	data = append(data, []byte("RSA-2048 key exchange")...)

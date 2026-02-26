@@ -9,10 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // KernelModule scans kernel crypto modules (.ko files on Linux).
@@ -117,7 +118,7 @@ func (m *KernelModule) scanKernelModuleFile(path string) ([]*model.Finding, erro
 		return nil, nil
 	}
 
-	var findings []*model.Finding
+	findings := make([]*model.Finding, 0, len(algos))
 	for _, algo := range algos {
 		asset := &model.CryptoAsset{
 			ID:        uuid.New().String(),
@@ -143,4 +144,3 @@ func (m *KernelModule) scanKernelModuleFile(path string) ([]*model.Finding, erro
 
 	return findings, nil
 }
-

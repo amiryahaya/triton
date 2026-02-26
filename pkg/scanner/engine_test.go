@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/internal/config"
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func testConfig() *config.Config {
@@ -414,8 +415,8 @@ func TestScanMetricsMultipleModules(t *testing.T) {
 	for _, m := range result.Metadata.ModuleMetrics {
 		findingsByModule[m.Module] += m.Findings
 	}
-	assert.Equal(t, 2, findingsByModule["mod-1"])  // 1 finding x 2 targets
-	assert.Equal(t, 4, findingsByModule["mod-2"])  // 2 findings x 2 targets
+	assert.Equal(t, 2, findingsByModule["mod-1"]) // 1 finding x 2 targets
+	assert.Equal(t, 4, findingsByModule["mod-2"]) // 2 findings x 2 targets
 }
 
 func TestScanMetricsDisabledByDefault(t *testing.T) {

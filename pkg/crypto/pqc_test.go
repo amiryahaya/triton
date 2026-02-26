@@ -3,8 +3,9 @@ package crypto
 import (
 	"testing"
 
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func TestClassifyKnownAlgorithms(t *testing.T) {
@@ -143,19 +144,19 @@ func TestClassifyNormalizedMatch(t *testing.T) {
 		expected PQCStatus
 	}{
 		{"aes_256_gcm", SAFE},        // underscores + lowercase
-		{"AES256GCM", SAFE},           // no separators
-		{"rsa_2048", TRANSITIONAL},    // underscores
-		{"sha256", TRANSITIONAL},      // no separators
-		{"ecdsa_p256", TRANSITIONAL},  // underscores
-		{"blake2b", SAFE},             // lowercase
-		{"HMAC_SHA512", SAFE},         // underscores
-		{"tls_1.3", SAFE},             // mixed
-		{"chacha20_poly1305", SAFE},   // underscores + lowercase
-		{"sphincs+", SAFE},            // lowercase
-		{"argon2", SAFE},              // lowercase
-		{"ssl 2.0", UNSAFE},           // space
-		{"hmac-md5", DEPRECATED},      // lowercase + hyphens
-		{"slh_dsa", SAFE},             // underscores
+		{"AES256GCM", SAFE},          // no separators
+		{"rsa_2048", TRANSITIONAL},   // underscores
+		{"sha256", TRANSITIONAL},     // no separators
+		{"ecdsa_p256", TRANSITIONAL}, // underscores
+		{"blake2b", SAFE},            // lowercase
+		{"HMAC_SHA512", SAFE},        // underscores
+		{"tls_1.3", SAFE},            // mixed
+		{"chacha20_poly1305", SAFE},  // underscores + lowercase
+		{"sphincs+", SAFE},           // lowercase
+		{"argon2", SAFE},             // lowercase
+		{"ssl 2.0", UNSAFE},          // space
+		{"hmac-md5", DEPRECATED},     // lowercase + hyphens
+		{"slh_dsa", SAFE},            // underscores
 	}
 
 	for _, tt := range tests {

@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // Module is the interface that all scanner modules must implement.

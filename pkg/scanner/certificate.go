@@ -14,11 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+	"software.sslmate.com/src/go-pkcs12"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 type CertificateModule struct {
@@ -111,7 +112,7 @@ func (m *CertificateModule) parseCertificateFile(path string) ([]*x509.Certifica
 
 	// JKS (Java KeyStore) — detect magic bytes, report as opaque container
 	if ext == ".jks" {
-		return m.parseJKS(data, path)
+		return m.parseJKS(data)
 	}
 
 	var certs []*x509.Certificate
@@ -159,12 +160,9 @@ func (m *CertificateModule) parsePKCS12(data []byte) ([]*x509.Certificate, error
 	return nil, fmt.Errorf("could not decode PKCS#12 with known passwords")
 }
 
-// jksMagic is the Java KeyStore file magic bytes (0xFEEDFEED).
-var jksMagic = []byte{0xFE, 0xED, 0xFE, 0xED}
-
 // parseJKS detects JKS files by magic bytes. Go cannot natively parse JKS,
 // so we return nil certs but the caller can still create a finding for the container.
-func (m *CertificateModule) parseJKS(data []byte, path string) ([]*x509.Certificate, error) {
+func (m *CertificateModule) parseJKS(data []byte) ([]*x509.Certificate, error) {
 	if len(data) < 4 || !isJKSMagic(data[:4]) {
 		return nil, fmt.Errorf("not a valid JKS file")
 	}
@@ -219,10 +217,10 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 // where we detect the file type but can't parse the contents.
 func (m *CertificateModule) createContainerFinding(path, containerType string) *model.Finding {
 	asset := &model.CryptoAsset{
-		ID:       uuid.New().String(),
-		Function: containerType + " keystore",
+		ID:        uuid.New().String(),
+		Function:  containerType + " keystore",
 		Algorithm: "Unknown",
-		Purpose:  "Certificate/key container",
+		Purpose:   "Certificate/key container",
 	}
 	crypto.ClassifyCryptoAsset(asset)
 

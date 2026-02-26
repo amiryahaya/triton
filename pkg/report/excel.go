@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/xuri/excelize/v2"
+
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/xuri/excelize/v2"
 )
 
 // clearRange defines a row range to clear in a sheet.
@@ -71,7 +72,7 @@ func clearExampleRows(f *excelize.File) {
 			_, startRow, _ := excelize.CellNameToCoordinates(start)
 			_, endRow, _ := excelize.CellNameToCoordinates(end)
 			if startRow >= er.startRow && endRow <= er.endRow {
-				f.UnmergeCell(er.sheet, start, end)
+				_ = f.UnmergeCell(er.sheet, start, end)
 			}
 		}
 
@@ -89,7 +90,7 @@ func clearCells(f *excelize.File, cr clearRange) {
 	for row := cr.startRow; row <= cr.endRow; row++ {
 		for col := 1; col <= cr.maxCol; col++ {
 			cell, _ := excelize.CoordinatesToCellName(col, row)
-			f.SetCellValue(cr.sheet, cell, "")
+			_ = f.SetCellValue(cr.sheet, cell, "")
 		}
 	}
 }
@@ -100,18 +101,18 @@ func populateInventory(f *excelize.File, systems []model.System) {
 	const sheet = "0_Inventory"
 	const startRow = 17
 
-	for i, sys := range systems {
+	for i := range systems {
 		row := startRow + i
 
-		algorithms := collectAlgorithms(sys)
-		assetType := deriveAssetType(sys)
-		readiness := deriveReadiness(sys)
+		algorithms := collectAlgorithms(systems[i])
+		assetType := deriveAssetType(systems[i])
+		readiness := deriveReadiness(systems[i])
 
 		vals := []interface{}{
 			fmt.Sprintf("%d", i+1), // A: #
 			assetType,              // B: Asset Type
-			sys.Name,               // C: Asset Name
-			sys.Vendor,             // D: Location / Owner
+			systems[i].Name,        // C: Asset Name
+			systems[i].Vendor,      // D: Location / Owner
 			"Yes",                  // E: Crypto Present?
 			algorithms,             // F: Algorithms Used
 			"CBOM",                 // G: SBOM/CBOM Available?
@@ -121,7 +122,7 @@ func populateInventory(f *excelize.File, systems []model.System) {
 
 		for col, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(col+1, row)
-			f.SetCellValue(sheet, cell, v)
+			_ = f.SetCellValue(sheet, cell, v)
 		}
 	}
 }
@@ -132,39 +133,39 @@ func populateSBOM(f *excelize.File, systems []model.System) {
 	const sheet = "1_SBOM"
 	const startRow = 15
 
-	for i, sys := range systems {
+	for i := range systems {
 		row := startRow + i
 
 		inUse := "Tidak"
-		if sys.InUse {
+		if systems[i].InUse {
 			inUse = "Ya"
 		}
 
-		cbomLink := strings.Join(sys.CBOMRefs, ", ")
+		cbomLink := strings.Join(systems[i].CBOMRefs, ", ")
 
 		vals := []interface{}{
-			fmt.Sprintf("%d", i+1),                  // A: #
-			sys.Name,                                 // B: System / Application
-			sys.Purpose,                              // C: Purpose / Usage
-			sys.URL,                                  // D: URL
-			sys.ServiceMode,                          // E: Services Mode
-			sys.TargetCustomer,                       // F: Target Customer
-			strings.Join(sys.Components, ", "),        // G: Software Component
-			strings.Join(sys.ThirdPartyModules, ", "), // H: Third-party Modules
-			strings.Join(sys.ExternalAPIs, ", "),      // I: External APIs
-			sys.CriticalityLevel,                     // J: Critical Level
-			sys.DataCategory,                         // K: Data Category
-			inUse,                                    // L: In Use?
-			sys.Developer,                            // M: Developer
-			sys.Vendor,                               // N: Vendor
-			"",                                       // O: Has expertise?
-			"",                                       // P: Has budget?
-			cbomLink,                                 // Q: Link to CBOM
+			fmt.Sprintf("%d", i+1),                           // A: #
+			systems[i].Name,                                  // B: System / Application
+			systems[i].Purpose,                               // C: Purpose / Usage
+			systems[i].URL,                                   // D: URL
+			systems[i].ServiceMode,                           // E: Services Mode
+			systems[i].TargetCustomer,                        // F: Target Customer
+			strings.Join(systems[i].Components, ", "),        // G: Software Component
+			strings.Join(systems[i].ThirdPartyModules, ", "), // H: Third-party Modules
+			strings.Join(systems[i].ExternalAPIs, ", "),      // I: External APIs
+			systems[i].CriticalityLevel,                      // J: Critical Level
+			systems[i].DataCategory,                          // K: Data Category
+			inUse,                                            // L: In Use?
+			systems[i].Developer,                             // M: Developer
+			systems[i].Vendor,                                // N: Vendor
+			"",                                               // O: Has expertise?
+			"",                                               // P: Has budget?
+			cbomLink,                                         // Q: Link to CBOM
 		}
 
 		for col, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(col+1, row)
-			f.SetCellValue(sheet, cell, v)
+			_ = f.SetCellValue(sheet, cell, v)
 		}
 	}
 }
@@ -176,24 +177,25 @@ func populateCBOM(f *excelize.File, systems []model.System) {
 	const startRow = 15
 
 	cbomNum := 1
-	for _, sys := range systems {
-		for _, asset := range sys.CryptoAssets {
+	for i := range systems {
+		for j := range systems[i].CryptoAssets {
 			row := startRow + cbomNum - 1
+			asset := &systems[i].CryptoAssets[j]
 
 			vals := []interface{}{
-				fmt.Sprintf("CBOM #%d", cbomNum), // A: # (CBOM)
-				sys.Name,                          // B: System / Application
-				asset.Function,                    // C: Cryptographic Function
-				asset.Algorithm,                   // D: Algorithm Used
-				asset.Library,                     // E: Library / Module
+				fmt.Sprintf("CBOM #%d", cbomNum),    // A: # (CBOM)
+				systems[i].Name,                     // B: System / Application
+				asset.Function,                      // C: Cryptographic Function
+				asset.Algorithm,                     // D: Algorithm Used
+				asset.Library,                       // E: Library / Module
 				crypto.FormatKeySize(asset.KeySize), // F: Key Length
-				asset.Purpose,                     // G: Purpose / Usage
-				asset.CryptoAgility,               // H: Crypto-Agility Support
+				asset.Purpose,                       // G: Purpose / Usage
+				asset.CryptoAgility,                 // H: Crypto-Agility Support
 			}
 
 			for col, v := range vals {
 				cell, _ := excelize.CoordinatesToCellName(col+1, row)
-				f.SetCellValue(sheet, cell, v)
+				_ = f.SetCellValue(sheet, cell, v)
 			}
 			cbomNum++
 		}
@@ -207,24 +209,25 @@ func populateRiskRegister(f *excelize.File, systems []model.System) {
 	const startRow = 10
 
 	rowNum := 1
-	for _, sys := range systems {
-		for _, asset := range sys.CryptoAssets {
+	for i := range systems {
+		for j := range systems[i].CryptoAssets {
 			row := startRow + rowNum - 1
+			asset := &systems[i].CryptoAssets[j]
 
 			vals := []interface{}{
-				fmt.Sprintf("%d", rowNum),  // A: #
-				sys.Name,                   // B: System Name
-				classifyAssetType(asset),   // C: Type of Asset
-				asset.Algorithm,            // D: Cryptographic Algorithm
-				asset.Function,             // E: Algorithm Usage
-				sys.CriticalityLevel,       // F: Criticality
-				assessRisk(asset),          // G: Risk
-				"",                         // H: Risk Owner
+				fmt.Sprintf("%d", rowNum),   // A: #
+				systems[i].Name,             // B: System Name
+				classifyAssetType(*asset),   // C: Type of Asset
+				asset.Algorithm,             // D: Cryptographic Algorithm
+				asset.Function,              // E: Algorithm Usage
+				systems[i].CriticalityLevel, // F: Criticality
+				assessRisk(*asset),          // G: Risk
+				"",                          // H: Risk Owner
 			}
 
 			for col, v := range vals {
 				cell, _ := excelize.CoordinatesToCellName(col+1, row)
-				f.SetCellValue(sheet, cell, v)
+				_ = f.SetCellValue(sheet, cell, v)
 			}
 			rowNum++
 		}
@@ -238,31 +241,32 @@ func populateRiskAssessment(f *excelize.File, systems []model.System) {
 	const startRow = 11
 
 	rowNum := 1
-	for _, sys := range systems {
-		for _, asset := range sys.CryptoAssets {
+	for i := range systems {
+		for j := range systems[i].CryptoAssets {
 			row := startRow + rowNum - 1
+			asset := &systems[i].CryptoAssets[j]
 
-			impact := assessImpact(sys.CriticalityLevel)
+			impact := assessImpact(systems[i].CriticalityLevel)
 			likelihood := assessLikelihood(asset.PQCStatus)
 			score := impact * likelihood
 
 			vals := []interface{}{
-				fmt.Sprintf("%d", rowNum),  // A: #
-				sys.Name,                   // B: Nama Sistem
-				asset.Algorithm,            // C: Algoritma Kriptografi
-				assessRisk(asset),          // D: Risiko
-				riskSource(asset),          // E: Punca Risiko
-				impact,                     // F: Impak
-				likelihood,                 // G: Kemungkinan
-				score,                      // H: Skor Risiko
-				riskLevel(score),           // I: Risk Level
-				"",                         // J: Kawalan Sedia Ada
-				"",                         // K: Mitigation Plan
+				fmt.Sprintf("%d", rowNum), // A: #
+				systems[i].Name,           // B: Nama Sistem
+				asset.Algorithm,           // C: Algoritma Kriptografi
+				assessRisk(*asset),        // D: Risiko
+				riskSource(*asset),        // E: Punca Risiko
+				impact,                    // F: Impak
+				likelihood,                // G: Kemungkinan
+				score,                     // H: Skor Risiko
+				riskLevel(score),          // I: Risk Level
+				"",                        // J: Kawalan Sedia Ada
+				"",                        // K: Mitigation Plan
 			}
 
 			for col, v := range vals {
 				cell, _ := excelize.CoordinatesToCellName(col+1, row)
-				f.SetCellValue(sheet, cell, v)
+				_ = f.SetCellValue(sheet, cell, v)
 			}
 			rowNum++
 		}
@@ -375,10 +379,10 @@ func collectAlgorithms(sys model.System) string {
 	}
 	seen := make(map[string]bool)
 	var algos []string
-	for _, a := range sys.CryptoAssets {
-		if a.Algorithm != "" && !seen[a.Algorithm] {
-			algos = append(algos, a.Algorithm)
-			seen[a.Algorithm] = true
+	for i := range sys.CryptoAssets {
+		if sys.CryptoAssets[i].Algorithm != "" && !seen[sys.CryptoAssets[i].Algorithm] {
+			algos = append(algos, sys.CryptoAssets[i].Algorithm)
+			seen[sys.CryptoAssets[i].Algorithm] = true
 		}
 	}
 	return strings.Join(algos, ", ")
@@ -412,14 +416,14 @@ func deriveAssetType(sys model.System) string {
 func deriveReadiness(sys model.System) string {
 	worst := "SAFE"
 	priority := map[string]int{"SAFE": 0, "TRANSITIONAL": 1, "DEPRECATED": 2, "UNSAFE": 3}
-	for _, a := range sys.CryptoAssets {
-		p, known := priority[a.PQCStatus]
+	for i := range sys.CryptoAssets {
+		p, known := priority[sys.CryptoAssets[i].PQCStatus]
 		if !known {
 			// Unknown status — treat as at least TRANSITIONAL
 			p = priority["TRANSITIONAL"]
 		}
 		if p > priority[worst] {
-			worst = a.PQCStatus
+			worst = sys.CryptoAssets[i].PQCStatus
 			if !known {
 				worst = "TRANSITIONAL"
 			}

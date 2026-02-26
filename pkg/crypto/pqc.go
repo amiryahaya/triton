@@ -46,7 +46,7 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"ChaCha20-Poly1305": {Name: "ChaCha20-Poly1305", Family: "ChaCha20", KeySize: 256, Status: SAFE},
 	"Camellia-256":      {Name: "Camellia-256", Family: "Camellia", KeySize: 256, Status: SAFE},
 	"Twofish":           {Name: "Twofish", Family: "Twofish", KeySize: 256, Status: SAFE},
-	"Serpent":            {Name: "Serpent", Family: "Serpent", KeySize: 256, Status: SAFE},
+	"Serpent":           {Name: "Serpent", Family: "Serpent", KeySize: 256, Status: SAFE},
 	"ARIA-256":          {Name: "ARIA-256", Family: "ARIA", KeySize: 256, Status: SAFE},
 
 	// Large hashes (>256-bit output — quantum safe)

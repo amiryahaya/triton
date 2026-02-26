@@ -4,9 +4,10 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func TestLoadQuickProfile(t *testing.T) {

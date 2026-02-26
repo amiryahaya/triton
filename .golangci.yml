@@ -1,0 +1,49 @@
+# golangci-lint configuration for Triton
+# Docs: https://golangci-lint.run/usage/configuration/
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gofmt
+    - goimports
+    - misspell
+    - prealloc
+    - unconvert
+    - unparam
+    - bodyclose
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/amiryahaya/triton
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam
+  govet:
+    disable:
+      - fieldalignment
+
+issues:
+  exclude-rules:
+    # Relax rules for test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
+        - prealloc
+        - unparam
+    # Relax rules for test fixtures
+    - path: test/fixtures/
+      linters:
+        - errcheck

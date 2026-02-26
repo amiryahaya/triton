@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // cryptoPackageKeywords are keywords that indicate a package provides crypto functionality.

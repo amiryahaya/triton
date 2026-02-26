@@ -52,9 +52,9 @@ func AssessCryptoAgility(assets []model.CryptoAsset) AgilityResult {
 	families := make(map[string]bool)
 	uniqueAlgos := make(map[string]bool)
 
-	for _, a := range assets {
-		info := ClassifyAlgorithm(a.Algorithm, a.KeySize)
-		uniqueAlgos[a.Algorithm] = true
+	for i := range assets {
+		info := ClassifyAlgorithm(assets[i].Algorithm, assets[i].KeySize)
+		uniqueAlgos[assets[i].Algorithm] = true
 		families[info.Family] = true
 
 		switch info.Status {

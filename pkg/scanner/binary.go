@@ -14,10 +14,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // Binary magic bytes for executable detection
@@ -27,7 +28,7 @@ var (
 	machoCigam = []byte{0xFE, 0xED, 0xFA, 0xCF} // 64-bit Mach-O (reverse)
 	macho32    = []byte{0xCE, 0xFA, 0xED, 0xFE} // 32-bit Mach-O
 	machoFat   = []byte{0xCA, 0xFE, 0xBA, 0xBE} // Universal binary
-	peMagic    = []byte{0x4D, 0x5A}              // MZ header (PE/COFF)
+	peMagic    = []byte{0x4D, 0x5A}             // MZ header (PE/COFF)
 )
 
 // cryptoPatterns defines regex patterns for detecting crypto algorithm usage in binaries.

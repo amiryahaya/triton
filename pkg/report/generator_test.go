@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func sampleScanResult() *model.ScanResult {

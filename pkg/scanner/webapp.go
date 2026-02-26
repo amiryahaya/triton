@@ -8,10 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // webAppCryptoPatterns defines patterns for detecting crypto usage in web application source.
@@ -193,7 +194,7 @@ func (m *WebAppModule) isWebAppFile(path string) bool {
 	switch ext {
 	case ".php", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".cs",
 		".scala", ".jsp", ".kt", // JVM languages
-		".swift",                      // Swift
+		".swift",                  // Swift
 		".c", ".h", ".cpp", ".cc": // C/C++
 		return true
 	}
@@ -217,7 +218,7 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 
 	content := string(data)
 	seen := make(map[string]bool)
-	var findings []*model.Finding
+	findings := make([]*model.Finding, 0, len(webAppCryptoPatterns))
 
 	for _, wp := range webAppCryptoPatterns {
 		if !wp.Match(content) {

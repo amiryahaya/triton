@@ -6,9 +6,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // GroupFindingsIntoSystems maps raw scan findings into System entities for Jadual 1.
@@ -25,26 +26,26 @@ func GroupFindingsIntoSystems(findings []model.Finding) []model.System {
 	groups := make(map[string]*systemBuilder)
 	var groupOrder []string
 
-	for _, f := range findings {
-		if f.CryptoAsset == nil {
+	for i := range findings {
+		if findings[i].CryptoAsset == nil {
 			continue
 		}
 
-		key := systemKey(f)
+		key := systemKey(findings[i])
 		builder, exists := groups[key]
 		if !exists {
 			builder = &systemBuilder{
-				name: systemName(f),
+				name: systemName(findings[i]),
 			}
 			groups[key] = builder
 			groupOrder = append(groupOrder, key)
 		}
-		builder.findings = append(builder.findings, f)
+		builder.findings = append(builder.findings, findings[i])
 	}
 
 	// Build systems in order
 	cbomCounter := 1
-	var systems []model.System
+	systems := make([]model.System, 0, len(groupOrder))
 
 	for _, key := range groupOrder {
 		builder := groups[key]
@@ -110,8 +111,8 @@ type systemBuilder struct {
 
 func (b *systemBuilder) buildSystem(cbomCounter *int) model.System {
 	sys := model.System{
-		ID:   uuid.New().String(),
-		Name: b.name,
+		ID:    uuid.New().String(),
+		Name:  b.name,
 		InUse: true,
 	}
 
@@ -123,12 +124,12 @@ func (b *systemBuilder) buildSystem(cbomCounter *int) model.System {
 
 	startCBOM := *cbomCounter
 
-	for _, f := range b.findings {
-		if f.CryptoAsset == nil {
+	for i := range b.findings {
+		if b.findings[i].CryptoAsset == nil {
 			continue
 		}
 
-		asset := *f.CryptoAsset
+		asset := *b.findings[i].CryptoAsset
 		asset.SystemName = sys.Name
 
 		// Assign crypto-agility assessment per asset
@@ -138,12 +139,12 @@ func (b *systemBuilder) buildSystem(cbomCounter *int) model.System {
 		*cbomCounter++
 
 		// Collect components and libraries
-		if f.CryptoAsset.Library != "" && !librarySet[f.CryptoAsset.Library] {
-			libraries = append(libraries, f.CryptoAsset.Library)
-			librarySet[f.CryptoAsset.Library] = true
+		if b.findings[i].CryptoAsset.Library != "" && !librarySet[b.findings[i].CryptoAsset.Library] {
+			libraries = append(libraries, b.findings[i].CryptoAsset.Library)
+			librarySet[b.findings[i].CryptoAsset.Library] = true
 		}
 
-		comp := f.CryptoAsset.Algorithm
+		comp := b.findings[i].CryptoAsset.Algorithm
 		if comp != "" && !componentSet[comp] {
 			components = append(components, comp)
 			componentSet[comp] = true
@@ -175,18 +176,18 @@ func (b *systemBuilder) buildSystem(cbomCounter *int) model.System {
 }
 
 func (b *systemBuilder) derivePurpose() string {
-	for _, f := range b.findings {
-		if f.CryptoAsset != nil && f.CryptoAsset.Purpose != "" {
-			return f.CryptoAsset.Purpose
+	for i := range b.findings {
+		if b.findings[i].CryptoAsset != nil && b.findings[i].CryptoAsset.Purpose != "" {
+			return b.findings[i].CryptoAsset.Purpose
 		}
 	}
 	return "Cryptographic operations"
 }
 
 func (b *systemBuilder) deriveURL() string {
-	for _, f := range b.findings {
-		if f.Source.Type == "network" && f.Source.Endpoint != "" {
-			return f.Source.Endpoint
+	for i := range b.findings {
+		if b.findings[i].Source.Type == "network" && b.findings[i].Source.Endpoint != "" {
+			return b.findings[i].Source.Endpoint
 		}
 	}
 	return ""
@@ -196,26 +197,26 @@ func (b *systemBuilder) deriveURL() string {
 func (b *systemBuilder) deriveExternalAPIs() []string {
 	apiSet := make(map[string]bool)
 
-	for _, f := range b.findings {
-		switch f.Source.Type {
+	for i := range b.findings {
+		switch b.findings[i].Source.Type {
 		case "network":
 			// Command name from lsof output (e.g., "httpd", "sshd")
-			if f.Source.Path != "" {
-				fields := strings.Fields(f.Source.Path)
+			if b.findings[i].Source.Path != "" {
+				fields := strings.Fields(b.findings[i].Source.Path)
 				if len(fields) > 0 {
 					apiSet[filepath.Base(fields[0])] = true
 				}
 			}
 		case "process":
 			// Process command name
-			if f.Source.Path != "" {
-				fields := strings.Fields(f.Source.Path)
+			if b.findings[i].Source.Path != "" {
+				fields := strings.Fields(b.findings[i].Source.Path)
 				if len(fields) > 0 {
 					apiSet[filepath.Base(fields[0])] = true
 				}
 			}
 		default:
-			app := deriveAppFromPath(f.Source.Path)
+			app := deriveAppFromPath(b.findings[i].Source.Path)
 			if app != "" {
 				apiSet[app] = true
 			}
@@ -226,7 +227,7 @@ func (b *systemBuilder) deriveExternalAPIs() []string {
 		return []string{"N/A"}
 	}
 
-	var apis []string
+	apis := make([]string, 0, len(apiSet))
 	for api := range apiSet {
 		apis = append(apis, api)
 	}
@@ -355,10 +356,8 @@ func deriveAppFromPath(path string) string {
 func extractWindowsAppName(path string) string {
 	// Skip "\Program Files" or "\Program Files (x86)"
 	rest := path[len(`\Program Files`):]
-	if strings.HasPrefix(rest, " (x86)") {
-		rest = rest[6:]
-	}
-	if len(rest) == 0 || rest[0] != '\\' {
+	rest = strings.TrimPrefix(rest, " (x86)")
+	if rest == "" || rest[0] != '\\' {
 		return ""
 	}
 	rest = rest[1:] // skip leading backslash
@@ -402,12 +401,12 @@ func indexFold(s, substr string) int {
 
 func (b *systemBuilder) deriveCriticality() string {
 	worstPriority := 0
-	for _, f := range b.findings {
-		if f.CryptoAsset == nil {
+	for i := range b.findings {
+		if b.findings[i].CryptoAsset == nil {
 			continue
 		}
-		if f.CryptoAsset.MigrationPriority > worstPriority {
-			worstPriority = f.CryptoAsset.MigrationPriority
+		if b.findings[i].CryptoAsset.MigrationPriority > worstPriority {
+			worstPriority = b.findings[i].CryptoAsset.MigrationPriority
 		}
 	}
 

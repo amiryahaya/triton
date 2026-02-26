@@ -14,10 +14,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/google/uuid"
 )
 
 // keyPEMHeaders maps PEM header types to (keyType, algorithm) pairs.
@@ -41,7 +42,7 @@ var sshKeyPrefixes = []struct {
 	algorithm string
 	keySize   int
 }{
-	{"ssh-rsa", "RSA", 0},         // key size varies
+	{"ssh-rsa", "RSA", 0}, // key size varies
 	{"ssh-ed25519", "Ed25519", 256},
 	{"ecdsa-sha2-nistp256", "ECDSA-P256", 256},
 	{"ecdsa-sha2-nistp384", "ECDSA-P384", 384},
@@ -302,4 +303,3 @@ func (m *KeyModule) detectSSHPublicKey(content string) (keyType, algorithm strin
 	}
 	return "", "", 0
 }
-

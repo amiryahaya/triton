@@ -47,7 +47,7 @@ func (g *Generator) GenerateAllReports(result *model.ScanResult, timestamp strin
 		{"Excel", excelFile, func() error { return g.GenerateExcel(result, excelFile) }},
 	}
 
-	var files []string
+	files := make([]string, 0, len(reports))
 	for _, r := range reports {
 		if err := r.gen(); err != nil {
 			return files, fmt.Errorf("generating %s: %w", r.name, err)
@@ -73,7 +73,7 @@ func (g *Generator) GenerateCycloneDX(result *model.ScanResult, filename string)
 		return err
 	}
 
-	return os.WriteFile(filename, data, 0644)
+	return os.WriteFile(filename, data, 0o644)
 }
 
 // GenerateHTML creates an HTML report with PQC dashboard, systems table, and CBOM detail.
@@ -146,7 +146,8 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			<th>Link to CBOM</th>
 		</tr>
 `)
-	for i, sys := range result.Systems {
+	for i := range result.Systems {
+		sys := &result.Systems[i]
 		cbomLink := strings.Join(sys.CBOMRefs, ", ")
 		b.WriteString(fmt.Sprintf(`		<tr>
 			<td>%d</td>
@@ -174,8 +175,10 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 		</tr>
 `)
 	cbomNum := 1
-	for _, sys := range result.Systems {
-		for _, asset := range sys.CryptoAssets {
+	for i := range result.Systems {
+		sys := &result.Systems[i]
+		for j := range sys.CryptoAssets {
+			asset := &sys.CryptoAssets[j]
 			statusClass := "status-" + html.EscapeString(asset.PQCStatus)
 			b.WriteString(fmt.Sprintf(`		<tr>
 			<td>CBOM #%d</td>
@@ -199,6 +202,5 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 	b.WriteString(`</body>
 </html>`)
 
-	return os.WriteFile(filename, []byte(b.String()), 0644)
+	return os.WriteFile(filename, []byte(b.String()), 0o644)
 }
-

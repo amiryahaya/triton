@@ -6,10 +6,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/amiryahaya/triton/internal/config"
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func TestWalkTargetDepthEnforcement(t *testing.T) {

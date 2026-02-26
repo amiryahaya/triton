@@ -23,8 +23,9 @@ func New(outputDir string) *Generator {
 }
 
 // GenerateAllReports produces the full set of government-format reports.
+// The timestamp string is embedded in each filename.
 // Returns a list of generated file paths.
-func (g *Generator) GenerateAllReports(result *model.ScanResult) ([]string, error) {
+func (g *Generator) GenerateAllReports(result *model.ScanResult, timestamp string) ([]string, error) {
 	dir := g.outputDir
 	if dir == "" {
 		dir = "."
@@ -36,9 +37,9 @@ func (g *Generator) GenerateAllReports(result *model.ScanResult) ([]string, erro
 		gen      func() error
 	}
 
-	jsonFile := filepath.Join(dir, "triton-report.json")
-	htmlFile := filepath.Join(dir, "triton-report.html")
-	excelFile := filepath.Join(dir, "Triton_PQC_Report.xlsx")
+	jsonFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.json", timestamp))
+	htmlFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.html", timestamp))
+	excelFile := filepath.Join(dir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", timestamp))
 
 	reports := []reportFunc{
 		{"JSON", jsonFile, func() error { return g.GenerateCycloneDX(result, jsonFile) }},

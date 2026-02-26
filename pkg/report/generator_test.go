@@ -146,7 +146,7 @@ func TestGenerateAllReports(t *testing.T) {
 	g := New(dir)
 	result := sampleScanResult()
 
-	files, err := g.GenerateAllReports(result)
+	files, err := g.GenerateAllReports(result, "20260227-120000")
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
@@ -155,6 +155,7 @@ func TestGenerateAllReports(t *testing.T) {
 
 	for _, f := range files {
 		assert.True(t, strings.HasPrefix(f, dir), "file should be in output dir")
+		assert.Contains(t, f, "20260227-120000", "filename should contain timestamp")
 		info, err := os.Stat(f)
 		require.NoError(t, err)
 		assert.True(t, info.Size() > 0, "file should not be empty: %s", f)

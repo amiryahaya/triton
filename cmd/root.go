@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
@@ -245,31 +246,33 @@ func generateReports(result *model.ScanResult) error {
 		result.Summary.TotalSystems = len(result.Systems)
 	}
 
+	ts := time.Now().Format("20060102-150405")
 	gen := report.New(outputDir)
 
 	switch format {
 	case "json":
-		if err := gen.GenerateCycloneDX(result, outputFile); err != nil {
+		jsonFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.json", ts))
+		if err := gen.GenerateCycloneDX(result, jsonFile); err != nil {
 			return err
 		}
-		fmt.Printf("Report saved to: %s\n", outputFile)
+		fmt.Printf("Report saved to: %s\n", jsonFile)
 
 	case "html":
-		htmlFile := filepath.Join(outputDir, "triton-report.html")
+		htmlFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.html", ts))
 		if err := gen.GenerateHTML(result, htmlFile); err != nil {
 			return err
 		}
 		fmt.Printf("Report saved to: %s\n", htmlFile)
 
 	case "xlsx":
-		xlsxFile := filepath.Join(outputDir, "Triton_PQC_Report.xlsx")
+		xlsxFile := filepath.Join(outputDir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", ts))
 		if err := gen.GenerateExcel(result, xlsxFile); err != nil {
 			return err
 		}
 		fmt.Printf("Report saved to: %s\n", xlsxFile)
 
 	default: // "all"
-		files, err := gen.GenerateAllReports(result)
+		files, err := gen.GenerateAllReports(result, ts)
 		if err != nil {
 			return err
 		}

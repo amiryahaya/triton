@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -25,6 +26,7 @@ var cryptoPackageKeywords = []string{
 
 type PackageModule struct {
 	config *config.Config
+	once   sync.Once
 }
 
 func NewPackageModule(cfg *config.Config) *PackageModule {
@@ -44,14 +46,18 @@ func (m *PackageModule) ScanTargetType() model.ScanTargetType {
 }
 
 func (m *PackageModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return m.scanMacPackages(ctx, findings)
-	case "linux":
-		return m.scanLinuxPackages(ctx, findings)
-	default:
-		return nil
-	}
+	// Package listing is global (not per-target), so only run once
+	// even though the engine calls Scan for each filesystem target.
+	var scanErr error
+	m.once.Do(func() {
+		switch runtime.GOOS {
+		case "darwin":
+			scanErr = m.scanMacPackages(ctx, findings)
+		case "linux":
+			scanErr = m.scanLinuxPackages(ctx, findings)
+		}
+	})
+	return scanErr
 }
 
 func (m *PackageModule) scanMacPackages(ctx context.Context, findings chan<- *model.Finding) error {

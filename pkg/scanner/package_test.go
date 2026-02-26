@@ -120,6 +120,40 @@ func TestParsePackageContextCancellation(t *testing.T) {
 	_ = err // May or may not error depending on timing
 }
 
+func TestPackageScanOnlyRunsOnce(t *testing.T) {
+	m := NewPackageModule(&config.Config{})
+
+	targets := []model.ScanTarget{
+		{Type: model.TargetFilesystem, Value: "/etc", Depth: 3},
+		{Type: model.TargetFilesystem, Value: "/usr/local", Depth: 3},
+		{Type: model.TargetFilesystem, Value: "/Applications", Depth: 3},
+		{Type: model.TargetFilesystem, Value: "/System/Library", Depth: 3},
+	}
+
+	findings := make(chan *model.Finding, 500)
+	ctx := context.Background()
+
+	for _, target := range targets {
+		err := m.Scan(ctx, target, findings)
+		require.NoError(t, err)
+	}
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// Check no duplicates: each source path should appear exactly once
+	seen := make(map[string]bool)
+	for _, f := range collected {
+		if seen[f.Source.Path] {
+			t.Errorf("duplicate finding: %s", f.Source.Path)
+		}
+		seen[f.Source.Path] = true
+	}
+}
+
 func TestMultipleCryptoPackages(t *testing.T) {
 	m := NewPackageModule(&config.Config{})
 

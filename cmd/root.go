@@ -293,12 +293,13 @@ func generateReports(result *model.ScanResult) error {
 }
 
 func printScanMetrics(result *model.ScanResult) {
-	metrics := result.Metadata.ModuleMetrics
-	if len(metrics) == 0 {
+	if len(result.Metadata.ModuleMetrics) == 0 {
 		return
 	}
 
-	// Sort by duration descending
+	// Sort a copy so we don't mutate the report data
+	metrics := make([]model.ModuleMetric, len(result.Metadata.ModuleMetrics))
+	copy(metrics, result.Metadata.ModuleMetrics)
 	sort.Slice(metrics, func(i, j int) bool {
 		return metrics[i].Duration > metrics[j].Duration
 	})
@@ -356,9 +357,13 @@ func printScanMetrics(result *model.ScanResult) {
 		moduleSet[m.Module] = true
 	}
 
-	fmt.Printf("Total (%d modules, %d pairs) %*s %8d %8d %9d %8.1fMB\n",
-		len(moduleSet), len(metrics),
-		maxTarget+10-len(fmt.Sprintf("Total (%d modules, %d pairs)", len(moduleSet), len(metrics)))-1,
+	summaryLabel := fmt.Sprintf("Total (%d modules, %d pairs)", len(moduleSet), len(metrics))
+	padWidth := maxTarget + 10 - len(summaryLabel) - 1
+	if padWidth < 1 {
+		padWidth = 1
+	}
+	fmt.Printf("%s %*s %8d %8d %9d %8.1fMB\n",
+		summaryLabel, padWidth,
 		formatDuration(totalDuration),
 		totalScanned, totalMatched,
 		totalFindings, totalMemory)

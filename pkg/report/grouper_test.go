@@ -178,6 +178,115 @@ func TestSystemFieldsPopulated(t *testing.T) {
 	assert.NotEmpty(t, sys.CriticalityLevel)
 }
 
+func TestDeriveAppFromPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		// macOS
+		{"macOS app bundle", "/Applications/Rider.app/Contents/lib/libcrypto.dylib", "Rider"},
+		{"macOS app with spaces", "/Applications/pgAdmin 4.app/Contents/Resources/cert.pem", "pgAdmin 4"},
+		{"nested macOS app", "/Applications/Adobe Acrobat DC/Adobe Acrobat.app/Contents/Resources/cert.pem", "Adobe Acrobat"},
+		{"macOS framework", "/System/Library/Frameworks/Security.framework/Versions/A/Security", "Security"},
+		{"nested framework in app", "/Applications/Rider.app/Contents/Frameworks/Mono.framework/Versions/6.12/lib", "Rider"},
+		{"standalone framework", "/Library/Frameworks/Mono.framework/Versions/6.12/lib/cert.pem", "Mono"},
+
+		// Homebrew (macOS + Linux)
+		{"homebrew cellar", "/usr/local/Cellar/openssl@3/3.1.0/lib/libcrypto.dylib", "openssl@3"},
+		{"homebrew cellar linux", "/home/linuxbrew/.linuxbrew/Cellar/curl/8.4.0/lib/cert.pem", "curl"},
+		{"homebrew opt", "/usr/local/opt/python@3.11/lib/libssl.dylib", "python@3.11"},
+
+		// Windows
+		{"windows program files", `C:\Program Files\OpenSSL-Win64\bin\libcrypto.dll`, "OpenSSL-Win64"},
+		{"windows program files x86", `C:\Program Files (x86)\PuTTY\putty.exe`, "PuTTY"},
+		{"windows vendor app", `C:\Program Files\Apache Software Foundation\Tomcat 9.0\lib\cert.pem`, "Apache Software Foundation Tomcat 9.0"},
+		{"windows programdata", `C:\ProgramData\MySQL\certs\server-cert.pem`, "MySQL"},
+		{"windows case insensitive", `c:\program files\Git\usr\ssl\cert.pem`, "Git"},
+
+		// Linux
+		{"linux dpkg doc", "/usr/share/doc/libssl3/copyright", "libssl3"},
+		{"linux snap", "/snap/firefox/3416/usr/lib/firefox/cert9.db", "firefox"},
+		{"linux flatpak", "/var/lib/flatpak/app/org.mozilla.firefox/current/cert.pem", "org.mozilla.firefox"},
+		{"linux opt package", "/opt/google/chrome/cert.pem", "google"},
+		{"linux usr lib package", "/usr/lib/openssh/ssh-keygen", "openssh"},
+		{"linux usr lib arch triplet", "/usr/lib/x86_64-linux-gnu/openssl/engines/libcrypto.so", "openssl"},
+		{"linux usr lib64", "/usr/lib64/nss/libnss3.so", "nss"},
+
+		// No match
+		{"plain system path", "/etc/ssl/certs/ca-certificates.crt", ""},
+		{"empty path", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := deriveAppFromPath(tt.path)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExternalAPIsPopulatedForFiles(t *testing.T) {
+	findings := []model.Finding{
+		{
+			ID: "f1", Category: 5, Module: "certificates",
+			Source:      model.FindingSource{Type: "file", Path: "/Applications/Rider.app/Contents/lib/cert.pem"},
+			CryptoAsset: &model.CryptoAsset{ID: "c1", Algorithm: "RSA-2048"},
+		},
+		{
+			ID: "f2", Category: 5, Module: "certificates",
+			Source:      model.FindingSource{Type: "file", Path: "/Applications/Rider.app/Contents/lib/key.pem"},
+			CryptoAsset: &model.CryptoAsset{ID: "c2", Algorithm: "RSA-4096"},
+		},
+	}
+
+	systems := GroupFindingsIntoSystems(findings)
+	require.Len(t, systems, 1)
+	assert.Contains(t, systems[0].ExternalAPIs, "Rider")
+}
+
+func TestExternalAPIsPopulatedForNetwork(t *testing.T) {
+	findings := []model.Finding{
+		{
+			ID: "f1", Category: 8, Module: "network",
+			Source:      model.FindingSource{Type: "network", Path: "httpd", Endpoint: ":443/tcp"},
+			CryptoAsset: &model.CryptoAsset{ID: "c1", Algorithm: "TLS", Function: "HTTPS server"},
+		},
+	}
+
+	systems := GroupFindingsIntoSystems(findings)
+	require.Len(t, systems, 1)
+	assert.Contains(t, systems[0].ExternalAPIs, "httpd")
+}
+
+func TestExternalAPIsPopulatedForProcess(t *testing.T) {
+	findings := []model.Finding{
+		{
+			ID: "f1", Category: 1, Module: "processes",
+			Source:      model.FindingSource{Type: "process", PID: 100, Path: "/usr/sbin/sshd -D"},
+			CryptoAsset: &model.CryptoAsset{ID: "c1", Algorithm: "SSH"},
+		},
+	}
+
+	systems := GroupFindingsIntoSystems(findings)
+	require.Len(t, systems, 1)
+	assert.Contains(t, systems[0].ExternalAPIs, "sshd")
+}
+
+func TestExternalAPIsNAForUnknownPaths(t *testing.T) {
+	findings := []model.Finding{
+		{
+			ID: "f1", Category: 5, Module: "certificates",
+			Source:      model.FindingSource{Type: "file", Path: "/etc/ssl/certs/ca.pem"},
+			CryptoAsset: &model.CryptoAsset{ID: "c1", Algorithm: "RSA-2048"},
+		},
+	}
+
+	systems := GroupFindingsIntoSystems(findings)
+	require.Len(t, systems, 1)
+	assert.Equal(t, []string{"N/A"}, systems[0].ExternalAPIs)
+}
+
 func TestGroupFindingsNilCryptoAsset(t *testing.T) {
 	findings := []model.Finding{
 		{

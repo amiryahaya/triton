@@ -34,13 +34,27 @@ type ScanResult struct {
 
 // ScanMetadata captures scan execution context.
 type ScanMetadata struct {
-	Timestamp   time.Time     `json:"timestamp"`
-	Hostname    string        `json:"hostname"`
-	OS          string        `json:"os"`
-	ScanProfile string        `json:"scanProfile"`
-	Targets     []ScanTarget  `json:"targets"`
-	Duration    time.Duration `json:"duration"`
-	ToolVersion string        `json:"toolVersion"`
+	Timestamp     time.Time      `json:"timestamp"`
+	Hostname      string         `json:"hostname"`
+	OS            string         `json:"os"`
+	ScanProfile   string         `json:"scanProfile"`
+	Targets       []ScanTarget   `json:"targets"`
+	Duration      time.Duration  `json:"duration"`
+	ToolVersion   string         `json:"toolVersion"`
+	ModuleMetrics []ModuleMetric `json:"moduleMetrics,omitempty"`
+	PeakMemoryMB  float64        `json:"peakMemoryMB,omitempty"`
+}
+
+// ModuleMetric captures per-module-target scan performance metrics.
+type ModuleMetric struct {
+	Module        string        `json:"module"`
+	Target        string        `json:"target"`
+	Duration      time.Duration `json:"duration"`
+	FilesScanned  int64         `json:"filesScanned"`
+	FilesMatched  int64         `json:"filesMatched"`
+	Findings      int           `json:"findings"`
+	MemoryDeltaMB float64       `json:"memoryDeltaMB"`
+	Error         string        `json:"error,omitempty"`
 }
 
 // System represents a system/application entity for Jadual 1 rows.

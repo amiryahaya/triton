@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -98,7 +99,9 @@ var scriptCryptoPatterns = []CryptoPattern{
 
 // ScriptModule scans script files for crypto API usage patterns.
 type ScriptModule struct {
-	config *config.Config
+	config      *config.Config
+	lastScanned int64
+	lastMatched int64
 }
 
 func NewScriptModule(cfg *config.Config) *ScriptModule {
@@ -117,11 +120,19 @@ func (m *ScriptModule) ScanTargetType() model.ScanTargetType {
 	return model.TargetFilesystem
 }
 
+func (m *ScriptModule) FileStats() (scanned, matched int64) {
+	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
+}
+
 func (m *ScriptModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
+	atomic.StoreInt64(&m.lastScanned, 0)
+	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
-		target:    target,
-		config:    m.config,
-		matchFile: m.isScriptFile,
+		target:       target,
+		config:       m.config,
+		matchFile:    m.isScriptFile,
+		filesScanned: &m.lastScanned,
+		filesMatched: &m.lastMatched,
 		processFile: func(path string) error {
 			found, err := m.scanScriptFile(path)
 			if err != nil {

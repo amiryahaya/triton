@@ -18,6 +18,7 @@ type Config struct {
 	MaxFileSize     int64
 	Workers         int
 	ScanTargets     []model.ScanTarget
+	Metrics         bool
 }
 
 type ScanProfile struct {

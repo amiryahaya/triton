@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -139,4 +140,57 @@ func TestShouldSkipDir(t *testing.T) {
 	assert.True(t, shouldSkipDir("/proc/1234", cfg))
 	assert.False(t, shouldSkipDir("/etc/ssl", cfg))
 	assert.False(t, shouldSkipDir("/etc/ssl", nil))
+}
+
+func TestWalkerFileCounters(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create mixed files: 3 .pem (match), 2 .txt (no match)
+	os.WriteFile(filepath.Join(tmpDir, "a.pem"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "b.pem"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "c.pem"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "d.txt"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "e.txt"), []byte("data"), 0644)
+
+	var scanned, matched int64
+	err := walkTarget(walkerConfig{
+		target: model.ScanTarget{
+			Type:  model.TargetFilesystem,
+			Value: tmpDir,
+			Depth: -1,
+		},
+		config:       &config.Config{},
+		matchFile:    func(path string) bool { return filepath.Ext(path) == ".pem" },
+		processFile:  func(path string) error { return nil },
+		filesScanned: &scanned,
+		filesMatched: &matched,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(5), atomic.LoadInt64(&scanned), "all 5 files should be scanned")
+	assert.Equal(t, int64(3), atomic.LoadInt64(&matched), "only 3 .pem files should match")
+}
+
+func TestWalkerFileCountersNil(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "a.pem"), []byte("data"), 0644)
+
+	// nil counters should not panic
+	var found []string
+	err := walkTarget(walkerConfig{
+		target: model.ScanTarget{
+			Type:  model.TargetFilesystem,
+			Value: tmpDir,
+			Depth: -1,
+		},
+		config:    &config.Config{},
+		matchFile: func(path string) bool { return true },
+		processFile: func(path string) error {
+			found = append(found, path)
+			return nil
+		},
+		// filesScanned and filesMatched are nil — should work fine
+	})
+	require.NoError(t, err)
+	assert.Len(t, found, 1)
 }

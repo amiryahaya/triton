@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -134,7 +135,9 @@ var webAppCryptoPatterns = []CryptoPattern{
 
 // WebAppModule scans web application source files for crypto API usage patterns.
 type WebAppModule struct {
-	config *config.Config
+	config      *config.Config
+	lastScanned int64
+	lastMatched int64
 }
 
 func NewWebAppModule(cfg *config.Config) *WebAppModule {
@@ -153,11 +156,19 @@ func (m *WebAppModule) ScanTargetType() model.ScanTargetType {
 	return model.TargetFilesystem
 }
 
+func (m *WebAppModule) FileStats() (scanned, matched int64) {
+	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
+}
+
 func (m *WebAppModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
+	atomic.StoreInt64(&m.lastScanned, 0)
+	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
-		target:    target,
-		config:    m.config,
-		matchFile: m.isWebAppFile,
+		target:       target,
+		config:       m.config,
+		matchFile:    m.isWebAppFile,
+		filesScanned: &m.lastScanned,
+		filesMatched: &m.lastMatched,
 		processFile: func(path string) error {
 			found, err := m.scanWebAppFile(path)
 			if err != nil {

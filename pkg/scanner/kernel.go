@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -17,7 +18,9 @@ import (
 // KernelModule scans kernel crypto modules (.ko files on Linux).
 // Gracefully skips on macOS and Windows.
 type KernelModule struct {
-	config *config.Config
+	config      *config.Config
+	lastScanned int64
+	lastMatched int64
 }
 
 func NewKernelModule(cfg *config.Config) *KernelModule {
@@ -36,6 +39,10 @@ func (m *KernelModule) ScanTargetType() model.ScanTargetType {
 	return model.TargetFilesystem
 }
 
+func (m *KernelModule) FileStats() (scanned, matched int64) {
+	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
+}
+
 func (m *KernelModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
 	// Kernel module scanning only works on Linux
 	if runtime.GOOS != "linux" {
@@ -51,10 +58,14 @@ func (m *KernelModule) ScanWithOverride(ctx context.Context, target model.ScanTa
 }
 
 func (m *KernelModule) scanKernelModules(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
+	atomic.StoreInt64(&m.lastScanned, 0)
+	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
-		target:    target,
-		config:    m.config,
-		matchFile: m.isKernelModule,
+		target:       target,
+		config:       m.config,
+		matchFile:    m.isKernelModule,
+		filesScanned: &m.lastScanned,
+		filesMatched: &m.lastMatched,
 		processFile: func(path string) error {
 			found, err := m.scanKernelModuleFile(path)
 			if err != nil {

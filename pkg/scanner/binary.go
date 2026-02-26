@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -118,7 +119,9 @@ var stateSymbols = []struct {
 
 // BinaryModule scans executable files on disk for crypto algorithm patterns.
 type BinaryModule struct {
-	config *config.Config
+	config      *config.Config
+	lastScanned int64
+	lastMatched int64
 }
 
 func NewBinaryModule(cfg *config.Config) *BinaryModule {
@@ -137,11 +140,19 @@ func (m *BinaryModule) ScanTargetType() model.ScanTargetType {
 	return model.TargetFilesystem
 }
 
+func (m *BinaryModule) FileStats() (scanned, matched int64) {
+	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
+}
+
 func (m *BinaryModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
+	atomic.StoreInt64(&m.lastScanned, 0)
+	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
-		target:    target,
-		config:    m.config,
-		matchFile: m.isBinaryFile,
+		target:       target,
+		config:       m.config,
+		matchFile:    m.isBinaryFile,
+		filesScanned: &m.lastScanned,
+		filesMatched: &m.lastMatched,
 		processFile: func(path string) error {
 			found, err := m.scanBinaryFile(path)
 			if err != nil {

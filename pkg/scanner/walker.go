@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -11,10 +12,12 @@ import (
 
 // walkerConfig holds common filesystem walk parameters.
 type walkerConfig struct {
-	target      model.ScanTarget
-	config      *config.Config
-	matchFile   func(path string) bool
-	processFile func(path string) error
+	target       model.ScanTarget
+	config       *config.Config
+	matchFile    func(path string) bool
+	processFile  func(path string) error
+	filesScanned *int64 // atomic: every non-dir file visited (nil = disabled)
+	filesMatched *int64 // atomic: files passing matchFile filter (nil = disabled)
 }
 
 // walkTarget walks a scan target, enforcing depth limits, file size limits,
@@ -43,9 +46,19 @@ func walkTarget(wc walkerConfig) error {
 			return nil
 		}
 
+		// Count every non-dir file visited
+		if wc.filesScanned != nil {
+			atomic.AddInt64(wc.filesScanned, 1)
+		}
+
 		// Skip files that don't match
 		if !wc.matchFile(path) {
 			return nil
+		}
+
+		// Count files passing the match filter
+		if wc.filesMatched != nil {
+			atomic.AddInt64(wc.filesMatched, 1)
 		}
 
 		// Enforce max file size

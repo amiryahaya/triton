@@ -22,6 +22,11 @@ type Module interface {
 	Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error
 }
 
+// FileMetrics is implemented by modules that track file scan counts.
+type FileMetrics interface {
+	FileStats() (scanned, matched int64)
+}
+
 // Engine orchestrates concurrent module execution and finding collection.
 type Engine struct {
 	config  *config.Config
@@ -120,6 +125,11 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 	}
 
 	totalPairs := len(pairs)
+	collectMetrics := e.config.Metrics
+
+	// Metrics collection (only when enabled)
+	var metrics []model.ModuleMetric
+	var metricsMu sync.Mutex
 
 	// Execute with semaphore for concurrency control
 	var wg sync.WaitGroup
@@ -137,7 +147,59 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 			defer wg.Done()
 			defer func() { <-semaphore }()
 
-			err := mt.module.Scan(ctx, mt.target, findings)
+			var err error
+
+			if collectMetrics {
+				// --- Metrics path: counting channel + timing + memory ---
+				pairFindings := make(chan *model.Finding, 50)
+				findingsCount := 0
+				var pairWg sync.WaitGroup
+				pairWg.Add(1)
+				go func() {
+					defer pairWg.Done()
+					for f := range pairFindings {
+						findingsCount++
+						findings <- f
+					}
+				}()
+
+				var memBefore runtime.MemStats
+				runtime.ReadMemStats(&memBefore)
+
+				scanStart := time.Now()
+				err = mt.module.Scan(ctx, mt.target, pairFindings)
+				close(pairFindings)
+				pairWg.Wait()
+				duration := time.Since(scanStart)
+
+				var memAfter runtime.MemStats
+				runtime.ReadMemStats(&memAfter)
+
+				var scanned, matched int64
+				if fm, ok := mt.module.(FileMetrics); ok {
+					scanned, matched = fm.FileStats()
+				}
+
+				metric := model.ModuleMetric{
+					Module:        mt.module.Name(),
+					Target:        mt.target.Value,
+					Duration:      duration,
+					FilesScanned:  scanned,
+					FilesMatched:  matched,
+					Findings:      findingsCount,
+					MemoryDeltaMB: float64(memAfter.TotalAlloc-memBefore.TotalAlloc) / (1024 * 1024),
+				}
+				if err != nil {
+					metric.Error = err.Error()
+				}
+
+				metricsMu.Lock()
+				metrics = append(metrics, metric)
+				metricsMu.Unlock()
+			} else {
+				// --- Fast path: no metrics overhead ---
+				err = mt.module.Scan(ctx, mt.target, findings)
+			}
 
 			if totalPairs > 0 {
 				p := Progress{
@@ -157,6 +219,14 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 	collectorWg.Wait()
 
 	result.Metadata.Duration = time.Since(start)
+
+	if collectMetrics {
+		result.Metadata.ModuleMetrics = metrics
+		var peakMem runtime.MemStats
+		runtime.ReadMemStats(&peakMem)
+		result.Metadata.PeakMemoryMB = float64(peakMem.Sys) / (1024 * 1024)
+	}
+
 	result.Summary = model.ComputeSummary(result.Findings)
 
 	progressCh <- Progress{

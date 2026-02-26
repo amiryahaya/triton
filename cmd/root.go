@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -28,6 +30,7 @@ var (
 	scanProfile string
 	modules     []string
 	format      string
+	showMetrics bool
 
 	validFormats = map[string]bool{"json": true, "html": true, "xlsx": true, "all": true}
 
@@ -52,6 +55,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&scanProfile, "profile", "p", "standard", "Scan profile: quick, standard, comprehensive")
 	rootCmd.PersistentFlags().StringSliceVarP(&modules, "modules", "m", []string{}, "Specific modules to run (default: all)")
 	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, html, xlsx, all")
+	rootCmd.PersistentFlags().BoolVar(&showMetrics, "metrics", false, "Show per-module scan metrics table")
 
 	viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -184,6 +188,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if len(modules) > 0 {
 		cfg.Modules = modules
 	}
+	cfg.Metrics = showMetrics
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()
@@ -217,6 +222,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	printScanMetrics(final.result)
 	return generateReports(final.result)
 }
 
@@ -233,6 +239,7 @@ func runScanHeadless(eng *scanner.Engine) error {
 		}
 		fmt.Printf("[%3.0f%%] %s\n", p.Percent*100, p.Status)
 		if p.Complete && p.Result != nil {
+			printScanMetrics(p.Result)
 			return generateReports(p.Result)
 		}
 	}
@@ -283,4 +290,87 @@ func generateReports(result *model.ScanResult) error {
 	}
 
 	return nil
+}
+
+func printScanMetrics(result *model.ScanResult) {
+	metrics := result.Metadata.ModuleMetrics
+	if len(metrics) == 0 {
+		return
+	}
+
+	// Sort by duration descending
+	sort.Slice(metrics, func(i, j int) bool {
+		return metrics[i].Duration > metrics[j].Duration
+	})
+
+	// Determine max target width (cap at 30 chars)
+	maxTarget := 10
+	for _, m := range metrics {
+		if l := len(m.Target); l > maxTarget {
+			maxTarget = l
+		}
+	}
+	if maxTarget > 30 {
+		maxTarget = 30
+	}
+
+	header := fmt.Sprintf("%-14s %-*s %10s %8s %8s %9s %9s",
+		"Module", maxTarget, "Target", "Duration", "Files", "Matched", "Findings", "Memory")
+	divider := strings.Repeat("\u2500", len(header))
+
+	fmt.Printf("\nScan Metrics:\n%s\n%s\n", header, divider)
+
+	var totalDuration time.Duration
+	var totalScanned, totalMatched int64
+	var totalFindings int
+	var totalMemory float64
+
+	for _, m := range metrics {
+		target := m.Target
+		if len(target) > maxTarget {
+			target = "..." + target[len(target)-maxTarget+3:]
+		}
+
+		fmt.Printf("%-14s %-*s %10s %8d %8d %9d %8.1fMB",
+			m.Module, maxTarget, target,
+			formatDuration(m.Duration),
+			m.FilesScanned, m.FilesMatched,
+			m.Findings, m.MemoryDeltaMB)
+		if m.Error != "" {
+			fmt.Printf("  [ERR]")
+		}
+		fmt.Println()
+
+		totalDuration += m.Duration
+		totalScanned += m.FilesScanned
+		totalMatched += m.FilesMatched
+		totalFindings += m.Findings
+		totalMemory += m.MemoryDeltaMB
+	}
+
+	fmt.Printf("%s\n", divider)
+
+	// Count unique modules
+	moduleSet := make(map[string]bool)
+	for _, m := range metrics {
+		moduleSet[m.Module] = true
+	}
+
+	fmt.Printf("Total (%d modules, %d pairs) %*s %8d %8d %9d %8.1fMB\n",
+		len(moduleSet), len(metrics),
+		maxTarget+10-len(fmt.Sprintf("Total (%d modules, %d pairs)", len(moduleSet), len(metrics)))-1,
+		formatDuration(totalDuration),
+		totalScanned, totalMatched,
+		totalFindings, totalMemory)
+	fmt.Printf("Peak memory: %.1fMB\n\n", result.Metadata.PeakMemoryMB)
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Millisecond {
+		return fmt.Sprintf("%.0f\u00b5s", float64(d.Microseconds()))
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.1fms", float64(d.Milliseconds()))
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }

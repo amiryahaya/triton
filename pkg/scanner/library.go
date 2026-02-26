@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -41,7 +42,9 @@ var versionRegex = regexp.MustCompile(`(?i)(?:version|openssl)\s+(\d+\.\d+[\.\d]
 
 // LibraryModule scans for cryptographic shared libraries on the filesystem.
 type LibraryModule struct {
-	config *config.Config
+	config      *config.Config
+	lastScanned int64
+	lastMatched int64
 }
 
 func NewLibraryModule(cfg *config.Config) *LibraryModule {
@@ -60,11 +63,19 @@ func (m *LibraryModule) ScanTargetType() model.ScanTargetType {
 	return model.TargetFilesystem
 }
 
+func (m *LibraryModule) FileStats() (scanned, matched int64) {
+	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
+}
+
 func (m *LibraryModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
+	atomic.StoreInt64(&m.lastScanned, 0)
+	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
-		target:    target,
-		config:    m.config,
-		matchFile: m.isLibraryFile,
+		target:       target,
+		config:       m.config,
+		matchFile:    m.isLibraryFile,
+		filesScanned: &m.lastScanned,
+		filesMatched: &m.lastMatched,
 		processFile: func(path string) error {
 			finding := m.createLibraryFinding(path)
 			if finding == nil {

@@ -356,3 +356,95 @@ func TestFindingSourceDetectionMethodOmitEmpty(t *testing.T) {
 
 	assert.NotContains(t, string(data), "detectionMethod")
 }
+
+func TestModuleMetricJSON(t *testing.T) {
+	metric := ModuleMetric{
+		Module:        "binaries",
+		Target:        "/Applications",
+		Duration:      45200 * time.Millisecond,
+		FilesScanned:  3420,
+		FilesMatched:  284,
+		Findings:      198,
+		MemoryDeltaMB: 12.3,
+	}
+
+	data, err := json.Marshal(metric)
+	require.NoError(t, err)
+
+	var decoded ModuleMetric
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, metric.Module, decoded.Module)
+	assert.Equal(t, metric.Target, decoded.Target)
+	assert.Equal(t, metric.Duration, decoded.Duration)
+	assert.Equal(t, metric.FilesScanned, decoded.FilesScanned)
+	assert.Equal(t, metric.FilesMatched, decoded.FilesMatched)
+	assert.Equal(t, metric.Findings, decoded.Findings)
+	assert.Equal(t, metric.MemoryDeltaMB, decoded.MemoryDeltaMB)
+	assert.Empty(t, decoded.Error)
+
+	// Error field omits when empty
+	assert.NotContains(t, string(data), "error")
+}
+
+func TestModuleMetricErrorJSON(t *testing.T) {
+	metric := ModuleMetric{
+		Module: "failing",
+		Target: "/tmp",
+		Error:  "disk read error",
+	}
+
+	data, err := json.Marshal(metric)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(data), `"error":"disk read error"`)
+
+	var decoded ModuleMetric
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+	assert.Equal(t, "disk read error", decoded.Error)
+}
+
+func TestScanMetadataMetricsField(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	metadata := ScanMetadata{
+		Timestamp:   now,
+		Hostname:    "testhost",
+		OS:          "darwin",
+		ScanProfile: "quick",
+		Duration:    10 * time.Second,
+		ToolVersion: "0.1.0",
+		ModuleMetrics: []ModuleMetric{
+			{Module: "certs", Target: "/etc", Duration: 2 * time.Second, Findings: 5},
+			{Module: "keys", Target: "/etc", Duration: 1 * time.Second, Findings: 3},
+		},
+		PeakMemoryMB: 142.3,
+	}
+
+	data, err := json.Marshal(metadata)
+	require.NoError(t, err)
+
+	var decoded ScanMetadata
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	require.Len(t, decoded.ModuleMetrics, 2)
+	assert.Equal(t, "certs", decoded.ModuleMetrics[0].Module)
+	assert.Equal(t, 5, decoded.ModuleMetrics[0].Findings)
+	assert.Equal(t, "keys", decoded.ModuleMetrics[1].Module)
+	assert.Equal(t, 142.3, decoded.PeakMemoryMB)
+}
+
+func TestScanMetadataMetricsOmitEmpty(t *testing.T) {
+	metadata := ScanMetadata{
+		Hostname:    "testhost",
+		ScanProfile: "quick",
+	}
+
+	data, err := json.Marshal(metadata)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(data), "moduleMetrics")
+	assert.NotContains(t, string(data), "peakMemoryMB")
+}

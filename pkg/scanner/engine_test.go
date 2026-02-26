@@ -313,3 +313,127 @@ func TestScanResultMetadata(t *testing.T) {
 	assert.Equal(t, "quick", result.Metadata.ScanProfile)
 	assert.True(t, result.Metadata.Duration > 0)
 }
+
+func testConfigWithMetrics() *config.Config {
+	cfg := testConfig()
+	cfg.Metrics = true
+	return cfg
+}
+
+func TestScanMetricsCollected(t *testing.T) {
+	eng := New(testConfigWithMetrics())
+
+	mock := &MockModule{
+		name:       "mock",
+		targetType: model.TargetFilesystem,
+		findings: []*model.Finding{
+			makeFinding("f-1"),
+			makeFinding("f-2"),
+			makeFinding("f-3"),
+		},
+	}
+	eng.RegisterModule(mock)
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	require.NotNil(t, result.Metadata.ModuleMetrics)
+	require.Len(t, result.Metadata.ModuleMetrics, 1)
+
+	metric := result.Metadata.ModuleMetrics[0]
+	assert.Equal(t, "mock", metric.Module)
+	assert.Equal(t, "/tmp/test", metric.Target)
+	assert.True(t, metric.Duration > 0, "duration should be positive")
+	assert.Equal(t, 3, metric.Findings)
+	assert.Empty(t, metric.Error)
+}
+
+func TestScanMetricsOnError(t *testing.T) {
+	eng := New(testConfigWithMetrics())
+
+	eng.RegisterModule(&MockModule{
+		name:       "failing-module",
+		targetType: model.TargetFilesystem,
+		scanErr:    fmt.Errorf("disk read error"),
+	})
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	require.Len(t, result.Metadata.ModuleMetrics, 1)
+	metric := result.Metadata.ModuleMetrics[0]
+	assert.Equal(t, "failing-module", metric.Module)
+	assert.Contains(t, metric.Error, "disk read error")
+	assert.Equal(t, 0, metric.Findings)
+}
+
+func TestScanMetricsPeakMemory(t *testing.T) {
+	eng := New(testConfigWithMetrics())
+	eng.RegisterModule(&MockModule{
+		name:       "mock",
+		targetType: model.TargetFilesystem,
+	})
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	assert.True(t, result.Metadata.PeakMemoryMB > 0, "peak memory should be reported")
+}
+
+func TestScanMetricsMultipleModules(t *testing.T) {
+	cfg := testConfigWithMetrics()
+	cfg.ScanTargets = []model.ScanTarget{
+		{Type: model.TargetFilesystem, Value: "/tmp/a", Depth: 3},
+		{Type: model.TargetFilesystem, Value: "/tmp/b", Depth: 3},
+	}
+	eng := New(cfg)
+
+	eng.RegisterModule(&MockModule{
+		name:       "mod-1",
+		targetType: model.TargetFilesystem,
+		findings:   []*model.Finding{makeFinding("f-1")},
+	})
+	eng.RegisterModule(&MockModule{
+		name:       "mod-2",
+		targetType: model.TargetFilesystem,
+		findings:   []*model.Finding{makeFinding("f-2"), makeFinding("f-3")},
+	})
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	// 2 modules x 2 targets = 4 metric entries
+	require.Len(t, result.Metadata.ModuleMetrics, 4)
+
+	// Verify findings count per pair
+	findingsByModule := make(map[string]int)
+	for _, m := range result.Metadata.ModuleMetrics {
+		findingsByModule[m.Module] += m.Findings
+	}
+	assert.Equal(t, 2, findingsByModule["mod-1"])  // 1 finding x 2 targets
+	assert.Equal(t, 4, findingsByModule["mod-2"])  // 2 findings x 2 targets
+}
+
+func TestScanMetricsDisabledByDefault(t *testing.T) {
+	eng := New(testConfig()) // Metrics defaults to false
+
+	eng.RegisterModule(&MockModule{
+		name:       "mock",
+		targetType: model.TargetFilesystem,
+		findings:   []*model.Finding{makeFinding("f-1")},
+	})
+
+	ctx := context.Background()
+	progressCh := make(chan Progress, 100)
+	result := eng.Scan(ctx, progressCh)
+
+	// Findings still collected
+	assert.Len(t, result.Findings, 1)
+	// But no metrics
+	assert.Nil(t, result.Metadata.ModuleMetrics)
+	assert.Equal(t, float64(0), result.Metadata.PeakMemoryMB)
+}

@@ -64,6 +64,9 @@ Temporary Items
 # macOS specific
 *.localized
 
+# Claude Code
+.claude/
+
 # ============================================
 # IDEs and Editors
 # ============================================
@@ -162,3 +165,10 @@ secrets.yaml
 secrets.yml
 secrets.json
 *.secret
+
+# ============================================
+# Misc
+# ============================================
+
+# Image assets not part of the build
+vigilantscan_logo_bright.png

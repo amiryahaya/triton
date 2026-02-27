@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -113,11 +114,16 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 		sourcePath := manager + ":" + pkgName + "@" + pkgVersion
 
 		asset := &model.CryptoAsset{
-			ID:       uuid.New().String(),
-			Function: "Installed package",
-			Library:  pkgName + " " + pkgVersion,
-			Purpose:  "System package providing crypto functionality",
+			ID:        uuid.New().String(),
+			Algorithm: pkgName,
+			Function:  "Installed package",
+			Library:   pkgName + " " + pkgVersion,
+			Purpose:   "System package providing crypto functionality",
 		}
+
+		// Package findings are generic — set default PQC status
+		asset.PQCStatus = "TRANSITIONAL"
+		asset.NACSALabel = string(crypto.NACSAPeralihan)
 
 		select {
 		case findings <- &model.Finding{

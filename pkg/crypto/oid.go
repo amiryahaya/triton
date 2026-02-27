@@ -12,6 +12,9 @@ type OIDEntry struct {
 // oidRegistry maps OID strings to algorithm information.
 var oidRegistry map[string]OIDEntry
 
+// reverseOIDMap maps canonical algorithm names back to their OID strings.
+var reverseOIDMap map[string]string
+
 func init() {
 	oidRegistry = map[string]OIDEntry{
 		// === ML-KEM (FIPS 203) ===
@@ -61,6 +64,17 @@ func init() {
 		"1.3.101.112":           {OID: "1.3.101.112", Algorithm: "Ed25519", Family: "EdDSA", KeySize: 256, Status: TRANSITIONAL},
 		"1.3.101.113":           {OID: "1.3.101.113", Algorithm: "Ed448", Family: "EdDSA", KeySize: 448, Status: TRANSITIONAL},
 	}
+
+	// Build reverse map: algorithm name → OID
+	reverseOIDMap = make(map[string]string, len(oidRegistry))
+	for oid, entry := range oidRegistry {
+		reverseOIDMap[entry.Algorithm] = oid
+	}
+}
+
+// OIDForAlgorithm returns the OID string for a given canonical algorithm name, or "" if not found.
+func OIDForAlgorithm(algorithm string) string {
+	return reverseOIDMap[algorithm]
 }
 
 // LookupOID returns the OID entry for a given OID string. O(1) map lookup.

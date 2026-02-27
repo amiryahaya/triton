@@ -56,8 +56,12 @@ var cryptoPatterns = []struct {
 	{regexp.MustCompile(`ML[-_]?DSA`), "ML-DSA", "Lattice"},
 	{regexp.MustCompile(`CRYSTALS[-_]?Kyber`), "ML-KEM", "Lattice"},
 	{regexp.MustCompile(`CRYSTALS[-_]?Dilithium`), "ML-DSA", "Lattice"},
-	{regexp.MustCompile(`TLS[-_]?1[._]([0123])`), "TLS", "TLS"},
-	{regexp.MustCompile(`SSLv[23]`), "SSLv2/3", "SSL"},
+	{regexp.MustCompile(`TLS[-_]?1[._]3`), "TLS 1.3", "TLS"},
+	{regexp.MustCompile(`TLS[-_]?1[._]2`), "TLS 1.2", "TLS"},
+	{regexp.MustCompile(`TLS[-_]?1[._]1`), "TLS 1.1", "TLS"},
+	{regexp.MustCompile(`TLS[-_]?1[._]0`), "TLS 1.0", "TLS"},
+	{regexp.MustCompile(`SSLv2\b`), "SSL 2.0", "SSL"},
+	{regexp.MustCompile(`SSLv3\b`), "SSL 3.0", "SSL"},
 
 	// New patterns
 	{regexp.MustCompile(`\bHMAC[-_]?(SHA256|SHA512|SHA1|MD5)\b`), "HMAC", "HMAC"},

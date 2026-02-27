@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -150,6 +151,10 @@ func (m *LibraryModule) createLibraryFinding(path string) *model.Finding {
 		Library:   libName,
 		Purpose:   "Provides cryptographic primitives",
 	}
+
+	// Library findings use generic names (e.g. "OpenSSL", "TLS") — set default PQC status
+	asset.PQCStatus = "TRANSITIONAL"
+	asset.NACSALabel = string(crypto.NACSAPeralihan)
 
 	if version != "" {
 		asset.Library = libName + " " + version

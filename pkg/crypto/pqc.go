@@ -165,6 +165,11 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"X25519":     {Name: "X25519", Family: "ECDH", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2035},
 	"X448":       {Name: "X448", Family: "ECDH", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
 
+	// ECDSA (generic, no curve specified)
+	"ECDSA": {Name: "ECDSA", Family: "ECDSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2030},
+	// RSA (generic, no key size specified)
+	"RSA": {Name: "RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
+
 	// DH (Shor-vulnerable)
 	"DH":      {Name: "DH", Family: "DH", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
 	"ElGamal": {Name: "ElGamal", Family: "ElGamal", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
@@ -211,7 +216,13 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"RC4":  {Name: "RC4", Family: "RC4", KeySize: 0, Status: UNSAFE, BreakYear: 2015},
 	"RC2":  {Name: "RC2", Family: "RC2", KeySize: 0, Status: UNSAFE, BreakYear: 2010},
 	"MD4":  {Name: "MD4", Family: "MD4", KeySize: 128, Status: UNSAFE, BreakYear: 2005},
+	"MD2":  {Name: "MD2", Family: "MD2", KeySize: 128, Status: UNSAFE, BreakYear: 2005},
 	"NULL": {Name: "NULL", Family: "NULL", KeySize: 0, Status: UNSAFE, BreakYear: 0},
+
+	// Sub-1024 RSA — factorable
+	"RSA-512":  {Name: "RSA-512", Family: "RSA", KeySize: 512, Status: UNSAFE, BreakYear: 2010},
+	"RSA-768":  {Name: "RSA-768", Family: "RSA", KeySize: 768, Status: UNSAFE, BreakYear: 2015},
+	"RSA-1000": {Name: "RSA-1000", Family: "RSA", KeySize: 1000, Status: DEPRECATED, BreakYear: 2025},
 
 	// Unsafe protocols
 	"SSL 2.0": {Name: "SSL 2.0", Family: "SSL", KeySize: 0, Status: UNSAFE, BreakYear: 2010},
@@ -287,6 +298,9 @@ func init() {
 		{prefix: "RSA3072", info: AlgorithmInfo{Name: "RSA-3072", Family: "RSA", KeySize: 3072, Status: TRANSITIONAL, BreakYear: 2040}},
 		{prefix: "RSA2048", info: AlgorithmInfo{Name: "RSA-2048", Family: "RSA", KeySize: 2048, Status: TRANSITIONAL, BreakYear: 2035}},
 		{prefix: "RSA1024", info: AlgorithmInfo{Name: "RSA-1024", Family: "RSA", KeySize: 1024, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "RSA1000", info: AlgorithmInfo{Name: "RSA-1000", Family: "RSA", KeySize: 1000, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "RSA768", info: AlgorithmInfo{Name: "RSA-768", Family: "RSA", KeySize: 768, Status: UNSAFE, BreakYear: 2015}},
+		{prefix: "RSA512", info: AlgorithmInfo{Name: "RSA-512", Family: "RSA", KeySize: 512, Status: UNSAFE, BreakYear: 2010}},
 
 		// ECDSA variants
 		{prefix: "ECDSAP521", info: AlgorithmInfo{Name: "ECDSA-P521", Family: "ECDSA", KeySize: 521, Status: TRANSITIONAL, BreakYear: 2040}},
@@ -309,6 +323,12 @@ func init() {
 		{prefix: "HMACSHA256", info: AlgorithmInfo{Name: "HMAC-SHA256", Family: "HMAC", KeySize: 256, Status: SAFE}},
 		{prefix: "HMACSHA1", info: AlgorithmInfo{Name: "HMAC-SHA1", Family: "HMAC", KeySize: 160, Status: TRANSITIONAL}},
 		{prefix: "HMACMD5", info: AlgorithmInfo{Name: "HMAC-MD5", Family: "HMAC", KeySize: 128, Status: DEPRECATED, BreakYear: 2020}},
+
+		// DES/3DES variants
+		{prefix: "TRIPLEDES", info: AlgorithmInfo{Name: "3DES", Family: "DES", KeySize: 168, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "DESEDE3", info: AlgorithmInfo{Name: "3DES", Family: "DES", KeySize: 168, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "DESCBC", info: AlgorithmInfo{Name: "DES", Family: "DES", KeySize: 56, Status: UNSAFE, BreakYear: 2000}},
+		{prefix: "DESECB", info: AlgorithmInfo{Name: "DES", Family: "DES", KeySize: 56, Status: UNSAFE, BreakYear: 2000}},
 	}
 }
 
@@ -375,6 +395,10 @@ func GetMigrationPriority(info AlgorithmInfo) int {
 // ClassifyCryptoAsset fills PQCStatus, MigrationPriority, BreakYear, and compliance fields on a CryptoAsset.
 func ClassifyCryptoAsset(asset *model.CryptoAsset) {
 	info := ClassifyAlgorithm(asset.Algorithm, asset.KeySize)
+	// Normalize to canonical name when confidently matched (Family != "" means it's not an unknown fallback)
+	if info.Name != "" && info.Family != "" {
+		asset.Algorithm = info.Name
+	}
 	asset.PQCStatus = string(info.Status)
 	asset.MigrationPriority = GetMigrationPriority(info)
 	asset.BreakYear = info.BreakYear

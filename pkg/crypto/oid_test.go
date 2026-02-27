@@ -188,6 +188,34 @@ func TestParseTagLength_LongForm(t *testing.T) {
 	assert.Len(t, content, 256)
 }
 
+func TestOIDForAlgorithm(t *testing.T) {
+	tests := []struct {
+		algorithm string
+		wantOID   string
+	}{
+		{"ML-KEM-512", "2.16.840.1.101.3.4.4.1"},
+		{"ML-KEM-768", "2.16.840.1.101.3.4.4.2"},
+		{"ML-KEM-1024", "2.16.840.1.101.3.4.4.3"},
+		{"ML-DSA-44", "2.16.840.1.101.3.4.3.17"},
+		{"ML-DSA-65", "2.16.840.1.101.3.4.3.18"},
+		{"ML-DSA-87", "2.16.840.1.101.3.4.3.19"},
+		{"Ed25519", "1.3.101.112"},
+		{"Ed448", "1.3.101.113"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algorithm, func(t *testing.T) {
+			oid := OIDForAlgorithm(tt.algorithm)
+			assert.Equal(t, tt.wantOID, oid, "OID for %s", tt.algorithm)
+		})
+	}
+}
+
+func TestOIDForAlgorithm_Unknown(t *testing.T) {
+	oid := OIDForAlgorithm("SOME-UNKNOWN-ALGO")
+	assert.Equal(t, "", oid)
+}
+
 func TestLookupOID_Classical(t *testing.T) {
 	entry, ok := LookupOID("1.2.840.113549.1.1.1")
 	require.True(t, ok)

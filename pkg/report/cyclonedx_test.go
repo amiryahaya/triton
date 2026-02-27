@@ -262,6 +262,51 @@ func TestDeriveMode(t *testing.T) {
 	assert.Equal(t, "", deriveMode("RSA-2048"))
 }
 
+func TestFindingToComponent_OIDPopulation(t *testing.T) {
+	// ML-KEM-768 has an OID in the registry — should be populated
+	f := &model.Finding{
+		Module: "configs",
+		CryptoAsset: &model.CryptoAsset{
+			ID:        "a1",
+			Algorithm: "ML-KEM-768",
+			Function:  "Key encapsulation",
+		},
+	}
+	comp := findingToComponent(f)
+	require.NotNil(t, comp.CryptoProperties)
+	assert.Equal(t, "2.16.840.1.101.3.4.4.2", comp.CryptoProperties.OID, "ML-KEM-768 should have OID populated")
+
+	// AES-256-GCM has no OID — should be empty
+	f2 := &model.Finding{
+		Module: "configs",
+		CryptoAsset: &model.CryptoAsset{
+			ID:        "a2",
+			Algorithm: "AES-256-GCM",
+			KeySize:   256,
+			Function:  "Symmetric encryption",
+		},
+	}
+	comp2 := findingToComponent(f2)
+	require.NotNil(t, comp2.CryptoProperties)
+	assert.Equal(t, "", comp2.CryptoProperties.OID, "AES-256-GCM has no OID")
+}
+
+func TestFindingToComponent_AES256NISTLevel(t *testing.T) {
+	f := &model.Finding{
+		Module: "configs",
+		CryptoAsset: &model.CryptoAsset{
+			ID:        "a1",
+			Algorithm: "AES-256-GCM",
+			KeySize:   256,
+			Function:  "Symmetric encryption",
+		},
+	}
+	comp := findingToComponent(f)
+	require.NotNil(t, comp.CryptoProperties)
+	require.NotNil(t, comp.CryptoProperties.AlgorithmProperties)
+	assert.Equal(t, 5, comp.CryptoProperties.AlgorithmProperties.NISTQuantumSecurityLevel, "AES-256 should be NIST Level 5")
+}
+
 func TestDeriveNISTQuantumLevel(t *testing.T) {
 	assert.Equal(t, 1, deriveNISTQuantumLevel("ML-KEM-512"))
 	assert.Equal(t, 3, deriveNISTQuantumLevel("ML-KEM-768"))

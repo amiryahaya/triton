@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/version"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -170,6 +171,13 @@ func findingToComponent(f *model.Finding) CDXComponent {
 				ClassicalSecurityLevel:   asset.KeySize,
 				NISTQuantumSecurityLevel: deriveNISTQuantumLevel(asset.Algorithm),
 			},
+		}
+	}
+
+	// Populate OID from reverse lookup
+	if comp.CryptoProperties != nil {
+		if oid := crypto.OIDForAlgorithm(asset.Algorithm); oid != "" {
+			comp.CryptoProperties.OID = oid
 		}
 	}
 

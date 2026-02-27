@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func baseScan() *model.ScanResult {

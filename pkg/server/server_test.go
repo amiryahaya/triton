@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/amiryahaya/triton/pkg/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 func testServer(t *testing.T) (*Server, *store.SQLiteStore) {

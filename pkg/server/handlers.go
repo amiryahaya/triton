@@ -397,9 +397,9 @@ func isNotFound(err error) bool {
 
 func filterByPQCStatus(findings []model.Finding, status string) []model.Finding {
 	filtered := make([]model.Finding, 0)
-	for _, f := range findings {
-		if f.CryptoAsset != nil && strings.EqualFold(f.CryptoAsset.PQCStatus, status) {
-			filtered = append(filtered, f)
+	for i := range findings {
+		if findings[i].CryptoAsset != nil && strings.EqualFold(findings[i].CryptoAsset.PQCStatus, status) {
+			filtered = append(filtered, findings[i])
 		}
 	}
 	return filtered
@@ -407,9 +407,9 @@ func filterByPQCStatus(findings []model.Finding, status string) []model.Finding 
 
 func filterByModule(findings []model.Finding, module string) []model.Finding {
 	filtered := make([]model.Finding, 0)
-	for _, f := range findings {
-		if strings.EqualFold(f.Module, module) {
-			filtered = append(filtered, f)
+	for i := range findings {
+		if strings.EqualFold(findings[i].Module, module) {
+			filtered = append(filtered, findings[i])
 		}
 	}
 	return filtered

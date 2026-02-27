@@ -59,15 +59,16 @@ func runPolicyCheck(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer func() { _ = db.Close() }()
 
 	result, err := loadTargetScan(db, policyScan)
 	if err != nil {
+		_ = db.Close()
 		return err
 	}
 
 	// Evaluate policy.
 	eval := policy.Evaluate(pol, result)
+	_ = db.Close()
 
 	// Print results.
 	fmt.Printf("Policy: %s\n", eval.PolicyName)
@@ -100,7 +101,6 @@ func runPolicyCheck(_ *cobra.Command, _ []string) error {
 
 	// Set exit code for CI/CD.
 	if eval.Verdict == policy.VerdictFail {
-		_ = db.Close()
 		os.Exit(1)
 	}
 

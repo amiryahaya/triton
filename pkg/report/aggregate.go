@@ -88,13 +88,13 @@ func GenerateAggregate(scans []*model.ScanResult) *AggregateReport {
 		agg.Unsafe += ms.Unsafe
 
 		// Collect algorithm usage
-		for _, f := range scan.Findings {
-			if f.CryptoAsset == nil {
+		for i := range scan.Findings {
+			if scan.Findings[i].CryptoAsset == nil {
 				continue
 			}
-			algo := f.CryptoAsset.Algorithm
+			algo := scan.Findings[i].CryptoAsset.Algorithm
 			algoCounts[algo]++
-			algoPQC[algo] = f.CryptoAsset.PQCStatus
+			algoPQC[algo] = scan.Findings[i].CryptoAsset.PQCStatus
 			if algoByMachine[algo] == nil {
 				algoByMachine[algo] = make(map[string]bool)
 			}

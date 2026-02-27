@@ -71,7 +71,8 @@ func TestGenerateHTMLContainsPQCSummary(t *testing.T) {
 	require.NoError(t, err)
 	html := string(content)
 
-	// Should contain PQC status breakdown
+	// Should contain scan profile and PQC status breakdown
+	assert.Contains(t, html, "Profile: standard")
 	assert.Contains(t, html, "Safe")
 	assert.Contains(t, html, "Transitional")
 	assert.Contains(t, html, "CBOM Report")

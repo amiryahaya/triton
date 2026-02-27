@@ -124,9 +124,13 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 	if scanTime.IsZero() {
 		scanTime = time.Now()
 	}
+	profile := result.Metadata.ScanProfile
+	if profile == "" {
+		profile = "unknown"
+	}
 	b.WriteString(fmt.Sprintf(`	<h1>Triton CBOM Report</h1>
-	<p class="meta">Scan: %s | Generated: %s</p>
-`, scanTime.Format("2006-01-02 15:04:05"), time.Now().Format("2006-01-02 15:04:05")))
+	<p class="meta">Profile: %s | Scan: %s | Generated: %s</p>
+`, html.EscapeString(profile), scanTime.Format("2006-01-02 15:04:05"), time.Now().Format("2006-01-02 15:04:05")))
 
 	// PQC Summary Cards
 	b.WriteString(`	<h2>PQC Summary</h2>

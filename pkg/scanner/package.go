@@ -121,9 +121,8 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 			Purpose:   "System package providing crypto functionality",
 		}
 
-		// Package findings are generic — set default PQC status
-		asset.PQCStatus = "TRANSITIONAL"
-		asset.NACSALabel = string(crypto.NACSAPeralihan)
+		// Classify based on package name + version (replaces hardcoded TRANSITIONAL)
+		crypto.ClassifyLibraryAsset(asset, pkgName, pkgVersion)
 
 		select {
 		case findings <- &model.Finding{

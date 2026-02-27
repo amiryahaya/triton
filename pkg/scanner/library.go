@@ -152,13 +152,12 @@ func (m *LibraryModule) createLibraryFinding(path string) *model.Finding {
 		Purpose:   "Provides cryptographic primitives",
 	}
 
-	// Library findings use generic names (e.g. "OpenSSL", "TLS") — set default PQC status
-	asset.PQCStatus = "TRANSITIONAL"
-	asset.NACSALabel = string(crypto.NACSAPeralihan)
-
 	if version != "" {
 		asset.Library = libName + " " + version
 	}
+
+	// Classify based on library identity + version (replaces hardcoded TRANSITIONAL)
+	crypto.ClassifyLibraryAsset(asset, algorithm, version)
 
 	return &model.Finding{
 		ID:       uuid.New().String(),

@@ -24,6 +24,9 @@ git clone https://github.com/amiryahaya/triton.git
 cd triton
 make build
 
+# Check system readiness
+./bin/triton doctor
+
 # Run a quick scan
 ./bin/triton --profile quick
 
@@ -31,7 +34,21 @@ make build
 ./bin/triton --version
 ```
 
+> **New to Triton?** See the full [User Manual](docs/USER_MANUAL.md) for detailed guidance on scan profiles, report interpretation, and troubleshooting.
+
 ## Usage
+
+### Pre-flight Check
+
+```bash
+# Check system readiness for the default (standard) profile
+./bin/triton doctor
+
+# Check readiness for a specific profile
+./bin/triton doctor --profile comprehensive
+```
+
+### Scanning
 
 ```bash
 # Quick scan — certificates, keys, packages (depth 3, 4 workers)
@@ -191,7 +208,7 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 - [ ] Hybrid certificate detection — RSA + ML-DSA composite certs
 - [ ] CAMM-aligned crypto-agility scoring — Level 0-4 maturity framework
 - [ ] Config scanner expansion — sshd_config, crypto-policies
-- [ ] `triton doctor` — pre-scan environment check (permissions, tool availability, system access)
+- [x] `triton doctor` — pre-scan environment check (permissions, tool availability, system access)
 
 ### Enterprise v2.0 _(Priority: Low)_
 

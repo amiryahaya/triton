@@ -205,7 +205,7 @@ func (m *LibraryModule) extractVersionFromFile(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Read first 64KB for version strings
 	buf := make([]byte, 64*1024)

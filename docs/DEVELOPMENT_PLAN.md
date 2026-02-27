@@ -421,12 +421,14 @@ These are explicitly **not** in the MVP scope:
 
 | Item | Reason | When |
 |------|--------|------|
-| CI/CD pipeline | Code still evolving rapidly | After Phase 3 stabilizes |
+| ~~CI/CD pipeline~~ | ~~Code still evolving rapidly~~ | **Done** — GitHub Actions CI + GoReleaser release pipeline |
 | Client-server mode | MVP is standalone assessment | Post-MVP (v2) |
 | Web UI | CLI + reports sufficient for partner demo | Post-MVP |
 | Database storage | File-based output sufficient for MVP | Post-MVP |
 | Auto-update | Manual distribution for MVP | Post-MVP |
 | PKCS#11/HSM scanning | Specialized hardware, low priority | Post-MVP |
+| Enterprise licensing | License key validation, feature gating, seat management for paid tiers | Post-MVP (v2) |
+| `triton doctor` command | Pre-scan environment check: verify permissions, tool availability, and system access required for each scan category | Post-MVP |
 
 ---
 

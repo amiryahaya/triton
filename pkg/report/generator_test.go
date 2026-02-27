@@ -84,6 +84,9 @@ func TestGenerateHTMLContainsPQCSummary(t *testing.T) {
 	assert.Contains(t, html, "AES-256-GCM")
 	assert.Contains(t, html, "RSA-4096")
 	assert.Contains(t, html, "Ed25519")
+
+	// Should contain SVG chart
+	assert.Contains(t, html, "<svg")
 }
 
 func TestGenerateHTMLSystemsTable(t *testing.T) {
@@ -161,4 +164,74 @@ func TestGenerateAllReports(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, info.Size() > 0, "file should not be empty: %s", f)
 	}
+}
+
+func TestGenerateHTMLCharts(t *testing.T) {
+	tmpFile := t.TempDir() + "/report.html"
+	g := New("")
+	result := sampleScanResult()
+
+	err := g.GenerateHTML(result, tmpFile)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	html := string(content)
+
+	// Donut chart should be present (PQC breakdown has non-zero values)
+	assert.Contains(t, html, `<svg width="200" height="200"`)
+	assert.Contains(t, html, "chart-section")
+	assert.Contains(t, html, "chart-legend")
+	assert.Contains(t, html, "legend-dot")
+}
+
+func TestGenerateHTMLCBOMSortOrder(t *testing.T) {
+	tmpFile := t.TempDir() + "/report.html"
+	g := New("")
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{
+			Timestamp: time.Date(2026, 2, 27, 10, 0, 0, 0, time.UTC),
+		},
+		Systems: []model.System{
+			{
+				Name: "System A",
+				CryptoAssets: []model.CryptoAsset{
+					{Algorithm: "AES-256", PQCStatus: "SAFE", KeySize: 256},
+					{Algorithm: "RSA-1024", PQCStatus: "UNSAFE", KeySize: 1024},
+				},
+			},
+			{
+				Name: "System B",
+				CryptoAssets: []model.CryptoAsset{
+					{Algorithm: "3DES", PQCStatus: "DEPRECATED", KeySize: 168},
+					{Algorithm: "RSA-2048", PQCStatus: "TRANSITIONAL", KeySize: 2048},
+				},
+			},
+		},
+		Summary: model.Summary{
+			TotalSystems:      2,
+			TotalCryptoAssets: 4,
+			Safe:              1,
+			Transitional:      1,
+			Deprecated:        1,
+			Unsafe:            1,
+		},
+	}
+
+	err := g.GenerateHTML(result, tmpFile)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	html := string(content)
+
+	// Verify sort order: UNSAFE < DEPRECATED < TRANSITIONAL < SAFE
+	unsafePos := strings.Index(html, "RSA-1024")
+	deprecatedPos := strings.Index(html, "3DES")
+	transitionalPos := strings.Index(html, "RSA-2048")
+	safePos := strings.Index(html, "AES-256")
+
+	assert.Greater(t, deprecatedPos, unsafePos, "DEPRECATED should appear after UNSAFE")
+	assert.Greater(t, transitionalPos, deprecatedPos, "TRANSITIONAL should appear after DEPRECATED")
+	assert.Greater(t, safePos, transitionalPos, "SAFE should appear after TRANSITIONAL")
 }

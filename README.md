@@ -173,20 +173,35 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 
 ## Roadmap
 
-### MVP (Complete)
+### MVP v0.1.0 (Released)
 
 - [x] Phase 1: Foundation — data model, engine, config, test fixtures
 - [x] Phase 2: File scanners — certificates, keys, libraries, binaries, kernel modules
 - [x] Phase 3: Runtime & code scanners — processes, scripts, web apps, network, protocols
 - [x] Phase 4: PQC assessment & reports — agility scoring, system grouping, Excel/JSON/HTML output
 - [x] Phase 5: Polish — version management, benchmarks, cross-platform builds, documentation
-
-### Post-MVP
-
 - [x] CI/CD pipeline — GitHub Actions (lint + test + build) + GoReleaser releases
-- [ ] Enterprise licensing — license key validation, feature gating, seat management
+
+### NACSA-Ready v1.0 _(Priority: Critical)_
+
+- [ ] CycloneDX CBOM v1.7 — proper crypto asset object modeling (algorithm, key, protocol, certificate)
+- [ ] CNSA 2.0 / NIST IR 8547 timeline mapping — deprecation warnings per finding
+- [ ] NACSA PQC framework alignment — urgent adopter classification, compliance columns
+- [ ] PQC algorithm detection — ML-KEM, ML-DSA, SLH-DSA, FN-DSA OIDs in certificates
+- [ ] Hybrid certificate detection — RSA + ML-DSA composite certs
+- [ ] CAMM-aligned crypto-agility scoring — Level 0-4 maturity framework
+- [ ] Config scanner expansion — sshd_config, crypto-policies
 - [ ] `triton doctor` — pre-scan environment check (permissions, tool availability, system access)
-- [ ] Client-server mode (agent reports to central server)
+
+### Enterprise v2.0 _(Priority: Low)_
+
+- [ ] Enhanced TLS probing — cipher preference order, chain validation, TLS 1.0/1.1 warnings
+- [ ] Incremental scanning — skip unchanged files using modification time + hash cache
+- [ ] Container image scanning — crypto-specific Docker/OCI layer analysis
+- [ ] Enterprise licensing — license key validation, feature gating, seat management
+- [ ] Client-server mode — agent reports to central server
+- [ ] Cloud KMS scanning — AWS KMS, Azure Key Vault, GCP KMS
+- [ ] Dependency crypto reachability — call graph analysis for transitive Go dependencies
 - [ ] Web UI dashboard
 - [ ] PKCS#11 / HSM scanning
 

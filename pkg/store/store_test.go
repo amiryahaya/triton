@@ -369,6 +369,37 @@ func TestErrNotFound_Error(t *testing.T) {
 	assert.Equal(t, "scan not found: xyz", e.Error())
 }
 
+// --- FileHashStats ---
+
+func TestFileHashStats_Empty(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	count, oldest, newest, err := s.FileHashStats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+	assert.True(t, oldest.IsZero())
+	assert.True(t, newest.IsZero())
+}
+
+func TestFileHashStats_WithEntries(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, s.SetFileHash(ctx, "/a", "h1"))
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, s.SetFileHash(ctx, "/b", "h2"))
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, s.SetFileHash(ctx, "/c", "h3"))
+
+	count, oldest, newest, err := s.FileHashStats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 3, count)
+	assert.False(t, oldest.IsZero())
+	assert.False(t, newest.IsZero())
+	assert.True(t, !newest.Before(oldest))
+}
+
 // --- Context Cancellation ---
 
 func TestSaveScan_CancelledContext(t *testing.T) {
@@ -379,4 +410,113 @@ func TestSaveScan_CancelledContext(t *testing.T) {
 	result := testScanResult("cancelled", "host", "quick")
 	err := s.SaveScan(ctx, result)
 	assert.Error(t, err)
+}
+
+func TestGetScan_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.SaveScan(ctx, testScanResult("ctx-get", "host-a", "quick")))
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.GetScan(cancelCtx, "ctx-get")
+	assert.Error(t, err)
+}
+
+func TestListScans_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.ListScans(ctx, ScanFilter{})
+	assert.Error(t, err)
+}
+
+func TestDeleteScan_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.SaveScan(ctx, testScanResult("ctx-del", "host-a", "quick")))
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := s.DeleteScan(cancelCtx, "ctx-del")
+	assert.Error(t, err)
+}
+
+func TestSetFileHash_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := s.SetFileHash(ctx, "/path", "hash")
+	assert.Error(t, err)
+}
+
+func TestGetFileHash_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.SetFileHash(ctx, "/path", "hash"))
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := s.GetFileHash(cancelCtx, "/path")
+	assert.Error(t, err)
+}
+
+func TestPruneStaleHashes_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := s.PruneStaleHashes(ctx, time.Now())
+	assert.Error(t, err)
+}
+
+func TestFileHashStats_CancelledContext(t *testing.T) {
+	s := testStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, _, err := s.FileHashStats(ctx)
+	assert.Error(t, err)
+}
+
+// --- Combined Filters ---
+
+func TestListScans_CombinedFilters(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	r1 := testScanResult("cf-1", "host-a", "quick")
+	r1.Metadata.Timestamp = base
+	r2 := testScanResult("cf-2", "host-a", "standard")
+	r2.Metadata.Timestamp = base.Add(24 * time.Hour)
+	r3 := testScanResult("cf-3", "host-b", "quick")
+	r3.Metadata.Timestamp = base.Add(48 * time.Hour)
+
+	require.NoError(t, s.SaveScan(ctx, r1))
+	require.NoError(t, s.SaveScan(ctx, r2))
+	require.NoError(t, s.SaveScan(ctx, r3))
+
+	// Filter by hostname + profile
+	summaries, err := s.ListScans(ctx, ScanFilter{Hostname: "host-a", Profile: "quick"})
+	require.NoError(t, err)
+	assert.Len(t, summaries, 1)
+	assert.Equal(t, "cf-1", summaries[0].ID)
+
+	// Filter by hostname + time range + limit
+	after := base
+	before := base.Add(49 * time.Hour)
+	summaries, err = s.ListScans(ctx, ScanFilter{
+		Hostname: "host-a",
+		After:    &after,
+		Before:   &before,
+		Limit:    1,
+	})
+	require.NoError(t, err)
+	assert.Len(t, summaries, 1)
 }

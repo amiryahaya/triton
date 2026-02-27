@@ -416,3 +416,450 @@ func TestUIServeJS(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "renderOverview")
 }
+
+// --- Delete Scan Not Found ---
+
+func TestDeleteScan_NotFound(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("DELETE", "/api/v1/scans/nonexistent", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// --- Findings Edge Cases ---
+
+func TestGetFindings_NotFound(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans/nonexistent/findings", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetFindings_FilterByModule(t *testing.T) {
+	srv, db := testServer(t)
+	scan := testScanResult("fmod-1", "host-a")
+	scan.Findings = append(scan.Findings, model.Finding{
+		ID:     "f2",
+		Source: model.FindingSource{Type: "file", Path: "/lib"},
+		CryptoAsset: &model.CryptoAsset{
+			Algorithm: "AES-256",
+			PQCStatus: "SAFE",
+		},
+		Module: "libraries",
+	})
+	require.NoError(t, db.SaveScan(context.Background(), scan))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans/fmod-1/findings?module=libraries", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var findings []model.Finding
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &findings))
+	assert.Len(t, findings, 1)
+	assert.Equal(t, "libraries", findings[0].Module)
+}
+
+func TestGetFindings_FilterBothPQCAndModule(t *testing.T) {
+	srv, db := testServer(t)
+	scan := testScanResult("fboth-1", "host-a")
+	scan.Findings = append(scan.Findings,
+		model.Finding{
+			ID:          "f2",
+			Source:      model.FindingSource{Type: "file", Path: "/lib"},
+			CryptoAsset: &model.CryptoAsset{Algorithm: "AES-256", PQCStatus: "SAFE"},
+			Module:      "libraries",
+		},
+		model.Finding{
+			ID:          "f3",
+			Source:      model.FindingSource{Type: "file", Path: "/cert"},
+			CryptoAsset: &model.CryptoAsset{Algorithm: "ML-KEM", PQCStatus: "SAFE"},
+			Module:      "certificates",
+		},
+	)
+	require.NoError(t, db.SaveScan(context.Background(), scan))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans/fboth-1/findings?pqc_status=SAFE&module=libraries", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var findings []model.Finding
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &findings))
+	assert.Len(t, findings, 1)
+	assert.Equal(t, "libraries", findings[0].Module)
+}
+
+// --- Diff Edge Cases ---
+
+func TestDiff_MissingParams(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// No params at all
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/diff", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Only base
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/api/v1/diff?base=scan-1", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Only compare
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/api/v1/diff?compare=scan-2", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDiff_BaseNotFound(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/diff?base=nonexistent&compare=also-missing", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "base scan not found")
+}
+
+func TestDiff_CompareNotFound(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("diff-exist", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/diff?base=diff-exist&compare=nonexistent", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "compare scan not found")
+}
+
+// --- ListScans Query Params ---
+
+func TestListScans_WithLimit(t *testing.T) {
+	srv, db := testServer(t)
+	for i := 0; i < 5; i++ {
+		s := testScanResult("lim-"+string(rune('a'+i)), "host-a")
+		s.Metadata.Timestamp = time.Now().Add(time.Duration(i) * time.Hour)
+		require.NoError(t, db.SaveScan(context.Background(), s))
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans?limit=2", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summaries []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summaries))
+	assert.Len(t, summaries, 2)
+}
+
+func TestListScans_WithTimeRange(t *testing.T) {
+	srv, db := testServer(t)
+	base := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		s := testScanResult("tr-"+string(rune('a'+i)), "host-a")
+		s.Metadata.Timestamp = base.Add(time.Duration(i) * 24 * time.Hour)
+		require.NoError(t, db.SaveScan(context.Background(), s))
+	}
+
+	after := base.Add(24 * time.Hour).Format(time.RFC3339)
+	before := base.Add(3 * 24 * time.Hour).Format(time.RFC3339)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans?after="+after+"&before="+before, nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summaries []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summaries))
+	assert.Len(t, summaries, 3)
+}
+
+func TestListScans_WithProfile(t *testing.T) {
+	srv, db := testServer(t)
+	s1 := testScanResult("prof-1", "host-a")
+	s1.Metadata.ScanProfile = "comprehensive"
+	require.NoError(t, db.SaveScan(context.Background(), s1))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("prof-2", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans?profile=comprehensive", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summaries []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summaries))
+	assert.Len(t, summaries, 1)
+}
+
+func TestListScans_EmptyResult(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	// Should return empty array, not null
+	assert.Equal(t, "[]\n", w.Body.String())
+}
+
+// --- Machine History ---
+
+func TestMachineHistory(t *testing.T) {
+	srv, db := testServer(t)
+	for i := 0; i < 3; i++ {
+		s := testScanResult("mh-"+string(rune('a'+i)), "target-host")
+		s.Metadata.Timestamp = time.Now().Add(time.Duration(i) * time.Hour)
+		require.NoError(t, db.SaveScan(context.Background(), s))
+	}
+	// Different host — should not appear
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("mh-other", "other-host")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/machines/target-host", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summaries []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summaries))
+	assert.Len(t, summaries, 3)
+	for _, s := range summaries {
+		assert.Equal(t, "target-host", s.Hostname)
+	}
+}
+
+func TestMachineHistory_Empty(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/machines/no-such-host", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "[]\n", w.Body.String())
+}
+
+// --- Report Generation ---
+
+func TestGenerateReport_ScanNotFound(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/nonexistent/json", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGenerateReport_UnsupportedFormat(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-1", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-1/xml", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "unsupported format")
+}
+
+func TestGenerateReport_JSON(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-json", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-json/json", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "file")
+}
+
+func TestGenerateReport_SARIF(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-sarif", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-sarif/sarif", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "file")
+}
+
+func TestGenerateReport_HTML(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-html", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-html/html", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "file")
+}
+
+func TestGenerateReport_CycloneDX(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-cdx", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-cdx/cyclonedx", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "file")
+}
+
+// --- Policy Evaluate Edge Cases ---
+
+func TestPolicyEvaluate_InvalidJSON(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte("bad")))
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPolicyEvaluate_MissingScanID(t *testing.T) {
+	srv, _ := testServer(t)
+	body := `{"policyName":"nacsa-2030"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "scanID is required")
+}
+
+func TestPolicyEvaluate_ScanNotFound(t *testing.T) {
+	srv, _ := testServer(t)
+	body := `{"scanID":"nonexistent","policyName":"nacsa-2030"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPolicyEvaluate_NoPolicySpecified(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("pol-nop", "host-a")))
+
+	body := `{"scanID":"pol-nop"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "policyName or policyYAML required")
+}
+
+func TestPolicyEvaluate_InvalidPolicyName(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("pol-bad", "host-a")))
+
+	body := `{"scanID":"pol-bad","policyName":"no-such-policy"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid policy")
+}
+
+func TestPolicyEvaluate_CustomYAML(t *testing.T) {
+	srv, db := testServer(t)
+	scan := testScanResult("pol-yaml", "host-a")
+	require.NoError(t, db.SaveScan(context.Background(), scan))
+
+	policyYAML := `name: test-policy
+version: "1.0"
+description: Test policy
+rules:
+  - id: no-unsafe
+    description: No unsafe algorithms
+    severity: high
+    condition:
+      field: pqc_status
+      operator: not_equals
+      value: UNSAFE`
+
+	reqBody := map[string]string{
+		"scanID":     "pol-yaml",
+		"policyYAML": policyYAML,
+	}
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader(body))
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// --- Trend Edge Cases ---
+
+func TestTrend_DefaultLast(t *testing.T) {
+	srv, db := testServer(t)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("trend-def", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/trend", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestTrend_Empty(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/trend?hostname=nobody", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// --- Aggregate Edge Cases ---
+
+func TestAggregate_Empty(t *testing.T) {
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/aggregate", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var agg map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &agg))
+	assert.Equal(t, float64(0), agg["machineCount"])
+}
+
+// --- Start / Shutdown ---
+
+func TestStartAndShutdown(t *testing.T) {
+	srv, _ := testServer(t)
+	// Override to use random port
+	srv.http.Addr = "127.0.0.1:0"
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Start()
+	}()
+
+	// Give the server a moment to start
+	time.Sleep(50 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	assert.NoError(t, err)
+
+	// Start should return http.ErrServerClosed
+	startErr := <-errCh
+	assert.ErrorIs(t, startErr, http.ErrServerClosed)
+}

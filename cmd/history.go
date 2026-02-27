@@ -32,7 +32,7 @@ func runHistory(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	summaries, err := db.ListScans(context.Background(), store.ScanFilter{
 		Hostname: historyHostname,

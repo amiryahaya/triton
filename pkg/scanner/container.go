@@ -147,7 +147,7 @@ func (m *ContainerModule) processContainerFile(ctx context.Context, path string,
 	if err != nil {
 		return nil // Skip unreadable files
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	lineNum := 0

@@ -47,7 +47,7 @@ func runCacheStats(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	count, oldest, newest, err := db.FileHashStats(context.Background())
 	if err != nil {
@@ -68,7 +68,7 @@ func runCacheClear(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Prune everything by using a far-future cutoff.
 	err = db.PruneStaleHashes(context.Background(), time.Now().Add(24*time.Hour))

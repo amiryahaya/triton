@@ -214,7 +214,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "Warning: failed to open database: %v\n", err)
 		} else {
 			eng.SetStore(db)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 		}
 	}
 

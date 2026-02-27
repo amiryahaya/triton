@@ -38,7 +38,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 	s := &SQLiteStore{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
@@ -73,7 +73,7 @@ func (s *SQLiteStore) migrate() error {
 		}
 
 		if _, err := tx.Exec(migrations[i]); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migration %d: %w", version, err)
 		}
 
@@ -81,7 +81,7 @@ func (s *SQLiteStore) migrate() error {
 			"INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
 			version, time.Now().UTC().Format(time.RFC3339),
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("recording migration %d: %w", version, err)
 		}
 
@@ -176,7 +176,7 @@ func (s *SQLiteStore) ListScans(ctx context.Context, filter ScanFilter) ([]ScanS
 	if err != nil {
 		return nil, fmt.Errorf("listing scans: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var summaries []ScanSummary
 	for rows.Next() {

@@ -25,6 +25,7 @@ vendor/
 # Build directories
 bin/
 dist/
+!pkg/server/ui/dist/
 build/
 
 # Go module cache (if vendoring)

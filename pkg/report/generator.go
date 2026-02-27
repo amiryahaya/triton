@@ -43,12 +43,14 @@ func (g *Generator) GenerateAllReports(result *model.ScanResult, timestamp strin
 	htmlFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.html", timestamp))
 	excelFile := filepath.Join(dir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", timestamp))
 	cdxFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.cdx.json", timestamp))
+	sarifFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.sarif", timestamp))
 
 	reports := []reportFunc{
 		{"JSON", jsonFile, func() error { return g.GenerateTritonJSON(result, jsonFile) }},
 		{"CycloneDX", cdxFile, func() error { return g.GenerateCycloneDXBOM(result, cdxFile) }},
 		{"HTML", htmlFile, func() error { return g.GenerateHTML(result, htmlFile) }},
 		{"Excel", excelFile, func() error { return g.GenerateExcel(result, excelFile) }},
+		{"SARIF", sarifFile, func() error { return g.GenerateSARIF(result, sarifFile) }},
 	}
 
 	files := make([]string, 0, len(reports))

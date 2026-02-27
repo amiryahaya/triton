@@ -19,6 +19,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // KernelModule scans kernel crypto modules (.ko files on Linux).
@@ -29,7 +30,10 @@ type KernelModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *KernelModule) SetStore(s store.Store) { m.store = s }
 
 func NewKernelModule(cfg *config.Config) *KernelModule {
 	return &KernelModule{config: cfg}
@@ -74,6 +78,7 @@ func (m *KernelModule) scanKernelModules(ctx context.Context, target model.ScanT
 		matchFile:    m.isKernelModule,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			found, err := m.scanKernelModuleFile(path)
 			if err != nil {

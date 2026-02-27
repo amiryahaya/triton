@@ -1,0 +1,43 @@
+version: "1"
+name: "CNSA 2.0 Commercial National Security Algorithm Suite"
+rules:
+  - id: cnsa2-no-unsafe
+    severity: error
+    condition:
+      pqc_status: UNSAFE
+    action: fail
+    message: "CNSA 2.0 violation — UNSAFE algorithm must be replaced"
+
+  - id: cnsa2-no-rsa-below-3072
+    severity: error
+    condition:
+      algorithm_family: RSA
+      key_size_below: 3072
+    action: fail
+    message: "CNSA 2.0 requires RSA >= 3072 bits (RSA-4096 recommended)"
+
+  - id: cnsa2-no-ecdsa-below-384
+    severity: error
+    condition:
+      algorithm_family: ECDSA
+      key_size_below: 384
+    action: fail
+    message: "CNSA 2.0 requires ECDSA P-384 or stronger"
+
+  - id: cnsa2-no-sha-below-384
+    severity: warning
+    condition:
+      algorithm: SHA-256
+    action: warn
+    message: "CNSA 2.0 prefers SHA-384 or SHA-512"
+
+  - id: cnsa2-no-deprecated
+    severity: warning
+    condition:
+      pqc_status: DEPRECATED
+    action: warn
+    message: "CNSA 2.0 — deprecated algorithm should be migrated"
+
+thresholds:
+  max_unsafe_count: 0
+  min_safe_percent: 50.0

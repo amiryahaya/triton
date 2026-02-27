@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triton Dashboard</title>
+  <link rel="stylesheet" href="/ui/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <h1>Triton</h1>
+    <nav>
+      <a href="#/" class="active" data-view="overview">Overview</a>
+      <a href="#/machines" data-view="machines">Machines</a>
+      <a href="#/scans" data-view="scans">Scans</a>
+      <a href="#/diff" data-view="diff">Diff</a>
+      <a href="#/trend" data-view="trend">Trend</a>
+    </nav>
+  </aside>
+  <main class="main" id="content">
+    <div class="loading">Loading...</div>
+  </main>
+</div>
+<script src="/ui/app.js"></script>
+</body>
+</html>

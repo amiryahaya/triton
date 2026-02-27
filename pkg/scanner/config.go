@@ -14,6 +14,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // ConfigModule scans configuration files for cryptographic settings.
@@ -22,7 +23,10 @@ type ConfigModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *ConfigModule) SetStore(s store.Store) { m.store = s }
 
 func NewConfigModule(cfg *config.Config) *ConfigModule {
 	return &ConfigModule{config: cfg}
@@ -53,6 +57,7 @@ func (m *ConfigModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		matchFile:    m.isConfigFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			results := m.parseConfigFile(path)
 			for _, finding := range results {

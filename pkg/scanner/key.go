@@ -19,6 +19,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // keyPEMHeaders maps PEM header types to (keyType, algorithm) pairs.
@@ -54,7 +55,10 @@ type KeyModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *KeyModule) SetStore(s store.Store) { m.store = s }
 
 func NewKeyModule(cfg *config.Config) *KeyModule {
 	return &KeyModule{config: cfg}
@@ -85,6 +89,7 @@ func (m *KeyModule) Scan(ctx context.Context, target model.ScanTarget, findings 
 		matchFile:    m.isKeyFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			finding, err := m.parseKeyFile(path)
 			if err != nil || finding == nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // Module is the interface that all scanner modules must implement.
@@ -28,10 +29,16 @@ type FileMetrics interface {
 	FileStats() (scanned, matched int64)
 }
 
+// StoreAware is implemented by modules that support incremental scanning.
+type StoreAware interface {
+	SetStore(s store.Store)
+}
+
 // Engine orchestrates concurrent module execution and finding collection.
 type Engine struct {
 	config  *config.Config
 	modules []Module
+	store   store.Store
 }
 
 // Progress reports scan progress to the UI.
@@ -48,6 +55,16 @@ func New(cfg *config.Config) *Engine {
 	return &Engine{
 		config: cfg,
 	}
+}
+
+// SetStore sets the persistence store for incremental scanning and result storage.
+func (e *Engine) SetStore(s store.Store) {
+	e.store = s
+}
+
+// Store returns the engine's store, or nil if none is set.
+func (e *Engine) Store() store.Store {
+	return e.store
 }
 
 // RegisterModule adds a module to the engine.
@@ -74,6 +91,10 @@ func (e *Engine) RegisterDefaultModules() {
 	e.RegisterModule(NewProcessModule(e.config))
 	e.RegisterModule(NewNetworkModule(e.config))
 	e.RegisterModule(NewProtocolModule(e.config))
+
+	// Phase 8: Container & OS certificate store
+	e.RegisterModule(NewContainerModule(e.config))
+	e.RegisterModule(NewCertStoreModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.
@@ -109,6 +130,17 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 			mu.Unlock()
 		}
 	}()
+
+	// Inject store into modules that support incremental scanning.
+	if e.store != nil {
+		for _, m := range e.modules {
+			if sa, ok := m.(StoreAware); ok {
+				sa.SetStore(e.store)
+			}
+		}
+	}
+
+	result.Metadata.IncrementalMode = e.config.Incremental
 
 	// Build module-target pairs
 	type moduleTarget struct {

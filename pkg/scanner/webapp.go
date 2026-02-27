@@ -13,6 +13,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // webAppCryptoPatterns defines patterns for detecting crypto usage in web application source.
@@ -139,7 +140,10 @@ type WebAppModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *WebAppModule) SetStore(s store.Store) { m.store = s }
 
 func NewWebAppModule(cfg *config.Config) *WebAppModule {
 	return &WebAppModule{config: cfg}
@@ -170,6 +174,7 @@ func (m *WebAppModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		matchFile:    m.isWebAppFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			found, err := m.scanWebAppFile(path)
 			if err != nil {

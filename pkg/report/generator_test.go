@@ -155,8 +155,8 @@ func TestGenerateAllReports(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
-	// Should produce JSON, CycloneDX, HTML, Excel
-	require.Len(t, files, 4, "expected 4 report files, got %d", len(files))
+	// Should produce JSON, CycloneDX, HTML, Excel, SARIF
+	require.Len(t, files, 5, "expected 5 report files, got %d", len(files))
 
 	for _, f := range files {
 		assert.True(t, strings.HasPrefix(f, dir), "file should be in output dir")

@@ -13,6 +13,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // scriptCryptoPatterns defines patterns for detecting crypto usage in scripts.
@@ -103,7 +104,10 @@ type ScriptModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *ScriptModule) SetStore(s store.Store) { m.store = s }
 
 func NewScriptModule(cfg *config.Config) *ScriptModule {
 	return &ScriptModule{config: cfg}
@@ -134,6 +138,7 @@ func (m *ScriptModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		matchFile:    m.isScriptFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			found, err := m.scanScriptFile(path)
 			if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // cryptoLibPatterns defines known cryptographic shared libraries.
@@ -47,7 +48,10 @@ type LibraryModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *LibraryModule) SetStore(s store.Store) { m.store = s }
 
 func NewLibraryModule(cfg *config.Config) *LibraryModule {
 	return &LibraryModule{config: cfg}
@@ -78,6 +82,7 @@ func (m *LibraryModule) Scan(ctx context.Context, target model.ScanTarget, findi
 		matchFile:    m.isLibraryFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			finding := m.createLibraryFinding(path)
 			if finding == nil {

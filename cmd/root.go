@@ -19,8 +19,10 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/policy"
 	"github.com/amiryahaya/triton/pkg/report"
 	"github.com/amiryahaya/triton/pkg/scanner"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 var (
@@ -31,8 +33,11 @@ var (
 	modules     []string
 	format      string
 	showMetrics bool
+	dbPath        string
+	incremental   bool
+	scanPolicyArg string
 
-	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "all": true}
+	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
 	rootCmd = &cobra.Command{
 		Use:     "triton",
@@ -54,8 +59,11 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputDir, "output-dir", "d", ".", "Output directory for reports (used with --format all)")
 	rootCmd.PersistentFlags().StringVarP(&scanProfile, "profile", "p", "standard", "Scan profile: quick, standard, comprehensive")
 	rootCmd.PersistentFlags().StringSliceVarP(&modules, "modules", "m", []string{}, "Specific modules to run (default: all)")
-	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, cdx, html, xlsx, all")
+	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, cdx, html, xlsx, sarif, all")
 	rootCmd.PersistentFlags().BoolVar(&showMetrics, "metrics", false, "Show per-module scan metrics table")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "Database path (default: ~/.triton/triton.db)")
+	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
+	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -189,9 +197,26 @@ func runScan(cmd *cobra.Command, args []string) error {
 		cfg.Modules = modules
 	}
 	cfg.Metrics = showMetrics
+	cfg.Incremental = incremental
+	if dbPath != "" {
+		cfg.DBPath = dbPath
+	} else {
+		cfg.DBPath = config.DefaultDBPath()
+	}
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()
+
+	// Initialize store for incremental scanning and result persistence.
+	if cfg.DBPath != "" {
+		db, err := store.NewSQLiteStore(cfg.DBPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to open database: %v\n", err)
+		} else {
+			eng.SetStore(db)
+			defer db.Close()
+		}
+	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return runScanHeadless(eng)
@@ -223,7 +248,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	printScanMetrics(final.result)
-	return generateReports(final.result)
+
+	if err := saveScanResult(eng, final.result); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save scan to database: %v\n", err)
+	}
+
+	if err := generateReports(final.result); err != nil {
+		return err
+	}
+
+	return evaluateScanPolicy(final.result)
 }
 
 func runScanHeadless(eng *scanner.Engine) error {
@@ -240,10 +274,25 @@ func runScanHeadless(eng *scanner.Engine) error {
 		fmt.Printf("[%3.0f%%] %s\n", p.Percent*100, p.Status)
 		if p.Complete && p.Result != nil {
 			printScanMetrics(p.Result)
-			return generateReports(p.Result)
+			if err := saveScanResult(eng, p.Result); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save scan to database: %v\n", err)
+			}
+			if err := generateReports(p.Result); err != nil {
+				return err
+			}
+			return evaluateScanPolicy(p.Result)
 		}
 	}
 	return nil
+}
+
+// saveScanResult persists a scan result using the engine's store.
+func saveScanResult(eng *scanner.Engine, result *model.ScanResult) error {
+	s := eng.Store()
+	if s == nil {
+		return nil
+	}
+	return s.SaveScan(context.Background(), result)
 }
 
 func generateReports(result *model.ScanResult) error {
@@ -284,6 +333,13 @@ func generateReports(result *model.ScanResult) error {
 			return err
 		}
 		fmt.Printf("Report saved to: %s\n", xlsxFile)
+
+	case "sarif":
+		sarifFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.sarif", ts))
+		if err := gen.GenerateSARIF(result, sarifFile); err != nil {
+			return err
+		}
+		fmt.Printf("SARIF report saved to: %s\n", sarifFile)
 
 	default: // "all"
 		files, err := gen.GenerateAllReports(result, ts)
@@ -375,6 +431,47 @@ func printScanMetrics(result *model.ScanResult) {
 		totalScanned, totalMatched,
 		totalFindings, totalMemory)
 	fmt.Printf("Peak memory: %.1fMB\n\n", result.Metadata.PeakMemoryMB)
+}
+
+// evaluateScanPolicy evaluates the --policy flag if set.
+func evaluateScanPolicy(result *model.ScanResult) error {
+	if scanPolicyArg == "" {
+		return nil
+	}
+
+	pol, err := policy.LoadBuiltin(scanPolicyArg)
+	if err != nil {
+		pol, err = policy.LoadFromFile(scanPolicyArg)
+		if err != nil {
+			return fmt.Errorf("loading policy: %w", err)
+		}
+	}
+
+	eval := policy.Evaluate(pol, result)
+
+	fmt.Printf("\nPolicy Evaluation: %s\n", eval.PolicyName)
+	fmt.Printf("Verdict: %s\n", eval.Verdict)
+
+	if len(eval.Violations) > 0 {
+		fmt.Printf("Violations: %d\n", len(eval.Violations))
+		for _, v := range eval.Violations {
+			icon := "!"
+			if v.Action == "fail" {
+				icon = "X"
+			}
+			fmt.Printf("  [%s] %s: %s\n", icon, v.RuleID, v.Message)
+		}
+	}
+	for _, tv := range eval.ThresholdViolations {
+		fmt.Printf("  [X] %s: %s\n", tv.Name, tv.Message)
+	}
+
+	result.Metadata.PolicyResult = string(eval.Verdict)
+
+	if eval.Verdict == policy.VerdictFail {
+		os.Exit(2)
+	}
+	return nil
 }
 
 func formatDuration(d time.Duration) string {

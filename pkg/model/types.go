@@ -25,24 +25,30 @@ const (
 
 // ScanResult is the top-level container for all scan output.
 type ScanResult struct {
-	ID       string       `json:"id"`
-	Metadata ScanMetadata `json:"metadata"`
-	Systems  []System     `json:"systems"`
-	Findings []Finding    `json:"findings"`
-	Summary  Summary      `json:"summary"`
+	ID             string       `json:"id"`
+	PreviousScanID string       `json:"previousScanID,omitempty"`
+	Metadata       ScanMetadata `json:"metadata"`
+	Systems        []System     `json:"systems"`
+	Findings       []Finding    `json:"findings"`
+	Summary        Summary      `json:"summary"`
 }
 
 // ScanMetadata captures scan execution context.
 type ScanMetadata struct {
-	Timestamp     time.Time      `json:"timestamp"`
-	Hostname      string         `json:"hostname"`
-	OS            string         `json:"os"`
-	ScanProfile   string         `json:"scanProfile"`
-	Targets       []ScanTarget   `json:"targets"`
-	Duration      time.Duration  `json:"duration"`
-	ToolVersion   string         `json:"toolVersion"`
-	ModuleMetrics []ModuleMetric `json:"moduleMetrics,omitempty"`
-	PeakMemoryMB  float64        `json:"peakMemoryMB,omitempty"`
+	Timestamp          time.Time      `json:"timestamp"`
+	Hostname           string         `json:"hostname"`
+	OS                 string         `json:"os"`
+	ScanProfile        string         `json:"scanProfile"`
+	Targets            []ScanTarget   `json:"targets"`
+	Duration           time.Duration  `json:"duration"`
+	ToolVersion        string         `json:"toolVersion"`
+	ModuleMetrics      []ModuleMetric `json:"moduleMetrics,omitempty"`
+	PeakMemoryMB       float64        `json:"peakMemoryMB,omitempty"`
+	AgentID            string         `json:"agentID,omitempty"`
+	MachineFingerprint string         `json:"machineFingerprint,omitempty"`
+	IncrementalMode    bool           `json:"incrementalMode,omitempty"`
+	FilesSkipped       int64          `json:"filesSkipped,omitempty"`
+	PolicyResult       string         `json:"policyResult,omitempty"`
 }
 
 // ModuleMetric captures per-module-target scan performance metrics.
@@ -95,6 +101,8 @@ type FindingSource struct {
 	PID             int    `json:"pid,omitempty"`
 	Endpoint        string `json:"endpoint,omitempty"`
 	DetectionMethod string `json:"detectionMethod,omitempty"` // symbol, string, import, api-call, command, configuration, library-linkage
+	ContainerImage  string `json:"containerImage,omitempty"`
+	ContainerLayer  string `json:"containerLayer,omitempty"`
 }
 
 // CryptoAsset represents a cryptographic discovery for Jadual 2 rows.

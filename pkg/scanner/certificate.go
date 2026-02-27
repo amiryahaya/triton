@@ -20,13 +20,17 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 type CertificateModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *CertificateModule) SetStore(s store.Store) { m.store = s }
 
 func NewCertificateModule(cfg *config.Config) *CertificateModule {
 	return &CertificateModule{config: cfg}
@@ -57,6 +61,7 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 		matchFile:    m.isCertificateFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			ext := strings.ToLower(filepath.Ext(path))
 

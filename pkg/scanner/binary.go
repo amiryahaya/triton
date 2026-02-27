@@ -19,6 +19,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // Binary magic bytes for executable detection
@@ -127,7 +128,10 @@ type BinaryModule struct {
 	config      *config.Config
 	lastScanned int64
 	lastMatched int64
+	store       store.Store
 }
+
+func (m *BinaryModule) SetStore(s store.Store) { m.store = s }
 
 func NewBinaryModule(cfg *config.Config) *BinaryModule {
 	return &BinaryModule{config: cfg}
@@ -158,6 +162,7 @@ func (m *BinaryModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		matchFile:    m.isBinaryFile,
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
+		store:        m.store,
 		processFile: func(path string) error {
 			found, err := m.scanBinaryFile(path)
 			if err != nil {

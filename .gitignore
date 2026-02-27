@@ -141,9 +141,10 @@ logs/
 # Security
 # ============================================
 
-# Private keys (never commit these!)
+# Private keys and certificates (never commit these!)
 *.pem
 *.key
+*.der
 *.p12
 *.pfx
 *.jks

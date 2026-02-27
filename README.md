@@ -2,17 +2,22 @@
 
 [![CI](https://github.com/amiryahaya/triton/actions/workflows/ci.yml/badge.svg)](https://github.com/amiryahaya/triton/actions/workflows/ci.yml)
 
-A lightweight, cross-platform CLI tool for generating Software Bill of Materials (SBOM) and Cryptographic Bill of Materials (CBOM) to assess Post-Quantum Cryptography (PQC) compliance.
+A lightweight, cross-platform CLI tool for generating Software Bill of Materials (SBOM) and Cryptographic Bill of Materials (CBOM) to assess Post-Quantum Cryptography (PQC) compliance. Aligned with the NACSA PQC framework and CNSA 2.0 migration timeline.
 
 **Target:** Malaysian government critical infrastructure sectors for 2030 PQC readiness.
 
 ## Features
 
 - **All 9 CBOM scanning categories** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, network services, protocol probing
+- **Static + active scanning** — passive file/code analysis plus runtime process inspection and active TLS/network probing
+- **PQC algorithm detection** — ML-KEM, ML-DSA, SLH-DSA OID recognition in X.509 certificates, including hybrid/composite certs
 - **PQC classification** — every cryptographic asset rated SAFE / TRANSITIONAL / DEPRECATED / UNSAFE
+- **NACSA PQC framework** — Malaysian compliance labels (Patuh / Dalam Peralihan / Tidak Patuh / Perlu Tindakan Segera)
+- **CNSA 2.0 & NIST IR 8547** — deprecation timeline warnings (2027/2030/2035 milestones) per finding
+- **CAMM crypto-agility scoring** — Level 0–4 maturity assessment per system
 - **Crypto-agility assessment** — evaluates each system's ability to migrate to PQC algorithms
 - **Government-format Excel reports** — Jadual 1 (SBOM) and Jadual 2 (CBOM) in a single `.xlsx` workbook
-- **Multiple output formats** — CycloneDX JSON, HTML dashboard, Excel (`.xlsx`)
+- **Multiple output formats** — CycloneDX 1.7 CBOM JSON, HTML dashboard, Excel (`.xlsx`)
 - **Cross-platform** — macOS (primary), Linux, Windows
 - **Fast & lightweight** — single binary (~17 MB), concurrent scanning with progress TUI
 
@@ -86,23 +91,24 @@ Triton covers all 9 categories defined by the CBOM scanning framework:
 | 5 | Certificates & keys | Passive/File | `certificates`, `keys` | PEM/DER/PKCS certificates and private keys |
 | 6 | Executable scripts | Passive/Code | `scripts` | Crypto calls in `.py`, `.sh`, `.rb`, etc. |
 | 7 | Web applications | Passive/Code | `webapp` | Crypto patterns in `.php`, `.js`, `.go`, `.java` |
-| 8 | Network applications | Active/Network | `network` | TLS/SSH/IPsec service detection on listening ports |
-| 9 | Network protocols | Active/Network | `protocol` | Active TLS probing, cipher suite enumeration |
+| 8 | Configuration files | Passive/File | `configs` | sshd_config, crypto-policies, java.security |
+| 9 | Network applications | Active/Network | `network` | TLS/SSH/IPsec service detection on listening ports |
+| 10 | Network protocols | Active/Network | `protocol` | Active TLS probing, cipher suite enumeration |
 
 ## Scan Profiles
 
-| Profile | Categories | Depth | Workers | Use Case |
-|---------|-----------|-------|---------|----------|
-| `quick` | 2, 3, 5 | 3 | 4 | Fast check of critical crypto assets |
-| `standard` | 1-7 | 10 | 8 | Balanced system assessment |
-| `comprehensive` | 1-9 | Unlimited | 16 | Full audit including network probing |
+| Profile | Modules | Depth | Workers | Use Case |
+|---------|---------|-------|---------|----------|
+| `quick` | certificates, keys, packages | 3 | 4 | Fast check of critical crypto assets |
+| `standard` | + libraries, binaries, scripts, webapp, configs | 10 | 8 | Balanced system assessment |
+| `comprehensive` | + kernel, processes, network, protocol | Unlimited | 16 | Full audit including network probing |
 
 ## Output Formats
 
 | Format | File | Description |
 |--------|------|-------------|
 | Excel | `Triton_PQC_Report.xlsx` | Government template with Jadual 1 (SBOM) + Jadual 2 (CBOM) sheets |
-| JSON | `triton-report.json` | CycloneDX 1.6 format for toolchain integration |
+| JSON | `triton-report.json` | CycloneDX 1.7 CBOM for toolchain integration |
 | HTML | `triton-report.html` | Visual dashboard with PQC status charts |
 
 The default (`--format all`) generates all three formats.
@@ -119,28 +125,31 @@ The default (`--format all`) generates all three formats.
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────┐
-│  Triton CLI (Cobra + BubbleTea TUI)                    │
-│                                                        │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Scanner Engine (concurrent, semaphore-based)    │  │
-│  │                                                  │  │
-│  │  Passive/File        Passive/Code   Active       │  │
-│  │  ├─ certificates     ├─ scripts     ├─ process   │  │
-│  │  ├─ keys             └─ webapp      ├─ network   │  │
-│  │  ├─ library                         └─ protocol  │  │
-│  │  ├─ binary                                       │  │
-│  │  ├─ kernel                                       │  │
-│  │  └─ packages                                     │  │
-│  └──────────────────────────────────────────────────┘  │
-│                                                        │
-│  ┌─────────────────┐  ┌────────────────────────────┐  │
-│  │ PQC Classifier  │  │ Report Generator           │  │
-│  │ + Agility Score │  │ ├─ Excel (.xlsx, gov fmt)  │  │
-│  │                 │  │ ├─ CycloneDX JSON          │  │
-│  │                 │  │ └─ HTML dashboard           │  │
-│  └─────────────────┘  └────────────────────────────┘  │
-└────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Triton CLI (Cobra + BubbleTea TUI)                      │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Scanner Engine (concurrent, semaphore-based)      │  │
+│  │                                                    │  │
+│  │  Passive/File        Passive/Code   Active         │  │
+│  │  ├─ certificates     ├─ scripts     ├─ process     │  │
+│  │  ├─ keys             └─ webapp      ├─ network     │  │
+│  │  ├─ library                         └─ protocol    │  │
+│  │  ├─ binary                                         │  │
+│  │  ├─ kernel                                         │  │
+│  │  ├─ configs                                        │  │
+│  │  └─ packages                                       │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌──────────────────────┐  ┌──────────────────────────┐  │
+│  │ PQC Classifier       │  │ Report Generator         │  │
+│  │ ├─ Algorithm registry│  │ ├─ Excel (.xlsx, gov)    │  │
+│  │ ├─ NACSA framework   │  │ ├─ CycloneDX 1.7 CBOM   │  │
+│  │ ├─ CNSA 2.0 timeline │  │ └─ HTML dashboard        │  │
+│  │ ├─ CAMM scoring      │  │                          │  │
+│  │ └─ OID detection     │  │                          │  │
+│  └──────────────────────┘  └──────────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Development
@@ -154,10 +163,10 @@ triton/
 │   ├── config/             # Profile-based configuration (Viper)
 │   └── version/            # Version (set via ldflags at build time)
 ├── pkg/
-│   ├── scanner/            # Engine + 11 scanner modules
-│   ├── crypto/             # PQC registry, classification, agility scoring
+│   ├── scanner/            # Engine + 12 scanner modules
+│   ├── crypto/             # PQC registry, OID detection, NACSA, CNSA 2.0, CAMM
 │   ├── model/              # Data model (ScanResult, System, Finding, CryptoAsset)
-│   └── report/             # Excel, CycloneDX JSON, HTML generators
+│   └── report/             # Excel, CycloneDX 1.7 CBOM, HTML generators
 ├── test/fixtures/          # Test certificates, keys, scripts, configs
 └── docs/                   # Development plan, architecture, code review checklist
 ```
@@ -199,15 +208,17 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 - [x] Phase 5: Polish — version management, benchmarks, cross-platform builds, documentation
 - [x] CI/CD pipeline — GitHub Actions (lint + test + build) + GoReleaser releases
 
-### NACSA-Ready v1.0 _(Priority: Critical)_
+### NACSA-Ready v1.0 (Released)
 
-- [ ] CycloneDX CBOM v1.7 — proper crypto asset object modeling (algorithm, key, protocol, certificate)
-- [ ] CNSA 2.0 / NIST IR 8547 timeline mapping — deprecation warnings per finding
-- [ ] NACSA PQC framework alignment — urgent adopter classification, compliance columns
-- [ ] PQC algorithm detection — ML-KEM, ML-DSA, SLH-DSA, FN-DSA OIDs in certificates
-- [ ] Hybrid certificate detection — RSA + ML-DSA composite certs
-- [ ] CAMM-aligned crypto-agility scoring — Level 0-4 maturity framework
-- [ ] Config scanner expansion — sshd_config, crypto-policies
+- [x] CycloneDX CBOM v1.7 — proper crypto asset object modeling (algorithm, key, protocol, certificate)
+- [x] CNSA 2.0 / NIST IR 8547 timeline mapping — deprecation warnings per finding
+- [x] NACSA PQC framework alignment — urgent adopter classification, compliance columns
+- [x] PQC algorithm detection — ML-KEM, ML-DSA, SLH-DSA OIDs in certificates
+- [x] Hybrid certificate detection — RSA + ML-DSA composite certs
+- [x] CAMM-aligned crypto-agility scoring — Level 0–4 maturity framework
+- [x] Config scanner — sshd_config, crypto-policies, java.security
+- [x] Algorithm name normalization — canonical names across all scanners
+- [x] Reverse OID lookup — CycloneDX components populated with OIDs
 - [x] `triton doctor` — pre-scan environment check (permissions, tool availability, system access)
 
 ### Enterprise v2.0 _(Priority: Low)_
@@ -240,5 +251,6 @@ MIT License - See LICENSE file
 
 ## Acknowledgments
 
-- CycloneDX standard by OWASP
-- PQC guidance from NIST IR 8413
+- CycloneDX CBOM standard by OWASP
+- PQC guidance from NIST IR 8413 and CNSA 2.0
+- NACSA (National Cyber Security Agency of Malaysia) PQC framework

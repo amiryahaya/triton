@@ -75,25 +75,26 @@ func IsCompositeOID(oid string) bool {
 	return ok && entry.Family == "Composite"
 }
 
+// compositeMap maps composite algorithm names to their two component algorithms.
+var compositeMap = map[string][2]string{
+	"ML-DSA-44-RSA-2048":     {"ML-DSA-44", "RSA-2048"},
+	"ML-DSA-44-RSA-2048-PSS": {"ML-DSA-44", "RSA-2048"},
+	"ML-DSA-44-Ed25519":      {"ML-DSA-44", "Ed25519"},
+	"ML-DSA-44-ECDSA-P256":   {"ML-DSA-44", "ECDSA-P256"},
+	"ML-DSA-65-RSA-3072":     {"ML-DSA-65", "RSA-3072"},
+	"ML-DSA-65-RSA-3072-PSS": {"ML-DSA-65", "RSA-3072"},
+	"ML-DSA-65-RSA-4096":     {"ML-DSA-65", "RSA-4096"},
+	"ML-DSA-65-RSA-4096-PSS": {"ML-DSA-65", "RSA-4096"},
+	"ML-DSA-65-ECDSA-P384":   {"ML-DSA-65", "ECDSA-P384"},
+	"ML-DSA-65-Ed25519":      {"ML-DSA-65", "Ed25519"},
+	"ML-DSA-87-ECDSA-P384":   {"ML-DSA-87", "ECDSA-P384"},
+	"ML-DSA-87-Ed448":        {"ML-DSA-87", "Ed448"},
+}
+
 // CompositeComponents returns the two component algorithm names from a composite OID.
 // For example, "ML-DSA-65-ECDSA-P384" → ["ML-DSA-65", "ECDSA-P384"].
 func CompositeComponents(algorithm string) []string {
-	composites := map[string][2]string{
-		"ML-DSA-44-RSA-2048":     {"ML-DSA-44", "RSA-2048"},
-		"ML-DSA-44-RSA-2048-PSS": {"ML-DSA-44", "RSA-2048"},
-		"ML-DSA-44-Ed25519":      {"ML-DSA-44", "Ed25519"},
-		"ML-DSA-44-ECDSA-P256":   {"ML-DSA-44", "ECDSA-P256"},
-		"ML-DSA-65-RSA-3072":     {"ML-DSA-65", "RSA-3072"},
-		"ML-DSA-65-RSA-3072-PSS": {"ML-DSA-65", "RSA-3072"},
-		"ML-DSA-65-RSA-4096":     {"ML-DSA-65", "RSA-4096"},
-		"ML-DSA-65-RSA-4096-PSS": {"ML-DSA-65", "RSA-4096"},
-		"ML-DSA-65-ECDSA-P384":   {"ML-DSA-65", "ECDSA-P384"},
-		"ML-DSA-65-Ed25519":      {"ML-DSA-65", "Ed25519"},
-		"ML-DSA-87-ECDSA-P384":   {"ML-DSA-87", "ECDSA-P384"},
-		"ML-DSA-87-Ed448":        {"ML-DSA-87", "Ed448"},
-	}
-
-	if components, ok := composites[algorithm]; ok {
+	if components, ok := compositeMap[algorithm]; ok {
 		return components[:]
 	}
 	return nil
@@ -132,7 +133,7 @@ func ExtractSignatureOID(rawDER []byte) string {
 	if pos >= len(tbsContent) {
 		return ""
 	}
-	sigAlgContent, ok := parseSequenceAt(tbsContent[pos:])
+	sigAlgContent, ok := parseSequence(tbsContent[pos:])
 	if !ok {
 		return ""
 	}
@@ -197,7 +198,7 @@ func ExtractPublicKeyOID(rawDER []byte) string {
 	if pos >= len(tbsContent) {
 		return ""
 	}
-	spkiContent, ok := parseSequenceAt(tbsContent[pos:])
+	spkiContent, ok := parseSequence(tbsContent[pos:])
 	if !ok {
 		return ""
 	}
@@ -221,11 +222,6 @@ func parseSequence(data []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return content, true
-}
-
-// parseSequenceAt is the same as parseSequence but returns content bytes starting from a SEQUENCE tag.
-func parseSequenceAt(data []byte) ([]byte, bool) {
-	return parseSequence(data)
 }
 
 // parseTagLength parses an ASN.1 tag + length, returns content bytes and total consumed bytes.

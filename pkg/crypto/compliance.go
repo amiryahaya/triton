@@ -1,6 +1,9 @@
 package crypto
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // ComplianceInfo holds CNSA 2.0 and NIST IR 8547 compliance status for an algorithm.
 type ComplianceInfo struct {
@@ -60,6 +63,13 @@ var nistClassicalTimeline = map[string]nistTimeline{
 
 // GetCompliance returns CNSA 2.0 and NIST IR 8547 compliance info for an algorithm.
 func GetCompliance(algorithm string) ComplianceInfo {
+	algoInfo := ClassifyAlgorithm(algorithm, 0)
+	return getComplianceWithInfo(algorithm, algoInfo)
+}
+
+// getComplianceWithInfo returns compliance info using a pre-computed AlgorithmInfo,
+// avoiding a redundant ClassifyAlgorithm call when the caller already has it.
+func getComplianceWithInfo(algorithm string, algoInfo AlgorithmInfo) ComplianceInfo {
 	info := ComplianceInfo{}
 
 	// Check CNSA 2.0 approval
@@ -71,10 +81,7 @@ func GetCompliance(algorithm string) ComplianceInfo {
 	}
 
 	// Check NIST IR 8547 timeline
-	algoInfo := ClassifyAlgorithm(algorithm, 0)
-	family := algoInfo.Family
-
-	if timeline, ok := nistClassicalTimeline[family]; ok {
+	if timeline, ok := nistClassicalTimeline[algoInfo.Family]; ok {
 		info.NISTDeprecatedYear = timeline.DeprecatedYear
 		info.NISTDisallowedYear = timeline.DisallowedYear
 	}
@@ -98,13 +105,13 @@ func generateComplianceWarning(ci ComplianceInfo, ai AlgorithmInfo) string {
 			warnings = append(warnings, "Algorithm is deprecated and not CNSA 2.0 approved. Replace before 2027.")
 		case TRANSITIONAL:
 			if ci.NISTDisallowedYear > 0 {
-				warnings = append(warnings, "Algorithm will be deprecated by NIST in "+itoa(ci.NISTDeprecatedYear)+
-					" and disallowed in "+itoa(ci.NISTDisallowedYear)+". Not CNSA 2.0 approved. Plan migration to PQC.")
+				warnings = append(warnings, "Algorithm will be deprecated by NIST in "+strconv.Itoa(ci.NISTDeprecatedYear)+
+					" and disallowed in "+strconv.Itoa(ci.NISTDisallowedYear)+". Not CNSA 2.0 approved. Plan migration to PQC.")
 			} else {
 				warnings = append(warnings, "Algorithm is not CNSA 2.0 approved. Plan migration to quantum-resistant alternative.")
 			}
 		case SAFE:
-			if isPQCFamily(ai.Family) && !ci.CNSA2Approved {
+			if isPQCFamily(ai.Family) {
 				warnings = append(warnings, "PQC algorithm but not in CNSA 2.0 approved set. Consider ML-KEM-1024 or ML-DSA-87.")
 			}
 			// Symmetric SAFE algorithms without CNSA 2.0 approval get no warning
@@ -112,17 +119,4 @@ func generateComplianceWarning(ci ComplianceInfo, ai AlgorithmInfo) string {
 	}
 
 	return strings.Join(warnings, " ")
-}
-
-// itoa is a simple int-to-string without importing strconv.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := make([]byte, 0, 4)
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }

@@ -98,6 +98,31 @@ func TestAssessCAMM_Level2_WithPQC(t *testing.T) {
 	assert.Contains(t, indicatorIDs(result.Indicators), "2.4")
 }
 
+func TestAssessCAMM_NilCryptoAssetInFindings(t *testing.T) {
+	systems := []model.System{
+		{
+			CryptoAssets: []model.CryptoAsset{
+				{Algorithm: "AES-256-GCM"},
+			},
+		},
+	}
+	findings := []model.Finding{
+		{
+			Module:      "configs",
+			CryptoAsset: nil, // nil CryptoAsset should not panic
+		},
+		{
+			Module: "configs",
+			CryptoAsset: &model.CryptoAsset{
+				Function:  "TLS disabled algorithms",
+				Algorithm: "DES",
+			},
+		},
+	}
+	result := AssessCAMM(systems, findings)
+	assert.GreaterOrEqual(t, result.Level, CAMMLevel1)
+}
+
 func TestAssessCAMM_ManualIndicators(t *testing.T) {
 	result := AssessCAMM(nil, nil)
 	// Should always have manual indicators for Level 3+4

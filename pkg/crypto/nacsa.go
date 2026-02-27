@@ -14,8 +14,9 @@ const (
 
 // NACSAResult holds the NACSA compliance assessment for a crypto asset.
 type NACSAResult struct {
-	Label       NACSALabel
-	Description string // Malay description for report
+	Label         NACSALabel
+	Description   string // Malay description for report
+	CNSA2Approved bool   // Whether the algorithm is CNSA 2.0 approved
 }
 
 // AssessNACSA determines the NACSA compliance label for a crypto asset.
@@ -38,8 +39,9 @@ func AssessNACSA(asset *model.CryptoAsset) NACSAResult {
 	case SAFE:
 		if ci.CNSA2Approved {
 			return NACSAResult{
-				Label:       NACSAPatuh,
-				Description: "Algoritma selamat kuantum dan diluluskan CNSA 2.0",
+				Label:         NACSAPatuh,
+				Description:   "Algoritma selamat kuantum dan diluluskan CNSA 2.0",
+				CNSA2Approved: true,
 			}
 		}
 		return NACSAResult{
@@ -105,8 +107,7 @@ func ComputeNACSASummary(systems []model.System) NACSAComplianceSummary {
 				summary.TindakanSegera++
 			}
 
-			ci := GetCompliance(asset.Algorithm)
-			if ci.CNSA2Approved {
+			if result.CNSA2Approved {
 				summary.CNSA2Compliant++
 			}
 		}

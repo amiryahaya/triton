@@ -142,7 +142,92 @@ func TestGenerateCycloneDXBOM_EmptyResult(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "CycloneDX", bom.BomFormat)
-	assert.Nil(t, bom.Components)
+	assert.NotNil(t, bom.Components)
+	assert.Empty(t, bom.Components)
+}
+
+func TestGenerateCycloneDXBOM_NilCryptoAsset(t *testing.T) {
+	tmpFile := t.TempDir() + "/nil-asset.cdx.json"
+	g := New("")
+	result := &model.ScanResult{
+		Findings: []model.Finding{
+			{
+				ID:          "f1",
+				Module:      "configs",
+				CryptoAsset: nil, // nil CryptoAsset should be skipped
+			},
+			{
+				ID:     "f2",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a1",
+					Algorithm: "AES-256-GCM",
+					KeySize:   256,
+					Function:  "Symmetric encryption",
+				},
+			},
+		},
+	}
+
+	err := g.GenerateCycloneDXBOM(result, tmpFile)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+
+	var bom CDXBom
+	err = json.Unmarshal(data, &bom)
+	require.NoError(t, err)
+
+	assert.Len(t, bom.Components, 1)
+	assert.Equal(t, "AES-256-GCM", bom.Components[0].Name)
+}
+
+func TestGenerateCycloneDXBOM_PQCAlgorithms(t *testing.T) {
+	tmpFile := t.TempDir() + "/pqc.cdx.json"
+	g := New("")
+	result := &model.ScanResult{
+		Findings: []model.Finding{
+			{
+				ID:     "f1",
+				Module: "certificates",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a1",
+					Algorithm: "ML-KEM-1024",
+					Function:  "Key encapsulation",
+				},
+			},
+			{
+				ID:     "f2",
+				Module: "certificates",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a2",
+					Algorithm: "ML-DSA-87",
+					Function:  "Digital signature",
+				},
+			},
+		},
+	}
+
+	err := g.GenerateCycloneDXBOM(result, tmpFile)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+
+	var bom CDXBom
+	err = json.Unmarshal(data, &bom)
+	require.NoError(t, err)
+
+	assert.Len(t, bom.Components, 2)
+	assert.Equal(t, "ML-KEM-1024", bom.Components[0].Name)
+	assert.Equal(t, "ML-DSA-87", bom.Components[1].Name)
+}
+
+func TestDeriveNISTQuantumLevel_AES(t *testing.T) {
+	assert.Equal(t, 5, deriveNISTQuantumLevel("AES-256-GCM"))
+	assert.Equal(t, 3, deriveNISTQuantumLevel("AES-192-CBC"))
+	assert.Equal(t, 1, deriveNISTQuantumLevel("AES-128-GCM"))
 }
 
 func TestDerivePrimitive(t *testing.T) {

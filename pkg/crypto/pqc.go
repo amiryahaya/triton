@@ -379,8 +379,8 @@ func ClassifyCryptoAsset(asset *model.CryptoAsset) {
 	asset.MigrationPriority = GetMigrationPriority(info)
 	asset.BreakYear = info.BreakYear
 
-	// Compliance
-	ci := GetCompliance(asset.Algorithm)
+	// Compliance — reuse already-computed AlgorithmInfo to avoid double ClassifyAlgorithm
+	ci := getComplianceWithInfo(asset.Algorithm, info)
 	asset.CNSA2Status = ci.CNSA2Status
 	asset.NISTDeprecatedYear = ci.NISTDeprecatedYear
 	asset.NISTDisallowedYear = ci.NISTDisallowedYear

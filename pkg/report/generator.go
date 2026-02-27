@@ -115,9 +115,13 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 `)
 
 	// Title and metadata
+	scanTime := result.Metadata.Timestamp
+	if scanTime.IsZero() {
+		scanTime = time.Now()
+	}
 	b.WriteString(fmt.Sprintf(`	<h1>Triton CBOM Report</h1>
-	<p class="meta">Generated: %s</p>
-`, time.Now().Format("2006-01-02 15:04:05")))
+	<p class="meta">Scan: %s | Generated: %s</p>
+`, scanTime.Format("2006-01-02 15:04:05"), time.Now().Format("2006-01-02 15:04:05")))
 
 	// PQC Summary Cards
 	b.WriteString(`	<h2>PQC Summary</h2>

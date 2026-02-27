@@ -83,9 +83,3 @@ func TestGetCompliance_PQCNotInCNSA2(t *testing.T) {
 	assert.False(t, ci.CNSA2Approved)
 	assert.Contains(t, ci.Warning, "not in CNSA 2.0")
 }
-
-func TestItoa(t *testing.T) {
-	assert.Equal(t, "2030", itoa(2030))
-	assert.Equal(t, "0", itoa(0))
-	assert.Equal(t, "1", itoa(1))
-}

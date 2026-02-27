@@ -151,7 +151,7 @@ func checkLevel2(assets []model.CryptoAsset, findings []model.Finding, result *C
 	// 2.3 Algorithm Exclusion: Config scanner shows disabled algorithms
 	hasExclusion := false
 	for i := range findings {
-		if findings[i].Module == "configs" {
+		if findings[i].Module == "configs" && findings[i].CryptoAsset != nil {
 			fn := strings.ToLower(findings[i].CryptoAsset.Function)
 			if strings.Contains(fn, "disabled") || strings.Contains(fn, "legacy") ||
 				strings.Contains(fn, "crypto policy") {

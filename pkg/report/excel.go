@@ -22,7 +22,7 @@ type clearRange struct {
 var exampleRanges = []clearRange{
 	{"0_Inventory", 5, 14, 9},
 	{"1_SBOM", 5, 12, 17},
-	{"2_CBOM", 5, 12, 8},
+	{"2_CBOM", 5, 12, 12},
 	{"3_RiskRegister", 5, 8, 8},
 	{"4_RiskAssessment", 5, 8, 11},
 }
@@ -31,7 +31,7 @@ var exampleRanges = []clearRange{
 var dataRowRanges = []clearRange{
 	{"0_Inventory", 17, 30, 9},
 	{"1_SBOM", 15, 30, 17},
-	{"2_CBOM", 15, 30, 8},
+	{"2_CBOM", 15, 30, 12},
 	{"3_RiskRegister", 10, 30, 8},
 	{"4_RiskAssessment", 11, 30, 11},
 }

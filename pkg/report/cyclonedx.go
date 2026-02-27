@@ -99,6 +99,7 @@ func (g *Generator) GenerateCycloneDXBOM(result *model.ScanResult, filename stri
 	}
 
 	// Convert findings to CycloneDX components
+	bom.Components = make([]CDXComponent, 0, len(result.Findings))
 	for i := range result.Findings {
 		finding := &result.Findings[i]
 		if finding.CryptoAsset == nil {
@@ -293,9 +294,11 @@ func deriveNISTQuantumLevel(algorithm string) int {
 	case strings.Contains(alg, "SLH-DSA-256") || strings.Contains(alg, "SLH-DSA-SHA2-256") || strings.Contains(alg, "SLH-DSA-SHAKE-256"):
 		return 5
 	case strings.Contains(alg, "AES-256"):
-		return 1
+		return 5 // 256-bit symmetric → NIST Level 5 equivalent post-quantum security
+	case strings.Contains(alg, "AES-192"):
+		return 3 // 192-bit symmetric → NIST Level 3 equivalent
 	case strings.Contains(alg, "AES-128"):
-		return 1
+		return 1 // 128-bit symmetric → NIST Level 1 equivalent
 	default:
 		return 0
 	}

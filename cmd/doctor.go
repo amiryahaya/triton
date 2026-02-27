@@ -82,21 +82,22 @@ func printDoctorReport(report *scanner.DoctorReport, color bool) {
 	fmt.Println(divider)
 	fmt.Printf("Results: %d passed, %d warnings, %d failures\n\n", report.PassCount, report.WarnCount, report.FailCount)
 
-	if report.HasFailures() {
+	switch {
+	case report.HasFailures():
 		if color {
 			fmt.Println("\033[31m✗ System has issues that will affect scan results\033[0m")
 		} else {
 			fmt.Println("✗ System has issues that will affect scan results")
 		}
 		printSuggestions(report)
-	} else if report.WarnCount > 0 {
+	case report.WarnCount > 0:
 		if color {
 			fmt.Println("\033[33m✓ System is ready for scanning (warnings are advisory)\033[0m")
 		} else {
 			fmt.Println("✓ System is ready for scanning (warnings are advisory)")
 		}
 		printSuggestions(report)
-	} else {
+	default:
 		if color {
 			fmt.Println("\033[32m✓ System is fully ready for scanning\033[0m")
 		} else {

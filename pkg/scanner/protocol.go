@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"strings"
@@ -53,40 +54,8 @@ func (m *ProtocolModule) Scan(ctx context.Context, target model.ScanTarget, find
 	return m.probeTLS(ctx, addr, findings)
 }
 
-// probeTLS performs a TLS handshake and extracts cipher suite and certificate info.
-func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings chan<- *model.Finding) error {
-	dialer := &net.Dialer{Timeout: defaultProbeTimeout}
-
-	// Use context deadline if shorter than default
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining < defaultProbeTimeout {
-			dialer.Timeout = remaining
-		}
-	}
-
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		InsecureSkipVerify: true, // We're probing, not validating trust
-	})
-	if err != nil {
-		return nil // Connection failed — not a TLS service or unreachable
-	}
-	defer func() { _ = conn.Close() }()
-
-	state := conn.ConnectionState()
-
-	// Extract cipher suite
-	cipherAlgo := cipherSuiteAlgorithm(state.CipherSuite)
-	cipherName := tls.CipherSuiteName(state.CipherSuite)
-	tlsVersion := tlsVersionName(state.Version)
-
-	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
-		Function:  "TLS cipher suite",
-		Algorithm: cipherAlgo,
-		Library:   cipherName,
-		Purpose:   fmt.Sprintf("Negotiated cipher for %s (%s)", addr, tlsVersion),
-	}
+// emitFinding creates and sends a protocol finding with standard fields.
+func (m *ProtocolModule) emitFinding(ctx context.Context, addr string, asset *model.CryptoAsset, findings chan<- *model.Finding) error {
 	crypto.ClassifyCryptoAsset(asset)
 
 	select {
@@ -104,6 +73,58 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	}:
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	return nil
+}
+
+// probeTLS performs a TLS handshake and extracts cipher suite and certificate info.
+func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings chan<- *model.Finding) error {
+	dialer := &net.Dialer{Timeout: defaultProbeTimeout}
+
+	// Use context deadline if shorter than default
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < defaultProbeTimeout {
+			dialer.Timeout = remaining
+		}
+	}
+
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+		InsecureSkipVerify: true,            // We're probing, not validating trust
+		MinVersion:         tls.VersionTLS10, // Accept deprecated versions to detect them
+	})
+	if err != nil {
+		return nil // Connection failed — not a TLS service or unreachable
+	}
+	defer func() { _ = conn.Close() }()
+
+	state := conn.ConnectionState()
+
+	// Extract cipher suite
+	cipherAlgo := cipherSuiteAlgorithm(state.CipherSuite)
+	cipherName := tls.CipherSuiteName(state.CipherSuite)
+	tlsVersion := tlsVersionName(state.Version)
+
+	if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
+		ID:        uuid.New().String(),
+		Function:  "TLS cipher suite",
+		Algorithm: cipherAlgo,
+		Library:   cipherName,
+		Purpose:   fmt.Sprintf("Negotiated cipher for %s (%s)", addr, tlsVersion),
+	}, findings); err != nil {
+		return err
+	}
+
+	// Emit warning for deprecated TLS versions
+	if state.Version == tls.VersionTLS10 || state.Version == tls.VersionTLS11 {
+		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
+			ID:        uuid.New().String(),
+			Function:  "TLS protocol version",
+			Algorithm: tlsVersion,
+			Purpose:   fmt.Sprintf("Deprecated TLS version negotiated by %s", addr),
+		}, findings); err != nil {
+			return err
+		}
 	}
 
 	// Extract certificate info from peer certificates
@@ -127,7 +148,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 		notBefore := cert.NotBefore
 		notAfter := cert.NotAfter
 
-		certAsset := &model.CryptoAsset{
+		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 			ID:           uuid.New().String(),
 			Function:     "TLS server certificate",
 			Algorithm:    algoName,
@@ -139,28 +160,127 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 			NotAfter:     &notAfter,
 			IsCA:         cert.IsCA,
 			Purpose:      fmt.Sprintf("Certificate presented by %s", addr),
-		}
-		crypto.ClassifyCryptoAsset(certAsset)
-
-		select {
-		case findings <- &model.Finding{
-			ID:       uuid.New().String(),
-			Category: 9,
-			Source: model.FindingSource{
-				Type:     "network",
-				Endpoint: addr,
-			},
-			CryptoAsset: certAsset,
-			Confidence:  0.90,
-			Module:      "protocol",
-			Timestamp:   time.Now(),
-		}:
-		case <-ctx.Done():
-			return ctx.Err()
+		}, findings); err != nil {
+			return err
 		}
 	}
 
+	// Validate certificate chain against system roots
+	m.validateCertChain(ctx, addr, state, findings)
+
+	// Detect session resumption support
+	m.detectSessionResumption(ctx, addr, findings)
+
 	return nil
+}
+
+// validateCertChain validates the peer certificate chain against the system root store.
+func (m *ProtocolModule) validateCertChain(ctx context.Context, addr string, state tls.ConnectionState, findings chan<- *model.Finding) {
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	if len(state.PeerCertificates) == 0 {
+		return
+	}
+
+	leaf := state.PeerCertificates[0]
+
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		// System cert pool unavailable — skip validation
+		return
+	}
+
+	intermediates := x509.NewCertPool()
+	for _, cert := range state.PeerCertificates[1:] {
+		intermediates.AddCert(cert)
+	}
+
+	host, _, _ := net.SplitHostPort(addr)
+	if host == "" {
+		host = addr
+	}
+
+	_, verifyErr := leaf.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		DNSName:       host,
+	})
+	if verifyErr != nil {
+		algoName := leaf.PublicKeyAlgorithm.String()
+		switch pub := leaf.PublicKey.(type) {
+		case *rsa.PublicKey:
+			algoName = fmt.Sprintf("RSA-%d", pub.N.BitLen())
+		case *ecdsa.PublicKey:
+			algoName = fmt.Sprintf("ECDSA-P%d", pub.Curve.Params().BitSize)
+		case ed25519.PublicKey:
+			algoName = "Ed25519"
+		}
+
+		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+			ID:        uuid.New().String(),
+			Function:  "TLS certificate chain validation",
+			Algorithm: algoName,
+			Purpose:   fmt.Sprintf("Certificate chain validation failed for %s: %v", addr, verifyErr),
+		}, findings)
+	}
+}
+
+// detectSessionResumption checks whether the server supports TLS session resumption.
+func (m *ProtocolModule) detectSessionResumption(ctx context.Context, addr string, findings chan<- *model.Finding) {
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	dialer := &net.Dialer{Timeout: defaultProbeTimeout}
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < defaultProbeTimeout {
+			dialer.Timeout = remaining
+		}
+	}
+
+	cache := tls.NewLRUClientSessionCache(1)
+
+	// First connection — populate session cache
+	conn1, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+		InsecureSkipVerify:  true,
+		MinVersion:          tls.VersionTLS10,
+		ClientSessionCache: cache,
+	})
+	if err != nil {
+		return
+	}
+	_ = conn1.Close()
+
+	// Second connection — attempt resumption
+	conn2, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+		InsecureSkipVerify:  true,
+		MinVersion:          tls.VersionTLS10,
+		ClientSessionCache: cache,
+	})
+	if err != nil {
+		return
+	}
+	state := conn2.ConnectionState()
+	_ = conn2.Close()
+
+	mechanism := "not supported"
+	if state.DidResume {
+		mechanism = "session ticket"
+	}
+
+	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+		ID:        uuid.New().String(),
+		Function:  "TLS session resumption",
+		Algorithm: "TLS Session Resumption",
+		Purpose:   fmt.Sprintf("Session resumption %s for %s", mechanism, addr),
+	}, findings)
 }
 
 // cipherSuiteAlgorithm extracts the primary symmetric algorithm from a TLS cipher suite.

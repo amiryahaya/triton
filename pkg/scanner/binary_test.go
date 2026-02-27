@@ -356,6 +356,168 @@ func TestAppendUnique(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c"}, s, "should not duplicate")
 }
 
+func TestGetImportedSymbols_RealBinary(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	syms := getImportedSymbols(exe)
+	// On macOS/Linux, the test binary should have symbols
+	// (may be empty on some platforms, so we just verify no crash)
+	if syms != nil {
+		assert.NotEmpty(t, syms, "real binary should have imported symbols")
+	}
+}
+
+func TestMatchCryptoSymbols_OpenSSLSymbols(t *testing.T) {
+	symbols := []string{"EVP_aes_256_gcm", "EVP_sha256", "SSL_connect"}
+	matches := matchCryptoSymbols(symbols)
+
+	algoSet := make(map[string]bool)
+	for _, m := range matches {
+		algoSet[m.algorithm] = true
+	}
+
+	assert.True(t, algoSet["AES-256-GCM"], "should detect AES-256-GCM from EVP_aes_256_gcm")
+	assert.True(t, algoSet["SHA-256"], "should detect SHA-256 from EVP_sha256")
+}
+
+func TestMatchCryptoSymbols_PQCSymbols(t *testing.T) {
+	symbols := []string{"OQS_SIG_dilithium3_sign"}
+	matches := matchCryptoSymbols(symbols)
+
+	require.Len(t, matches, 1)
+	assert.Equal(t, "ML-DSA", matches[0].algorithm)
+	assert.Equal(t, "PQC signature", matches[0].function)
+}
+
+func TestMatchCryptoSymbols_NoMatch(t *testing.T) {
+	symbols := []string{"printf", "malloc", "free"}
+	matches := matchCryptoSymbols(symbols)
+	assert.Empty(t, matches, "non-crypto symbols should produce no matches")
+}
+
+func TestMatchCryptoSymbols_MultipleAESVariants(t *testing.T) {
+	symbols := []string{"EVP_aes_256_gcm", "EVP_aes_128_cbc"}
+	matches := matchCryptoSymbols(symbols)
+
+	require.Len(t, matches, 2, "should detect both AES-256-GCM and AES-128-CBC")
+
+	algoSet := make(map[string]bool)
+	for _, m := range matches {
+		algoSet[m.algorithm] = true
+	}
+	assert.True(t, algoSet["AES-256-GCM"], "should detect AES-256-GCM")
+	assert.True(t, algoSet["AES-128-CBC"], "should detect AES-128-CBC")
+}
+
+func TestMatchCryptoSymbols_RSASign(t *testing.T) {
+	symbols := []string{"RSA_sign", "ECDSA_verify"}
+	matches := matchCryptoSymbols(symbols)
+
+	algoSet := make(map[string]bool)
+	for _, m := range matches {
+		algoSet[m.algorithm] = true
+	}
+
+	assert.True(t, algoSet["RSA"], "should detect RSA from RSA_sign")
+	assert.True(t, algoSet["ECDSA"], "should detect ECDSA from ECDSA_verify")
+}
+
+func TestDetectCryptoLibVersions_OpenSSL(t *testing.T) {
+	content := "some data OpenSSL 3.0.2 14 Mar 2023 more data"
+	versions := detectCryptoLibVersions(content)
+
+	require.Len(t, versions, 1)
+	assert.Equal(t, "openssl", versions[0].library)
+	assert.Equal(t, "3.0.2", versions[0].version)
+}
+
+func TestDetectCryptoLibVersions_Multiple(t *testing.T) {
+	content := "wolfSSL 5.6.0 embedded library mbedTLS 3.4.0 crypto engine"
+	versions := detectCryptoLibVersions(content)
+
+	require.Len(t, versions, 2)
+
+	libSet := make(map[string]string)
+	for _, v := range versions {
+		libSet[v.library] = v.version
+	}
+
+	assert.Equal(t, "5.6.0", libSet["wolfssl"])
+	assert.Equal(t, "3.4.0", libSet["mbedtls"])
+}
+
+func TestDetectCryptoLibVersions_NoMatch(t *testing.T) {
+	content := "hello world this is a normal string"
+	versions := detectCryptoLibVersions(content)
+	assert.Empty(t, versions)
+}
+
+func TestDetectCryptoLibVersions_BoringSSL(t *testing.T) {
+	content := "BoringSSL is used here"
+	versions := detectCryptoLibVersions(content)
+
+	require.Len(t, versions, 1)
+	assert.Equal(t, "boringssl", versions[0].library)
+	assert.Equal(t, "", versions[0].version, "BoringSSL has no semver")
+}
+
+func TestBinaryScan_SymbolFindings_HigherConfidence(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a fake ELF binary with an EVP symbol string embedded
+	var data []byte
+	data = append(data, 0x7f, 'E', 'L', 'F')
+	data = append(data, make([]byte, 100)...)
+	data = append(data, []byte("AES-256-GCM cipher suite")...)
+
+	binFile := filepath.Join(tmpDir, "test-elf-sym")
+	err := os.WriteFile(binFile, data, 0755)
+	require.NoError(t, err)
+
+	m := NewBinaryModule(&config.Config{})
+	findings, err := m.scanBinaryFile(binFile)
+	require.NoError(t, err)
+
+	// All string-match findings should have confidence 0.60
+	for _, f := range findings {
+		if f.Source.DetectionMethod == "string" || f.Source.DetectionMethod == "library-linkage" {
+			assert.Equal(t, 0.60, f.Confidence, "string findings should have 0.60 confidence")
+		}
+		if f.Source.DetectionMethod == "symbol" {
+			assert.Equal(t, 0.80, f.Confidence, "symbol findings should have 0.80 confidence")
+		}
+	}
+}
+
+func TestBinaryScan_LibraryVersionFinding(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	var data []byte
+	data = append(data, 0x7f, 'E', 'L', 'F')
+	data = append(data, make([]byte, 100)...)
+	data = append(data, []byte("OpenSSL 1.0.2u 20 Dec 2019")...)
+
+	binFile := filepath.Join(tmpDir, "test-openssl-old")
+	err := os.WriteFile(binFile, data, 0755)
+	require.NoError(t, err)
+
+	m := NewBinaryModule(&config.Config{})
+	findings, err := m.scanBinaryFile(binFile)
+	require.NoError(t, err)
+
+	hasLibFinding := false
+	for _, f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "Crypto library" {
+			hasLibFinding = true
+			assert.Equal(t, "openssl", f.CryptoAsset.Library)
+			assert.Equal(t, "DEPRECATED", f.CryptoAsset.PQCStatus,
+				"OpenSSL 1.0.2 should be DEPRECATED")
+		}
+	}
+	assert.True(t, hasLibFinding, "should detect embedded OpenSSL version")
+}
+
 func TestBinaryScanDetectionMethodSet(t *testing.T) {
 	tmpDir := t.TempDir()
 

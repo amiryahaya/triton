@@ -7,6 +7,7 @@ import (
 	"debug/elf"
 	"debug/macho"
 	"debug/pe"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -76,6 +77,47 @@ var cryptoPatterns = []struct {
 	{regexp.MustCompile(`\bFALCON\b`), "FALCON", "Lattice"},
 	{regexp.MustCompile(`SPHINCS\+`), "SPHINCS+", "Hash-Based"},
 	{regexp.MustCompile(`SLH[-_]?DSA`), "SLH-DSA", "Hash-Based"},
+}
+
+// cryptoSymbolPatterns maps dynamic symbol names to crypto algorithms.
+var cryptoSymbolPatterns = []struct {
+	pattern   *regexp.Regexp
+	algorithm string
+	function  string
+}{
+	{regexp.MustCompile(`EVP_aes_(\d+)_(gcm|cbc|ctr|ccm)`), "AES", "Symmetric encryption"},
+	{regexp.MustCompile(`EVP_sha(1|224|256|384|512)\b`), "SHA", "Hash"},
+	{regexp.MustCompile(`RSA_sign|RSA_verify`), "RSA", "Digital signature"},
+	{regexp.MustCompile(`ECDSA_sign|ECDSA_verify`), "ECDSA", "Digital signature"},
+	{regexp.MustCompile(`ED25519_sign|ED25519_verify`), "Ed25519", "Digital signature"},
+	{regexp.MustCompile(`OQS_SIG_.*dilithium`), "ML-DSA", "PQC signature"},
+	{regexp.MustCompile(`OQS_KEM_.*kyber`), "ML-KEM", "PQC key encapsulation"},
+}
+
+// symbolMatch represents a crypto algorithm detected from a symbol.
+type symbolMatch struct {
+	algorithm string
+	function  string
+	symbol    string // the actual symbol that matched
+}
+
+// cryptoVersionPatterns matches embedded crypto library version strings.
+var cryptoVersionPatterns = []struct {
+	pattern *regexp.Regexp
+	library string
+}{
+	{regexp.MustCompile(`OpenSSL (\d+\.\d+\.\d+[a-z]?)`), "openssl"},
+	{regexp.MustCompile(`wolfSSL (\d+\.\d+\.\d+)`), "wolfssl"},
+	{regexp.MustCompile(`GnuTLS (\d+\.\d+\.\d+)`), "gnutls"},
+	{regexp.MustCompile(`mbedTLS (\d+\.\d+\.\d+)`), "mbedtls"},
+	{regexp.MustCompile(`libsodium (\d+\.\d+\.\d+)`), "libsodium"},
+	{regexp.MustCompile(`BoringSSL`), "boringssl"},
+}
+
+// libVersion holds a detected crypto library and its version.
+type libVersion struct {
+	library string
+	version string
 }
 
 // maxBinaryReadSize limits how much of each binary we read for strings analysis.
@@ -228,6 +270,7 @@ type binaryMeta struct {
 	language        string
 	cryptoLibraries []string
 	state           string // Dominant state from multi-signal scoring
+	symbolFindings  []symbolMatch
 }
 
 // scanBinaryFile reads a binary file, verifies magic bytes, and looks for crypto-related strings.
@@ -256,6 +299,85 @@ func (m *BinaryModule) scanBinaryFile(path string) ([]*model.Finding, error) {
 	// Match crypto patterns against extracted strings
 	found := m.matchCryptoPatterns(path, printable, &meta)
 
+	// Emit symbol-based findings (higher confidence than string matching)
+	symbolAlgos := make(map[string]bool)
+	for _, sm := range meta.symbolFindings {
+		symbolAlgos[sm.algorithm] = true
+
+		asset := &model.CryptoAsset{
+			ID:        uuid.New().String(),
+			Function:  sm.function,
+			Algorithm: sm.algorithm,
+			Purpose:   "Detected via imported symbol: " + sm.symbol,
+		}
+		if meta.language != "" {
+			asset.Language = meta.language
+		}
+		if meta.state != "" {
+			asset.State = meta.state
+		}
+		if len(meta.cryptoLibraries) > 0 {
+			asset.CryptoLibraries = meta.cryptoLibraries
+		}
+		crypto.ClassifyCryptoAsset(asset)
+
+		found = append(found, &model.Finding{
+			ID:       uuid.New().String(),
+			Category: 2,
+			Source: model.FindingSource{
+				Type:            "file",
+				Path:            path,
+				DetectionMethod: "symbol",
+			},
+			CryptoAsset: asset,
+			Confidence:  0.80,
+			Module:      "binaries",
+			Timestamp:   time.Now(),
+		})
+	}
+
+	// Deduplicate: remove string-match findings that overlap with symbol findings
+	if len(symbolAlgos) > 0 {
+		deduped := make([]*model.Finding, 0, len(found))
+		for _, f := range found {
+			if f.Source.DetectionMethod != "symbol" && symbolAlgos[f.CryptoAsset.Algorithm] {
+				continue // drop string-match in favor of symbol-match
+			}
+			deduped = append(deduped, f)
+		}
+		found = deduped
+	}
+
+	// Detect embedded crypto library versions
+	libVersions := detectCryptoLibVersions(printable)
+	for _, lv := range libVersions {
+		asset := &model.CryptoAsset{
+			ID:        uuid.New().String(),
+			Function:  "Crypto library",
+			Algorithm: lv.library,
+			Library:   lv.library,
+			Purpose:   "Embedded crypto library detected in binary",
+		}
+		if lv.version != "" {
+			asset.Purpose = fmt.Sprintf("Embedded %s %s detected in binary", lv.library, lv.version)
+		}
+		crypto.ClassifyLibraryAsset(asset, lv.library, lv.version)
+
+		found = append(found, &model.Finding{
+			ID:       uuid.New().String(),
+			Category: 2,
+			Source: model.FindingSource{
+				Type:            "file",
+				Path:            path,
+				DetectionMethod: "string",
+			},
+			CryptoAsset: asset,
+			Confidence:  0.70,
+			Module:      "binaries",
+			Timestamp:   time.Now(),
+		})
+	}
+
 	return found, nil
 }
 
@@ -280,7 +402,7 @@ func (m *BinaryModule) analyzeBinaryStructured(path string) binaryMeta {
 		}
 	}
 
-	// Symbol-based state detection
+	// Symbol-based state detection and crypto symbol matching
 	syms := getImportedSymbols(path)
 	for _, sym := range syms {
 		for _, ss := range stateSymbols {
@@ -292,6 +414,9 @@ func (m *BinaryModule) analyzeBinaryStructured(path string) binaryMeta {
 			}
 		}
 	}
+
+	// Match crypto algorithms from symbols
+	meta.symbolFindings = matchCryptoSymbols(syms)
 
 	return meta
 }
@@ -444,7 +569,37 @@ func getImportedSymbols(path string) []string {
 		return nil
 	}
 
+	// Try Mach-O
+	if mf, err := macho.Open(path); err == nil {
+		defer func() { _ = mf.Close() }()
+		return extractMachoSymbols(mf)
+	}
+
+	// Try Mach-O fat binary
+	if ff, err := macho.OpenFat(path); err == nil {
+		defer func() { _ = ff.Close() }()
+		if len(ff.Arches) > 0 {
+			return extractMachoSymbols(ff.Arches[0].File)
+		}
+	}
+
 	return nil
+}
+
+// extractMachoSymbols extracts external symbol names from a Mach-O file's symbol table.
+func extractMachoSymbols(mf *macho.File) []string {
+	if mf.Symtab == nil {
+		return nil
+	}
+
+	var names []string
+	for _, s := range mf.Symtab.Syms {
+		// N_EXT (0x01) = external symbol
+		if s.Type&0x01 != 0 && s.Name != "" {
+			names = append(names, s.Name)
+		}
+	}
+	return names
 }
 
 // detectStateFromStrings infers crypto state from string content patterns.
@@ -472,6 +627,69 @@ func detectStateFromStrings(content string) string {
 	}
 
 	return ""
+}
+
+// matchCryptoSymbols matches symbol names against known crypto function patterns.
+func matchCryptoSymbols(symbols []string) []symbolMatch {
+	var matches []symbolMatch
+	seen := make(map[string]bool)
+
+	for _, sym := range symbols {
+		for _, pat := range cryptoSymbolPatterns {
+			if pat.pattern.MatchString(sym) {
+				// Refine algorithm name from submatch before dedup
+				algo := pat.algorithm
+				if sub := pat.pattern.FindStringSubmatch(sym); len(sub) > 1 {
+					switch pat.algorithm {
+					case "AES":
+						algo = "AES-" + sub[1] + "-" + strings.ToUpper(sub[2])
+					case "SHA":
+						algo = "SHA-" + sub[1]
+					}
+				}
+
+				algoKey := algo + ":" + pat.function
+				if seen[algoKey] {
+					continue
+				}
+				seen[algoKey] = true
+
+				matches = append(matches, symbolMatch{
+					algorithm: algo,
+					function:  pat.function,
+					symbol:    sym,
+				})
+				break // one pattern match per symbol
+			}
+		}
+	}
+	return matches
+}
+
+// detectCryptoLibVersions finds embedded crypto library version strings in binary content.
+func detectCryptoLibVersions(content string) []libVersion {
+	var results []libVersion
+	seen := make(map[string]bool)
+
+	for _, pat := range cryptoVersionPatterns {
+		matches := pat.pattern.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if seen[pat.library] {
+				continue
+			}
+			seen[pat.library] = true
+
+			ver := ""
+			if len(m) > 1 {
+				ver = m[1]
+			}
+			results = append(results, libVersion{
+				library: pat.library,
+				version: ver,
+			})
+		}
+	}
+	return results
 }
 
 // readBinaryHead reads the first maxBinaryReadSize bytes of a binary file.

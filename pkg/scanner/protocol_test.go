@@ -259,6 +259,283 @@ func TestCipherSuiteToAlgorithm(t *testing.T) {
 	}
 }
 
+func TestTLSProbe_DeprecatedVersion(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	// Force TLS 1.1 (deprecated)
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS10,
+		MaxVersion:   tls.VersionTLS11,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := conn.(*tls.Conn); ok {
+				_ = tc.Handshake()
+			}
+			conn.Close()
+		}
+	}()
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// Should have a version warning finding
+	hasVersionWarning := false
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS protocol version" {
+			hasVersionWarning = true
+			assert.Contains(t, f.CryptoAsset.Algorithm, "TLS 1.")
+			assert.Equal(t, "DEPRECATED", f.CryptoAsset.PQCStatus)
+		}
+	}
+	assert.True(t, hasVersionWarning, "should emit deprecated TLS version warning")
+}
+
+func TestTLSProbe_TLS12_NoVersionWarning(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := conn.(*tls.Conn); ok {
+				_ = tc.Handshake()
+			}
+			conn.Close()
+		}
+	}()
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	for _, f := range collected {
+		if f.CryptoAsset != nil {
+			assert.NotEqual(t, "TLS protocol version", f.CryptoAsset.Function,
+				"TLS 1.2+ should not emit version warning")
+		}
+	}
+}
+
+func TestValidateCertChain_SelfSigned(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := conn.(*tls.Conn); ok {
+				_ = tc.Handshake()
+			}
+			conn.Close()
+		}
+	}()
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// Self-signed cert should fail chain validation
+	hasChainFinding := false
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS certificate chain validation" {
+			hasChainFinding = true
+			assert.Contains(t, f.CryptoAsset.Purpose, "chain validation failed")
+		}
+	}
+	assert.True(t, hasChainFinding, "self-signed cert should fail chain validation")
+}
+
+func TestValidateCertChain_ContextCancelled(t *testing.T) {
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	state := tls.ConnectionState{}
+	m.validateCertChain(ctx, "127.0.0.1:443", state, findings)
+
+	close(findings)
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "cancelled context should produce no findings")
+}
+
+func TestDetectSessionResumption_Supported(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	// TLS 1.2 with session tickets enabled (default)
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := conn.(*tls.Conn); ok {
+				_ = tc.Handshake()
+			}
+			conn.Close()
+		}
+	}()
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	m.detectSessionResumption(ctx, listener.Addr().String(), findings)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	hasResumption := false
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS session resumption" {
+			hasResumption = true
+			assert.Equal(t, "TLS Session Resumption", f.CryptoAsset.Algorithm)
+		}
+	}
+	assert.True(t, hasResumption, "should detect session resumption capability")
+}
+
+func TestDetectSessionResumption_NotSupported(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	// TLS 1.2 with session tickets disabled
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates:     []tls.Certificate{tlsCert},
+		MinVersion:       tls.VersionTLS12,
+		MaxVersion:       tls.VersionTLS12,
+		SessionTicketsDisabled: true,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if tc, ok := conn.(*tls.Conn); ok {
+				_ = tc.Handshake()
+			}
+			conn.Close()
+		}
+	}()
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	m.detectSessionResumption(ctx, listener.Addr().String(), findings)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	hasResumption := false
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS session resumption" {
+			hasResumption = true
+			assert.Contains(t, f.CryptoAsset.Purpose, "not supported")
+		}
+	}
+	assert.True(t, hasResumption, "should still emit finding for unsupported resumption")
+}
+
 // generateTestCert creates a self-signed ECDSA certificate for testing.
 func generateTestCert(t *testing.T) (certPEM, keyPEM []byte) {
 	t.Helper()

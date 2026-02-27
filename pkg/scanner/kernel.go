@@ -136,7 +136,7 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 	case strings.HasSuffix(lower, ".ko.gz"):
 		gr, err := gzip.NewReader(f)
 		if err != nil {
-			f.Close()
+			_ = f.Close()
 			return nil, err
 		}
 		// gzip.Reader implements io.Closer — must close to release resources.
@@ -147,7 +147,7 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 	case strings.HasSuffix(lower, ".ko.xz"):
 		xr, err := xz.NewReader(f)
 		if err != nil {
-			f.Close()
+			_ = f.Close()
 			return nil, err
 		}
 		// xz.Reader does not implement io.Closer — only the file needs closing.
@@ -156,7 +156,7 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 	case strings.HasSuffix(lower, ".ko.zst"):
 		zr, err := zstd.NewReader(f)
 		if err != nil {
-			f.Close()
+			_ = f.Close()
 			return nil, err
 		}
 		// zstd.Decoder.Close() does not return error — call it then close the file.

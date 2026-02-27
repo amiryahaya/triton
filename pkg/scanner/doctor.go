@@ -155,7 +155,7 @@ func CheckFilesystemAccess(module, path string) CheckResult {
 				Suggestion: "Run with elevated permissions or adjust directory permissions.",
 			}
 		}
-		f.Close()
+		_ = f.Close()
 	}
 
 	return CheckResult{

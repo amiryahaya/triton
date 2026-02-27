@@ -123,11 +123,12 @@ func (m *LibraryModule) createLibraryFinding(path string) *model.Finding {
 	base := filepath.Base(path)
 	lower := strings.ToLower(base)
 
-	var libName, algorithm string
+	var libName, algorithm, matchedPattern string
 	for _, pat := range cryptoLibPatterns {
 		if strings.HasPrefix(lower, pat.pattern) {
 			libName = pat.name
 			algorithm = pat.algorithm
+			matchedPattern = pat.pattern
 			break
 		}
 	}
@@ -156,8 +157,10 @@ func (m *LibraryModule) createLibraryFinding(path string) *model.Finding {
 		asset.Library = libName + " " + version
 	}
 
-	// Classify based on library identity + version (replaces hardcoded TRANSITIONAL)
-	crypto.ClassifyLibraryAsset(asset, algorithm, version)
+	// Classify based on library filename prefix + version.
+	// Use matchedPattern (e.g., "libssl", "libgnutls") which normalizeLibKey can resolve,
+	// not algorithm (e.g., "TLS", "NaCl") which would fail prefix lookup.
+	crypto.ClassifyLibraryAsset(asset, matchedPattern, version)
 
 	return &model.Finding{
 		ID:       uuid.New().String(),

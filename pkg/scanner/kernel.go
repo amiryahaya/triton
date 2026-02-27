@@ -3,6 +3,8 @@ package scanner
 import (
 	"compress/gzip"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -21,6 +23,8 @@ import (
 
 // KernelModule scans kernel crypto modules (.ko files on Linux).
 // Gracefully skips on macOS and Windows.
+// Not safe for concurrent Scan calls on the same instance — the engine
+// guarantees each module is called sequentially per target.
 type KernelModule struct {
 	config      *config.Config
 	lastScanned int64
@@ -73,7 +77,9 @@ func (m *KernelModule) scanKernelModules(ctx context.Context, target model.ScanT
 		processFile: func(path string) error {
 			found, err := m.scanKernelModuleFile(path)
 			if err != nil {
-				return nil
+				// Non-fatal: skip unreadable/corrupt modules but continue scanning.
+				// Errors include permission denied, corrupt compressed streams, I/O errors.
+				return nil //nolint:nilerr // intentionally non-fatal
 			}
 
 			for _, f := range found {
@@ -117,6 +123,8 @@ func (d *decompressReadCloser) Close() error {
 }
 
 // openKernelModule opens a kernel module, transparently decompressing if needed.
+// MaxFileSize in config applies to the on-disk (compressed) size; the decompressed
+// read is independently capped by maxKernelModuleReadSize via LimitReader.
 func openKernelModule(path string) (io.ReadCloser, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -131,7 +139,10 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 			f.Close()
 			return nil, err
 		}
-		return &decompressReadCloser{reader: gr, closer: closerChain{gr, f}}, nil
+		// gzip.Reader implements io.Closer — must close to release resources.
+		return &decompressReadCloser{reader: gr, closer: closerFunc(func() error {
+			return errors.Join(gr.Close(), f.Close())
+		})}, nil
 
 	case strings.HasSuffix(lower, ".ko.xz"):
 		xr, err := xz.NewReader(f)
@@ -139,6 +150,7 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 			f.Close()
 			return nil, err
 		}
+		// xz.Reader does not implement io.Closer — only the file needs closing.
 		return &decompressReadCloser{reader: xr, closer: f}, nil
 
 	case strings.HasSuffix(lower, ".ko.zst"):
@@ -147,8 +159,9 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 			f.Close()
 			return nil, err
 		}
+		// zstd.Decoder.Close() does not return error — call it then close the file.
 		return &decompressReadCloser{reader: zr, closer: closerFunc(func() error {
-			zr.Close() // zstd.Decoder.Close() doesn't return error
+			zr.Close()
 			return f.Close()
 		})}, nil
 
@@ -157,35 +170,22 @@ func openKernelModule(path string) (io.ReadCloser, error) {
 	}
 }
 
-// closerChain closes multiple io.Closers in order.
-type closerChain []io.Closer
-
-func (cc closerChain) Close() error {
-	var firstErr error
-	for _, c := range cc {
-		if err := c.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
 // closerFunc adapts a function to io.Closer.
 type closerFunc func() error
 
-func (f closerFunc) Close() error { return f() }
+func (fn closerFunc) Close() error { return fn() }
 
 // scanKernelModuleFile reads a kernel module and looks for crypto patterns.
 func (m *KernelModule) scanKernelModuleFile(path string) ([]*model.Finding, error) {
 	rc, err := openKernelModule(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open kernel module %s: %w", path, err)
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(io.LimitReader(rc, maxKernelModuleReadSize))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read kernel module %s: %w", path, err)
 	}
 
 	// Extract printable strings

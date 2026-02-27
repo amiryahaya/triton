@@ -127,7 +127,7 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 		select {
 		case findings <- &model.Finding{
 			ID:       uuid.New().String(),
-			Category: 0,
+			Category: 3, // crypto libraries category
 			Source: model.FindingSource{
 				Type: "file",
 				Path: sourcePath,

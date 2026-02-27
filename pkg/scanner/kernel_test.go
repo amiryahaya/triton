@@ -199,10 +199,14 @@ func TestKernelModuleScanCompressedGz(t *testing.T) {
 		collected = append(collected, f)
 	}
 	require.NotEmpty(t, collected, "should find crypto patterns in gzip-compressed kernel module")
+
+	algos := make(map[string]bool)
 	for _, f := range collected {
 		assert.Equal(t, "kernel", f.Module)
 		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		algos[f.CryptoAsset.Algorithm] = true
 	}
+	assert.True(t, algos["AES-256-GCM"], "should detect AES-256-GCM through gzip decompression")
 }
 
 func TestKernelModuleScanCompressedXz(t *testing.T) {
@@ -231,10 +235,14 @@ func TestKernelModuleScanCompressedXz(t *testing.T) {
 		collected = append(collected, f)
 	}
 	require.NotEmpty(t, collected, "should find crypto patterns in xz-compressed kernel module")
+
+	algos := make(map[string]bool)
 	for _, f := range collected {
 		assert.Equal(t, "kernel", f.Module)
 		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		algos[f.CryptoAsset.Algorithm] = true
 	}
+	assert.True(t, algos["AES-256-GCM"], "should detect AES-256-GCM through xz decompression")
 }
 
 func TestKernelModuleScanCompressedZst(t *testing.T) {
@@ -263,8 +271,91 @@ func TestKernelModuleScanCompressedZst(t *testing.T) {
 		collected = append(collected, f)
 	}
 	require.NotEmpty(t, collected, "should find crypto patterns in zstd-compressed kernel module")
+
+	algos := make(map[string]bool)
 	for _, f := range collected {
 		assert.Equal(t, "kernel", f.Module)
 		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		algos[f.CryptoAsset.Algorithm] = true
+	}
+	assert.True(t, algos["AES-256-GCM"], "should detect AES-256-GCM through zstd decompression")
+}
+
+func TestKernelModuleScanCorruptCompressedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	garbage := []byte("this is not valid compressed data at all")
+
+	// Write corrupt files for each compressed extension
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.gz"), garbage, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.xz"), garbage, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.zst"), garbage, 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	// Should not error — corrupt files are silently skipped
+	err := m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "corrupt compressed files should produce no findings")
+}
+
+func TestKernelModuleScanEmptyCompressedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a valid gzip file with empty payload
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	require.NoError(t, gw.Close())
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "empty.ko.gz"), buf.Bytes(), 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err := m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "empty compressed kernel module should produce no findings")
+}
+
+func TestKernelModuleScanMixedFileTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+	payload := makeFakeCryptoPayload()
+
+	// Write a real .ko file with crypto
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "aes.ko"), payload, 0644))
+	// Write non-.ko files that should be ignored
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "readme.txt"), payload, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.conf"), payload, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "module.ko.bak"), payload, 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err := m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// Only the .ko file should produce findings
+	for _, f := range collected {
+		assert.Contains(t, f.Source.Path, "aes.ko", "only .ko files should be scanned")
 	}
 }

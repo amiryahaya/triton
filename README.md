@@ -1,5 +1,7 @@
 # Triton - SBOM/CBOM Scanner for PQC Compliance
 
+[![CI](https://github.com/amiryahaya/triton/actions/workflows/ci.yml/badge.svg)](https://github.com/amiryahaya/triton/actions/workflows/ci.yml)
+
 A lightweight, cross-platform CLI tool for generating Software Bill of Materials (SBOM) and Cryptographic Bill of Materials (CBOM) to assess Post-Quantum Cryptography (PQC) compliance.
 
 **Target:** Malaysian government critical infrastructure sectors for 2030 PQC readiness.
@@ -133,7 +135,7 @@ triton/
 ├── cmd/                    # Cobra CLI + BubbleTea TUI
 ├── internal/
 │   ├── config/             # Profile-based configuration (Viper)
-│   └── version/            # Version constant
+│   └── version/            # Version (set via ldflags at build time)
 ├── pkg/
 │   ├── scanner/            # Engine + 11 scanner modules
 │   ├── crypto/             # PQC registry, classification, agility scoring
@@ -181,16 +183,23 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 
 ### Post-MVP
 
-- [ ] CI/CD pipeline
+- [x] CI/CD pipeline — GitHub Actions (lint + test + build) + GoReleaser releases
+- [ ] Enterprise licensing — license key validation, feature gating, seat management
+- [ ] `triton doctor` — pre-scan environment check (permissions, tool availability, system access)
 - [ ] Client-server mode (agent reports to central server)
 - [ ] Web UI dashboard
-- [ ] Windows certificate store support
 - [ ] PKCS#11 / HSM scanning
-- [ ] Air-gapped mode
+
+## CI/CD
+
+The project uses GitHub Actions for continuous integration:
+
+- **CI** — runs on every push to `main` and PRs: lint (golangci-lint), test (with race detector, 75% coverage gate), build verification
+- **Release** — triggered by `v*` tags: runs tests, then GoReleaser cross-compiles 5 binaries and creates a GitHub Release with checksums
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.24+
 - macOS, Linux, or Windows
 
 ## License

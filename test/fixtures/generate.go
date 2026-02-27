@@ -25,6 +25,7 @@ func main() {
 
 	// --- Certificates ---
 	certDir := filepath.Join(base, "certificates")
+	os.MkdirAll(certDir, 0o755)
 
 	// RSA-2048 self-signed
 	rsaKey2048, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -79,6 +80,7 @@ func main() {
 
 	// --- Keys ---
 	keyDir := filepath.Join(base, "keys")
+	os.MkdirAll(keyDir, 0o755)
 
 	// RSA private key (PKCS#1)
 	rsaPrivKey, _ := rsa.GenerateKey(rand.Reader, 2048)

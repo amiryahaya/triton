@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -347,4 +348,158 @@ func TestCategorizeAssetType(t *testing.T) {
 			assert.Equal(t, tt.want, categorizeAssetType(f))
 		})
 	}
+}
+
+// --- Phase 6 End-to-End Integration Tests ---
+
+func TestCycloneDX_PQCAlgorithm_QuantumLevels(t *testing.T) {
+	// Verify ML-KEM and ML-DSA findings produce correct NIST quantum security levels and OIDs
+	tmpFile := t.TempDir() + "/pqc-levels.cdx.json"
+	g := New("")
+	result := &model.ScanResult{
+		Findings: []model.Finding{
+			{
+				ID:     "f1",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a1",
+					Algorithm: "ML-KEM-512",
+					Function:  "Key encapsulation",
+				},
+			},
+			{
+				ID:     "f2",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a2",
+					Algorithm: "ML-KEM-768",
+					Function:  "Key encapsulation",
+				},
+			},
+			{
+				ID:     "f3",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a3",
+					Algorithm: "ML-KEM-1024",
+					Function:  "Key encapsulation",
+				},
+			},
+			{
+				ID:     "f4",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a4",
+					Algorithm: "ML-DSA-44",
+					Function:  "Digital signature",
+				},
+			},
+			{
+				ID:     "f5",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a5",
+					Algorithm: "ML-DSA-65",
+					Function:  "Digital signature",
+				},
+			},
+			{
+				ID:     "f6",
+				Module: "configs",
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a6",
+					Algorithm: "ML-DSA-87",
+					Function:  "Digital signature",
+				},
+			},
+		},
+	}
+
+	err := g.GenerateCycloneDXBOM(result, tmpFile)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+
+	var bom CDXBom
+	err = json.Unmarshal(data, &bom)
+	require.NoError(t, err)
+
+	require.Len(t, bom.Components, 6)
+
+	// Verify NIST quantum security levels
+	expectedLevels := []int{1, 3, 5, 1, 3, 5}
+	expectedOIDs := []string{
+		"2.16.840.1.101.3.4.4.1",  // ML-KEM-512
+		"2.16.840.1.101.3.4.4.2",  // ML-KEM-768
+		"2.16.840.1.101.3.4.4.3",  // ML-KEM-1024
+		"2.16.840.1.101.3.4.3.17", // ML-DSA-44
+		"2.16.840.1.101.3.4.3.18", // ML-DSA-65
+		"2.16.840.1.101.3.4.3.19", // ML-DSA-87
+	}
+
+	for i, comp := range bom.Components {
+		require.NotNil(t, comp.CryptoProperties, "component %d missing cryptoProperties", i)
+		require.NotNil(t, comp.CryptoProperties.AlgorithmProperties, "component %d missing algorithmProperties", i)
+		assert.Equal(t, expectedLevels[i], comp.CryptoProperties.AlgorithmProperties.NISTQuantumSecurityLevel,
+			"component %s wrong NIST level", comp.Name)
+		assert.Equal(t, expectedOIDs[i], comp.CryptoProperties.OID,
+			"component %s wrong OID", comp.Name)
+	}
+}
+
+func TestEndToEnd_FindingCompliance_RSA2048(t *testing.T) {
+	// RSA-2048 → TRANSITIONAL, not CNSA 2.0, NIST 2030/2035, NACSA "Dalam Peralihan"
+	asset := &model.CryptoAsset{
+		ID:        "test-rsa",
+		Algorithm: "RSA-2048",
+		KeySize:   2048,
+		Function:  "Certificate authentication",
+	}
+	crypto.ClassifyCryptoAsset(asset)
+
+	assert.Equal(t, "TRANSITIONAL", asset.PQCStatus)
+	assert.Equal(t, 50, asset.MigrationPriority)
+	assert.Equal(t, 2035, asset.BreakYear)
+	assert.Equal(t, "Not Approved", asset.CNSA2Status)
+	assert.Equal(t, 2030, asset.NISTDeprecatedYear)
+	assert.Equal(t, 2035, asset.NISTDisallowedYear)
+	assert.Equal(t, string(crypto.NACSAPeralihan), asset.NACSALabel)
+
+	// Verify CycloneDX component has no NIST quantum level (classical algo)
+	finding := &model.Finding{
+		Module:      "configs",
+		CryptoAsset: asset,
+	}
+	comp := findingToComponent(finding)
+	require.NotNil(t, comp.CryptoProperties)
+	require.NotNil(t, comp.CryptoProperties.AlgorithmProperties)
+	assert.Equal(t, 0, comp.CryptoProperties.AlgorithmProperties.NISTQuantumSecurityLevel)
+}
+
+func TestEndToEnd_FindingCompliance_MLKEM1024(t *testing.T) {
+	// ML-KEM-1024 → SAFE, CNSA 2.0 Approved, NACSA "Patuh"
+	asset := &model.CryptoAsset{
+		ID:        "test-mlkem",
+		Algorithm: "ML-KEM-1024",
+		KeySize:   1024,
+		Function:  "Key encapsulation",
+	}
+	crypto.ClassifyCryptoAsset(asset)
+
+	assert.Equal(t, "SAFE", asset.PQCStatus)
+	assert.Equal(t, 0, asset.MigrationPriority)
+	assert.Equal(t, "Approved", asset.CNSA2Status)
+	assert.Equal(t, string(crypto.NACSAPatuh), asset.NACSALabel)
+
+	// Verify CycloneDX component
+	finding := &model.Finding{
+		Module:      "configs",
+		CryptoAsset: asset,
+	}
+	comp := findingToComponent(finding)
+	require.NotNil(t, comp.CryptoProperties)
+	assert.Equal(t, "2.16.840.1.101.3.4.4.3", comp.CryptoProperties.OID)
+	require.NotNil(t, comp.CryptoProperties.AlgorithmProperties)
+	assert.Equal(t, 5, comp.CryptoProperties.AlgorithmProperties.NISTQuantumSecurityLevel)
 }

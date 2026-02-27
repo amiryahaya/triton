@@ -258,6 +258,26 @@ func TestClassifyLibraryVersion_Libgcrypt(t *testing.T) {
 	}
 }
 
+func TestNacsaLabelForStatus_AllBranches(t *testing.T) {
+	tests := []struct {
+		status PQCStatus
+		want   NACSALabel
+	}{
+		{SAFE, NACSAPeralihan},
+		{TRANSITIONAL, NACSAPeralihan},
+		{DEPRECATED, NACSATidakPatuh},
+		{UNSAFE, NACSATindakanSegera},
+		{PQCStatus("UNKNOWN"), NACSAPeralihan}, // default branch
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			got := nacsaLabelForStatus(tt.status)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestNormalizeLibKey(t *testing.T) {
 	tests := []struct {
 		input string

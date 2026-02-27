@@ -14,6 +14,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -562,4 +564,231 @@ func TestIsCertificateFileExtended(t *testing.T) {
 	// Existing extensions still work
 	assert.True(t, m.isCertificateFile("/path/to/cert.pem"))
 	assert.True(t, m.isCertificateFile("/path/to/cert.crt"))
+}
+
+// --- PQC Algorithm Name & Hybrid Detection Tests ---
+
+func TestBuildPQCAlgorithmName_FallbackToOID(t *testing.T) {
+	// Create a real RSA cert, then forge its PublicKeyAlgorithm to Unknown
+	// to exercise the OID fallback path.
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "pqc-fallback-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &rsaKey.PublicKey, rsaKey)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	// Force Unknown algorithm to exercise the PQC fallback
+	cert.PublicKeyAlgorithm = x509.UnknownPublicKeyAlgorithm
+
+	m := NewCertificateModule(&config.Config{})
+	algoName := m.buildPQCAlgorithmName(cert)
+
+	// The OID extractor should find RSA public key OID and resolve it
+	assert.Equal(t, "RSA", algoName)
+}
+
+func TestBuildPQCAlgorithmName_SyntheticPQCCert(t *testing.T) {
+	// Build synthetic DER with ML-DSA-44 signature OID and ML-KEM-768 pubkey OID
+	mlkemOID := "2.16.840.1.101.3.4.4.2" // ML-KEM-768
+	mldsaOID := "2.16.840.1.101.3.4.3.17" // ML-DSA-44
+	certDER := buildSyntheticCertDERForScanner(t, mldsaOID, mlkemOID)
+
+	// Create a cert struct with the synthetic DER
+	cert := &x509.Certificate{
+		Raw:                certDER,
+		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
+	}
+
+	m := NewCertificateModule(&config.Config{})
+	algoName := m.buildPQCAlgorithmName(cert)
+
+	// Should resolve via public key OID first → ML-KEM-768
+	assert.Equal(t, "ML-KEM-768", algoName)
+}
+
+func TestBuildPQCAlgorithmName_UnknownOID(t *testing.T) {
+	// Build synthetic DER with unrecognized OIDs
+	unknownOID := "1.2.3.4.5.6.7.8.9"
+	certDER := buildSyntheticCertDERForScanner(t, unknownOID, unknownOID)
+
+	cert := &x509.Certificate{
+		Raw:                certDER,
+		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
+	}
+
+	m := NewCertificateModule(&config.Config{})
+	algoName := m.buildPQCAlgorithmName(cert)
+
+	assert.Equal(t, "Unknown", algoName)
+}
+
+func TestDetectHybridCert_Composite(t *testing.T) {
+	compositeOID := "2.16.840.1.114027.80.8.1.1" // ML-DSA-44-RSA-2048
+	rsaPubKeyOID := "1.2.840.113549.1.1.1"
+	certDER := buildSyntheticCertDERForScanner(t, compositeOID, rsaPubKeyOID)
+
+	cert := &x509.Certificate{
+		Raw:                certDER,
+		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
+	}
+
+	m := NewCertificateModule(&config.Config{})
+	isHybrid, components := m.detectHybridCert(cert)
+
+	assert.True(t, isHybrid, "composite OID should be detected as hybrid")
+	require.Len(t, components, 2)
+	assert.Equal(t, "ML-DSA-44", components[0])
+	assert.Equal(t, "RSA-2048", components[1])
+}
+
+func TestDetectHybridCert_NonComposite(t *testing.T) {
+	// Standard RSA cert
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "non-hybrid"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &rsaKey.PublicKey, rsaKey)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&config.Config{})
+	isHybrid, components := m.detectHybridCert(cert)
+
+	assert.False(t, isHybrid)
+	assert.Nil(t, components)
+}
+
+func TestDetectHybridCert_CompositePubKey(t *testing.T) {
+	// Non-composite signature but composite public key OID
+	rsaSigOID := "1.2.840.113549.1.1.11"
+	compositePKOID := "2.16.840.1.114027.80.8.1.9" // ML-DSA-65-ECDSA-P384
+	certDER := buildSyntheticCertDERForScanner(t, rsaSigOID, compositePKOID)
+
+	cert := &x509.Certificate{
+		Raw:                certDER,
+		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
+	}
+
+	m := NewCertificateModule(&config.Config{})
+	isHybrid, components := m.detectHybridCert(cert)
+
+	assert.True(t, isHybrid, "composite pubkey OID should be detected")
+	require.Len(t, components, 2)
+	assert.Equal(t, "ML-DSA-65", components[0])
+	assert.Equal(t, "ECDSA-P384", components[1])
+}
+
+// --- Synthetic DER helpers (duplicated from crypto package for scanner tests) ---
+
+func encodeOIDBytesScanner(t *testing.T, dotted string) []byte {
+	t.Helper()
+	parts := strings.Split(dotted, ".")
+	require.True(t, len(parts) >= 2)
+	first, _ := strconv.Atoi(parts[0])
+	second, _ := strconv.Atoi(parts[1])
+	var encoded []byte
+	encoded = append(encoded, byte(first*40+second))
+	for i := 2; i < len(parts); i++ {
+		val, _ := strconv.Atoi(parts[i])
+		encoded = append(encoded, encodeBase128Scanner(val)...)
+	}
+	return encoded
+}
+
+func encodeBase128Scanner(val int) []byte {
+	if val < 128 {
+		return []byte{byte(val)}
+	}
+	var result []byte
+	for val > 0 {
+		result = append([]byte{byte(val & 0x7F)}, result...)
+		val >>= 7
+	}
+	for i := 0; i < len(result)-1; i++ {
+		result[i] |= 0x80
+	}
+	return result
+}
+
+func wrapASN1Scanner(tag byte, content []byte) []byte {
+	length := len(content)
+	if length < 128 {
+		return append([]byte{tag, byte(length)}, content...)
+	}
+	lenBytes := encodeLenScanner(length)
+	header := []byte{tag, byte(0x80 | len(lenBytes))}
+	header = append(header, lenBytes...)
+	return append(header, content...)
+}
+
+func encodeLenScanner(length int) []byte {
+	if length <= 0xFF {
+		return []byte{byte(length)}
+	}
+	if length <= 0xFFFF {
+		return []byte{byte(length >> 8), byte(length)}
+	}
+	return []byte{byte(length >> 16), byte(length >> 8), byte(length)}
+}
+
+func buildSyntheticCertDERForScanner(t *testing.T, sigOID, pubKeyOID string) []byte {
+	t.Helper()
+	sigOIDTLV := wrapASN1Scanner(0x06, encodeOIDBytesScanner(t, sigOID))
+	nullParam := []byte{0x05, 0x00}
+	sigAlgID := wrapASN1Scanner(0x30, append(sigOIDTLV, nullParam...))
+
+	pubKeyOIDTLV := wrapASN1Scanner(0x06, encodeOIDBytesScanner(t, pubKeyOID))
+	pubKeyAlgID := wrapASN1Scanner(0x30, append(pubKeyOIDTLV, nullParam...))
+
+	version := wrapASN1Scanner(0xA0, []byte{0x02, 0x01, 0x02})
+	serial := []byte{0x02, 0x01, 0x01}
+
+	cnOID := []byte{0x06, 0x03, 0x55, 0x04, 0x03}
+	cnValue := wrapASN1Scanner(0x0C, []byte("test"))
+	rdnSeq := wrapASN1Scanner(0x30, append(cnOID, cnValue...))
+	rdnSet := wrapASN1Scanner(0x31, rdnSeq)
+	issuer := wrapASN1Scanner(0x30, rdnSet)
+
+	utcNow := append([]byte{0x17, 0x0D}, []byte("250101000000Z")...)
+	utcLater := append([]byte{0x17, 0x0D}, []byte("260101000000Z")...)
+	validity := wrapASN1Scanner(0x30, append(utcNow, utcLater...))
+
+	subject := wrapASN1Scanner(0x30, rdnSet)
+
+	fakePubKey := wrapASN1Scanner(0x03, append([]byte{0x00}, make([]byte, 32)...))
+	spki := wrapASN1Scanner(0x30, append(pubKeyAlgID, fakePubKey...))
+
+	var tbsContent []byte
+	tbsContent = append(tbsContent, version...)
+	tbsContent = append(tbsContent, serial...)
+	tbsContent = append(tbsContent, sigAlgID...)
+	tbsContent = append(tbsContent, issuer...)
+	tbsContent = append(tbsContent, validity...)
+	tbsContent = append(tbsContent, subject...)
+	tbsContent = append(tbsContent, spki...)
+	tbs := wrapASN1Scanner(0x30, tbsContent)
+
+	outerSigAlgID := wrapASN1Scanner(0x30, append(sigOIDTLV, nullParam...))
+	fakeSig := wrapASN1Scanner(0x03, append([]byte{0x00}, make([]byte, 64)...))
+
+	var certContent []byte
+	certContent = append(certContent, tbs...)
+	certContent = append(certContent, outerSigAlgID...)
+	certContent = append(certContent, fakeSig...)
+	return wrapASN1Scanner(0x30, certContent)
 }

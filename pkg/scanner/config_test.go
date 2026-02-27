@@ -200,6 +200,142 @@ func TestParseCryptoPolicies(t *testing.T) {
 	assert.Equal(t, "TRANSITIONAL", collected[0].CryptoAsset.PQCStatus)
 }
 
+func TestParseCryptoPolicies_FIPS(t *testing.T) {
+	tmpDir := t.TempDir()
+	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
+	err := os.MkdirAll(policyDir, 0755)
+	require.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("FIPS\n"), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	assert.Contains(t, collected[0].CryptoAsset.Algorithm, "FIPS")
+	assert.Equal(t, "TRANSITIONAL", collected[0].CryptoAsset.PQCStatus)
+	assert.Contains(t, collected[0].CryptoAsset.Purpose, "FIPS 140")
+}
+
+func TestParseCryptoPolicies_DEFAULT(t *testing.T) {
+	tmpDir := t.TempDir()
+	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
+	err := os.MkdirAll(policyDir, 0755)
+	require.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("DEFAULT\n"), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	assert.Contains(t, collected[0].CryptoAsset.Algorithm, "DEFAULT")
+	assert.Equal(t, "TRANSITIONAL", collected[0].CryptoAsset.PQCStatus)
+	assert.Contains(t, collected[0].CryptoAsset.Purpose, "balanced")
+}
+
+func TestParseCryptoPolicies_LEGACY(t *testing.T) {
+	tmpDir := t.TempDir()
+	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
+	err := os.MkdirAll(policyDir, 0755)
+	require.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("LEGACY\n"), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	assert.Contains(t, collected[0].CryptoAsset.Algorithm, "LEGACY")
+	assert.Equal(t, "DEPRECATED", collected[0].CryptoAsset.PQCStatus)
+	assert.Contains(t, collected[0].CryptoAsset.Purpose, "legacy")
+}
+
+func TestParseCryptoPolicies_Unknown(t *testing.T) {
+	tmpDir := t.TempDir()
+	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
+	err := os.MkdirAll(policyDir, 0755)
+	require.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("CUSTOM:PQC-HYBRID\n"), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1)
+	assert.Equal(t, "TRANSITIONAL", collected[0].CryptoAsset.PQCStatus)
+	assert.Contains(t, collected[0].CryptoAsset.Purpose, "CUSTOM:PQC-HYBRID")
+}
+
+func TestParseCryptoPolicies_Empty(t *testing.T) {
+	tmpDir := t.TempDir()
+	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
+	err := os.MkdirAll(policyDir, 0755)
+	require.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte(""), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	assert.Empty(t, collected, "Empty policy file should produce no findings")
+}
+
 func TestScanFixtureConfigs(t *testing.T) {
 	// Test against the actual fixture files
 	fixtureDir := filepath.Join("../../test/fixtures/configs")

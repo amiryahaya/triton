@@ -1,7 +1,18 @@
 package crypto
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -141,23 +152,273 @@ func TestParseOID_Invalid(t *testing.T) {
 }
 
 func TestExtractSignatureOID_RSA(t *testing.T) {
-	// Create a self-signed RSA cert using Go stdlib, then extract OID
-	import_crypto_rsa_test(t)
+	certDER := generateSelfSignedCertDER(t, "RSA", 2048)
+	oid := ExtractSignatureOID(certDER)
+	require.NotEmpty(t, oid, "should extract signature OID from RSA cert")
+	// SHA256-RSA: 1.2.840.113549.1.1.11
+	assert.Equal(t, "1.2.840.113549.1.1.11", oid)
 }
 
-// import_crypto_rsa_test is a helper that tests extractSignatureOID on a real certificate.
-func import_crypto_rsa_test(t *testing.T) {
+func TestExtractSignatureOID_ECDSA(t *testing.T) {
+	certDER := generateSelfSignedCertDER(t, "ECDSA", 256)
+	oid := ExtractSignatureOID(certDER)
+	require.NotEmpty(t, oid, "should extract signature OID from ECDSA cert")
+	// ECDSA with SHA256: 1.2.840.10045.4.3.2
+	assert.True(t, strings.HasPrefix(oid, "1.2.840.10045"), "should be ECDSA OID, got: %s", oid)
+}
+
+func TestExtractSignatureOID_Ed25519(t *testing.T) {
+	certDER := generateSelfSignedCertDER(t, "Ed25519", 0)
+	oid := ExtractSignatureOID(certDER)
+	require.NotEmpty(t, oid, "should extract signature OID from Ed25519 cert")
+	assert.Equal(t, "1.3.101.112", oid)
+}
+
+func TestExtractPublicKeyOID_RSA(t *testing.T) {
+	certDER := generateSelfSignedCertDER(t, "RSA", 2048)
+	oid := ExtractPublicKeyOID(certDER)
+	require.NotEmpty(t, oid, "should extract public key OID from RSA cert")
+	// RSA: 1.2.840.113549.1.1.1
+	assert.Equal(t, "1.2.840.113549.1.1.1", oid)
+}
+
+func TestExtractPublicKeyOID_ECDSA(t *testing.T) {
+	certDER := generateSelfSignedCertDER(t, "ECDSA", 256)
+	oid := ExtractPublicKeyOID(certDER)
+	require.NotEmpty(t, oid, "should extract public key OID from ECDSA cert")
+	// EC: 1.2.840.10045.2.1
+	assert.Equal(t, "1.2.840.10045.2.1", oid)
+}
+
+func TestExtractPublicKeyOID_Ed25519(t *testing.T) {
+	certDER := generateSelfSignedCertDER(t, "Ed25519", 0)
+	oid := ExtractPublicKeyOID(certDER)
+	require.NotEmpty(t, oid, "should extract public key OID from Ed25519 cert")
+	assert.Equal(t, "1.3.101.112", oid)
+}
+
+func TestExtractSignatureOID_SyntheticPQC(t *testing.T) {
+	// Build a synthetic DER with ML-DSA-44 signature OID
+	mldsaOID := "2.16.840.1.101.3.4.3.17"
+	rsaPubKeyOID := "1.2.840.113549.1.1.1"
+	certDER := buildSyntheticCertDER(t, mldsaOID, rsaPubKeyOID)
+
+	oid := ExtractSignatureOID(certDER)
+	assert.Equal(t, mldsaOID, oid)
+}
+
+func TestExtractSignatureOID_SyntheticComposite(t *testing.T) {
+	compositeOID := "2.16.840.1.114027.80.8.1.1" // ML-DSA-44-RSA-2048
+	rsaPubKeyOID := "1.2.840.113549.1.1.1"
+	certDER := buildSyntheticCertDER(t, compositeOID, rsaPubKeyOID)
+
+	oid := ExtractSignatureOID(certDER)
+	assert.Equal(t, compositeOID, oid)
+	assert.True(t, IsCompositeOID(oid))
+}
+
+func TestExtractPublicKeyOID_SyntheticMLKEM(t *testing.T) {
+	mlkemOID := "2.16.840.1.101.3.4.4.2" // ML-KEM-768
+	rsaSigOID := "1.2.840.113549.1.1.11"
+	certDER := buildSyntheticCertDER(t, rsaSigOID, mlkemOID)
+
+	oid := ExtractPublicKeyOID(certDER)
+	assert.Equal(t, mlkemOID, oid)
+
+	entry, ok := LookupOID(oid)
+	require.True(t, ok)
+	assert.Equal(t, "ML-KEM-768", entry.Algorithm)
+}
+
+func TestExtractSignatureOID_Empty(t *testing.T) {
+	assert.Equal(t, "", ExtractSignatureOID(nil))
+	assert.Equal(t, "", ExtractSignatureOID([]byte{}))
+}
+
+func TestExtractSignatureOID_Truncated(t *testing.T) {
+	// Just a SEQUENCE tag with no content
+	assert.Equal(t, "", ExtractSignatureOID([]byte{0x30, 0x00}))
+	// Outer SEQUENCE but inner TBS is truncated
+	assert.Equal(t, "", ExtractSignatureOID([]byte{0x30, 0x02, 0x30, 0x00}))
+}
+
+func TestExtractPublicKeyOID_Empty(t *testing.T) {
+	assert.Equal(t, "", ExtractPublicKeyOID(nil))
+	assert.Equal(t, "", ExtractPublicKeyOID([]byte{}))
+}
+
+func TestExtractPublicKeyOID_Truncated(t *testing.T) {
+	assert.Equal(t, "", ExtractPublicKeyOID([]byte{0x30, 0x00}))
+}
+
+// --- Test helpers ---
+
+// generateSelfSignedCertDER creates a real self-signed certificate and returns raw DER bytes.
+func generateSelfSignedCertDER(t *testing.T, keyType string, keySize int) []byte {
 	t.Helper()
 
-	// Use test fixtures instead of generating in this package
-	// The real integration test is in pkg/scanner/certificate_test.go
-	// Here we just test the core OID parsing functions
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "oid-test-" + keyType},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
 
-	// Test basic parseSequence
-	seq := []byte{0x30, 0x03, 0x01, 0x01, 0xFF}
-	content, ok := parseSequence(seq)
-	require.True(t, ok)
-	assert.Equal(t, []byte{0x01, 0x01, 0xFF}, content)
+	var privKey interface{}
+	var pubKey interface{}
+
+	switch keyType {
+	case "RSA":
+		key, err := rsa.GenerateKey(rand.Reader, keySize)
+		require.NoError(t, err)
+		privKey = key
+		pubKey = &key.PublicKey
+	case "ECDSA":
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		privKey = key
+		pubKey = &key.PublicKey
+	case "Ed25519":
+		pub, priv, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		privKey = priv
+		pubKey = pub
+	default:
+		t.Fatalf("unsupported key type: %s", keyType)
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pubKey, privKey)
+	require.NoError(t, err)
+	return certDER
+}
+
+// encodeOIDBytes encodes a dotted OID string (e.g. "2.16.840.1.101.3.4.3.17") into raw OID value bytes.
+func encodeOIDBytes(t *testing.T, dotted string) []byte {
+	t.Helper()
+	parts := strings.Split(dotted, ".")
+	require.True(t, len(parts) >= 2, "OID must have at least 2 components")
+
+	first, err := strconv.Atoi(parts[0])
+	require.NoError(t, err)
+	second, err := strconv.Atoi(parts[1])
+	require.NoError(t, err)
+
+	var encoded []byte
+	encoded = append(encoded, byte(first*40+second))
+
+	for i := 2; i < len(parts); i++ {
+		val, err := strconv.Atoi(parts[i])
+		require.NoError(t, err)
+		encoded = append(encoded, encodeBase128(val)...)
+	}
+	return encoded
+}
+
+// encodeBase128 encodes an integer in ASN.1 base-128 format.
+func encodeBase128(val int) []byte {
+	if val < 128 {
+		return []byte{byte(val)}
+	}
+	var result []byte
+	for val > 0 {
+		result = append([]byte{byte(val & 0x7F)}, result...)
+		val >>= 7
+	}
+	for i := 0; i < len(result)-1; i++ {
+		result[i] |= 0x80
+	}
+	return result
+}
+
+// wrapASN1 wraps content with an ASN.1 tag and length.
+func wrapASN1(tag byte, content []byte) []byte {
+	length := len(content)
+	if length < 128 {
+		return append([]byte{tag, byte(length)}, content...)
+	}
+	// Long form length
+	lenBytes := encodeLengthBytes(length)
+	header := []byte{tag, byte(0x80 | len(lenBytes))}
+	header = append(header, lenBytes...)
+	return append(header, content...)
+}
+
+func encodeLengthBytes(length int) []byte {
+	if length <= 0xFF {
+		return []byte{byte(length)}
+	}
+	if length <= 0xFFFF {
+		return []byte{byte(length >> 8), byte(length)}
+	}
+	return []byte{byte(length >> 16), byte(length >> 8), byte(length)}
+}
+
+// buildSyntheticCertDER builds a minimal synthetic X.509 DER structure with specified
+// signature and public key OIDs. The structure matches what ExtractSignatureOID and
+// ExtractPublicKeyOID expect to parse.
+func buildSyntheticCertDER(t *testing.T, sigOID, pubKeyOID string) []byte {
+	t.Helper()
+
+	// Build the AlgorithmIdentifier for signature: SEQUENCE { OID, NULL }
+	sigOIDBytes := encodeOIDBytes(t, sigOID)
+	sigOIDTLV := wrapASN1(0x06, sigOIDBytes)
+	nullParam := []byte{0x05, 0x00}
+	sigAlgID := wrapASN1(0x30, append(sigOIDTLV, nullParam...))
+
+	// Build the AlgorithmIdentifier for public key
+	pubKeyOIDBytes := encodeOIDBytes(t, pubKeyOID)
+	pubKeyOIDTLV := wrapASN1(0x06, pubKeyOIDBytes)
+	pubKeyAlgID := wrapASN1(0x30, append(pubKeyOIDTLV, nullParam...))
+
+	// Version [0] EXPLICIT INTEGER 2 (v3)
+	versionInt := []byte{0x02, 0x01, 0x02}
+	version := wrapASN1(0xA0, versionInt)
+
+	// Serial number: INTEGER 1
+	serial := []byte{0x02, 0x01, 0x01}
+
+	// Issuer: SEQUENCE { SET { SEQUENCE { OID(CN), UTF8String("test") } } }
+	cnOID := []byte{0x06, 0x03, 0x55, 0x04, 0x03} // 2.5.4.3
+	cnValue := wrapASN1(0x0C, []byte("test"))       // UTF8String
+	rdnSeq := wrapASN1(0x30, append(cnOID, cnValue...))
+	rdnSet := wrapASN1(0x31, rdnSeq)
+	issuer := wrapASN1(0x30, rdnSet)
+
+	// Validity: SEQUENCE { UTCTime, UTCTime }
+	utcNow := []byte{0x17, 0x0D}
+	utcNow = append(utcNow, []byte("250101000000Z")...)
+	utcLater := []byte{0x17, 0x0D}
+	utcLater = append(utcLater, []byte("260101000000Z")...)
+	validity := wrapASN1(0x30, append(utcNow, utcLater...))
+
+	// Subject (same as issuer)
+	subject := wrapASN1(0x30, rdnSet)
+
+	// SubjectPublicKeyInfo: SEQUENCE { AlgorithmIdentifier, BIT STRING }
+	fakePubKey := wrapASN1(0x03, append([]byte{0x00}, make([]byte, 32)...)) // BIT STRING
+	spki := wrapASN1(0x30, append(pubKeyAlgID, fakePubKey...))
+
+	// TBSCertificate: SEQUENCE { version, serial, sigAlgID, issuer, validity, subject, spki }
+	var tbsContent []byte
+	tbsContent = append(tbsContent, version...)
+	tbsContent = append(tbsContent, serial...)
+	tbsContent = append(tbsContent, sigAlgID...)
+	tbsContent = append(tbsContent, issuer...)
+	tbsContent = append(tbsContent, validity...)
+	tbsContent = append(tbsContent, subject...)
+	tbsContent = append(tbsContent, spki...)
+	tbs := wrapASN1(0x30, tbsContent)
+
+	// Outer certificate: SEQUENCE { TBS, sigAlgID, BIT STRING(signature) }
+	outerSigAlgID := wrapASN1(0x30, append(sigOIDTLV, nullParam...))
+	fakeSig := wrapASN1(0x03, append([]byte{0x00}, make([]byte, 64)...))
+
+	var certContent []byte
+	certContent = append(certContent, tbs...)
+	certContent = append(certContent, outerSigAlgID...)
+	certContent = append(certContent, fakeSig...)
+
+	return wrapASN1(0x30, certContent)
 }
 
 func TestParseSequence_Invalid(t *testing.T) {

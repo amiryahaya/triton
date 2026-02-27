@@ -166,6 +166,73 @@ func TestCertKeyInfo(t *testing.T) {
 	}
 }
 
+func TestCertStoreModule_Scan_Integration(t *testing.T) {
+	// Integration test: runs the real OS cert store scan.
+	// Non-fatal if OS store is inaccessible (CI, sandboxed env).
+	m := NewCertStoreModule(&config.Config{})
+	findings := make(chan *model.Finding, 500)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}
+
+	err := m.Scan(context.Background(), target, findings)
+	close(findings)
+
+	// Scan should not error (returns nil even if store inaccessible)
+	assert.NoError(t, err)
+
+	var results []*model.Finding
+	for f := range findings {
+		results = append(results, f)
+	}
+
+	if len(results) == 0 {
+		t.Skip("OS certificate store not accessible or empty — skipping integration assertions")
+	}
+
+	// Verify all findings have correct module and category
+	for _, f := range results {
+		assert.Equal(t, "certstore", f.Module)
+		assert.Equal(t, 2, f.Category)
+		assert.Equal(t, "os:certstore", f.Source.Path)
+		require.NotNil(t, f.CryptoAsset)
+		assert.NotEmpty(t, f.CryptoAsset.Algorithm)
+		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		assert.Equal(t, "OS certificate store", f.CryptoAsset.Function)
+	}
+}
+
+func TestCertStoreModule_Scan_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	m := NewCertStoreModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}
+
+	err := m.Scan(ctx, target, findings)
+	close(findings)
+
+	// Should return quickly (either nil or context.Canceled)
+	if err != nil {
+		assert.ErrorIs(t, err, context.Canceled)
+	}
+
+	// Should have few or no findings since context was cancelled
+	var results []*model.Finding
+	for f := range findings {
+		results = append(results, f)
+	}
+	// Just verify it didn't hang — count doesn't matter
+	_ = results
+}
+
+func TestCertKeyInfo_DefaultBranch(t *testing.T) {
+	// Create an ECDSA-P521 cert to test the P521 mapping branch
+	cert := generateCertStoreObj(t, "ECDSA", 521)
+	algo, size := certKeyInfo(cert)
+	assert.Equal(t, "ECDSA-P521", algo)
+	assert.Equal(t, 521, size)
+}
+
 // generateCertStorePEM creates a self-signed certificate in PEM format.
 func generateCertStorePEM(t *testing.T, keyType string, keySize int) []byte {
 	t.Helper()

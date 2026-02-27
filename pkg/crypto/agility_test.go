@@ -108,6 +108,52 @@ func TestAgilityLevelString(t *testing.T) {
 	assert.Equal(t, "Tidak dapat dinilai", AgilityUnknown.String())
 }
 
+func TestAssessAssetAgility_Nil(t *testing.T) {
+	text := AssessAssetAgility(nil)
+	assert.Equal(t, "Tidak dapat dinilai", text)
+}
+
+func TestAssessAssetAgility_SAFESymmetric(t *testing.T) {
+	// AES-256 is SAFE but not PQC family (it's "AES") → "Ya (algoritma selamat kuantum untuk simetri)"
+	asset := model.CryptoAsset{
+		Algorithm: "AES-256-GCM",
+		KeySize:   256,
+	}
+	text := AssessAssetAgility(&asset)
+	assert.Contains(t, text, "Ya")
+	assert.Contains(t, text, "selamat kuantum")
+}
+
+func TestAssessAssetAgility_DEPRECATED(t *testing.T) {
+	asset := model.CryptoAsset{
+		Algorithm: "MD5",
+		KeySize:   128,
+	}
+	text := AssessAssetAgility(&asset)
+	assert.Contains(t, text, "Terhad")
+	assert.Contains(t, text, "usang")
+}
+
+func TestAssessAssetAgility_UNSAFE(t *testing.T) {
+	asset := model.CryptoAsset{
+		Algorithm: "DES",
+		KeySize:   56,
+	}
+	text := AssessAssetAgility(&asset)
+	assert.Contains(t, text, "Terhad")
+	assert.Contains(t, text, "tidak selamat")
+}
+
+func TestAssessAssetAgility_TRANSITIONAL(t *testing.T) {
+	asset := model.CryptoAsset{
+		Algorithm: "RSA-2048",
+		KeySize:   2048,
+	}
+	text := AssessAssetAgility(&asset)
+	assert.Contains(t, text, "Terhad")
+	assert.Contains(t, text, "klasik")
+}
+
 func TestFormatKeySize(t *testing.T) {
 	tests := []struct {
 		keySize int

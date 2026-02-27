@@ -109,19 +109,19 @@ func parseVersion(version string) (major, minor int, ok bool) {
 		return 0, 0, false
 	}
 
-	min := 0
+	minor = 0
 	if len(parts) >= 2 {
 		// Strip trailing alpha characters (e.g., "1k" from "1.1.1k")
 		minStr := strings.TrimRight(parts[1], alphaChars)
 		if minStr != "" {
-			min, err = strconv.Atoi(minStr)
+			minor, err = strconv.Atoi(minStr)
 			if err != nil {
 				return maj, 0, true // major parsed, minor unparseable — still usable
 			}
 		}
 	}
 
-	return maj, min, true
+	return maj, minor, true
 }
 
 // ClassifyLibraryAsset sets PQCStatus and NACSALabel on a CryptoAsset based on the

@@ -31,6 +31,10 @@ linters:
         - fieldalignment
   exclusions:
     rules:
+      # QF1012 is a style suggestion (fmt.Fprintf vs WriteString+Sprintf), not a bug
+      - linters:
+          - staticcheck
+        text: "QF1012"
       # Relax rules for test files
       - path: _test\.go
         linters:

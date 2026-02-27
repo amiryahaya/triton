@@ -301,7 +301,7 @@ func detectLanguage(path string) string {
 
 	// Tier 2-4: ELF section/symbol analysis
 	if ef, err := elf.Open(path); err == nil {
-		defer ef.Close()
+		defer func() { _ = ef.Close() }()
 
 		// Tier 2: Section names
 		for _, sec := range ef.Sections {
@@ -330,7 +330,7 @@ func detectLanguage(path string) string {
 
 	// Mach-O
 	if mf, err := macho.Open(path); err == nil {
-		defer mf.Close()
+		defer func() { _ = mf.Close() }()
 
 		for _, sec := range mf.Sections {
 			switch sec.Name {
@@ -346,7 +346,7 @@ func detectLanguage(path string) string {
 
 	// Mach-O fat binary
 	if ff, err := macho.OpenFat(path); err == nil {
-		defer ff.Close()
+		defer func() { _ = ff.Close() }()
 		if len(ff.Arches) > 0 {
 			for _, sec := range ff.Arches[0].Sections {
 				if sec.Name == "__go_buildinfo" || sec.Name == "__gopclntab" {
@@ -359,7 +359,7 @@ func detectLanguage(path string) string {
 
 	// PE
 	if pf, err := pe.Open(path); err == nil {
-		defer pf.Close()
+		defer func() { _ = pf.Close() }()
 
 		for _, sec := range pf.Sections {
 			if sec.Name == ".go.buildinfo" {
@@ -376,7 +376,7 @@ func detectLanguage(path string) string {
 func getImportedLibraries(path string) []string {
 	// Try ELF
 	if ef, err := elf.Open(path); err == nil {
-		defer ef.Close()
+		defer func() { _ = ef.Close() }()
 		if libs, err := ef.ImportedLibraries(); err == nil {
 			return libs
 		}
@@ -385,7 +385,7 @@ func getImportedLibraries(path string) []string {
 
 	// Try Mach-O
 	if mf, err := macho.Open(path); err == nil {
-		defer mf.Close()
+		defer func() { _ = mf.Close() }()
 		if libs, err := mf.ImportedLibraries(); err == nil {
 			return libs
 		}
@@ -394,7 +394,7 @@ func getImportedLibraries(path string) []string {
 
 	// Try Mach-O fat binary
 	if ff, err := macho.OpenFat(path); err == nil {
-		defer ff.Close()
+		defer func() { _ = ff.Close() }()
 		if len(ff.Arches) > 0 {
 			if libs, err := ff.Arches[0].ImportedLibraries(); err == nil {
 				return libs
@@ -405,7 +405,7 @@ func getImportedLibraries(path string) []string {
 
 	// Try PE
 	if pf, err := pe.Open(path); err == nil {
-		defer pf.Close()
+		defer func() { _ = pf.Close() }()
 		if libs, err := pf.ImportedLibraries(); err == nil {
 			return libs
 		}
@@ -419,7 +419,7 @@ func getImportedLibraries(path string) []string {
 func getImportedSymbols(path string) []string {
 	// Try ELF
 	if ef, err := elf.Open(path); err == nil {
-		defer ef.Close()
+		defer func() { _ = ef.Close() }()
 		if syms, err := ef.ImportedSymbols(); err == nil {
 			names := make([]string, 0, len(syms))
 			for _, s := range syms {
@@ -432,7 +432,7 @@ func getImportedSymbols(path string) []string {
 
 	// Try PE
 	if pf, err := pe.Open(path); err == nil {
-		defer pf.Close()
+		defer func() { _ = pf.Close() }()
 		if syms, err := pf.ImportedSymbols(); err == nil {
 			return syms
 		}
@@ -475,7 +475,7 @@ func (m *BinaryModule) readBinaryHead(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {

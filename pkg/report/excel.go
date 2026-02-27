@@ -47,7 +47,7 @@ func (g *Generator) GenerateExcel(result *model.ScanResult, filename string) err
 	if err != nil {
 		return fmt.Errorf("opening template: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	clearExampleRows(f)
 
@@ -399,7 +399,7 @@ func populateComplianceSummary(f *excelize.File, result *model.ScanResult) {
 	nacsa := crypto.ComputeNACSASummary(result.Systems)
 	camm := crypto.AssessCAMM(result.Systems, result.Findings)
 
-	rows := [][]interface{}{
+	rows := [][]interface{}{ //nolint:prealloc // slice literal with appends below
 		{"NACSA Readiness", fmt.Sprintf("%.1f%%", nacsa.ReadinessPercent)},
 		{"Total Crypto Assets", nacsa.TotalAssets},
 		{"Patuh (Compliant)", nacsa.Patuh},

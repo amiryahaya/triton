@@ -181,7 +181,7 @@ func (m *KernelModule) scanKernelModuleFile(path string) ([]*model.Finding, erro
 	if err != nil {
 		return nil, fmt.Errorf("open kernel module %s: %w", path, err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(rc, maxKernelModuleReadSize))
 	if err != nil {

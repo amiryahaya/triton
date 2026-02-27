@@ -71,7 +71,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	if err != nil {
 		return nil // Connection failed — not a TLS service or unreachable
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	state := conn.ConnectionState()
 

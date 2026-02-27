@@ -348,10 +348,10 @@ func svgDonutChart(safe, transitional, deprecated, unsafe int) string {
 	}
 
 	const (
-		r          = 70.0
-		strokeW    = 35.0
-		circumf    = 2 * math.Pi * r
-		cx, cy     = 100.0, 100.0
+		r       = 70.0
+		strokeW = 35.0
+		circumf = 2 * math.Pi * r
+		cx, cy  = 100.0, 100.0
 	)
 
 	var b strings.Builder

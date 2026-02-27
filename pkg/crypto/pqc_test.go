@@ -267,10 +267,10 @@ func TestNormalizedMapConsistency(t *testing.T) {
 
 func TestClassifyCryptoAsset_Normalization(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantAlgo  string
-		wantSafe  string
+		name     string
+		input    string
+		wantAlgo string
+		wantSafe string
 	}{
 		{"SHA256 normalized", "SHA256", "SHA-256", "TRANSITIONAL"},
 		{"AES128-GCM normalized", "AES128-GCM", "AES-128-GCM", "TRANSITIONAL"},

@@ -151,7 +151,7 @@ func (m *ConfigModule) parseSSHConfig(path string) []*model.Finding {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var findings []*model.Finding
 	scanner := bufio.NewScanner(f)
@@ -278,7 +278,7 @@ func (m *ConfigModule) parseJavaSecurity(path string) []*model.Finding {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var findings []*model.Finding
 	scanner := bufio.NewScanner(f)

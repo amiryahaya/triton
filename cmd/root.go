@@ -32,7 +32,7 @@ var (
 	format      string
 	showMetrics bool
 
-	validFormats = map[string]bool{"json": true, "html": true, "xlsx": true, "all": true}
+	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "all": true}
 
 	rootCmd = &cobra.Command{
 		Use:     "triton",
@@ -54,7 +54,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputDir, "output-dir", "d", ".", "Output directory for reports (used with --format all)")
 	rootCmd.PersistentFlags().StringVarP(&scanProfile, "profile", "p", "standard", "Scan profile: quick, standard, comprehensive")
 	rootCmd.PersistentFlags().StringSliceVarP(&modules, "modules", "m", []string{}, "Specific modules to run (default: all)")
-	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, html, xlsx, all")
+	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, cdx, html, xlsx, all")
 	rootCmd.PersistentFlags().BoolVar(&showMetrics, "metrics", false, "Show per-module scan metrics table")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
@@ -178,7 +178,7 @@ func (m scanModel) View() string {
 
 func runScan(cmd *cobra.Command, args []string) error {
 	if !validFormats[format] {
-		return fmt.Errorf("invalid format %q: must be one of json, html, xlsx, all", format)
+		return fmt.Errorf("invalid format %q: must be one of json, cdx, html, xlsx, all", format)
 	}
 
 	fmt.Printf("Triton SBOM/CBOM Scanner v%s\n", version.Version)
@@ -259,10 +259,17 @@ func generateReports(result *model.ScanResult) error {
 	switch format {
 	case "json":
 		jsonFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.json", ts))
-		if err := gen.GenerateCycloneDX(result, jsonFile); err != nil {
+		if err := gen.GenerateTritonJSON(result, jsonFile); err != nil {
 			return err
 		}
 		fmt.Printf("Report saved to: %s\n", jsonFile)
+
+	case "cdx":
+		cdxFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.cdx.json", ts))
+		if err := gen.GenerateCycloneDXBOM(result, cdxFile); err != nil {
+			return err
+		}
+		fmt.Printf("CycloneDX CBOM saved to: %s\n", cdxFile)
 
 	case "html":
 		htmlFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.html", ts))

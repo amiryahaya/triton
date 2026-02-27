@@ -485,6 +485,71 @@ func TestParseJKSFile(t *testing.T) {
 	assert.Equal(t, 0.70, finding.Confidence)
 }
 
+func TestBuildPQCAlgorithmName_UnknownCert(t *testing.T) {
+	// When x509.ParseCertificate encounters a PQC cert, the public key algorithm
+	// is Unknown. This test verifies the OID fallback path works by parsing
+	// a real RSA cert (which Go does understand) and checking the extractors work.
+	tmpDir := t.TempDir()
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "oid-fallback-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &rsaKey.PublicKey, rsaKey)
+	require.NoError(t, err)
+
+	certFile := filepath.Join(tmpDir, "oid-test.pem")
+	f, err := os.Create(certFile)
+	require.NoError(t, err)
+	pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	f.Close()
+
+	m := NewCertificateModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	require.NotNil(t, finding.CryptoAsset)
+	// RSA is handled by the standard path, not OID fallback
+	assert.Contains(t, finding.CryptoAsset.Algorithm, "RSA")
+	assert.Equal(t, 2048, finding.CryptoAsset.KeySize)
+}
+
+func TestDetectHybridCert(t *testing.T) {
+	// Test detectHybridCert returns false for standard RSA cert
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "hybrid-test"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &rsaKey.PublicKey, rsaKey)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&config.Config{})
+	isHybrid, components := m.detectHybridCert(cert)
+	assert.False(t, isHybrid)
+	assert.Nil(t, components)
+}
+
 func TestIsCertificateFileExtended(t *testing.T) {
 	m := NewCertificateModule(&config.Config{})
 

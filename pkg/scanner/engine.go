@@ -64,6 +64,7 @@ func (e *Engine) RegisterDefaultModules() {
 	e.RegisterModule(NewLibraryModule(e.config))
 	e.RegisterModule(NewBinaryModule(e.config))
 	e.RegisterModule(NewKernelModule(e.config))
+	e.RegisterModule(NewConfigModule(e.config))
 
 	// Phase 3: Code analysis (Categories 6-7)
 	e.RegisterModule(NewScriptModule(e.config))

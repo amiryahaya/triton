@@ -54,8 +54,8 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 11 modules
-	assert.Len(t, eng.modules, 11)
+	// Should register all 12 modules
+	assert.Len(t, eng.modules, 12)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -69,6 +69,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.True(t, names["libraries"])
 	assert.True(t, names["binaries"])
 	assert.True(t, names["kernel"])
+	assert.True(t, names["configs"])
 
 	// Phase 3
 	assert.True(t, names["scripts"])

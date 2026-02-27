@@ -40,9 +40,11 @@ func (g *Generator) GenerateAllReports(result *model.ScanResult, timestamp strin
 	jsonFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.json", timestamp))
 	htmlFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.html", timestamp))
 	excelFile := filepath.Join(dir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", timestamp))
+	cdxFile := filepath.Join(dir, fmt.Sprintf("triton-report-%s.cdx.json", timestamp))
 
 	reports := []reportFunc{
-		{"JSON", jsonFile, func() error { return g.GenerateCycloneDX(result, jsonFile) }},
+		{"JSON", jsonFile, func() error { return g.GenerateTritonJSON(result, jsonFile) }},
+		{"CycloneDX", cdxFile, func() error { return g.GenerateCycloneDXBOM(result, cdxFile) }},
 		{"HTML", htmlFile, func() error { return g.GenerateHTML(result, htmlFile) }},
 		{"Excel", excelFile, func() error { return g.GenerateExcel(result, excelFile) }},
 	}
@@ -58,8 +60,9 @@ func (g *Generator) GenerateAllReports(result *model.ScanResult, timestamp strin
 	return files, nil
 }
 
-// GenerateCycloneDX outputs scan results in JSON format
-func (g *Generator) GenerateCycloneDX(result *model.ScanResult, filename string) error {
+// GenerateTritonJSON outputs scan results in Triton's proprietary JSON format.
+// This is the legacy format — use GenerateCycloneDXBOM for proper CycloneDX 1.7.
+func (g *Generator) GenerateTritonJSON(result *model.ScanResult, filename string) error {
 	report := struct {
 		GeneratedAt string            `json:"generatedAt"`
 		Result      *model.ScanResult `json:"result"`
@@ -172,6 +175,8 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			<th>Key Length</th>
 			<th>Purpose / Usage</th>
 			<th>PQC Status</th>
+			<th>CNSA 2.0</th>
+			<th>Compliance</th>
 		</tr>
 `)
 	cbomNum := 1
@@ -187,17 +192,72 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			<td>%s</td>
 			<td>%s</td>
 			<td class="%s">%s</td>
+			<td>%s</td>
+			<td>%s</td>
 		</tr>
 `, cbomNum, html.EscapeString(sys.Name),
 				html.EscapeString(asset.Algorithm),
 				html.EscapeString(crypto.FormatKeySize(asset.KeySize)),
 				html.EscapeString(asset.Purpose),
-				statusClass, html.EscapeString(asset.PQCStatus)))
+				statusClass, html.EscapeString(asset.PQCStatus),
+				html.EscapeString(asset.CNSA2Status),
+				html.EscapeString(asset.ComplianceWarning)))
 			cbomNum++
 		}
 	}
 	b.WriteString(`	</table>
 `)
+
+	// NACSA Compliance Summary
+	nacsa := crypto.ComputeNACSASummary(result.Systems)
+	camm := crypto.AssessCAMM(result.Systems, result.Findings)
+
+	b.WriteString(`	<h2>NACSA Compliance Summary</h2>
+	<div class="summary">
+`)
+	b.WriteString(fmt.Sprintf(`		<div class="card safe"><h3>%.0f%%</h3><p>NACSA Readiness</p></div>
+`, nacsa.ReadinessPercent))
+	b.WriteString(fmt.Sprintf(`		<div class="card safe"><h3>%d</h3><p>Patuh</p></div>
+`, nacsa.Patuh))
+	b.WriteString(fmt.Sprintf(`		<div class="card transitional"><h3>%d</h3><p>Dalam Peralihan</p></div>
+`, nacsa.DalamPeralihan))
+	b.WriteString(fmt.Sprintf(`		<div class="card deprecated"><h3>%d</h3><p>Tidak Patuh</p></div>
+`, nacsa.TidakPatuh))
+	b.WriteString(fmt.Sprintf(`		<div class="card unsafe"><h3>%d</h3><p>Tindakan Segera</p></div>
+`, nacsa.TindakanSegera))
+	b.WriteString(fmt.Sprintf(`		<div class="card info"><h3>%d</h3><p>CNSA 2.0 Compliant</p></div>
+`, nacsa.CNSA2Compliant))
+	b.WriteString(`	</div>
+`)
+
+	// CAMM Assessment
+	b.WriteString(fmt.Sprintf(`	<h2>CAMM Crypto-Agility Assessment</h2>
+	<p><strong>%s</strong> (%s)</p>
+`, html.EscapeString(crypto.CAMMLevelLabel(camm.Level)), html.EscapeString(camm.Confidence)))
+
+	if len(camm.Indicators) > 0 {
+		b.WriteString(`	<h3>Indicators Met</h3>
+	<ul>
+`)
+		for _, ind := range camm.Indicators {
+			b.WriteString(fmt.Sprintf(`		<li>%s</li>
+`, html.EscapeString(ind)))
+		}
+		b.WriteString(`	</ul>
+`)
+	}
+
+	if len(camm.Manual) > 0 {
+		b.WriteString(`	<h3>Manual Assessment Required</h3>
+	<ul>
+`)
+		for _, m := range camm.Manual {
+			b.WriteString(fmt.Sprintf(`		<li>%s</li>
+`, html.EscapeString(m)))
+		}
+		b.WriteString(`	</ul>
+`)
+	}
 
 	b.WriteString(`</body>
 </html>`)

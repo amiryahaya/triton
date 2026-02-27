@@ -75,6 +75,48 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"ML-DSA":  {Name: "ML-DSA", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
 	"SLH-DSA": {Name: "SLH-DSA", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
 
+	// ML-KEM variants (FIPS 203)
+	"ML-KEM-512":  {Name: "ML-KEM-512", Family: "Lattice", KeySize: 512, Status: SAFE, NISTStandard: true},
+	"ML-KEM-768":  {Name: "ML-KEM-768", Family: "Lattice", KeySize: 768, Status: SAFE, NISTStandard: true},
+	"ML-KEM-1024": {Name: "ML-KEM-1024", Family: "Lattice", KeySize: 1024, Status: SAFE, NISTStandard: true},
+
+	// ML-DSA variants (FIPS 204)
+	"ML-DSA-44": {Name: "ML-DSA-44", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"ML-DSA-65": {Name: "ML-DSA-65", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"ML-DSA-87": {Name: "ML-DSA-87", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+
+	// SLH-DSA variants (FIPS 205) — sha2/shake x 128/192/256 x s/f
+	"SLH-DSA-SHA2-128s":  {Name: "SLH-DSA-SHA2-128s", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-128f":  {Name: "SLH-DSA-SHA2-128f", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-192s":  {Name: "SLH-DSA-SHA2-192s", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-192f":  {Name: "SLH-DSA-SHA2-192f", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-256s":  {Name: "SLH-DSA-SHA2-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-256f":  {Name: "SLH-DSA-SHA2-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-128s": {Name: "SLH-DSA-SHAKE-128s", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-128f": {Name: "SLH-DSA-SHAKE-128f", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-192s": {Name: "SLH-DSA-SHAKE-192s", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-192f": {Name: "SLH-DSA-SHAKE-192f", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-256s": {Name: "SLH-DSA-SHAKE-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-256f": {Name: "SLH-DSA-SHAKE-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+
+	// Hash-based signatures (stateful)
+	"LMS":  {Name: "LMS", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"XMSS": {Name: "XMSS", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
+
+	// Composite/Hybrid signatures (IETF LAMPS)
+	"ML-DSA-44-RSA-2048":     {Name: "ML-DSA-44-RSA-2048", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-44-RSA-2048-PSS": {Name: "ML-DSA-44-RSA-2048-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-44-Ed25519":      {Name: "ML-DSA-44-Ed25519", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-44-ECDSA-P256":   {Name: "ML-DSA-44-ECDSA-P256", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-3072":     {Name: "ML-DSA-65-RSA-3072", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-3072-PSS": {Name: "ML-DSA-65-RSA-3072-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-4096":     {Name: "ML-DSA-65-RSA-4096", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-4096-PSS": {Name: "ML-DSA-65-RSA-4096-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-ECDSA-P384":   {Name: "ML-DSA-65-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-Ed25519":      {Name: "ML-DSA-65-Ed25519", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-87-ECDSA-P384":   {Name: "ML-DSA-87-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-87-Ed448":        {Name: "ML-DSA-87-Ed448", Family: "Composite", KeySize: 0, Status: SAFE},
+
 	// Other PQC candidates
 	"SPHINCS+":         {Name: "SPHINCS+", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
 	"FALCON":           {Name: "FALCON", Family: "Lattice", KeySize: 0, Status: SAFE},
@@ -330,10 +372,21 @@ func GetMigrationPriority(info AlgorithmInfo) int {
 	}
 }
 
-// ClassifyCryptoAsset fills PQCStatus, MigrationPriority, and BreakYear on a CryptoAsset.
+// ClassifyCryptoAsset fills PQCStatus, MigrationPriority, BreakYear, and compliance fields on a CryptoAsset.
 func ClassifyCryptoAsset(asset *model.CryptoAsset) {
 	info := ClassifyAlgorithm(asset.Algorithm, asset.KeySize)
 	asset.PQCStatus = string(info.Status)
 	asset.MigrationPriority = GetMigrationPriority(info)
 	asset.BreakYear = info.BreakYear
+
+	// Compliance
+	ci := GetCompliance(asset.Algorithm)
+	asset.CNSA2Status = ci.CNSA2Status
+	asset.NISTDeprecatedYear = ci.NISTDeprecatedYear
+	asset.NISTDisallowedYear = ci.NISTDisallowedYear
+	asset.ComplianceWarning = ci.Warning
+
+	// NACSA label
+	nacsa := AssessNACSA(asset)
+	asset.NACSALabel = string(nacsa.Label)
 }

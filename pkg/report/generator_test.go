@@ -117,12 +117,12 @@ func TestGenerateHTMLEmpty(t *testing.T) {
 	assert.Contains(t, string(content), "<!DOCTYPE html>")
 }
 
-func TestGenerateCycloneDXIncludesSystems(t *testing.T) {
+func TestGenerateTritonJSONIncludesSystems(t *testing.T) {
 	tmpFile := t.TempDir() + "/report.json"
 	g := New("")
 	result := sampleScanResult()
 
-	err := g.GenerateCycloneDX(result, tmpFile)
+	err := g.GenerateTritonJSON(result, tmpFile)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(tmpFile)
@@ -151,8 +151,8 @@ func TestGenerateAllReports(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
-	// Should produce JSON, HTML, Excel
-	require.Len(t, files, 3, "expected 3 report files, got %d", len(files))
+	// Should produce JSON, CycloneDX, HTML, Excel
+	require.Len(t, files, 4, "expected 4 report files, got %d", len(files))
 
 	for _, f := range files {
 		assert.True(t, strings.HasPrefix(f, dir), "file should be in output dir")

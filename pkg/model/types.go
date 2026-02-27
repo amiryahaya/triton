@@ -113,6 +113,19 @@ type CryptoAsset struct {
 	MigrationPriority int    `json:"migrationPriority,omitempty"`
 	BreakYear         int    `json:"breakYear,omitempty"`
 
+	// Compliance
+	CNSA2Status        string `json:"cnsa2Status,omitempty"`
+	NISTDeprecatedYear int    `json:"nistDeprecatedYear,omitempty"`
+	NISTDisallowedYear int    `json:"nistDisallowedYear,omitempty"`
+	ComplianceWarning  string `json:"complianceWarning,omitempty"`
+
+	// Hybrid certificate
+	IsHybrid            bool     `json:"isHybrid,omitempty"`
+	ComponentAlgorithms []string `json:"componentAlgorithms,omitempty"`
+
+	// NACSA
+	NACSALabel string `json:"nacsaLabel,omitempty"`
+
 	// Binary/library analysis
 	Language        string   `json:"language,omitempty"`        // Go, Rust, C/C++, Python, etc.
 	State           string   `json:"state,omitempty"`           // IN_TRANSIT, AT_REST, IN_USE
@@ -146,6 +159,18 @@ type Summary struct {
 	// Crypto-agility
 	OverallAgility string `json:"overallAgility,omitempty"`
 	AgilityDetails string `json:"agilityDetails,omitempty"`
+
+	// CAMM (Cryptographic Agility Maturity Model)
+	CAMMLevel      int      `json:"cammLevel,omitempty"`
+	CAMMConfidence string   `json:"cammConfidence,omitempty"`
+	CAMMIndicators []string `json:"cammIndicators,omitempty"`
+
+	// NACSA Compliance
+	NACSAReadinessPercent float64 `json:"nacsaReadinessPercent,omitempty"`
+	NACSAPatuh            int     `json:"nacsaPatuh,omitempty"`
+	NACSAPeralihan        int     `json:"nacsaPeralihan,omitempty"`
+	NACSATidakPatuh       int     `json:"nacsaTidakPatuh,omitempty"`
+	NACSATindakanSegera   int     `json:"nacsaTindakanSegera,omitempty"`
 }
 
 // ScanTarget defines a target for scanning.

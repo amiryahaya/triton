@@ -153,7 +153,7 @@ func (m *CertStoreModule) parsePEMCerts(ctx context.Context, pemData []byte, fin
 }
 
 // certKeyInfo extracts the algorithm name and key size from a certificate.
-func certKeyInfo(cert *x509.Certificate) (string, int) {
+func certKeyInfo(cert *x509.Certificate) (algo string, size int) {
 	switch pub := cert.PublicKey.(type) {
 	case *rsa.PublicKey:
 		size := pub.N.BitLen()

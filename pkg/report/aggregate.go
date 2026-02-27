@@ -30,17 +30,17 @@ type AlgorithmUsage struct {
 
 // AggregateReport provides organization-wide posture summary.
 type AggregateReport struct {
-	GeneratedAt         time.Time        `json:"generatedAt"`
-	MachineCount        int              `json:"machineCount"`
-	Machines            []MachineSummary `json:"machines"`
-	TotalFindings       int              `json:"totalFindings"`
-	Safe                int              `json:"safe"`
-	Transitional        int              `json:"transitional"`
-	Deprecated          int              `json:"deprecated"`
-	Unsafe              int              `json:"unsafe"`
-	NACSAReadiness      float64          `json:"nacsaReadiness"`
-	WorstMachines       []MachineSummary `json:"worstMachines"`
-	CommonAlgorithms    []AlgorithmUsage `json:"commonAlgorithms"`
+	GeneratedAt      time.Time        `json:"generatedAt"`
+	MachineCount     int              `json:"machineCount"`
+	Machines         []MachineSummary `json:"machines"`
+	TotalFindings    int              `json:"totalFindings"`
+	Safe             int              `json:"safe"`
+	Transitional     int              `json:"transitional"`
+	Deprecated       int              `json:"deprecated"`
+	Unsafe           int              `json:"unsafe"`
+	NACSAReadiness   float64          `json:"nacsaReadiness"`
+	WorstMachines    []MachineSummary `json:"worstMachines"`
+	CommonAlgorithms []AlgorithmUsage `json:"commonAlgorithms"`
 }
 
 // GenerateAggregate computes organization-wide aggregate from multiple scan results.
@@ -62,9 +62,9 @@ func GenerateAggregate(scans []*model.ScanResult) *AggregateReport {
 	agg.MachineCount = len(latest)
 
 	// Track algorithm usage across machines
-	algoByMachine := make(map[string]map[string]bool)  // algo -> set of hostnames
-	algoCounts := make(map[string]int)                   // algo -> total count
-	algoPQC := make(map[string]string)                   // algo -> pqc status
+	algoByMachine := make(map[string]map[string]bool) // algo -> set of hostnames
+	algoCounts := make(map[string]int)                // algo -> total count
+	algoPQC := make(map[string]string)                // algo -> pqc status
 
 	for hostname, scan := range latest {
 		ms := MachineSummary{
@@ -78,7 +78,7 @@ func GenerateAggregate(scans []*model.ScanResult) *AggregateReport {
 			Unsafe:        scan.Summary.Unsafe,
 		}
 		// Risk score: weighted sum (unsafe=4, deprecated=3, transitional=1, safe=0)
-		ms.RiskScore = float64(ms.Unsafe*4+ms.Deprecated*3+ms.Transitional*1)
+		ms.RiskScore = float64(ms.Unsafe*4 + ms.Deprecated*3 + ms.Transitional*1)
 
 		agg.Machines = append(agg.Machines, ms)
 		agg.TotalFindings += ms.TotalFindings

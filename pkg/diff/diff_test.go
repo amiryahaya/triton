@@ -57,7 +57,7 @@ func TestComputeDiff_AddedRemovedUnchanged(t *testing.T) {
 	assert.Equal(t, "compare-scan", d.CompareID)
 
 	assert.Equal(t, 1, d.Summary.AddedCount)   // ML-KEM-768
-	assert.Equal(t, 1, d.Summary.RemovedCount)  // TLS 1.2
+	assert.Equal(t, 1, d.Summary.RemovedCount) // TLS 1.2
 	assert.Equal(t, 0, d.Summary.ChangedCount)
 
 	// Verify added is ML-KEM-768
@@ -86,7 +86,7 @@ func TestComputeDiff_StatusChange(t *testing.T) {
 func TestComputeDiff_SummaryDeltas(t *testing.T) {
 	d := ComputeDiff(baseScan(), compareScan())
 
-	assert.Equal(t, 1, d.Summary.SafeDelta)     // 2 - 1
+	assert.Equal(t, 1, d.Summary.SafeDelta) // 2 - 1
 	assert.Equal(t, 0, d.Summary.UnsafeDelta)
 	assert.InDelta(t, 33.4, d.Summary.NACSADelta, 0.1)
 }

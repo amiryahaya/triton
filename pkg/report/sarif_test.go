@@ -25,7 +25,7 @@ func testScanResult() *model.ScanResult {
 			{
 				ID:       "f1",
 				Category: 2,
-				Source:    model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+				Source:   model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "RSA-2048",
 					PQCStatus: "TRANSITIONAL",
@@ -36,7 +36,7 @@ func testScanResult() *model.ScanResult {
 			{
 				ID:       "f2",
 				Category: 3,
-				Source:    model.FindingSource{Type: "file", Path: "/usr/lib/libssl.so"},
+				Source:   model.FindingSource{Type: "file", Path: "/usr/lib/libssl.so"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "AES-256-GCM",
 					PQCStatus: "SAFE",
@@ -47,7 +47,7 @@ func testScanResult() *model.ScanResult {
 			{
 				ID:       "f3",
 				Category: 2,
-				Source:    model.FindingSource{Type: "file", Path: "/etc/ssh/host_key"},
+				Source:   model.FindingSource{Type: "file", Path: "/etc/ssh/host_key"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "DES",
 					PQCStatus: "UNSAFE",
@@ -58,7 +58,7 @@ func testScanResult() *model.ScanResult {
 			{
 				ID:       "f4",
 				Category: 8,
-				Source:    model.FindingSource{Type: "network", Endpoint: "10.0.0.1:443"},
+				Source:   model.FindingSource{Type: "network", Endpoint: "10.0.0.1:443"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "TLS 1.2",
 					PQCStatus: "DEPRECATED",
@@ -68,7 +68,7 @@ func testScanResult() *model.ScanResult {
 			{
 				ID:       "f5",
 				Category: 1,
-				Source:    model.FindingSource{Type: "process", Path: "sshd"},
+				Source:   model.FindingSource{Type: "process", Path: "sshd"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "Ed25519",
 					PQCStatus: "TRANSITIONAL",
@@ -78,7 +78,7 @@ func testScanResult() *model.ScanResult {
 			{
 				ID:          "f6",
 				Category:    5,
-				Source:       model.FindingSource{Type: "file", Path: "/app/test.py"},
+				Source:      model.FindingSource{Type: "file", Path: "/app/test.py"},
 				CryptoAsset: nil, // No crypto asset — should be skipped
 				Module:      "scripts",
 			},
@@ -146,7 +146,7 @@ func TestGenerateSARIF_CorrectLevels(t *testing.T) {
 
 	assert.Equal(t, 1, levelCount["error"])   // DES (UNSAFE)
 	assert.Equal(t, 1, levelCount["warning"]) // TLS 1.2 (DEPRECATED)
-	assert.Equal(t, 3, levelCount["note"])     // RSA-2048 (TRANSITIONAL) + AES-256 (SAFE) + Ed25519 (TRANSITIONAL)
+	assert.Equal(t, 3, levelCount["note"])    // RSA-2048 (TRANSITIONAL) + AES-256 (SAFE) + Ed25519 (TRANSITIONAL)
 }
 
 func TestGenerateSARIF_FileLocations(t *testing.T) {

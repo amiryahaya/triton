@@ -23,7 +23,7 @@ func testResult() *model.ScanResult {
 			{
 				ID:       "f1",
 				Category: 2,
-				Source:    model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+				Source:   model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "RSA-2048",
 					PQCStatus: "TRANSITIONAL",
@@ -34,7 +34,7 @@ func testResult() *model.ScanResult {
 			{
 				ID:       "f2",
 				Category: 3,
-				Source:    model.FindingSource{Type: "file", Path: "/usr/lib/libssl.so"},
+				Source:   model.FindingSource{Type: "file", Path: "/usr/lib/libssl.so"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "AES-256-GCM",
 					PQCStatus: "SAFE",
@@ -45,7 +45,7 @@ func testResult() *model.ScanResult {
 			{
 				ID:       "f3",
 				Category: 2,
-				Source:    model.FindingSource{Type: "file", Path: "/etc/ssh/host_key"},
+				Source:   model.FindingSource{Type: "file", Path: "/etc/ssh/host_key"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "DES",
 					PQCStatus: "UNSAFE",
@@ -56,7 +56,7 @@ func testResult() *model.ScanResult {
 			{
 				ID:       "f4",
 				Category: 5,
-				Source:    model.FindingSource{Type: "file", Path: "/app/hash.py"},
+				Source:   model.FindingSource{Type: "file", Path: "/app/hash.py"},
 				CryptoAsset: &model.CryptoAsset{
 					Algorithm: "MD5",
 					PQCStatus: "DEPRECATED",

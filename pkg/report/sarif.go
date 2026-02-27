@@ -12,9 +12,9 @@ import (
 // SARIF 2.1.0 types (subset for Triton findings).
 
 type sarifLog struct {
-	Schema  string      `json:"$schema"`
-	Version string      `json:"version"`
-	Runs    []sarifRun  `json:"runs"`
+	Schema  string     `json:"$schema"`
+	Version string     `json:"version"`
+	Runs    []sarifRun `json:"runs"`
 }
 
 type sarifRun struct {
@@ -27,18 +27,18 @@ type sarifTool struct {
 }
 
 type sarifDriver struct {
-	Name            string           `json:"name"`
-	Version         string           `json:"version"`
-	InformationURI  string           `json:"informationUri"`
-	Rules           []sarifRule      `json:"rules"`
+	Name           string      `json:"name"`
+	Version        string      `json:"version"`
+	InformationURI string      `json:"informationUri"`
+	Rules          []sarifRule `json:"rules"`
 }
 
 type sarifRule struct {
-	ID               string              `json:"id"`
-	ShortDescription sarifMessage        `json:"shortDescription"`
-	FullDescription  sarifMessage        `json:"fullDescription,omitempty"`
-	DefaultConfig    *sarifRuleConfig    `json:"defaultConfiguration,omitempty"`
-	HelpURI          string              `json:"helpUri,omitempty"`
+	ID               string           `json:"id"`
+	ShortDescription sarifMessage     `json:"shortDescription"`
+	FullDescription  sarifMessage     `json:"fullDescription,omitempty"`
+	DefaultConfig    *sarifRuleConfig `json:"defaultConfiguration,omitempty"`
+	HelpURI          string           `json:"helpUri,omitempty"`
 }
 
 type sarifRuleConfig struct {
@@ -46,10 +46,10 @@ type sarifRuleConfig struct {
 }
 
 type sarifResult struct {
-	RuleID    string           `json:"ruleId"`
-	Level     string           `json:"level"`
-	Message   sarifMessage     `json:"message"`
-	Locations []sarifLocation  `json:"locations,omitempty"`
+	RuleID    string          `json:"ruleId"`
+	Level     string          `json:"level"`
+	Message   sarifMessage    `json:"message"`
+	Locations []sarifLocation `json:"locations,omitempty"`
 }
 
 type sarifMessage struct {

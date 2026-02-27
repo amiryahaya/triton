@@ -27,10 +27,10 @@ type Violation struct {
 
 // ThresholdViolation records a threshold that was not met.
 type ThresholdViolation struct {
-	Name     string  `json:"name"`
-	Expected string  `json:"expected"`
-	Actual   string  `json:"actual"`
-	Message  string  `json:"message"`
+	Name     string `json:"name"`
+	Expected string `json:"expected"`
+	Actual   string `json:"actual"`
+	Message  string `json:"message"`
 }
 
 // EvaluationResult holds the complete policy evaluation outcome.
@@ -55,11 +55,12 @@ func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
 	// Evaluate rules against findings.
 	for i := range result.Findings {
 		f := &result.Findings[i]
-		for _, rule := range pol.Rules {
+		for j := range pol.Rules {
+			rule := &pol.Rules[j]
 			if matchesCondition(f, &rule.Condition) {
 				msg := rule.Message
 				if msg == "" {
-					msg = defaultMessage(f, &rule)
+					msg = defaultMessage(f, rule)
 				}
 				eval.Violations = append(eval.Violations, Violation{
 					RuleID:   rule.ID,

@@ -274,11 +274,12 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var pol *policy.Policy
-	if req.PolicyYAML != "" {
+	switch {
+	case req.PolicyYAML != "":
 		pol, err = policy.Parse([]byte(req.PolicyYAML))
-	} else if req.PolicyName != "" {
+	case req.PolicyName != "":
 		pol, err = policy.LoadBuiltin(req.PolicyName)
-	} else {
+	default:
 		writeError(w, http.StatusBadRequest, "policyName or policyYAML required")
 		return
 	}

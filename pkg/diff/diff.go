@@ -50,14 +50,14 @@ func ComputeDiff(base, compare *model.ScanResult) *ScanDiff {
 	for key, cf := range compareIndex {
 		bf, exists := baseIndex[key]
 		if !exists {
-			d.Added = append(d.Added, cf)
+			d.Added = append(d.Added, *cf)
 			continue
 		}
 		// Check for status change.
 		if cf.CryptoAsset != nil && bf.CryptoAsset != nil &&
 			cf.CryptoAsset.PQCStatus != bf.CryptoAsset.PQCStatus {
 			d.Changed = append(d.Changed, FindingChange{
-				Finding:   cf,
+				Finding:   *cf,
 				OldStatus: bf.CryptoAsset.PQCStatus,
 				NewStatus: cf.CryptoAsset.PQCStatus,
 			})
@@ -67,7 +67,7 @@ func ComputeDiff(base, compare *model.ScanResult) *ScanDiff {
 	// Find removed.
 	for key, bf := range baseIndex {
 		if _, exists := compareIndex[key]; !exists {
-			d.Removed = append(d.Removed, bf)
+			d.Removed = append(d.Removed, *bf)
 		}
 	}
 
@@ -104,12 +104,12 @@ func findingKey(f *model.Finding) string {
 	}
 }
 
-// indexFindings builds a map of finding key -> finding for fast lookup.
+// indexFindings builds a map of finding key -> finding pointer for fast lookup.
 // If multiple findings have the same key, the last one wins.
-func indexFindings(findings []model.Finding) map[string]model.Finding {
-	idx := make(map[string]model.Finding, len(findings))
-	for _, f := range findings {
-		idx[findingKey(&f)] = f
+func indexFindings(findings []model.Finding) map[string]*model.Finding {
+	idx := make(map[string]*model.Finding, len(findings))
+	for i := range findings {
+		idx[findingKey(&findings[i])] = &findings[i]
 	}
 	return idx
 }

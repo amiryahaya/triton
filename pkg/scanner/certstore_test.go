@@ -29,7 +29,7 @@ func TestCertStoreModule_Name(t *testing.T) {
 
 func TestCertStoreModule_ParsePEMCerts_RSA(t *testing.T) {
 	// Generate a self-signed RSA certificate
-	pemData := generateCertStorePEM(t,"RSA", 2048)
+	pemData := generateCertStorePEM(t, "RSA", 2048)
 
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
@@ -51,7 +51,7 @@ func TestCertStoreModule_ParsePEMCerts_RSA(t *testing.T) {
 }
 
 func TestCertStoreModule_ParsePEMCerts_ECDSA(t *testing.T) {
-	pemData := generateCertStorePEM(t,"ECDSA", 256)
+	pemData := generateCertStorePEM(t, "ECDSA", 256)
 
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
@@ -71,7 +71,7 @@ func TestCertStoreModule_ParsePEMCerts_ECDSA(t *testing.T) {
 }
 
 func TestCertStoreModule_ParsePEMCerts_Ed25519(t *testing.T) {
-	pemData := generateCertStorePEM(t,"Ed25519", 0)
+	pemData := generateCertStorePEM(t, "Ed25519", 0)
 
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
@@ -91,8 +91,8 @@ func TestCertStoreModule_ParsePEMCerts_Ed25519(t *testing.T) {
 }
 
 func TestCertStoreModule_ParsePEMCerts_Multiple(t *testing.T) {
-	cert1 := generateCertStorePEM(t,"RSA", 2048)
-	cert2 := generateCertStorePEM(t,"ECDSA", 384)
+	cert1 := generateCertStorePEM(t, "RSA", 2048)
+	cert2 := generateCertStorePEM(t, "ECDSA", 384)
 	combined := append(cert1, cert2...)
 
 	m := NewCertStoreModule(&config.Config{})
@@ -127,7 +127,7 @@ func TestCertStoreModule_ParsePEMCerts_Empty(t *testing.T) {
 }
 
 func TestCertStoreModule_ContextCancellation(t *testing.T) {
-	pemData := generateCertStorePEM(t,"RSA", 2048)
+	pemData := generateCertStorePEM(t, "RSA", 2048)
 
 	m := NewCertStoreModule(&config.Config{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,7 +157,7 @@ func TestCertKeyInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cert := generateCertStoreObj(t,tt.keyType, tt.keySize)
+			cert := generateCertStoreObj(t, tt.keyType, tt.keySize)
 			algo, size := certKeyInfo(cert)
 			assert.Equal(t, tt.wantAlgo, algo)
 			assert.Equal(t, tt.wantSize, size)

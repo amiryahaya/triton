@@ -100,6 +100,7 @@ func runPolicyCheck(_ *cobra.Command, _ []string) error {
 
 	// Set exit code for CI/CD.
 	if eval.Verdict == policy.VerdictFail {
+		_ = db.Close()
 		os.Exit(1)
 	}
 

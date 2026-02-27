@@ -82,9 +82,9 @@ func TestGenerateAggregate_NACSAReadiness(t *testing.T) {
 
 func TestGenerateAggregate_WorstMachines(t *testing.T) {
 	scans := []*model.ScanResult{
-		testScan("s1", "host-a", 10, 0, 0, 0),   // Risk: 0
-		testScan("s2", "host-b", 0, 0, 0, 5),     // Risk: 20
-		testScan("s3", "host-c", 0, 0, 3, 0),     // Risk: 9
+		testScan("s1", "host-a", 10, 0, 0, 0), // Risk: 0
+		testScan("s2", "host-b", 0, 0, 0, 5),  // Risk: 20
+		testScan("s3", "host-c", 0, 0, 3, 0),  // Risk: 9
 	}
 
 	agg := GenerateAggregate(scans)

@@ -26,13 +26,13 @@ import (
 )
 
 var (
-	cfgFile     string
-	outputDir   string
-	outputFile  string
-	scanProfile string
-	modules     []string
-	format      string
-	showMetrics bool
+	cfgFile       string
+	outputDir     string
+	outputFile    string
+	scanProfile   string
+	modules       []string
+	format        string
+	showMetrics   bool
 	dbPath        string
 	incremental   bool
 	scanPolicyArg string

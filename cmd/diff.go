@@ -58,23 +58,24 @@ func runDiff(_ *cobra.Command, args []string) error {
 
 	if len(d.Added) > 0 {
 		fmt.Printf("\nAdded (%d):\n", len(d.Added))
-		for _, f := range d.Added {
-			algo, status := findingAlgoStatus(&f)
-			fmt.Printf("  + [%s] %s at %s\n", status, algo, findingLoc(&f))
+		for i := range d.Added {
+			algo, status := findingAlgoStatus(&d.Added[i])
+			fmt.Printf("  + [%s] %s at %s\n", status, algo, findingLoc(&d.Added[i]))
 		}
 	}
 
 	if len(d.Removed) > 0 {
 		fmt.Printf("\nRemoved (%d):\n", len(d.Removed))
-		for _, f := range d.Removed {
-			algo, status := findingAlgoStatus(&f)
-			fmt.Printf("  - [%s] %s at %s\n", status, algo, findingLoc(&f))
+		for i := range d.Removed {
+			algo, status := findingAlgoStatus(&d.Removed[i])
+			fmt.Printf("  - [%s] %s at %s\n", status, algo, findingLoc(&d.Removed[i]))
 		}
 	}
 
 	if len(d.Changed) > 0 {
 		fmt.Printf("\nChanged (%d):\n", len(d.Changed))
-		for _, c := range d.Changed {
+		for i := range d.Changed {
+			c := &d.Changed[i]
 			algo, _ := findingAlgoStatus(&c.Finding)
 			fmt.Printf("  ~ %s: %s -> %s at %s\n", algo, c.OldStatus, c.NewStatus, findingLoc(&c.Finding))
 		}

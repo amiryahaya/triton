@@ -22,20 +22,20 @@ import (
 // ContainerModule scans container configuration files (Dockerfiles, docker-compose,
 // Kubernetes manifests) for cryptographic references and insecure configurations.
 type ContainerModule struct {
-	config       *config.Config
-	lastScanned  int64
-	lastMatched  int64
-	store        store.Store
+	config      *config.Config
+	lastScanned int64
+	lastMatched int64
+	store       store.Store
 }
 
 func NewContainerModule(cfg *config.Config) *ContainerModule {
 	return &ContainerModule{config: cfg}
 }
 
-func (m *ContainerModule) Name() string                      { return "containers" }
-func (m *ContainerModule) Category() model.ModuleCategory    { return model.CategoryPassiveFile }
+func (m *ContainerModule) Name() string                         { return "containers" }
+func (m *ContainerModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *ContainerModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
-func (m *ContainerModule) SetStore(s store.Store)            { m.store = s }
+func (m *ContainerModule) SetStore(s store.Store)               { m.store = s }
 func (m *ContainerModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
 }

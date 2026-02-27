@@ -75,6 +75,48 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"ML-DSA":  {Name: "ML-DSA", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
 	"SLH-DSA": {Name: "SLH-DSA", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
 
+	// ML-KEM variants (FIPS 203)
+	"ML-KEM-512":  {Name: "ML-KEM-512", Family: "Lattice", KeySize: 512, Status: SAFE, NISTStandard: true},
+	"ML-KEM-768":  {Name: "ML-KEM-768", Family: "Lattice", KeySize: 768, Status: SAFE, NISTStandard: true},
+	"ML-KEM-1024": {Name: "ML-KEM-1024", Family: "Lattice", KeySize: 1024, Status: SAFE, NISTStandard: true},
+
+	// ML-DSA variants (FIPS 204)
+	"ML-DSA-44": {Name: "ML-DSA-44", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"ML-DSA-65": {Name: "ML-DSA-65", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"ML-DSA-87": {Name: "ML-DSA-87", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+
+	// SLH-DSA variants (FIPS 205) — sha2/shake x 128/192/256 x s/f
+	"SLH-DSA-SHA2-128s":  {Name: "SLH-DSA-SHA2-128s", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-128f":  {Name: "SLH-DSA-SHA2-128f", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-192s":  {Name: "SLH-DSA-SHA2-192s", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-192f":  {Name: "SLH-DSA-SHA2-192f", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-256s":  {Name: "SLH-DSA-SHA2-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHA2-256f":  {Name: "SLH-DSA-SHA2-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-128s": {Name: "SLH-DSA-SHAKE-128s", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-128f": {Name: "SLH-DSA-SHAKE-128f", Family: "Hash-Based", KeySize: 128, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-192s": {Name: "SLH-DSA-SHAKE-192s", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-192f": {Name: "SLH-DSA-SHAKE-192f", Family: "Hash-Based", KeySize: 192, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-256s": {Name: "SLH-DSA-SHAKE-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SLH-DSA-SHAKE-256f": {Name: "SLH-DSA-SHAKE-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE, NISTStandard: true},
+
+	// Hash-based signatures (stateful)
+	"LMS":  {Name: "LMS", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"XMSS": {Name: "XMSS", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
+
+	// Composite/Hybrid signatures (IETF LAMPS)
+	"ML-DSA-44-RSA-2048":     {Name: "ML-DSA-44-RSA-2048", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-44-RSA-2048-PSS": {Name: "ML-DSA-44-RSA-2048-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-44-Ed25519":      {Name: "ML-DSA-44-Ed25519", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-44-ECDSA-P256":   {Name: "ML-DSA-44-ECDSA-P256", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-3072":     {Name: "ML-DSA-65-RSA-3072", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-3072-PSS": {Name: "ML-DSA-65-RSA-3072-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-4096":     {Name: "ML-DSA-65-RSA-4096", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-RSA-4096-PSS": {Name: "ML-DSA-65-RSA-4096-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-ECDSA-P384":   {Name: "ML-DSA-65-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-65-Ed25519":      {Name: "ML-DSA-65-Ed25519", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-87-ECDSA-P384":   {Name: "ML-DSA-87-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
+	"ML-DSA-87-Ed448":        {Name: "ML-DSA-87-Ed448", Family: "Composite", KeySize: 0, Status: SAFE},
+
 	// Other PQC candidates
 	"SPHINCS+":         {Name: "SPHINCS+", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
 	"FALCON":           {Name: "FALCON", Family: "Lattice", KeySize: 0, Status: SAFE},
@@ -123,6 +165,11 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"X25519":     {Name: "X25519", Family: "ECDH", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2035},
 	"X448":       {Name: "X448", Family: "ECDH", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
 
+	// ECDSA (generic, no curve specified)
+	"ECDSA": {Name: "ECDSA", Family: "ECDSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2030},
+	// RSA (generic, no key size specified)
+	"RSA": {Name: "RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
+
 	// DH (Shor-vulnerable)
 	"DH":      {Name: "DH", Family: "DH", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
 	"ElGamal": {Name: "ElGamal", Family: "ElGamal", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
@@ -169,7 +216,13 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 	"RC4":  {Name: "RC4", Family: "RC4", KeySize: 0, Status: UNSAFE, BreakYear: 2015},
 	"RC2":  {Name: "RC2", Family: "RC2", KeySize: 0, Status: UNSAFE, BreakYear: 2010},
 	"MD4":  {Name: "MD4", Family: "MD4", KeySize: 128, Status: UNSAFE, BreakYear: 2005},
+	"MD2":  {Name: "MD2", Family: "MD2", KeySize: 128, Status: UNSAFE, BreakYear: 2005},
 	"NULL": {Name: "NULL", Family: "NULL", KeySize: 0, Status: UNSAFE, BreakYear: 0},
+
+	// Sub-1024 RSA — factorable
+	"RSA-512":  {Name: "RSA-512", Family: "RSA", KeySize: 512, Status: UNSAFE, BreakYear: 2010},
+	"RSA-768":  {Name: "RSA-768", Family: "RSA", KeySize: 768, Status: UNSAFE, BreakYear: 2015},
+	"RSA-1000": {Name: "RSA-1000", Family: "RSA", KeySize: 1000, Status: DEPRECATED, BreakYear: 2025},
 
 	// Unsafe protocols
 	"SSL 2.0": {Name: "SSL 2.0", Family: "SSL", KeySize: 0, Status: UNSAFE, BreakYear: 2010},
@@ -245,6 +298,9 @@ func init() {
 		{prefix: "RSA3072", info: AlgorithmInfo{Name: "RSA-3072", Family: "RSA", KeySize: 3072, Status: TRANSITIONAL, BreakYear: 2040}},
 		{prefix: "RSA2048", info: AlgorithmInfo{Name: "RSA-2048", Family: "RSA", KeySize: 2048, Status: TRANSITIONAL, BreakYear: 2035}},
 		{prefix: "RSA1024", info: AlgorithmInfo{Name: "RSA-1024", Family: "RSA", KeySize: 1024, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "RSA1000", info: AlgorithmInfo{Name: "RSA-1000", Family: "RSA", KeySize: 1000, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "RSA768", info: AlgorithmInfo{Name: "RSA-768", Family: "RSA", KeySize: 768, Status: UNSAFE, BreakYear: 2015}},
+		{prefix: "RSA512", info: AlgorithmInfo{Name: "RSA-512", Family: "RSA", KeySize: 512, Status: UNSAFE, BreakYear: 2010}},
 
 		// ECDSA variants
 		{prefix: "ECDSAP521", info: AlgorithmInfo{Name: "ECDSA-P521", Family: "ECDSA", KeySize: 521, Status: TRANSITIONAL, BreakYear: 2040}},
@@ -267,6 +323,12 @@ func init() {
 		{prefix: "HMACSHA256", info: AlgorithmInfo{Name: "HMAC-SHA256", Family: "HMAC", KeySize: 256, Status: SAFE}},
 		{prefix: "HMACSHA1", info: AlgorithmInfo{Name: "HMAC-SHA1", Family: "HMAC", KeySize: 160, Status: TRANSITIONAL}},
 		{prefix: "HMACMD5", info: AlgorithmInfo{Name: "HMAC-MD5", Family: "HMAC", KeySize: 128, Status: DEPRECATED, BreakYear: 2020}},
+
+		// DES/3DES variants
+		{prefix: "TRIPLEDES", info: AlgorithmInfo{Name: "3DES", Family: "DES", KeySize: 168, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "DESEDE3", info: AlgorithmInfo{Name: "3DES", Family: "DES", KeySize: 168, Status: DEPRECATED, BreakYear: 2025}},
+		{prefix: "DESCBC", info: AlgorithmInfo{Name: "DES", Family: "DES", KeySize: 56, Status: UNSAFE, BreakYear: 2000}},
+		{prefix: "DESECB", info: AlgorithmInfo{Name: "DES", Family: "DES", KeySize: 56, Status: UNSAFE, BreakYear: 2000}},
 	}
 }
 
@@ -330,10 +392,25 @@ func GetMigrationPriority(info AlgorithmInfo) int {
 	}
 }
 
-// ClassifyCryptoAsset fills PQCStatus, MigrationPriority, and BreakYear on a CryptoAsset.
+// ClassifyCryptoAsset fills PQCStatus, MigrationPriority, BreakYear, and compliance fields on a CryptoAsset.
 func ClassifyCryptoAsset(asset *model.CryptoAsset) {
 	info := ClassifyAlgorithm(asset.Algorithm, asset.KeySize)
+	// Normalize to canonical name when confidently matched (Family != "" means it's not an unknown fallback)
+	if info.Name != "" && info.Family != "" {
+		asset.Algorithm = info.Name
+	}
 	asset.PQCStatus = string(info.Status)
 	asset.MigrationPriority = GetMigrationPriority(info)
 	asset.BreakYear = info.BreakYear
+
+	// Compliance — reuse already-computed AlgorithmInfo to avoid double ClassifyAlgorithm
+	ci := getComplianceWithInfo(asset.Algorithm, info)
+	asset.CNSA2Status = ci.CNSA2Status
+	asset.NISTDeprecatedYear = ci.NISTDeprecatedYear
+	asset.NISTDisallowedYear = ci.NISTDisallowedYear
+	asset.ComplianceWarning = ci.Warning
+
+	// NACSA label
+	nacsa := AssessNACSA(asset)
+	asset.NACSALabel = string(nacsa.Label)
 }

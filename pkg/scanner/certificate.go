@@ -197,6 +197,13 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 		NotAfter:     &notAfter,
 		IsCA:         cert.IsCA,
 	}
+
+	// Detect hybrid/composite certificates
+	if isHybrid, components := m.detectHybridCert(cert); isHybrid {
+		asset.IsHybrid = true
+		asset.ComponentAlgorithms = components
+	}
+
 	crypto.ClassifyCryptoAsset(asset)
 
 	return &model.Finding{
@@ -239,7 +246,8 @@ func (m *CertificateModule) createContainerFinding(path, containerType string) *
 }
 
 // buildCertAlgorithmName builds an algorithm name consistent with the PQC registry.
-// Produces: RSA-2048, ECDSA-P256, Ed25519, etc.
+// Produces: RSA-2048, ECDSA-P256, Ed25519, ML-DSA-65, etc.
+// For unknown algorithms, falls back to OID extraction from raw DER.
 func (m *CertificateModule) buildCertAlgorithmName(cert *x509.Certificate, keySize int) string {
 	switch cert.PublicKeyAlgorithm {
 	case x509.RSA:
@@ -249,8 +257,52 @@ func (m *CertificateModule) buildCertAlgorithmName(cert *x509.Certificate, keySi
 	case x509.Ed25519:
 		return "Ed25519"
 	default:
-		return "Unknown"
+		return m.buildPQCAlgorithmName(cert)
 	}
+}
+
+// buildPQCAlgorithmName extracts algorithm name from DER-encoded certificate OIDs.
+// Used when Go's x509 parser returns UnknownPublicKeyAlgorithm (e.g., PQC certs).
+func (m *CertificateModule) buildPQCAlgorithmName(cert *x509.Certificate) string {
+	// Try public key OID first
+	oid := crypto.ExtractPublicKeyOID(cert.Raw)
+	if oid != "" {
+		if entry, ok := crypto.LookupOID(oid); ok {
+			return entry.Algorithm
+		}
+	}
+
+	// Try signature algorithm OID
+	oid = crypto.ExtractSignatureOID(cert.Raw)
+	if oid != "" {
+		if entry, ok := crypto.LookupOID(oid); ok {
+			return entry.Algorithm
+		}
+	}
+
+	return "Unknown"
+}
+
+// detectHybridCert checks if a certificate uses a composite/hybrid algorithm.
+// Returns true and the component algorithms if it's a hybrid cert.
+func (m *CertificateModule) detectHybridCert(cert *x509.Certificate) (isHybrid bool, components []string) {
+	// Check signature algorithm OID
+	sigOID := crypto.ExtractSignatureOID(cert.Raw)
+	if sigOID != "" && crypto.IsCompositeOID(sigOID) {
+		entry, _ := crypto.LookupOID(sigOID)
+		components := crypto.CompositeComponents(entry.Algorithm)
+		return true, components
+	}
+
+	// Check public key algorithm OID
+	pkOID := crypto.ExtractPublicKeyOID(cert.Raw)
+	if pkOID != "" && crypto.IsCompositeOID(pkOID) {
+		entry, _ := crypto.LookupOID(pkOID)
+		components := crypto.CompositeComponents(entry.Algorithm)
+		return true, components
+	}
+
+	return false, nil
 }
 
 func (m *CertificateModule) extractKeySize(cert *x509.Certificate) int {

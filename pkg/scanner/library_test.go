@@ -159,6 +159,47 @@ func TestLibraryVersionInFinding(t *testing.T) {
 	assert.Contains(t, finding.CryptoAsset.Library, "1.1.1")
 }
 
+func TestLibraryVersionBasedClassification(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Old OpenSSL — should be DEPRECATED (version 1.0.2)
+	os.WriteFile(filepath.Join(tmpDir, "libcrypto.so.1.0.2"), []byte("fake"), 0644)
+
+	// Modern OpenSSL — should be TRANSITIONAL (version 3.0.2)
+	subDir := filepath.Join(tmpDir, "modern")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "libcrypto.so.3.0.2"), []byte("fake"), 0644)
+
+	// libsodium — should be SAFE (always)
+	os.WriteFile(filepath.Join(tmpDir, "libsodium.so.23"), []byte("fake"), 0644)
+
+	// libgnutls — should be TRANSITIONAL (version 30 > minMajor 3)
+	os.WriteFile(filepath.Join(tmpDir, "libgnutls.so.30"), []byte("fake"), 0644)
+
+	m := NewLibraryModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
+
+	err := m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	statuses := make(map[string]string)
+	for f := range findings {
+		base := filepath.Base(f.Source.Path)
+		statuses[base] = f.CryptoAsset.PQCStatus
+	}
+
+	assert.Equal(t, "DEPRECATED", statuses["libcrypto.so.1.0.2"],
+		"OpenSSL 1.0.2 should be DEPRECATED")
+	assert.Equal(t, "TRANSITIONAL", statuses["libcrypto.so.3.0.2"],
+		"OpenSSL 3.0.2 should be TRANSITIONAL")
+	assert.Equal(t, "SAFE", statuses["libsodium.so.23"],
+		"libsodium should be SAFE")
+	assert.Equal(t, "TRANSITIONAL", statuses["libgnutls.so.30"],
+		"GnuTLS 30.x should be TRANSITIONAL")
+}
+
 func TestLibraryScanEmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
 

@@ -101,11 +101,12 @@ func TestGenerateExcelCreatesValidFile(t *testing.T) {
 	defer f.Close()
 
 	sheets := f.GetSheetList()
-	assert.Len(t, sheets, 8)
+	assert.Len(t, sheets, 9)
 
 	expected := []string{
 		"00_ReadMe", "0_Inventory", "1_SBOM", "2_CBOM",
 		"3_RiskRegister", "4_RiskAssessment", "5_RiskMatrix", "6_ProtocolCryptoMap",
+		"5_ComplianceSummary",
 	}
 	assert.Equal(t, expected, sheets)
 }
@@ -516,8 +517,8 @@ func TestGenerateExcelEmptyResult(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	// Should still have 8 sheets
-	assert.Len(t, f.GetSheetList(), 8)
+	// Should still have 9 sheets (including ComplianceSummary)
+	assert.Len(t, f.GetSheetList(), 9)
 
 	// No data rows in SBOM — row 15 col A should be empty
 	val, _ := f.GetCellValue("1_SBOM", "A15")

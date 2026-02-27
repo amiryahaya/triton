@@ -155,6 +155,45 @@ func TestPackageScanOnlyRunsOnce(t *testing.T) {
 	}
 }
 
+func TestPackageVersionBasedClassification(t *testing.T) {
+	m := NewPackageModule(&config.Config{})
+
+	output := "openssl 1.0.2u\nlibsodium 1.0.19\nopenssl 3.2.0\n"
+	findings := make(chan *model.Finding, 10)
+	err := m.parsePackageOutput(context.Background(), output, "dpkg", findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 3)
+
+	// openssl 1.0.2u should be DEPRECATED
+	assert.Equal(t, "DEPRECATED", collected[0].CryptoAsset.PQCStatus, "OpenSSL 1.0.2u should be DEPRECATED")
+
+	// libsodium should always be SAFE
+	assert.Equal(t, "SAFE", collected[1].CryptoAsset.PQCStatus, "libsodium should be SAFE")
+
+	// openssl 3.2.0 should be TRANSITIONAL
+	assert.Equal(t, "TRANSITIONAL", collected[2].CryptoAsset.PQCStatus, "OpenSSL 3.2.0 should be TRANSITIONAL")
+}
+
+func TestPackageFindingCategory(t *testing.T) {
+	m := NewPackageModule(&config.Config{})
+
+	findings := make(chan *model.Finding, 10)
+	err := m.parsePackageOutput(context.Background(), "openssl 3.2.0\n", "brew", findings)
+	require.NoError(t, err)
+	close(findings)
+
+	finding := <-findings
+	require.NotNil(t, finding)
+	assert.Equal(t, 3, finding.Category, "package findings should use crypto libraries category (3)")
+}
+
 func TestMultipleCryptoPackages(t *testing.T) {
 	m := NewPackageModule(&config.Config{})
 

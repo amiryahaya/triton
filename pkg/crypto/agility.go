@@ -138,7 +138,7 @@ func AssessAssetAgility(asset *model.CryptoAsset) string {
 // isPQCFamily checks if an algorithm family is a post-quantum cryptography family.
 func isPQCFamily(family string) bool {
 	switch strings.ToLower(family) {
-	case "lattice", "hash-based", "code-based", "multivariate", "isogeny":
+	case "lattice", "hash-based", "code-based", "multivariate", "isogeny", "composite":
 		return true
 	}
 	return false

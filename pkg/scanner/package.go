@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -113,16 +114,20 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 		sourcePath := manager + ":" + pkgName + "@" + pkgVersion
 
 		asset := &model.CryptoAsset{
-			ID:       uuid.New().String(),
-			Function: "Installed package",
-			Library:  pkgName + " " + pkgVersion,
-			Purpose:  "System package providing crypto functionality",
+			ID:        uuid.New().String(),
+			Algorithm: pkgName,
+			Function:  "Installed package",
+			Library:   pkgName + " " + pkgVersion,
+			Purpose:   "System package providing crypto functionality",
 		}
+
+		// Classify based on package name + version (replaces hardcoded TRANSITIONAL)
+		crypto.ClassifyLibraryAsset(asset, pkgName, pkgVersion)
 
 		select {
 		case findings <- &model.Finding{
 			ID:       uuid.New().String(),
-			Category: 0,
+			Category: 3, // crypto libraries category
 			Source: model.FindingSource{
 				Type: "file",
 				Path: sourcePath,

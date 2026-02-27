@@ -1,14 +1,18 @@
 package scanner
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/ulikunitz/xz"
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -48,10 +52,9 @@ func TestIsKernelModule(t *testing.T) {
 	m := NewKernelModule(&config.Config{})
 
 	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/aes_generic.ko"))
-	// Compressed kernel modules are not supported (would produce false negatives)
-	assert.False(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/sha256.ko.xz"))
-	assert.False(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/rsa.ko.gz"))
-	assert.False(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/ecb.ko.zst"))
+	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/sha256.ko.xz"))
+	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/rsa.ko.gz"))
+	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/ecb.ko.zst"))
 	assert.False(t, m.isKernelModule("/lib/modules/5.15/kernel/drivers/net.ko.txt"))
 	assert.False(t, m.isKernelModule("/usr/lib/libcrypto.so"))
 }
@@ -159,4 +162,200 @@ func TestKernelModuleScanNoCryptoInModule(t *testing.T) {
 		collected = append(collected, f)
 	}
 	assert.Empty(t, collected, "kernel module without crypto should have no findings")
+}
+
+// makeFakeCryptoPayload returns raw bytes containing crypto strings for testing.
+func makeFakeCryptoPayload() []byte {
+	var data []byte
+	data = append(data, make([]byte, 50)...)
+	data = append(data, []byte("AES-256-GCM implementation for kernel crypto")...)
+	data = append(data, make([]byte, 50)...)
+	data = append(data, []byte("SHA-256 hash function")...)
+	return data
+}
+
+func TestKernelModuleScanCompressedGz(t *testing.T) {
+	tmpDir := t.TempDir()
+	payload := makeFakeCryptoPayload()
+
+	// Create gzip-compressed .ko.gz
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, err := gw.Write(payload)
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "aes_generic.ko.gz"), buf.Bytes(), 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	require.NotEmpty(t, collected, "should find crypto patterns in gzip-compressed kernel module")
+
+	algos := make(map[string]bool)
+	for _, f := range collected {
+		assert.Equal(t, "kernel", f.Module)
+		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		algos[f.CryptoAsset.Algorithm] = true
+	}
+	assert.True(t, algos["AES-256-GCM"], "should detect AES-256-GCM through gzip decompression")
+}
+
+func TestKernelModuleScanCompressedXz(t *testing.T) {
+	tmpDir := t.TempDir()
+	payload := makeFakeCryptoPayload()
+
+	// Create xz-compressed .ko.xz
+	var buf bytes.Buffer
+	xw, err := xz.NewWriter(&buf)
+	require.NoError(t, err)
+	_, err = xw.Write(payload)
+	require.NoError(t, err)
+	require.NoError(t, xw.Close())
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "sha256.ko.xz"), buf.Bytes(), 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	require.NotEmpty(t, collected, "should find crypto patterns in xz-compressed kernel module")
+
+	algos := make(map[string]bool)
+	for _, f := range collected {
+		assert.Equal(t, "kernel", f.Module)
+		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		algos[f.CryptoAsset.Algorithm] = true
+	}
+	assert.True(t, algos["AES-256-GCM"], "should detect AES-256-GCM through xz decompression")
+}
+
+func TestKernelModuleScanCompressedZst(t *testing.T) {
+	tmpDir := t.TempDir()
+	payload := makeFakeCryptoPayload()
+
+	// Create zstd-compressed .ko.zst
+	var buf bytes.Buffer
+	zw, err := zstd.NewWriter(&buf)
+	require.NoError(t, err)
+	_, err = zw.Write(payload)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "ecb.ko.zst"), buf.Bytes(), 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	require.NotEmpty(t, collected, "should find crypto patterns in zstd-compressed kernel module")
+
+	algos := make(map[string]bool)
+	for _, f := range collected {
+		assert.Equal(t, "kernel", f.Module)
+		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
+		algos[f.CryptoAsset.Algorithm] = true
+	}
+	assert.True(t, algos["AES-256-GCM"], "should detect AES-256-GCM through zstd decompression")
+}
+
+func TestKernelModuleScanCorruptCompressedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	garbage := []byte("this is not valid compressed data at all")
+
+	// Write corrupt files for each compressed extension
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.gz"), garbage, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.xz"), garbage, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.zst"), garbage, 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	// Should not error — corrupt files are silently skipped
+	err := m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "corrupt compressed files should produce no findings")
+}
+
+func TestKernelModuleScanEmptyCompressedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a valid gzip file with empty payload
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	require.NoError(t, gw.Close())
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "empty.ko.gz"), buf.Bytes(), 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err := m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "empty compressed kernel module should produce no findings")
+}
+
+func TestKernelModuleScanMixedFileTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+	payload := makeFakeCryptoPayload()
+
+	// Write a real .ko file with crypto
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "aes.ko"), payload, 0644))
+	// Write non-.ko files that should be ignored
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "readme.txt"), payload, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.conf"), payload, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "module.ko.bak"), payload, 0644))
+
+	m := NewKernelModule(&config.Config{})
+	findings := make(chan *model.Finding, 20)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err := m.ScanWithOverride(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// Only the .ko file should produce findings
+	for _, f := range collected {
+		assert.Contains(t, f.Source.Path, "aes.ko", "only .ko files should be scanned")
+	}
 }

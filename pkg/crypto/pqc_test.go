@@ -264,3 +264,71 @@ func TestNormalizedMapConsistency(t *testing.T) {
 		assert.True(t, ok, "normalizedMap should contain %s (normalized: %s)", name, norm)
 	}
 }
+
+func TestClassifyCryptoAsset_Normalization(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantAlgo  string
+		wantSafe  string
+	}{
+		{"SHA256 normalized", "SHA256", "SHA-256", "TRANSITIONAL"},
+		{"AES128-GCM normalized", "AES128-GCM", "AES-128-GCM", "TRANSITIONAL"},
+		{"RSA4096 normalized", "RSA4096", "RSA-4096", "TRANSITIONAL"},
+		{"aes_256_gcm normalized", "aes_256_gcm", "AES-256-GCM", "SAFE"},
+		{"Unknown not normalized", "SOME-FUTURE-ALGO", "SOME-FUTURE-ALGO", "TRANSITIONAL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			asset := &model.CryptoAsset{Algorithm: tt.input}
+			ClassifyCryptoAsset(asset)
+			assert.Equal(t, tt.wantAlgo, asset.Algorithm, "algorithm should be normalized")
+			assert.Equal(t, tt.wantSafe, asset.PQCStatus, "PQC status")
+		})
+	}
+}
+
+func TestClassifyNewRegistryEntries(t *testing.T) {
+	tests := []struct {
+		algorithm string
+		keySize   int
+		expected  PQCStatus
+	}{
+		{"MD2", 128, UNSAFE},
+		{"RSA-512", 512, UNSAFE},
+		{"RSA-768", 768, UNSAFE},
+		{"RSA-1000", 1000, DEPRECATED},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algorithm, func(t *testing.T) {
+			info := ClassifyAlgorithm(tt.algorithm, tt.keySize)
+			assert.Equal(t, tt.expected, info.Status, "algorithm %s should be %s", tt.algorithm, tt.expected)
+			assert.Equal(t, tt.algorithm, info.Name)
+		})
+	}
+}
+
+func TestClassifyDESVariantFamilyRules(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected PQCStatus
+		name     string
+	}{
+		{"DESede3-CBC", DEPRECATED, "3DES via DESEDE3 prefix"},
+		{"DES-CBC", UNSAFE, "DES via DESCBC prefix"},
+		{"DES-ECB", UNSAFE, "DES via DESECB prefix"},
+		{"TripleDES", DEPRECATED, "3DES via TRIPLEDES prefix"},
+		{"RSA-1000-OAEP", DEPRECATED, "RSA-1000 via prefix"},
+		{"RSA-768-OAEP", UNSAFE, "RSA-768 via prefix"},
+		{"RSA-512-OAEP", UNSAFE, "RSA-512 via prefix"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := ClassifyAlgorithm(tt.input, 0)
+			assert.Equal(t, tt.expected, info.Status, "%s (%s)", tt.name, tt.input)
+		})
+	}
+}

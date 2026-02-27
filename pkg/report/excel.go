@@ -22,7 +22,7 @@ type clearRange struct {
 var exampleRanges = []clearRange{
 	{"0_Inventory", 5, 14, 9},
 	{"1_SBOM", 5, 12, 17},
-	{"2_CBOM", 5, 12, 8},
+	{"2_CBOM", 5, 12, 12},
 	{"3_RiskRegister", 5, 8, 8},
 	{"4_RiskAssessment", 5, 8, 11},
 }
@@ -31,7 +31,7 @@ var exampleRanges = []clearRange{
 var dataRowRanges = []clearRange{
 	{"0_Inventory", 17, 30, 9},
 	{"1_SBOM", 15, 30, 17},
-	{"2_CBOM", 15, 30, 8},
+	{"2_CBOM", 15, 30, 12},
 	{"3_RiskRegister", 10, 30, 8},
 	{"4_RiskAssessment", 11, 30, 11},
 }
@@ -56,6 +56,7 @@ func (g *Generator) GenerateExcel(result *model.ScanResult, filename string) err
 	populateCBOM(f, result.Systems)
 	populateRiskRegister(f, result.Systems)
 	populateRiskAssessment(f, result.Systems)
+	populateComplianceSummary(f, result)
 
 	return f.Save()
 }
@@ -191,6 +192,10 @@ func populateCBOM(f *excelize.File, systems []model.System) {
 				crypto.FormatKeySize(asset.KeySize), // F: Key Length
 				asset.Purpose,                       // G: Purpose / Usage
 				asset.CryptoAgility,                 // H: Crypto-Agility Support
+				asset.PQCStatus,                     // I: PQC Status
+				asset.CNSA2Status,                   // J: CNSA 2.0
+				asset.ComplianceWarning,             // K: Compliance Warning
+				asset.NACSALabel,                    // L: NACSA Status
 			}
 
 			for col, v := range vals {
@@ -260,8 +265,8 @@ func populateRiskAssessment(f *excelize.File, systems []model.System) {
 				likelihood,                // G: Kemungkinan
 				score,                     // H: Skor Risiko
 				riskLevel(score),          // I: Risk Level
-				"",                        // J: Kawalan Sedia Ada
-				"",                        // K: Mitigation Plan
+				asset.CNSA2Status,         // J: CNSA 2.0 Status
+				asset.ComplianceWarning,   // K: Compliance Note
 			}
 
 			for col, v := range vals {
@@ -369,6 +374,57 @@ func assessRisk(asset model.CryptoAsset) string {
 		return "Rendah — algoritma selamat kuantum"
 	default:
 		return "Tidak dapat dinilai"
+	}
+}
+
+// populateComplianceSummary creates the "5_ComplianceSummary" sheet with NACSA and CAMM data.
+func populateComplianceSummary(f *excelize.File, result *model.ScanResult) {
+	const sheet = "5_ComplianceSummary"
+
+	// Create the sheet if it doesn't exist
+	idx, err := f.GetSheetIndex(sheet)
+	if idx < 0 || err != nil {
+		_, _ = f.NewSheet(sheet)
+	}
+
+	// Headers
+	headers := []string{
+		"Metric", "Value",
+	}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue(sheet, cell, h)
+	}
+
+	nacsa := crypto.ComputeNACSASummary(result.Systems)
+	camm := crypto.AssessCAMM(result.Systems, result.Findings)
+
+	rows := [][]interface{}{
+		{"NACSA Readiness", fmt.Sprintf("%.1f%%", nacsa.ReadinessPercent)},
+		{"Total Crypto Assets", nacsa.TotalAssets},
+		{"Patuh (Compliant)", nacsa.Patuh},
+		{"Dalam Peralihan (In Transition)", nacsa.DalamPeralihan},
+		{"Tidak Patuh (Non-Compliant)", nacsa.TidakPatuh},
+		{"Perlu Tindakan Segera (Immediate Action)", nacsa.TindakanSegera},
+		{"CNSA 2.0 Compliant", nacsa.CNSA2Compliant},
+		{"", ""},
+		{"CAMM Level", crypto.CAMMLevelLabel(camm.Level)},
+		{"CAMM Confidence", camm.Confidence},
+	}
+
+	// Add CAMM indicators
+	for _, ind := range camm.Indicators {
+		rows = append(rows, []interface{}{"CAMM Indicator Met", ind})
+	}
+	for _, manual := range camm.Manual {
+		rows = append(rows, []interface{}{"CAMM Manual Assessment", manual})
+	}
+
+	for i, row := range rows {
+		for j, v := range row {
+			cell, _ := excelize.CoordinatesToCellName(j+1, i+2) // Start at row 2
+			_ = f.SetCellValue(sheet, cell, v)
+		}
 	}
 }
 

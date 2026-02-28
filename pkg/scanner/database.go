@@ -907,17 +907,17 @@ func (m *DatabaseModule) parseMySQLConfigFile(content, endpoint string) []*model
 			algo = value
 			function = "SSL cipher (config file)"
 		case "innodb_encrypt_tables":
-			if strings.ToUpper(value) == "ON" {
+			if strings.EqualFold(value, "ON") {
 				algo = "AES"
 				function = "InnoDB table encryption (config file)"
 			}
 		case "default_table_encryption":
-			if strings.ToUpper(value) == "ON" {
+			if strings.EqualFold(value, "ON") {
 				algo = "AES"
 				function = "Default table encryption (config file)"
 			}
 		case "require_secure_transport":
-			if strings.ToUpper(value) == "ON" {
+			if strings.EqualFold(value, "ON") {
 				algo = "TLS"
 				function = "Secure transport required (config file)"
 			}
@@ -1005,7 +1005,7 @@ func normalizePasswordAlgo(value string) string {
 func normalizeMySQLAlgo(varName, value string) string {
 	switch varName {
 	case "have_ssl":
-		if strings.ToUpper(value) == "YES" {
+		if strings.EqualFold(value, "YES") {
 			return "TLS"
 		}
 		return ""

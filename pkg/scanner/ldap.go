@@ -77,7 +77,7 @@ func (m *LDAPModule) Scan(ctx context.Context, target model.ScanTarget, findings
 	if err != nil {
 		return nil // Connection failed — non-fatal
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Upgrade to TLS if needed
 	if lt.startTLS {

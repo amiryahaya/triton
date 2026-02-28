@@ -374,7 +374,7 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	defer os.Remove(fullPath) // clean up temp file
+	defer func() { _ = os.Remove(fullPath) }() // clean up temp file
 
 	// Set content type based on format
 	switch format {
@@ -385,7 +385,7 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // GET /api/v1/aggregate

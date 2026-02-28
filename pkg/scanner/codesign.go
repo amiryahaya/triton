@@ -128,7 +128,7 @@ func (m *CodeSignModule) checkMacOSCodeSign(ctx context.Context, path string) []
 }
 
 // parseMacOSCodeSign interprets codesign output into findings.
-func (m *CodeSignModule) parseMacOSCodeSign(path string, verifyOut string, verifyErr error, displayOut string, displayErr error) []*model.Finding {
+func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr error, displayOut string, displayErr error) []*model.Finding {
 	var findings []*model.Finding
 
 	// Determine validity
@@ -273,11 +273,12 @@ func (m *CodeSignModule) parseRPMVerify(path, output string, cmdErr error) []*mo
 	var validity string
 
 	upper := strings.ToUpper(output)
-	if strings.Contains(upper, "NOT OK") || strings.Contains(upper, "MISSING") {
+	switch {
+	case strings.Contains(upper, "NOT OK") || strings.Contains(upper, "MISSING"):
 		validity = "invalid"
-	} else if strings.Contains(upper, "OK") {
+	case strings.Contains(upper, "OK"):
 		validity = "valid"
-	} else {
+	default:
 		validity = "unknown"
 	}
 

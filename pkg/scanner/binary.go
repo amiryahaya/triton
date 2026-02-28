@@ -640,31 +640,32 @@ func matchCryptoSymbols(symbols []string) []symbolMatch {
 
 	for _, sym := range symbols {
 		for _, pat := range cryptoSymbolPatterns {
-			if pat.pattern.MatchString(sym) {
-				// Refine algorithm name from submatch before dedup
-				algo := pat.algorithm
-				if sub := pat.pattern.FindStringSubmatch(sym); len(sub) > 1 {
-					switch pat.algorithm {
-					case "AES":
-						algo = "AES-" + sub[1] + "-" + strings.ToUpper(sub[2])
-					case "SHA":
-						algo = "SHA-" + sub[1]
-					}
-				}
-
-				algoKey := algo + ":" + pat.function
-				if seen[algoKey] {
-					continue
-				}
-				seen[algoKey] = true
-
-				matches = append(matches, symbolMatch{
-					algorithm: algo,
-					function:  pat.function,
-					symbol:    sym,
-				})
-				break // one pattern match per symbol
+			if !pat.pattern.MatchString(sym) {
+				continue
 			}
+			// Refine algorithm name from submatch before dedup
+			algo := pat.algorithm
+			if sub := pat.pattern.FindStringSubmatch(sym); len(sub) > 1 {
+				switch pat.algorithm {
+				case "AES":
+					algo = "AES-" + sub[1] + "-" + strings.ToUpper(sub[2])
+				case "SHA":
+					algo = "SHA-" + sub[1]
+				}
+			}
+
+			algoKey := algo + ":" + pat.function
+			if seen[algoKey] {
+				break
+			}
+			seen[algoKey] = true
+
+			matches = append(matches, symbolMatch{
+				algorithm: algo,
+				function:  pat.function,
+				symbol:    sym,
+			})
+			break // one pattern match per symbol
 		}
 	}
 	return matches

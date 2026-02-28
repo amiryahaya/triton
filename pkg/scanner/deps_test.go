@@ -17,10 +17,10 @@ import (
 // --- Mock analyzer ---
 
 type mockGoModuleAnalyzer struct {
-	modInfo    *goModuleInfo
-	modErr     error
-	sumModules []string
-	sumErr     error
+	modInfo     *goModuleInfo
+	modErr      error
+	sumModules  []string
+	sumErr      error
 	importGraph *goImportGraph
 	graphErr    error
 }
@@ -347,10 +347,10 @@ func TestReachability_Unreachable(t *testing.T) {
 func TestFindImportChain_ShortestPath(t *testing.T) {
 	graph := &goImportGraph{
 		PackageImports: map[string][]string{
-			"myapp":        {"pkg/a", "pkg/b"},
-			"pkg/a":        {"crypto/aes"},
-			"pkg/b":        {"pkg/c"},
-			"pkg/c":        {"crypto/aes"},
+			"myapp": {"pkg/a", "pkg/b"},
+			"pkg/a": {"crypto/aes"},
+			"pkg/b": {"pkg/c"},
+			"pkg/c": {"crypto/aes"},
 		},
 	}
 
@@ -735,4 +735,59 @@ func Do() { _ = des.BlockSize }
 		}
 	}
 	assert.True(t, foundTransitive, "should detect transitive crypto through vendor directory")
+}
+
+// --- Test 21: Direct reachability is deterministic even when crypto import
+// appears in both root and non-root packages (regression test for map iteration order bug) ---
+
+func TestReachability_DirectDeterministic(t *testing.T) {
+	m := NewDepsModule(depsTestConfig())
+	m.analyzer = &mockGoModuleAnalyzer{
+		modInfo: &goModuleInfo{
+			ModulePath: "github.com/example/myapp",
+			GoVersion:  "1.21",
+			Requires: []goModuleRequire{
+				{Path: "github.com/foo/bar", Version: "v1.0.0", Indirect: false},
+			},
+		},
+		sumModules: nil,
+		importGraph: &goImportGraph{
+			PackageImports: map[string][]string{
+				// Root package directly imports crypto/aes
+				"github.com/example/myapp": {"crypto/aes", "github.com/foo/bar"},
+				// Non-root package also imports crypto/aes
+				"github.com/foo/bar": {"crypto/aes", "fmt"},
+			},
+		},
+	}
+
+	// Run multiple times to catch non-deterministic map iteration
+	for i := 0; i < 20; i++ {
+		findings := make(chan *model.Finding, 100)
+		target := model.ScanTarget{Type: model.TargetFilesystem, Value: t.TempDir(), Depth: 10}
+		gomod := filepath.Join(target.Value, "go.mod")
+		err := os.WriteFile(gomod, []byte("module github.com/example/myapp\n\ngo 1.21\n"), 0644)
+		require.NoError(t, err)
+
+		go func() {
+			defer close(findings)
+			_ = m.Scan(context.Background(), target, findings)
+		}()
+
+		result := collectFindings(findings)
+		require.NotEmpty(t, result, "iteration %d: should produce findings", i)
+
+		// crypto/aes should ALWAYS be classified as direct since the root package imports it
+		var found bool
+		for _, f := range result {
+			if f.CryptoAsset != nil && f.CryptoAsset.Algorithm == "AES" {
+				found = true
+				assert.Equal(t, "direct", f.CryptoAsset.Reachability,
+					"iteration %d: crypto/aes should be direct (root imports it)", i)
+				assert.InDelta(t, 0.95, f.Confidence, 0.01,
+					"iteration %d: direct finding should have 0.95 confidence", i)
+			}
+		}
+		assert.True(t, found, "iteration %d: should find AES finding", i)
+	}
 }

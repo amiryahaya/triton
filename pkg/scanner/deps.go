@@ -133,10 +133,13 @@ func (m *DepsModule) analyzeGoModule(ctx context.Context, moduleRoot, goModPath 
 
 	// Check direct/transitive crypto imports via import graph
 	if importGraph != nil {
-		// Scan all imports for crypto packages
-		seen := make(map[string]bool)
-		for pkg, imports := range importGraph.PackageImports {
+		// Collect all unique crypto imports across all packages
+		seen := make(map[string]cryptoEntry)
+		for _, imports := range importGraph.PackageImports {
 			for _, imp := range imports {
+				if _, already := seen[imp]; already {
+					continue
+				}
 				entry, isCrypto := cryptoImportRegistry[imp]
 				if !isCrypto {
 					// Check prefix matches
@@ -148,41 +151,33 @@ func (m *DepsModule) analyzeGoModule(ctx context.Context, moduleRoot, goModPath 
 						}
 					}
 				}
-				if !isCrypto {
-					continue
+				if isCrypto {
+					seen[imp] = entry
 				}
-				if seen[imp] {
-					continue
+			}
+		}
+
+		// Determine reachability for each crypto import via BFS.
+		// BFS seeds from root packages, so chain length alone determines
+		// reachability: length 2 = direct (root → crypto), 3+ = transitive.
+		for imp, entry := range seen {
+			chain := findImportChain(importGraph, rootPackages, imp)
+			if chain != nil {
+				reachability := "transitive"
+				confidence := 0.75
+
+				if len(chain) == 2 {
+					reachability = "direct"
+					confidence = 0.95
 				}
-				seen[imp] = true
 
-				// Determine reachability via BFS
-				chain := findImportChain(importGraph, rootPackages, imp)
-				if chain != nil {
-					reachability := "transitive"
-					confidence := 0.75
-
-					// Direct if the importing package is a root package
-					isRoot := false
-					for _, rp := range rootPackages {
-						if pkg == rp {
-							isRoot = true
-							break
-						}
-					}
-					if isRoot && len(chain) == 2 {
-						reachability = "direct"
-						confidence = 0.95
-					}
-
-					cryptoFindings = append(cryptoFindings, cryptoFinding{
-						algorithm:      entry.algorithm,
-						importPath:     imp,
-						reachability:   reachability,
-						confidence:     confidence,
-						dependencyPath: chain,
-					})
-				}
+				cryptoFindings = append(cryptoFindings, cryptoFinding{
+					algorithm:      entry.algorithm,
+					importPath:     imp,
+					reachability:   reachability,
+					confidence:     confidence,
+					dependencyPath: chain,
+				})
 			}
 		}
 	}
@@ -219,7 +214,7 @@ func (m *DepsModule) analyzeGoModule(ctx context.Context, moduleRoot, goModPath 
 			ID:             uuid.New().String(),
 			Function:       "Dependency crypto import",
 			Algorithm:      cf.algorithm,
-			Language:        "Go",
+			Language:       "Go",
 			Reachability:   cf.reachability,
 			DependencyPath: cf.dependencyPath,
 		}
@@ -329,19 +324,19 @@ type cryptoEntry struct {
 // cryptoImportRegistry maps Go import paths to algorithm names.
 var cryptoImportRegistry = map[string]cryptoEntry{
 	// Go stdlib crypto packages
-	"crypto/aes":    {algorithm: "AES"},
-	"crypto/des":    {algorithm: "DES"},
-	"crypto/rc4":    {algorithm: "RC4"},
-	"crypto/rsa":    {algorithm: "RSA"},
-	"crypto/ecdsa":  {algorithm: "ECDSA"},
-	"crypto/ed25519": {algorithm: "Ed25519"},
-	"crypto/sha256": {algorithm: "SHA-256"},
-	"crypto/sha512": {algorithm: "SHA-512"},
-	"crypto/sha1":   {algorithm: "SHA-1"},
-	"crypto/md5":    {algorithm: "MD5"},
-	"crypto/tls":    {algorithm: "TLS"},
-	"crypto/hmac":   {algorithm: "HMAC-SHA256"},
-	"crypto/cipher": {algorithm: "AES"},
+	"crypto/aes":      {algorithm: "AES"},
+	"crypto/des":      {algorithm: "DES"},
+	"crypto/rc4":      {algorithm: "RC4"},
+	"crypto/rsa":      {algorithm: "RSA"},
+	"crypto/ecdsa":    {algorithm: "ECDSA"},
+	"crypto/ed25519":  {algorithm: "Ed25519"},
+	"crypto/sha256":   {algorithm: "SHA-256"},
+	"crypto/sha512":   {algorithm: "SHA-512"},
+	"crypto/sha1":     {algorithm: "SHA-1"},
+	"crypto/md5":      {algorithm: "MD5"},
+	"crypto/tls":      {algorithm: "TLS"},
+	"crypto/hmac":     {algorithm: "HMAC-SHA256"}, // Algorithm-agnostic; SHA-256 is most common usage
+	"crypto/cipher":   {algorithm: "AES"},         // Mode-of-operation package; AES is most common block cipher
 	"crypto/elliptic": {algorithm: "ECDSA"},
 
 	// golang.org/x/crypto packages
@@ -363,8 +358,8 @@ var cryptoImportRegistry = map[string]cryptoEntry{
 
 // cryptoPrefixRegistry matches import paths by prefix for third-party PQC libraries.
 var cryptoPrefixRegistry = map[string]cryptoEntry{
-	"github.com/cloudflare/circl/kem":  {algorithm: "ML-KEM"},
-	"github.com/cloudflare/circl/sign": {algorithm: "ML-DSA"},
+	"github.com/cloudflare/circl/kem":        {algorithm: "ML-KEM"},
+	"github.com/cloudflare/circl/sign":       {algorithm: "ML-DSA"},
 	"github.com/open-quantum-safe/liboqs-go": {algorithm: "ML-KEM"},
 }
 

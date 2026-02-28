@@ -150,10 +150,11 @@ Embed the public key into the Triton binary using Go linker flags:
 go build -ldflags "-X github.com/amiryahaya/triton/internal/license.publicKeyHex=a1b2c3d4e5f6..." -o bin/triton .
 ```
 
-Or using `make` with the `LDFLAGS` variable:
+Or set `GOFLAGS` before running `make build`:
 
 ```bash
-make build LDFLAGS="-X github.com/amiryahaya/triton/internal/license.publicKeyHex=a1b2c3d4e5f6..."
+export GOFLAGS='-ldflags=-X github.com/amiryahaya/triton/internal/license.publicKeyHex=a1b2c3d4e5f6...'
+make build
 ```
 
 ### Cross-compile with Embedded Key
@@ -217,7 +218,7 @@ Check the currently active licence:
 triton license show
 ```
 
-Output includes: tier, organisation, seats, issue date, expiry date, and time remaining.
+Output includes: tier, seats, licence ID, organisation, issued date, expiry date, allowed profiles, formats, and modules.
 
 ---
 

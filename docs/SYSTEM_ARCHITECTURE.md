@@ -505,22 +505,27 @@ Engine.Scan()
 
 ### Category 9: Network Protocols (Active/Network)
 
-**What:** Active probing of network services to extract cipher suites and certificate details.
+**What:** Active probing of network services to extract cipher suites, certificate details, and TLS configuration quality.
 
 **How:**
-1. For TLS services: perform TLS handshake, extract:
-   - Negotiated cipher suite
-   - Server certificate chain (algorithm, key size, validity)
-   - Supported protocol versions (TLS 1.0/1.1/1.2/1.3)
-   - Available cipher suites (via enumeration)
-2. For SSH services: connect and extract:
+1. For TLS services: perform initial handshake (offering all cipher suites for audit discovery), extract:
+   - Negotiated cipher suite with key exchange type (ECDHE/DHE/RSA/TLS13) and forward secrecy flag
+   - Server certificate chain (algorithm, key size, validity, chain position)
+   - Enhanced chain validation: weak signature algorithms (SHA-1/MD5), expiry warnings (30-day), SAN extraction
+   - Revocation status via OCSP/CRL
+   - Chain validation against system root store
+   - Session resumption support
+2. TLS version range probing: test each version (1.0/1.1/1.2/1.3) individually
+3. Cipher suite enumeration: probe each TLS 1.2 cipher individually (~24 suites)
+4. Cipher preference order: iterative removal to determine server's ranked cipher preference
+5. For SSH services: connect and extract:
    - Key exchange algorithms
    - Host key algorithms
    - Encryption algorithms
    - MAC algorithms
-3. Classify all discovered algorithms for PQC status
+6. Classify all discovered algorithms for PQC status
 
-**Output:** CryptoAssets for each cipher/algorithm discovered, linked to network endpoint.
+**Output:** CryptoAssets for each cipher/algorithm discovered, linked to network endpoint. Includes key exchange analysis, forward secrecy flags, and certificate SANs.
 
 ---
 

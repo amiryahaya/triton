@@ -195,6 +195,11 @@ type CryptoAsset struct {
 	// Chain position (for TLS chain analysis)
 	ChainPosition string `json:"chainPosition,omitempty"` // "leaf", "intermediate", "root"
 	ChainDepth    int    `json:"chainDepth,omitempty"`
+
+	// TLS probing (protocol scanner)
+	KeyExchange    string   `json:"keyExchange,omitempty"`    // "ECDHE", "DHE", "RSA", "TLS13"
+	ForwardSecrecy bool     `json:"forwardSecrecy,omitempty"` // true if ECDHE/DHE
+	SANs           []string `json:"sans,omitempty"`           // Subject Alternative Names
 }
 
 // Summary holds aggregated statistics for a scan result.

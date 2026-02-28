@@ -17,6 +17,7 @@
 | **Standards** | 11 | v2.1 | **Released** | FN-DSA (FIPS 206), CAMM Level 3, per-system policy evaluation |
 | **Reachability** | 12 | v2.2 | **Released** | Dependency crypto reachability scanner, false positive reduction |
 | **Licensing** | 9.1 | v2.3 | **Released** | Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise) |
+| **TLS Probing** | 13 | v2.4 | **Released** | Enhanced TLS probing — cipher enumeration, preference order, version range, PFS, chain validation |
 
 ---
 
@@ -516,7 +517,7 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 |---|------|----------|-------------|-------------|
 | 9.1 | Enterprise licensing | **P3** | License key validation, feature gating (free tier: quick profile only; pro: all profiles + compliance reports; enterprise: API + multi-node). Seat management for paid tiers. | New `internal/license/` |
 | 9.2 | Client-server mode | **P3** | Agent deployed on target systems reports findings to central server. Server aggregates CBOMs across infrastructure. REST API for integration. | New `cmd/agent.go`, `cmd/server.go` |
-| 9.3 | Cloud KMS scanning | **P3** | Scan AWS KMS, Azure Key Vault, GCP KMS encryption settings. Detect key algorithm, rotation policy, usage patterns. Requires cloud credentials. | New `pkg/scanner/cloud.go` |
+| 9.3 | ~~Cloud KMS scanning~~ | **Removed** | Removed from roadmap — out of scope for on-premises audit tool. | — |
 | 9.4 | Dependency crypto reachability | **Done** | Trace transitive dependency crypto usage via import graph analysis for Go modules. Distinguish "crypto present in library" vs "crypto actually called by your code." Implemented in Phase 12. | New `pkg/scanner/deps.go` |
 | 9.5 | Web UI dashboard | **P3** | Browser-based dashboard for viewing scan results, comparing scans over time, exporting reports. Replaces HTML report with interactive SPA. | New `web/` directory |
 | 9.6 | PKCS#11 / HSM scanning | **P3** | Enumerate cryptographic objects in hardware security modules via PKCS#11 interface. Specialized hardware, low priority. | New `pkg/scanner/hsm.go` |
@@ -578,6 +579,24 @@ Ed25519-signed licence key system with 3-tier feature gating (free/pro/enterpris
 | 9.1.8 | Subcommand gates | `cmd/server.go`, `cmd/agent.go` (enterprise), `cmd/diff.go`, `cmd/trend.go`, `cmd/history.go` (pro), `cmd/policy.go` (tiered) |
 
 **Phase 9.1 Delivery Summary:** 38 test cases across 4 test files. Three-layer enforcement: (1) config filter strips disallowed settings, (2) subcommand PreRunE hooks, (3) explicit enforcement in runScan. Free tier: quick profile, JSON only, 3 modules. Pro tier: all profiles/modules, most formats, analytics. Enterprise: everything including server, agent, SARIF, custom policies.
+
+---
+
+### Phase 13: Enhanced TLS Probing _(v2.4 — COMPLETED)_
+
+Enterprise-grade TLS probing bringing the protocol scanner to audit quality. Augments the existing single-handshake probe with comprehensive cipher enumeration, version range testing, and enhanced certificate chain analysis.
+
+| Task | Description | Files |
+|------|-------------|-------|
+| 13.1 | Helper functions | `cipherSuiteKeyExchange`, `isWeakSignatureAlgorithm`, `sigAlgoToPQCAlgorithm`, `allTLS12CipherSuiteIDs` — `pkg/scanner/protocol.go` |
+| 13.2 | Model fields | `KeyExchange`, `ForwardSecrecy`, `SANs` added to `CryptoAsset` — `pkg/model/types.go` |
+| 13.3 | KX/PFS augmentation | Existing cipher suite finding augmented with key exchange type and forward secrecy flag |
+| 13.4 | Enhanced chain validation | Weak signature detection (SHA-1/MD5), certificate expiry warnings (30-day window), SAN extraction |
+| 13.5 | TLS version range probing | Individual TLS 1.0/1.1/1.2/1.3 connection testing, summary finding |
+| 13.6 | Cipher suite enumeration | Per-cipher TLS 1.2 probing (~24 suites), supported cipher findings with KX/PFS |
+| 13.7 | Cipher preference order | Iterative removal algorithm to determine server cipher preference ranking |
+
+**Phase 13 Delivery Summary:** 20 test cases (3 unit + 17 integration). 8 new functions/methods added to protocol scanner. 3 new model fields. 7 new finding types. Initial probe now offers all cipher suites (secure + insecure) for audit discovery. Coverage 80.4%.
 
 ---
 

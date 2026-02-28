@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -1262,6 +1263,703 @@ func generateTestCertChain(t *testing.T) testCertChain {
 	}
 }
 
+// --- Phase 13: Enhanced TLS Probing Tests ---
+
+func TestCipherSuiteKeyExchange(t *testing.T) {
+	tests := []struct {
+		name    string
+		suite   string
+		wantKX  string
+		wantPFS bool
+	}{
+		{"TLS13 AES-128-GCM", "TLS_AES_128_GCM_SHA256", "TLS13", true},
+		{"TLS13 AES-256-GCM", "TLS_AES_256_GCM_SHA384", "TLS13", true},
+		{"TLS13 ChaCha20", "TLS_CHACHA20_POLY1305_SHA256", "TLS13", true},
+		{"ECDHE RSA AES-256-GCM", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "ECDHE", true},
+		{"ECDHE ECDSA AES-128-GCM", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", "ECDHE", true},
+		{"DHE RSA AES-256-GCM", "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", "DHE", true},
+		{"RSA AES-128-GCM (no PFS)", "TLS_RSA_WITH_AES_128_GCM_SHA256", "RSA", false},
+		{"RSA 3DES (no PFS)", "TLS_RSA_WITH_3DES_EDE_CBC_SHA", "RSA", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kx, pfs := cipherSuiteKeyExchange(tt.suite)
+			assert.Equal(t, tt.wantKX, kx, "key exchange")
+			assert.Equal(t, tt.wantPFS, pfs, "forward secrecy")
+		})
+	}
+}
+
+func TestIsWeakSignatureAlgorithm(t *testing.T) {
+	tests := []struct {
+		algo x509.SignatureAlgorithm
+		weak bool
+	}{
+		{x509.MD2WithRSA, true},
+		{x509.MD5WithRSA, true},
+		{x509.SHA1WithRSA, true},
+		{x509.DSAWithSHA1, true},
+		{x509.ECDSAWithSHA1, true},
+		{x509.SHA256WithRSA, false},
+		{x509.SHA384WithRSA, false},
+		{x509.SHA512WithRSA, false},
+		{x509.ECDSAWithSHA256, false},
+		{x509.ECDSAWithSHA384, false},
+		{x509.PureEd25519, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algo.String(), func(t *testing.T) {
+			assert.Equal(t, tt.weak, isWeakSignatureAlgorithm(tt.algo))
+		})
+	}
+}
+
+func TestTLSProbe_KeyExchangeExtracted(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	// ECDHE cipher suites (default for ECDSA certs)
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS cipher suite" {
+			assert.Equal(t, "ECDHE", f.CryptoAsset.KeyExchange)
+			assert.True(t, f.CryptoAsset.ForwardSecrecy)
+			return
+		}
+	}
+	t.Fatal("no TLS cipher suite finding emitted")
+}
+
+func TestTLSProbe_NoPFS_RSAKeyExchange(t *testing.T) {
+	// Need an RSA cert for RSA key exchange cipher suites
+	rsaCert, rsaKey := generateTestRSACert(t)
+	tlsCert, err := tls.X509KeyPair(rsaCert, rsaKey)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_128_GCM_SHA256},
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS cipher suite" {
+			assert.Equal(t, "RSA", f.CryptoAsset.KeyExchange)
+			assert.False(t, f.CryptoAsset.ForwardSecrecy)
+			return
+		}
+	}
+	t.Fatal("no TLS cipher suite finding emitted")
+}
+
+func TestTLSProbe_TLS13_AlwaysPFS(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS13,
+		MaxVersion:   tls.VersionTLS13,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS cipher suite" {
+			assert.Equal(t, "TLS13", f.CryptoAsset.KeyExchange)
+			assert.True(t, f.CryptoAsset.ForwardSecrecy)
+			return
+		}
+	}
+	t.Fatal("no TLS cipher suite finding emitted")
+}
+
+func TestSigAlgoToPQCAlgorithm(t *testing.T) {
+	tests := []struct {
+		algo x509.SignatureAlgorithm
+		want string
+	}{
+		{x509.SHA1WithRSA, "SHA-1"},
+		{x509.SHA256WithRSA, "SHA-256"},
+		{x509.SHA384WithRSA, "SHA-384"},
+		{x509.SHA512WithRSA, "SHA-512"},
+		{x509.ECDSAWithSHA256, "SHA-256"},
+		{x509.ECDSAWithSHA384, "SHA-384"},
+		{x509.ECDSAWithSHA512, "SHA-512"},
+		{x509.PureEd25519, "Ed25519"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algo.String(), func(t *testing.T) {
+			assert.Equal(t, tt.want, sigAlgoToPQCAlgorithm(tt.algo))
+		})
+	}
+}
+
+func TestEnhancedChainValidation_WeakSigAlgorithm(t *testing.T) {
+	// Create a cert with SHA-1 signature
+	certPEM, keyPEM := generateTestCertWithSigAlgo(t, x509.SHA1WithRSA)
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	hasWeakSig := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "Weak certificate signature algorithm" {
+			hasWeakSig = true
+			assert.Equal(t, "SHA-1", f.CryptoAsset.Algorithm)
+			assert.Equal(t, "DEPRECATED", f.CryptoAsset.PQCStatus)
+			assert.Equal(t, "leaf", f.CryptoAsset.ChainPosition)
+		}
+	}
+	assert.True(t, hasWeakSig, "should detect weak SHA-1 signature algorithm")
+}
+
+func TestEnhancedChainValidation_ExpiringCert(t *testing.T) {
+	// Cert expiring in 15 days
+	notAfter := time.Now().Add(15 * 24 * time.Hour)
+	certPEM, keyPEM := generateTestCertWithExpiry(t, notAfter)
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	hasExpiry := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "Certificate expiry warning" {
+			hasExpiry = true
+			assert.Contains(t, f.CryptoAsset.Purpose, "days")
+			assert.NotNil(t, f.CryptoAsset.NotAfter)
+		}
+	}
+	assert.True(t, hasExpiry, "should warn about cert expiring in 15 days")
+}
+
+func TestEnhancedChainValidation_NotExpiringSoon(t *testing.T) {
+	// Cert valid for 365 days — no warning
+	notAfter := time.Now().Add(365 * 24 * time.Hour)
+	certPEM, keyPEM := generateTestCertWithExpiry(t, notAfter)
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	for f := range findings {
+		if f.CryptoAsset != nil {
+			assert.NotEqual(t, "Certificate expiry warning", f.CryptoAsset.Function,
+				"should NOT warn about cert expiring in 365 days")
+		}
+	}
+}
+
+func TestEnhancedChainValidation_AlreadyExpired(t *testing.T) {
+	// Already expired cert — chain validation handles it, no expiry WARNING
+	notAfter := time.Now().Add(-1 * time.Hour)
+	certPEM, keyPEM := generateTestCertWithExpiry(t, notAfter)
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	for f := range findings {
+		if f.CryptoAsset != nil {
+			assert.NotEqual(t, "Certificate expiry warning", f.CryptoAsset.Function,
+				"expired cert should not emit expiry WARNING (chain validation handles it)")
+		}
+	}
+}
+
+func TestEnhancedChainValidation_SANExtraction(t *testing.T) {
+	dnsNames := []string{"example.com", "*.example.com"}
+	ips := []net.IP{net.ParseIP("10.0.0.1"), net.ParseIP("192.168.1.1")}
+	certPEM, keyPEM := generateTestCertWithSANs(t, dnsNames, ips)
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = m.Scan(ctx, target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	hasSANs := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS certificate SANs" {
+			hasSANs = true
+			assert.Contains(t, f.CryptoAsset.SANs, "example.com")
+			assert.Contains(t, f.CryptoAsset.SANs, "*.example.com")
+			assert.Contains(t, f.CryptoAsset.SANs, "10.0.0.1")
+			assert.Contains(t, f.CryptoAsset.SANs, "192.168.1.1")
+			assert.Equal(t, "leaf", f.CryptoAsset.ChainPosition)
+		}
+	}
+	assert.True(t, hasSANs, "should extract SANs from leaf cert")
+}
+
+func TestProbeVersionRange_TLS12Only(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	m.probeVersionRange(ctx, listener.Addr().String(), findings)
+	close(findings)
+
+	hasVersionRange := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS version range" {
+			hasVersionRange = true
+			assert.Equal(t, "TLS 1.2 to TLS 1.2", f.CryptoAsset.Library)
+			assert.Contains(t, f.CryptoAsset.Purpose, "TLS 1.2")
+			assert.NotContains(t, f.CryptoAsset.Purpose, "TLS 1.0")
+			assert.NotContains(t, f.CryptoAsset.Purpose, "TLS 1.1")
+			assert.NotContains(t, f.CryptoAsset.Purpose, "TLS 1.3")
+		}
+	}
+	assert.True(t, hasVersionRange, "should emit TLS version range finding")
+}
+
+func TestProbeVersionRange_TLS12And13(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS13,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	m.probeVersionRange(ctx, listener.Addr().String(), findings)
+	close(findings)
+
+	hasVersionRange := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS version range" {
+			hasVersionRange = true
+			assert.Equal(t, "TLS 1.2 to TLS 1.3", f.CryptoAsset.Library)
+			assert.Contains(t, f.CryptoAsset.Purpose, "TLS 1.2")
+			assert.Contains(t, f.CryptoAsset.Purpose, "TLS 1.3")
+		}
+	}
+	assert.True(t, hasVersionRange, "should emit TLS version range finding for 1.2+1.3")
+}
+
+func TestEnumerateCipherSuites_SingleCipher(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 100)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	supported := m.enumerateSupportedCiphers(ctx, listener.Addr().String())
+	require.Len(t, supported, 1)
+	assert.Equal(t, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, supported[0])
+
+	m.emitSupportedCipherFindings(ctx, listener.Addr().String(), supported, findings)
+	close(findings)
+
+	count := 0
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS supported cipher suite" {
+			count++
+			assert.Equal(t, "ECDHE", f.CryptoAsset.KeyExchange)
+			assert.True(t, f.CryptoAsset.ForwardSecrecy)
+		}
+	}
+	assert.Equal(t, 1, count, "should emit 1 supported cipher finding")
+}
+
+func TestEnumerateCipherSuites_MultipleCiphers(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		},
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	supported := m.enumerateSupportedCiphers(ctx, listener.Addr().String())
+	assert.Len(t, supported, 3, "should find 3 supported ciphers")
+
+	findings := make(chan *model.Finding, 100)
+	m.emitSupportedCipherFindings(ctx, listener.Addr().String(), supported, findings)
+	close(findings)
+
+	count := 0
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS supported cipher suite" {
+			count++
+		}
+	}
+	assert.Equal(t, 3, count, "should emit 3 supported cipher findings")
+}
+
+func TestEnumerateCipherSuites_IncludesInsecure(t *testing.T) {
+	rsaCert, rsaKey := generateTestRSACert(t)
+	tlsCert, err := tls.X509KeyPair(rsaCert, rsaKey)
+	require.NoError(t, err)
+
+	// Offer 3DES (insecure) alongside a normal cipher
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+		},
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	supported := m.enumerateSupportedCiphers(ctx, listener.Addr().String())
+	assert.GreaterOrEqual(t, len(supported), 2, "should detect insecure + secure ciphers")
+
+	findings := make(chan *model.Finding, 100)
+	m.emitSupportedCipherFindings(ctx, listener.Addr().String(), supported, findings)
+	close(findings)
+
+	has3DES := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS supported cipher suite" {
+			if f.CryptoAsset.Algorithm == "3DES" {
+				has3DES = true
+				assert.Equal(t, "DEPRECATED", f.CryptoAsset.PQCStatus)
+			}
+		}
+	}
+	assert.True(t, has3DES, "should detect 3DES as supported cipher")
+}
+
+func TestCipherPreference_ServerOrder(t *testing.T) {
+	rsaCert, rsaKey := generateTestRSACert(t)
+	tlsCert, err := tls.X509KeyPair(rsaCert, rsaKey)
+	require.NoError(t, err)
+
+	serverCiphers := []uint16{
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+	}
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: serverCiphers,
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	m.probeCipherPreference(ctx, listener.Addr().String(), serverCiphers, findings)
+	close(findings)
+
+	hasPref := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS cipher preference order" {
+			hasPref = true
+			// Should have ordered list with > separator (3 ciphers = 2 separators)
+			assert.Contains(t, f.CryptoAsset.Library, ">")
+			// Algorithm should be a valid symmetric algo
+			assert.Contains(t, []string{"AES-128-GCM", "AES-256-GCM", "ChaCha20-Poly1305"}, f.CryptoAsset.Algorithm)
+		}
+	}
+	assert.True(t, hasPref, "should emit cipher preference order finding")
+}
+
+func TestCipherPreference_SingleCipher(t *testing.T) {
+	cert, key := generateTestCert(t)
+	tlsCert, err := tls.X509KeyPair(cert, key)
+	require.NoError(t, err)
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	go acceptLoop(listener)
+
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 50)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	m.probeCipherPreference(ctx, listener.Addr().String(),
+		[]uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, findings)
+	close(findings)
+
+	hasPref := false
+	for f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS cipher preference order" {
+			hasPref = true
+			assert.NotContains(t, f.CryptoAsset.Library, ">", "single cipher should not have '>'")
+		}
+	}
+	assert.True(t, hasPref, "should emit cipher preference even for single cipher")
+}
+
+func TestProbeVersionRange_ContextCancelled(t *testing.T) {
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	m.probeVersionRange(ctx, "127.0.0.1:443", findings)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "cancelled context should produce no findings")
+}
+
+func TestEnhancedChainValidation_ContextCancelled(t *testing.T) {
+	m := NewProtocolModule(&config.Config{})
+	findings := make(chan *model.Finding, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	cert, _ := generateTestCert(t)
+	block, _ := pem.Decode(cert)
+	parsed, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	m.enhancedChainValidation(ctx, "127.0.0.1:443", []*x509.Certificate{parsed}, findings)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "cancelled context should produce no findings")
+}
+
 // generateTestCert creates a self-signed ECDSA certificate for testing.
 func generateTestCert(t *testing.T) (certPEM, keyPEM []byte) {
 	t.Helper()
@@ -1283,6 +1981,117 @@ func generateTestCert(t *testing.T) (certPEM, keyPEM []byte) {
 
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return certPEM, keyPEM
+}
+
+// generateTestRSACert creates a self-signed RSA certificate for testing RSA key exchange.
+func generateTestRSACert(t *testing.T) (certPEM, keyPEM []byte) {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-rsa"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+
+	return certPEM, keyPEM
+}
+
+// generateTestCertWithSigAlgo creates a self-signed RSA cert with a specific signature algorithm.
+func generateTestCertWithSigAlgo(t *testing.T, sigAlgo x509.SignatureAlgorithm) (certPEM, keyPEM []byte) {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber:       big.NewInt(1),
+		Subject:            pkix.Name{CommonName: "test-sig-algo"},
+		NotBefore:          time.Now().Add(-1 * time.Hour),
+		NotAfter:           time.Now().Add(24 * time.Hour),
+		DNSNames:           []string{"localhost"},
+		IPAddresses:        []net.IP{net.ParseIP("127.0.0.1")},
+		SignatureAlgorithm: sigAlgo,
+		KeyUsage:           x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+
+	return certPEM, keyPEM
+}
+
+// generateTestCertWithExpiry creates a self-signed ECDSA cert with configurable expiry.
+func generateTestCertWithExpiry(t *testing.T, notAfter time.Time) (certPEM, keyPEM []byte) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-expiry"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     notAfter,
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return certPEM, keyPEM
+}
+
+// generateTestCertWithSANs creates a self-signed ECDSA cert with specific SANs.
+func generateTestCertWithSANs(t *testing.T, dnsNames []string, ips []net.IP) (certPEM, keyPEM []byte) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	// Must include 127.0.0.1 for the TLS server to work
+	allIPs := append([]net.IP{net.ParseIP("127.0.0.1")}, ips...)
+	allDNS := append([]string{"localhost"}, dnsNames...)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-sans"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		DNSNames:     allDNS,
+		IPAddresses:  allIPs,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	require.NoError(t, err)
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})

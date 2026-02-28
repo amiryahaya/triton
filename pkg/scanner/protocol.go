@@ -103,8 +103,9 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	}
 
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		InsecureSkipVerify: true,             // We're probing, not validating trust
-		MinVersion:         tls.VersionTLS10, // Accept deprecated versions to detect them
+		InsecureSkipVerify: true,               // We're probing, not validating trust
+		MinVersion:         tls.VersionTLS10,   // Accept deprecated versions to detect them
+		CipherSuites:       allTLS12CipherSuiteIDs(), // Offer all ciphers for audit discovery
 	})
 	if err != nil {
 		return nil // Connection failed — not a TLS service or unreachable
@@ -118,12 +119,16 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	cipherName := tls.CipherSuiteName(state.CipherSuite)
 	tlsVersion := tlsVersionName(state.Version)
 
+	kx, pfs := cipherSuiteKeyExchange(cipherName)
+
 	if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-		ID:        uuid.New().String(),
-		Function:  "TLS cipher suite",
-		Algorithm: cipherAlgo,
-		Library:   cipherName,
-		Purpose:   fmt.Sprintf("Negotiated cipher for %s (%s)", addr, tlsVersion),
+		ID:             uuid.New().String(),
+		Function:       "TLS cipher suite",
+		Algorithm:      cipherAlgo,
+		Library:        cipherName,
+		Purpose:        fmt.Sprintf("Negotiated cipher for %s (%s)", addr, tlsVersion),
+		KeyExchange:    kx,
+		ForwardSecrecy: pfs,
 	}, findings); err != nil {
 		return err
 	}
@@ -191,6 +196,13 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 		}
 	}
 
+	// Enhanced certificate chain validation (weak sig, expiry, SANs)
+	m.enhancedChainValidation(ctx, addr, state.PeerCertificates, findings)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Check revocation status via OCSP/CRL
 	m.checkRevocation(ctx, addr, state.PeerCertificates, findings)
 
@@ -207,6 +219,31 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 
 	// Detect session resumption support
 	m.detectSessionResumption(ctx, addr, findings)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// TLS version range probing
+	m.probeVersionRange(ctx, addr, findings)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// Cipher enumeration (TLS 1.2 only)
+	supported := m.enumerateSupportedCiphers(ctx, addr)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	m.emitSupportedCipherFindings(ctx, addr, supported, findings)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// Cipher preference order
+	m.probeCipherPreference(ctx, addr, supported, findings)
 
 	return nil
 }
@@ -263,6 +300,268 @@ func (m *ProtocolModule) validateCertChain(ctx context.Context, addr string, sta
 			Algorithm: algoName,
 			Purpose:   fmt.Sprintf("Certificate chain validation failed for %s: %v", addr, verifyErr),
 		}, findings)
+	}
+}
+
+// probeVersionRange tests which TLS versions the server supports by attempting
+// individual connections with each version. Emits a single summary finding.
+func (m *ProtocolModule) probeVersionRange(ctx context.Context, addr string, findings chan<- *model.Finding) {
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	versions := []struct {
+		version uint16
+		name    string
+	}{
+		{tls.VersionTLS10, "TLS 1.0"},
+		{tls.VersionTLS11, "TLS 1.1"},
+		{tls.VersionTLS12, "TLS 1.2"},
+		{tls.VersionTLS13, "TLS 1.3"},
+	}
+
+	var supported []string
+	for _, v := range versions {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		dialer := &net.Dialer{Timeout: defaultProbeTimeout}
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining < defaultProbeTimeout {
+				dialer.Timeout = remaining
+			}
+		}
+
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         v.version,
+			MaxVersion:         v.version,
+			CipherSuites:       allTLS12CipherSuiteIDs(),
+		})
+		if err == nil {
+			_ = conn.Close()
+			supported = append(supported, v.name)
+		}
+	}
+
+	if len(supported) == 0 {
+		return
+	}
+
+	rangeStr := fmt.Sprintf("%s to %s", supported[0], supported[len(supported)-1])
+	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+		ID:        uuid.New().String(),
+		Function:  "TLS version range",
+		Algorithm: supported[len(supported)-1], // Highest supported version for PQC classification
+		Library:   rangeStr,
+		Purpose:   fmt.Sprintf("Supported versions: %s", strings.Join(supported, ", ")),
+	}, findings)
+}
+
+// enumerateSupportedCiphers tests each TLS 1.2 cipher suite individually to determine
+// which ones the server supports. Returns a slice of supported cipher suite IDs.
+func (m *ProtocolModule) enumerateSupportedCiphers(ctx context.Context, addr string) []uint16 {
+	var supported []uint16
+
+	for _, id := range allTLS12CipherSuiteIDs() {
+		select {
+		case <-ctx.Done():
+			return supported
+		default:
+		}
+
+		dialer := &net.Dialer{Timeout: defaultProbeTimeout}
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining < defaultProbeTimeout {
+				dialer.Timeout = remaining
+			}
+		}
+
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS12,
+			CipherSuites:       []uint16{id},
+		})
+		if err == nil {
+			_ = conn.Close()
+			supported = append(supported, id)
+		}
+	}
+
+	return supported
+}
+
+// emitSupportedCipherFindings emits a finding for each supported TLS 1.2 cipher suite.
+func (m *ProtocolModule) emitSupportedCipherFindings(ctx context.Context, addr string, supported []uint16, findings chan<- *model.Finding) {
+	for _, id := range supported {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		cipherName := tls.CipherSuiteName(id)
+		algo := cipherSuiteAlgorithm(id)
+		kx, pfs := cipherSuiteKeyExchange(cipherName)
+
+		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+			ID:             uuid.New().String(),
+			Function:       "TLS supported cipher suite",
+			Algorithm:      algo,
+			Library:        cipherName,
+			KeyExchange:    kx,
+			ForwardSecrecy: pfs,
+			Purpose:        fmt.Sprintf("Server supports %s", cipherName),
+		}, findings)
+	}
+}
+
+// probeCipherPreference determines the server's cipher preference order using
+// iterative removal: offer all supported ciphers, note which the server picks,
+// remove it, repeat.
+func (m *ProtocolModule) probeCipherPreference(ctx context.Context, addr string, supported []uint16, findings chan<- *model.Finding) {
+	if len(supported) == 0 {
+		return
+	}
+
+	remaining := make([]uint16, len(supported))
+	copy(remaining, supported)
+
+	var ordered []string
+
+	for len(remaining) > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		dialer := &net.Dialer{Timeout: defaultProbeTimeout}
+		if deadline, ok := ctx.Deadline(); ok {
+			rem := time.Until(deadline)
+			if rem < defaultProbeTimeout {
+				dialer.Timeout = rem
+			}
+		}
+
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS12,
+			CipherSuites:       remaining,
+		})
+		if err != nil {
+			break
+		}
+
+		negotiated := conn.ConnectionState().CipherSuite
+		_ = conn.Close()
+
+		ordered = append(ordered, tls.CipherSuiteName(negotiated))
+
+		// Remove the negotiated cipher from remaining
+		var next []uint16
+		for _, id := range remaining {
+			if id != negotiated {
+				next = append(next, id)
+			}
+		}
+		remaining = next
+	}
+
+	if len(ordered) == 0 {
+		return
+	}
+
+	topAlgo := cipherSuiteAlgorithm(supported[0]) // Get algo from first supported
+	// Find the actual first ordered cipher's algorithm
+	for _, id := range supported {
+		if tls.CipherSuiteName(id) == ordered[0] {
+			topAlgo = cipherSuiteAlgorithm(id)
+			break
+		}
+	}
+
+	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+		ID:        uuid.New().String(),
+		Function:  "TLS cipher preference order",
+		Algorithm: topAlgo,
+		Library:   strings.Join(ordered, " > "),
+		Purpose:   fmt.Sprintf("Server cipher preference order (%d ciphers)", len(ordered)),
+	}, findings)
+}
+
+// enhancedChainValidation inspects peer certificates for weak signatures,
+// upcoming expiry, and extracts SANs from the leaf certificate.
+func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr string, certs []*x509.Certificate, findings chan<- *model.Finding) {
+	chainLen := len(certs)
+	for i, cert := range certs {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		position, _ := chainPosition(i, chainLen, cert)
+
+		// Weak signature algorithm detection
+		if isWeakSignatureAlgorithm(cert.SignatureAlgorithm) {
+			_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+				ID:            uuid.New().String(),
+				Function:      "Weak certificate signature algorithm",
+				Algorithm:     sigAlgoToPQCAlgorithm(cert.SignatureAlgorithm),
+				Subject:       cert.Subject.String(),
+				Issuer:        cert.Issuer.String(),
+				ChainPosition: position,
+				ChainDepth:    chainLen,
+				Purpose:       fmt.Sprintf("Certificate uses weak signature algorithm %s", cert.SignatureAlgorithm),
+			}, findings)
+		}
+
+		// Certificate expiry warning (within 30 days, but not yet expired)
+		if cert.NotAfter.After(time.Now()) {
+			daysRemaining := int(time.Until(cert.NotAfter).Hours() / 24)
+			if daysRemaining <= 30 {
+				notAfter := cert.NotAfter
+				_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+					ID:            uuid.New().String(),
+					Function:      "Certificate expiry warning",
+					Algorithm:     certAlgoName(cert),
+					Subject:       cert.Subject.String(),
+					NotAfter:      &notAfter,
+					ChainPosition: position,
+					ChainDepth:    chainLen,
+					Purpose:       fmt.Sprintf("Certificate expires in %d days", daysRemaining),
+				}, findings)
+			}
+		}
+
+		// SAN extraction (leaf only)
+		if i == 0 && (len(cert.DNSNames) > 0 || len(cert.IPAddresses) > 0) {
+			var sans []string
+			sans = append(sans, cert.DNSNames...)
+			for _, ip := range cert.IPAddresses {
+				sans = append(sans, ip.String())
+			}
+			_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+				ID:            uuid.New().String(),
+				Function:      "TLS certificate SANs",
+				Algorithm:     certAlgoName(cert),
+				Subject:       cert.Subject.String(),
+				SANs:          sans,
+				ChainPosition: position,
+				ChainDepth:    chainLen,
+				Purpose:       fmt.Sprintf("Certificate has %d SANs", len(sans)),
+			}, findings)
+		}
 	}
 }
 
@@ -523,6 +822,68 @@ func chainPosition(index, chainLen int, cert *x509.Certificate) (position, funct
 // isSelfSigned checks if a certificate is self-signed by comparing raw issuer and subject bytes.
 func isSelfSigned(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawIssuer, cert.RawSubject)
+}
+
+// cipherSuiteKeyExchange parses a TLS cipher suite name and returns the key exchange
+// mechanism and whether it provides forward secrecy.
+func cipherSuiteKeyExchange(suiteName string) (keyExchange string, pfs bool) {
+	upper := strings.ToUpper(suiteName)
+	switch {
+	case strings.HasPrefix(upper, "TLS_AES_") || strings.HasPrefix(upper, "TLS_CHACHA20_"):
+		return "TLS13", true
+	case strings.Contains(upper, "_ECDHE_"):
+		return "ECDHE", true
+	case strings.Contains(upper, "_DHE_"):
+		return "DHE", true
+	default:
+		return "RSA", false
+	}
+}
+
+// isWeakSignatureAlgorithm returns true if the certificate signature algorithm is
+// considered weak (MD2, MD5, SHA-1 based).
+func isWeakSignatureAlgorithm(algo x509.SignatureAlgorithm) bool {
+	switch algo {
+	case x509.MD2WithRSA, x509.MD5WithRSA, x509.SHA1WithRSA, x509.DSAWithSHA1, x509.ECDSAWithSHA1:
+		return true
+	default:
+		return false
+	}
+}
+
+// sigAlgoToPQCAlgorithm maps a Go x509.SignatureAlgorithm to a PQC registry algorithm name.
+func sigAlgoToPQCAlgorithm(algo x509.SignatureAlgorithm) string {
+	switch algo {
+	case x509.SHA1WithRSA, x509.ECDSAWithSHA1, x509.DSAWithSHA1:
+		return "SHA-1"
+	case x509.SHA256WithRSA, x509.SHA256WithRSAPSS, x509.ECDSAWithSHA256:
+		return "SHA-256"
+	case x509.SHA384WithRSA, x509.SHA384WithRSAPSS, x509.ECDSAWithSHA384:
+		return "SHA-384"
+	case x509.SHA512WithRSA, x509.SHA512WithRSAPSS, x509.ECDSAWithSHA512:
+		return "SHA-512"
+	case x509.PureEd25519:
+		return "Ed25519"
+	case x509.MD5WithRSA:
+		return "MD5"
+	case x509.MD2WithRSA:
+		return "MD2"
+	default:
+		return algo.String()
+	}
+}
+
+// allTLS12CipherSuiteIDs returns a combined list of all TLS 1.2 cipher suite IDs
+// from both secure and insecure suites.
+func allTLS12CipherSuiteIDs() []uint16 {
+	var ids []uint16
+	for _, s := range tls.CipherSuites() {
+		ids = append(ids, s.ID)
+	}
+	for _, s := range tls.InsecureCipherSuites() {
+		ids = append(ids, s.ID)
+	}
+	return ids
 }
 
 // tlsVersionName returns a human-readable TLS version string.

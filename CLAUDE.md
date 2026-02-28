@@ -48,7 +48,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `library.go`, `binary.go`, `kernel.go` — Libraries, binaries, kernel modules (Categories 2-4)
   - `package.go`, `config.go` — Package manager and config file scanning
   - `script.go`, `webapp.go` — Source code scanning (Categories 6-7)
-  - `process.go`, `network.go`, `protocol.go` — Runtime and network scanning (Categories 1, 8-9)
+  - `process.go`, `network.go`, `protocol.go` — Runtime and network scanning (Categories 1, 8-9); protocol.go includes enhanced TLS probing (cipher enumeration, version range, preference order, KX/PFS, chain validation)
   - `container.go`, `certstore.go` — Container and OS cert store scanning
   - `database.go`, `hsm.go`, `ldap.go`, `codesign.go` — Specialized scanners
   - `deps.go` — Go dependency crypto reachability analysis (direct/transitive/unreachable classification)
@@ -83,7 +83,7 @@ Worker count is capped by CPU count.
 
 ## Development Methodology
 
-The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-12, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
+The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-13, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
 
 ## Go Version
 

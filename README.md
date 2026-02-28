@@ -279,10 +279,17 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 - [x] `triton license show/verify` subcommands
 - [x] Guard-based enforcement on profiles, formats, modules, and subcommands
 
+### v2.4 Enhanced TLS Probing (Released)
+
+- [x] TLS version range probing (individual version testing)
+- [x] Cipher suite enumeration (all TLS 1.2 suites individually tested)
+- [x] Cipher preference order detection (iterative removal)
+- [x] Key exchange / forward secrecy analysis (ECDHE, DHE, RSA, TLS13)
+- [x] Enhanced certificate chain validation (weak signatures, expiry warnings, SANs)
+
 ### Future
 
-- [ ] Cloud KMS scanning — AWS KMS, Azure Key Vault, GCP KMS
-- [ ] Enhanced TLS probing — cipher preference order, chain validation
+_(none planned)_
 
 ## Licensing
 

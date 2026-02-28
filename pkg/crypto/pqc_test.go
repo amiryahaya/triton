@@ -45,7 +45,7 @@ func TestClassifyKnownAlgorithms(t *testing.T) {
 		{"ML-DSA", 0, SAFE},
 		{"SLH-DSA", 0, SAFE},
 		{"SPHINCS+", 0, SAFE},
-		{"FALCON", 0, SAFE},
+		{"FALCON", 0, SAFE}, // FALCON normalizes to FN-DSA
 		{"FrodoKEM", 0, SAFE},
 		{"BIKE", 0, SAFE},
 		{"HQC", 0, SAFE},
@@ -308,6 +308,36 @@ func TestClassifyNewRegistryEntries(t *testing.T) {
 			assert.Equal(t, tt.algorithm, info.Name)
 		})
 	}
+}
+
+func TestClassifyAlgorithm_FNDSA(t *testing.T) {
+	tests := []struct {
+		algorithm string
+		keySize   int
+		expected  PQCStatus
+		wantName  string
+	}{
+		{"FN-DSA", 0, SAFE, "FN-DSA"},
+		{"FN-DSA-512", 512, SAFE, "FN-DSA-512"},
+		{"FN-DSA-1024", 1024, SAFE, "FN-DSA-1024"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algorithm, func(t *testing.T) {
+			info := ClassifyAlgorithm(tt.algorithm, tt.keySize)
+			assert.Equal(t, tt.expected, info.Status)
+			assert.Equal(t, tt.wantName, info.Name)
+			assert.Equal(t, "Lattice", info.Family)
+			assert.True(t, info.NISTStandard, "FN-DSA should be NIST standard")
+		})
+	}
+}
+
+func TestClassifyAlgorithm_FALCON_NormalizesToFNDSA(t *testing.T) {
+	info := ClassifyAlgorithm("FALCON", 0)
+	assert.Equal(t, SAFE, info.Status)
+	assert.Equal(t, "FN-DSA", info.Name, "FALCON should normalize to FN-DSA")
+	assert.Equal(t, "Lattice", info.Family)
 }
 
 func TestClassifyDESVariantFamilyRules(t *testing.T) {

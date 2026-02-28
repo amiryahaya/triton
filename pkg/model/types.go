@@ -26,14 +26,47 @@ const (
 	TargetLDAP
 )
 
+// PolicyViolation holds a single policy rule violation for report rendering.
+type PolicyViolation struct {
+	RuleID   string `json:"ruleID"`
+	Severity string `json:"severity"`
+	Action   string `json:"action"`
+	Message  string `json:"message"`
+}
+
+// PolicyThresholdViolation holds a threshold violation for report rendering.
+type PolicyThresholdViolation struct {
+	Name     string `json:"name"`
+	Expected string `json:"expected"`
+	Actual   string `json:"actual"`
+	Message  string `json:"message"`
+}
+
+// PolicySystemEvaluation holds per-system policy evaluation results.
+type PolicySystemEvaluation struct {
+	SystemName          string                     `json:"systemName"`
+	Verdict             string                     `json:"verdict"`
+	Violations          []PolicyViolation          `json:"violations,omitempty"`
+	ThresholdViolations []PolicyThresholdViolation `json:"thresholdViolations,omitempty"`
+	FindingsChecked     int                        `json:"findingsChecked"`
+}
+
+// PolicyEvaluationResult holds policy evaluation data for report rendering.
+type PolicyEvaluationResult struct {
+	PolicyName        string                   `json:"policyName"`
+	Verdict           string                   `json:"verdict"`
+	SystemEvaluations []PolicySystemEvaluation `json:"systemEvaluations,omitempty"`
+}
+
 // ScanResult is the top-level container for all scan output.
 type ScanResult struct {
-	ID             string       `json:"id"`
-	PreviousScanID string       `json:"previousScanID,omitempty"`
-	Metadata       ScanMetadata `json:"metadata"`
-	Systems        []System     `json:"systems"`
-	Findings       []Finding    `json:"findings"`
-	Summary        Summary      `json:"summary"`
+	ID               string                  `json:"id"`
+	PreviousScanID   string                  `json:"previousScanID,omitempty"`
+	Metadata         ScanMetadata            `json:"metadata"`
+	Systems          []System                `json:"systems"`
+	Findings         []Finding               `json:"findings"`
+	Summary          Summary                 `json:"summary"`
+	PolicyEvaluation *PolicyEvaluationResult `json:"policyEvaluation,omitempty"`
 }
 
 // ScanMetadata captures scan execution context.

@@ -477,6 +477,43 @@ func TestOIDForAlgorithm_Unknown(t *testing.T) {
 	assert.Equal(t, "", oid)
 }
 
+func TestLookupOID_FNDSA(t *testing.T) {
+	tests := []struct {
+		oid  string
+		algo string
+	}{
+		{"2.16.840.1.101.3.4.3.32", "FN-DSA-512"},
+		{"2.16.840.1.101.3.4.3.33", "FN-DSA-1024"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algo, func(t *testing.T) {
+			entry, ok := LookupOID(tt.oid)
+			require.True(t, ok, "OID %s should be found", tt.oid)
+			assert.Equal(t, tt.algo, entry.Algorithm)
+			assert.Equal(t, "Lattice", entry.Family)
+			assert.Equal(t, SAFE, entry.Status)
+		})
+	}
+}
+
+func TestOIDForAlgorithm_FNDSA(t *testing.T) {
+	tests := []struct {
+		algorithm string
+		wantOID   string
+	}{
+		{"FN-DSA-512", "2.16.840.1.101.3.4.3.32"},
+		{"FN-DSA-1024", "2.16.840.1.101.3.4.3.33"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.algorithm, func(t *testing.T) {
+			oid := OIDForAlgorithm(tt.algorithm)
+			assert.Equal(t, tt.wantOID, oid, "OID for %s", tt.algorithm)
+		})
+	}
+}
+
 func TestLookupOID_Classical(t *testing.T) {
 	entry, ok := LookupOID("1.2.840.113549.1.1.1")
 	require.True(t, ok)

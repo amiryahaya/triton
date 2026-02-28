@@ -271,6 +271,275 @@ func TestEvaluate_BuiltinNACSA(t *testing.T) {
 	assert.True(t, len(eval.Violations) > 0)
 }
 
+func TestEvaluateSystem_BasicViolation(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:        "no-unsafe",
+				Severity:  "error",
+				Condition: Condition{PQCStatus: "UNSAFE"},
+				Action:    "fail",
+			},
+		},
+	}
+
+	sys := &model.System{
+		Name: "Test System",
+		CryptoAssets: []model.CryptoAsset{
+			{Algorithm: "DES", PQCStatus: "UNSAFE", KeySize: 56},
+			{Algorithm: "AES-256-GCM", PQCStatus: "SAFE", KeySize: 256},
+		},
+	}
+
+	eval := EvaluateSystem(pol, sys)
+	assert.Equal(t, VerdictFail, eval.Verdict)
+	assert.Len(t, eval.Violations, 1)
+	assert.Equal(t, 2, eval.FindingsChecked)
+}
+
+func TestEvaluateSystem_Pass(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:        "no-unsafe",
+				Severity:  "error",
+				Condition: Condition{PQCStatus: "UNSAFE"},
+				Action:    "fail",
+			},
+		},
+	}
+
+	sys := &model.System{
+		Name: "Safe System",
+		CryptoAssets: []model.CryptoAsset{
+			{Algorithm: "AES-256-GCM", PQCStatus: "SAFE", KeySize: 256},
+			{Algorithm: "ML-KEM-768", PQCStatus: "SAFE"},
+		},
+	}
+
+	eval := EvaluateSystem(pol, sys)
+	assert.Equal(t, VerdictPass, eval.Verdict)
+	assert.Empty(t, eval.Violations)
+}
+
+func TestEvaluate_PerSystemResults(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:        "no-unsafe",
+				Severity:  "error",
+				Condition: Condition{PQCStatus: "UNSAFE"},
+				Action:    "fail",
+			},
+		},
+	}
+
+	result := testResult()
+	eval := Evaluate(pol, result)
+
+	// Should have system evaluations from GroupFindingsIntoSystems
+	assert.NotEmpty(t, eval.SystemEvaluations)
+
+	// Verify per-system verdicts exist with names
+	for _, se := range eval.SystemEvaluations {
+		assert.NotEmpty(t, se.SystemName, "system name should not be empty")
+		assert.Contains(t, []Verdict{VerdictPass, VerdictWarn, VerdictFail}, se.Verdict)
+	}
+}
+
+func TestMatchesConditionForAsset_SkipsModuleFilter(t *testing.T) {
+	asset := &model.CryptoAsset{
+		Algorithm: "DES",
+		PQCStatus: "UNSAFE",
+	}
+
+	// Rule with Module filter should NOT match in asset context
+	cond := &Condition{PQCStatus: "UNSAFE", Module: "certificates"}
+	assert.False(t, matchesConditionForAsset(asset, cond),
+		"should skip rules with Module filter in asset context")
+
+	// Rule with Category filter should NOT match in asset context
+	cond2 := &Condition{PQCStatus: "UNSAFE", Category: 5}
+	assert.False(t, matchesConditionForAsset(asset, cond2),
+		"should skip rules with Category filter in asset context")
+
+	// Rule without Module/Category filter should match
+	cond3 := &Condition{PQCStatus: "UNSAFE"}
+	assert.True(t, matchesConditionForAsset(asset, cond3))
+}
+
+func TestEvaluateSystem_ModuleFilteredRulesSkipped(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:        "cert-unsafe",
+				Severity:  "error",
+				Condition: Condition{PQCStatus: "UNSAFE", Module: "certificates"},
+				Action:    "fail",
+			},
+		},
+	}
+
+	sys := &model.System{
+		Name: "Test System",
+		CryptoAssets: []model.CryptoAsset{
+			{Algorithm: "DES", PQCStatus: "UNSAFE"},
+		},
+	}
+
+	eval := EvaluateSystem(pol, sys)
+	// Rule has Module filter, so it should not apply at asset level
+	assert.Equal(t, VerdictPass, eval.Verdict)
+	assert.Empty(t, eval.Violations)
+}
+
+func TestToModelResult(t *testing.T) {
+	eval := &EvaluationResult{
+		PolicyName: "test-policy",
+		Verdict:    VerdictFail,
+		SystemEvaluations: []SystemEvaluation{
+			{
+				SystemName:      "TLS Service",
+				Verdict:         VerdictFail,
+				FindingsChecked: 3,
+				Violations: []Violation{
+					{RuleID: "r1", Severity: "error", Action: "fail", Message: "bad algo"},
+				},
+				ThresholdViolations: []ThresholdViolation{
+					{Name: "max_unsafe", Expected: "<= 0", Actual: "1", Message: "too many"},
+				},
+			},
+		},
+	}
+
+	mr := eval.ToModelResult()
+	require.NotNil(t, mr)
+	assert.Equal(t, "test-policy", mr.PolicyName)
+	assert.Equal(t, "FAIL", mr.Verdict)
+	require.Len(t, mr.SystemEvaluations, 1)
+	assert.Equal(t, "TLS Service", mr.SystemEvaluations[0].SystemName)
+	assert.Equal(t, "FAIL", mr.SystemEvaluations[0].Verdict)
+	assert.Len(t, mr.SystemEvaluations[0].Violations, 1)
+	assert.Len(t, mr.SystemEvaluations[0].ThresholdViolations, 1)
+	assert.Equal(t, "r1", mr.SystemEvaluations[0].Violations[0].RuleID)
+}
+
+func TestMatchSystemPattern(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		want    bool
+	}{
+		{"TLS Service (localhost:443)", "TLS*", true},
+		{"TLS Service (localhost:443)", "*443*", true},
+		{"SSH Service (10.0.0.1:22)", "SSH*", true},
+		{"Files in /etc/ssl", "Files*", true},
+		{"TLS Service (localhost:443)", "SSH*", false},
+		{"any", "", true},
+		{"any", "*", true},
+		{"TLS Service", "tls*", true},         // case-insensitive
+		{"TLS Service", "TLS Service", true},  // exact match
+		{"TLS Service", "SSH Service", false}, // exact non-match
+		{"", "TLS*", false},                   // empty name
+		{"TLS Service", "**", true},           // double star
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+"_"+tt.pattern, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchSystemPattern(tt.name, tt.pattern))
+		})
+	}
+}
+
+func TestEvaluate_SystemPatternRule(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:       "scripts-unsafe",
+				Severity: "error",
+				Condition: Condition{
+					PQCStatus:     "UNSAFE",
+					SystemPattern: "Files*",
+				},
+				Action: "fail",
+			},
+		},
+	}
+
+	result := &model.ScanResult{
+		ID: "test",
+		Findings: []model.Finding{
+			{
+				ID:     "f1",
+				Source: model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+				Module: "certificates",
+				CryptoAsset: &model.CryptoAsset{
+					Algorithm:  "DES",
+					PQCStatus:  "UNSAFE",
+					SystemName: "Files in /etc/ssl",
+				},
+			},
+			{
+				ID:     "f2",
+				Source: model.FindingSource{Type: "file", Path: "/home/user/key.pem"},
+				Module: "keys",
+				CryptoAsset: &model.CryptoAsset{
+					Algorithm:  "DES",
+					PQCStatus:  "UNSAFE",
+					SystemName: "Files in /home/user",
+				},
+			},
+		},
+		Summary: model.Summary{Unsafe: 2},
+	}
+
+	eval := Evaluate(pol, result)
+	// Both findings should match the SystemPattern "Files*"
+	assert.Equal(t, VerdictFail, eval.Verdict)
+	assert.Len(t, eval.Violations, 2)
+}
+
+func TestEvaluateSystem_PerSystemThresholds(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Threshold Test",
+		Thresholds: Thresholds{
+			PerSystem: []SystemThresholds{
+				{
+					SystemPattern:  "*",
+					MaxUnsafeCount: intPtr(0),
+					MinSafePercent: 50.0,
+				},
+			},
+		},
+	}
+
+	sys := &model.System{
+		Name: "Mixed System",
+		CryptoAssets: []model.CryptoAsset{
+			{Algorithm: "DES", PQCStatus: "UNSAFE"},
+			{Algorithm: "AES-256-GCM", PQCStatus: "SAFE"},
+		},
+	}
+
+	eval := EvaluateSystem(pol, sys)
+	assert.Equal(t, VerdictFail, eval.Verdict)
+	// 50% safe (1/2) == 50.0% threshold (strict less-than), so only MaxUnsafeCount triggers
+	require.Len(t, eval.ThresholdViolations, 1)
+	assert.Equal(t, "per_system_max_unsafe", eval.ThresholdViolations[0].Name)
+	assert.Equal(t, "1", eval.ThresholdViolations[0].Actual)
+}
+
 func TestMatchesFamily(t *testing.T) {
 	tests := []struct {
 		algo   string

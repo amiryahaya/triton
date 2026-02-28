@@ -448,6 +448,11 @@ func TestCycloneDX_PQCAlgorithm_QuantumLevels(t *testing.T) {
 	}
 }
 
+func TestDeriveNISTQuantumLevel_FNDSA(t *testing.T) {
+	assert.Equal(t, 1, deriveNISTQuantumLevel("FN-DSA-512"))
+	assert.Equal(t, 5, deriveNISTQuantumLevel("FN-DSA-1024"))
+}
+
 func TestEndToEnd_FindingCompliance_RSA2048(t *testing.T) {
 	// RSA-2048 → TRANSITIONAL, not CNSA 2.0, NIST 2030/2035, NACSA "Dalam Peralihan"
 	asset := &model.CryptoAsset{

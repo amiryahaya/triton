@@ -1,30 +1,32 @@
 # Triton System Architecture
 
-**Version:** 2.0
-**Status:** MVP — Standalone CLI
-**Last Updated:** 2026-02-26
+**Version:** 3.0
+**Status:** Enterprise — CLI + Server + Web UI
+**Last Updated:** 2026-02-28
 
 ---
 
 ## 1. System Overview
 
-Triton is a standalone CLI tool that scans systems for cryptographic assets and generates reports for Malaysian government PQC (Post-Quantum Cryptography) compliance assessment.
+Triton is an enterprise-grade CLI + server tool that scans systems for cryptographic assets and generates reports for Malaysian government PQC (Post-Quantum Cryptography) compliance assessment.
 
-**MVP scope:** Single-machine scanner producing Jadual 1 (SBOM) and Jadual 2 (CBOM) CSV reports.
-
-**Future scope:** Client-server architecture where agents on multiple machines report to a central dashboard (see §12).
+**Current scope:** 18 scanner modules across 6 target types (filesystem, network, process, database, HSM, LDAP), REST API server with PostgreSQL storage, policy engine with per-system evaluation, web UI dashboard, and multi-format report generation (Jadual 1/2 CSV, CycloneDX CBOM v1.7, HTML, SARIF, JSON).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Triton CLI                               │
+│                        Triton CLI / Server                      │
 │                                                                 │
 │  triton --profile comprehensive --targets 192.168.1.0/24        │
+│  triton server --port 8080                                      │
 │                                                                 │
 │  Inputs:                        Outputs:                        │
 │  • Filesystem paths             • Jadual 1 CSV (SBOM)           │
 │  • Network ranges               • Jadual 2 CSV (CBOM)           │
-│  • Process scope                • JSON (Triton schema)           │
-│  • Scan profile                 • HTML dashboard                 │
+│  • Process scope                • CycloneDX CBOM v1.7 JSON      │
+│  • Database endpoints           • HTML dashboard                 │
+│  • HSM interfaces               • SARIF (CI/CD integration)     │
+│  • LDAP directories             • Web UI dashboard               │
+│  • Scan profile                 • Policy evaluation results      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -38,69 +40,81 @@ Triton is a standalone CLI tool that scans systems for cryptographic assets and 
                            │  Cobra + TUI  │
                            └──────┬───────┘
                                   │
-                           ┌──────▼───────┐
-                           │ Config Loader │
-                           │  (internal/   │
-                           │   config/)    │
-                           └──────┬───────┘
-                                  │
-                    ┌─────────────▼─────────────┐
-                    │      Scanner Engine        │
-                    │    (pkg/scanner/engine.go)  │
-                    │                             │
-                    │  • Module registration       │
-                    │  • Concurrent execution      │
-                    │  • Finding collection        │
-                    │  • Progress reporting        │
-                    └──────┬──────┬──────┬───────┘
-                           │      │      │
-              ┌────────────┘      │      └────────────┐
-              │                   │                    │
-     ┌────────▼────────┐ ┌───────▼────────┐ ┌────────▼────────┐
-     │  Passive/File   │ │  Active/Runtime │ │  Passive/Code   │
-     │  Modules        │ │  Modules        │ │  Modules        │
-     │                 │ │                  │ │                 │
-     │ • certificate   │ │ • process (1)    │ │ • script (6)   │
-     │ • key           │ │ • network (8)    │ │ • webapp (7)   │
-     │ • library (3)   │ │ • protocol (9)   │ │                │
-     │ • binary (2)    │ │                  │ │                 │
-     │ • kernel (4)    │ │                  │ │                 │
-     │ • package       │ │                  │ │                 │
-     └────────┬────────┘ └───────┬─────────┘ └────────┬────────┘
-              │                  │                     │
-              └──────────────────┼─────────────────────┘
+                    ┌─────────────┼─────────────┐
+                    │             │              │
+             ┌──────▼───────┐ ┌──▼───────┐ ┌───▼──────────┐
+             │ Config Loader│ │  Server  │ │  Agent Mode  │
+             │  (internal/  │ │ (pkg/    │ │ (pkg/agent/) │
+             │   config/)   │ │ server/) │ │              │
+             └──────┬───────┘ └──┬───────┘ └───┬──────────┘
+                    │            │              │
+                    └────────────┼──────────────┘
                                  │
-                    ┌────────────▼────────────┐
-                    │    Finding Channel       │
-                    │    chan *Finding          │
-                    └────────────┬────────────┘
+                    ┌────────────▼────────────────┐
+                    │       Scanner Engine         │
+                    │    (pkg/scanner/engine.go)    │
+                    │                              │
+                    │  • 18 scanner modules         │
+                    │  • 6 target types             │
+                    │  • Concurrent execution       │
+                    │  • Finding collection         │
+                    └──┬──────┬──────┬──────┬──────┘
+                       │      │      │      │
+          ┌────────────┘      │      │      └─────────────┐
+          │            ┌──────┘      └──────┐             │
+ ┌────────▼────────┐ ┌─▼──────────────┐ ┌──▼───────────┐ ┌▼────────────────┐
+ │  Passive/File   │ │ Active/Runtime  │ │ Passive/Code │ │ Specialized      │
+ │  Modules        │ │ Modules         │ │ Modules      │ │ Modules          │
+ │                 │ │                 │ │              │ │                  │
+ │ • certificate(5)│ │ • process (1)   │ │ • script (6) │ │ • database       │
+ │ • key         (5)│ │ • network (8)   │ │ • webapp (7) │ │ • hsm            │
+ │ • library     (3)│ │ • protocol (9)  │ │              │ │ • ldap           │
+ │ • binary      (2)│ │                 │ │              │ │ • codesign       │
+ │ • kernel      (4)│ │                 │ │              │ │ • certstore      │
+ │ • package       │ │                 │ │              │ │ • container      │
+ │ • config        │ │                 │ │              │ │                  │
+ └────────┬────────┘ └───────┬────────┘ └──────┬───────┘ └────────┬────────┘
+          │                  │                  │                  │
+          └──────────────────┼──────────────────┼──────────────────┘
+                             │                  │
+                    ┌────────▼──────────────────▼┐
+                    │      Finding Channel        │
+                    │      chan *Finding           │
+                    └────────────┬────────────────┘
                                  │
                     ┌────────────▼────────────┐
                     │   PQC Classifier         │
                     │   (pkg/crypto/)           │
                     │                          │
                     │  • Algorithm registry     │
-                    │  • Status classification  │
+                    │  • CAMM assessment (0-3)  │
+                    │  • CNSA 2.0 / NIST IR8547 │
                     │  • Crypto-agility score   │
-                    │  • Migration priority     │
                     └────────────┬─────────────┘
                                  │
-                    ┌────────────▼────────────┐
-                    │   System Grouper         │
-                    │   (pkg/report/grouper.go) │
-                    │                          │
-                    │  Findings → Systems       │
-                    │  (file-level → app-level) │
-                    └────────────┬─────────────┘
+               ┌─────────────────┼─────────────────┐
+               │                 │                  │
+    ┌──────────▼──────────┐ ┌───▼──────────┐ ┌────▼──────────┐
+    │   Policy Engine      │ │ System       │ │ Diff/Trend    │
+    │   (pkg/policy/)      │ │ Grouper      │ │ (pkg/diff/)   │
+    │                      │ │ (pkg/report/ │ │               │
+    │  • Per-system eval   │ │  grouper.go) │ │ Scan-to-scan  │
+    │  • Thresholds        │ │              │ │ comparison     │
+    │  • Builtin policies  │ │ Findings →   │ │               │
+    │  • YAML custom rules │ │ Systems      │ │               │
+    └──────────┬───────────┘ └───┬──────────┘ └────┬──────────┘
+               │                 │                  │
+               └─────────────────┼──────────────────┘
                                  │
                     ┌────────────▼────────────┐
                     │   Report Generator       │
                     │   (pkg/report/)           │
                     │                          │
-                    │  • Jadual 1 CSV (SBOM)    │
-                    │  • Jadual 2 CSV (CBOM)    │
-                    │  • JSON (Triton schema)   │
+                    │  • Jadual 1/2 CSV         │
+                    │  • CycloneDX CBOM v1.7    │
                     │  • HTML dashboard         │
+                    │  • SARIF (CI/CD)          │
+                    │  • JSON (Triton schema)   │
                     └──────────────────────────┘
 ```
 
@@ -295,10 +309,13 @@ const (
     TargetFilesystem ScanTargetType = iota
     TargetNetwork
     TargetProcess
+    TargetDatabase
+    TargetHSM
+    TargetLDAP
 )
 ```
 
-### 4.2 Module Registry
+### 4.2 Module Registry (18 Modules)
 
 | Module | Category | Target Type | Scanning Cat. | Requires Root |
 |--------|----------|-------------|---------------|---------------|
@@ -308,14 +325,22 @@ const (
 | BinaryModule | PassiveFile | Filesystem | 2 | No |
 | KernelModule | PassiveFile | Filesystem | 4 | No |
 | PackageModule | PassiveFile | Process | — | No |
+| ConfigModule | PassiveFile | Filesystem | — | No |
 | ProcessModule | ActiveRuntime | Process | 1 | Partial** |
 | ScriptModule | PassiveCode | Filesystem | 6 | No |
 | WebAppModule | PassiveCode | Filesystem | 7 | No |
 | NetworkModule | ActiveRuntime | Network | 8 | Partial** |
 | ProtocolModule | ActiveNetwork | Network | 9 | No |
+| ContainerModule | PassiveFile | Filesystem | — | No |
+| CertStoreModule | PassiveFile | Filesystem | 5 | Partial** |
+| DatabaseModule | ActiveRuntime | Database | — | No*** |
+| HSMModule | ActiveRuntime | HSM | — | No*** |
+| LDAPModule | ActiveNetwork | LDAP | — | No |
+| CodeSignModule | PassiveFile | Filesystem | — | No |
 
 \* Key files may have restrictive permissions
-\** Full process/network enumeration may require root; partial results available without
+\** Full process/network/certstore enumeration may require root; partial results available without
+\*** Requires appropriate credentials for database/HSM access
 
 ### 4.3 Module Lifecycle
 
@@ -561,7 +586,7 @@ Every discovered algorithm is classified into one of four levels:
 
 | Status | Meaning | Action | Examples |
 |--------|---------|--------|----------|
-| **SAFE** | Quantum-resistant or adequate key size | No action needed | ML-KEM, ML-DSA, AES-256, SHA-384, RSA-4096 |
+| **SAFE** | Quantum-resistant or adequate key size | No action needed | ML-KEM, ML-DSA, SLH-DSA, FN-DSA, AES-256, SHA-384, RSA-4096 |
 | **TRANSITIONAL** | Currently secure, vulnerable to future quantum | Plan migration | RSA-2048, ECDSA-P256, Ed25519, AES-128 |
 | **DEPRECATED** | Known weaknesses, quantum accelerates risk | Replace soon | RSA-1024, SHA-1, 3DES, DSA |
 | **UNSAFE** | Broken or trivially broken | Replace immediately | DES, RC4, MD4, MD5, NULL cipher |
@@ -571,24 +596,28 @@ Classification uses the algorithm registry in `pkg/crypto/pqc.go`, matching by:
 2. Algorithm family + key size
 3. Pattern matching (normalized names)
 
-### 7.2 Crypto-Agility Assessment
+### 7.2 Crypto-Agility Assessment (CAMM Framework)
 
-Crypto-agility measures a system's ability to migrate to PQC algorithms. This is required for Jadual 2's "Sokongan Crypto-Agility" column.
+Crypto-agility is assessed using the CAMM (Cryptographic Agility Maturity Model) framework, Levels 0-4:
 
-**Assessment criteria:**
+| CAMM Level | Name | Auto-Assessment | Description |
+|------------|------|-----------------|-------------|
+| 0 | Unknown | Yes | No crypto inventory available |
+| 1 | Inventory | Yes | Complete crypto asset inventory exists |
+| 2 | Managed | Yes | PQC-safe algorithms ≥50%, diversity in algorithms |
+| 3 | Automated | Yes (partial) | Rotation automation detected (certbot/ACME, Vault PKI, cert-manager) |
+| 4 | Optimized | No (manual) | Full PQC migration with continuous monitoring |
 
-| Factor | Indicator | Score |
-|--------|-----------|-------|
-| Algorithm diversity | System supports multiple algorithms (e.g., RSA + ECDSA host keys) | +20 |
-| Library currency | Crypto library version supports PQC (OpenSSL 3.x, etc.) | +30 |
-| Protocol flexibility | TLS 1.3 supported (extensible cipher negotiation) | +20 |
-| Configuration control | Algorithm selection is configurable (not hardcoded) | +15 |
-| Hybrid PQC detected | System already using hybrid classical+PQC | +15 |
+**Level 3 auto-detection** scans for rotation tool evidence in findings from configs, scripts, and containers modules:
+- ACME/certbot: `certbot`, `acme.sh`, `letsencrypt`, `dehydrated`
+- Vault PKI: `vault`, `pki/issue`, `transit/`, `VAULT_ADDR`
+- cert-manager: `cert-manager`, `ClusterIssuer`, `cert-manager.io`
+- Automated renewal: `renew`, `rotate`, `auto-renew`
 
 **Output values** for Jadual 2 column:
-- `"Ya (pelbagai algoritma disokong)"` — High agility (score ≥ 60)
-- `"Terhad (algoritma klasik; tiada hibrid PQC dikesan)"` — Limited (score 30-59)
-- `"Tidak (algoritma tetap, tiada sokongan PQC)"` — None (score < 30)
+- `"Ya (pelbagai algoritma disokong)"` — High agility (CAMM Level ≥ 2)
+- `"Terhad (algoritma klasik; tiada hibrid PQC dikesan)"` — Limited (CAMM Level 1)
+- `"Tidak (algoritma tetap, tiada sokongan PQC)"` — None (CAMM Level 0)
 
 ### 7.3 Migration Priority Scoring
 
@@ -607,6 +636,17 @@ Where:
 ---
 
 ## 8. Report Format Mapping
+
+### 8.0 Supported Output Formats
+
+| Format | File | Description |
+|--------|------|-------------|
+| Jadual 1 CSV (SBOM) | `pkg/report/jadual.go` | Malaysian government system-level inventory |
+| Jadual 2 CSV (CBOM) | `pkg/report/jadual.go` | Malaysian government crypto-asset inventory |
+| CycloneDX CBOM v1.7 | `pkg/report/cyclonedx.go` | Standard CBOM with crypto object modeling, NIST quantum levels |
+| HTML Dashboard | `pkg/report/generator.go` | PQC dashboard with CAMM scoring, per-system policy results |
+| SARIF | `pkg/report/sarif.go` | Static Analysis Results Interchange Format for CI/CD |
+| JSON | `pkg/report/json.go` | Triton native schema export |
 
 ### 8.1 Jadual 1 (SBOM) — System Level
 
@@ -715,13 +755,21 @@ BLAKE[23]
 HMAC[-_]?(SHA|MD5)
 ```
 
-**PQC algorithms (detect early adoption):**
+**PQC algorithms (all 4 NIST standards):**
 ```
-ML[-_]?KEM|CRYSTALS[-_]?Kyber|Kyber(512|768|1024)
-ML[-_]?DSA|CRYSTALS[-_]?Dilithium|Dilithium[2345]
-SLH[-_]?DSA|SPHINCS\+?
-FN[-_]?DSA|FALCON[-_]?(512|1024)
+ML[-_]?KEM[-_]?(512|768|1024)?|CRYSTALS[-_]?Kyber|Kyber(512|768|1024)
+ML[-_]?DSA[-_]?(44|65|87)?|CRYSTALS[-_]?Dilithium|Dilithium[2345]
+SLH[-_]?DSA[-_]?(128[sf]|192[sf]|256[sf])?|SPHINCS\+?
+FN[-_]?DSA[-_]?(512|1024)?|FALCON[-_]?(512|1024)
 ```
+
+**NIST PQC Standards Coverage:**
+| Standard | FIPS | Algorithms | Status |
+|----------|------|-----------|--------|
+| ML-KEM | FIPS 203 | ML-KEM-512/768/1024 | SAFE |
+| ML-DSA | FIPS 204 | ML-DSA-44/65/87 | SAFE |
+| SLH-DSA | FIPS 205 | SLH-DSA-128s through 256f | SAFE |
+| FN-DSA | FIPS 206 | FN-DSA-512/1024 | SAFE |
 
 **Protocol patterns:**
 ```
@@ -756,9 +804,57 @@ IPsec|IKEv[12]
 
 ---
 
-## 10. Security Considerations
+## 10. Policy Engine
 
-### 10.1 Principle: Read-Only, No Modification
+### 10.1 Policy Definition
+
+Policies are defined in YAML and support rules (per-finding conditions) and thresholds (aggregate limits):
+
+```yaml
+version: "1"
+name: "my-policy"
+rules:
+  - id: no-unsafe
+    severity: error
+    condition:
+      pqc_status: UNSAFE
+    action: fail
+  - id: no-small-rsa
+    severity: error
+    condition:
+      algorithm_family: RSA
+      key_size_below: 4096
+      system_pattern: "TLS*"     # Only apply to TLS systems
+    action: fail
+thresholds:
+  max_unsafe_count: 0
+  min_nacsa_readiness: 60.0
+  per_system:
+    - system_pattern: "*"
+      max_unsafe_count: 0
+      min_safe_percent: 50.0
+```
+
+### 10.2 Per-System Evaluation
+
+The policy engine evaluates rules both at the aggregate level (all findings) and per-system level (grouped by `model.System`):
+
+- **SystemPattern** in rule conditions — glob-style matching (`TLS*`, `*ssl*`, `Files*`) against system names
+- **Per-system thresholds** — max_unsafe_count, max_deprecated_count, min_safe_percent per system
+- **Verdict escalation** — worst per-system verdict escalates overall verdict (PASS < WARN < FAIL)
+
+### 10.3 Builtin Policies
+
+| Policy | File | Description |
+|--------|------|-------------|
+| nacsa-2030 | `pkg/policy/builtin/nacsa-2030.yaml` | NACSA PQC Migration Framework compliance |
+| cnsa-2.0 | `pkg/policy/builtin/cnsa-2.0.yaml` | NSA CNSA 2.0 requirements |
+
+---
+
+## 11. Security Considerations
+
+### 11.1 Principle: Read-Only, No Modification
 
 Triton **never modifies** the target system. It is a read-only assessment tool.
 
@@ -768,7 +864,7 @@ Triton **never modifies** the target system. It is a read-only assessment tool.
 - No services are started or stopped
 - Network probes are read-only (TLS handshake, SSH banner)
 
-### 10.2 Privilege Requirements
+### 11.2 Privilege Requirements
 
 | Operation | Minimum Privilege | Degradation |
 |-----------|-------------------|-------------|
@@ -778,15 +874,19 @@ Triton **never modifies** the target system. It is a read-only assessment tool.
 | Network port listing (category 8) | User (partial) / root (full) | May miss some listeners |
 | Network probing (category 9) | User | No degradation |
 | Kernel module scanning (category 4) | User read access | Skips if /lib/modules unreadable |
+| OS certificate store | User (partial) / root (full) | May miss system-level certs |
+| Database encryption auditing | Database credentials | Skips if connection fails |
+| HSM scanning | PKCS#11 credentials | Skips if slot unavailable |
+| LDAP scanning | LDAP bind credentials | Skips if bind fails |
 
-### 10.3 Output Security
+### 11.3 Output Security
 
 - Report files written with `0640` permissions (owner read/write, group read)
 - No credentials, private key material, or sensitive data included in reports
 - Private key findings record only: type, algorithm, key size, file path
 - Certificate findings exclude private key components
 
-### 10.4 Network Scanning Safety
+### 11.4 Network Scanning Safety
 
 - Active network scanning (categories 8, 9) is **off by default**
 - Requires explicit `--targets` flag to enable
@@ -797,7 +897,7 @@ Triton **never modifies** the target system. It is a read-only assessment tool.
 
 ---
 
-## 11. Package Structure
+## 12. Package Structure
 
 ```
 triton/
@@ -805,8 +905,10 @@ triton/
 ├── cmd/
 │   └── root.go                      # Cobra CLI + BubbleTea TUI
 ├── internal/
-│   └── config/
-│       └── config.go                # Profile-based config, scan targets
+│   ├── config/
+│   │   └── config.go                # Profile-based config, scan targets
+│   └── version/
+│       └── version.go               # Version constant
 ├── pkg/
 │   ├── model/
 │   │   └── types.go                 # ScanResult, System, Finding, CryptoAsset
@@ -818,25 +920,51 @@ triton/
 │   │   ├── binary.go                # Category 2: binaries on disk
 │   │   ├── kernel.go                # Category 4: kernel modules (Linux)
 │   │   ├── package.go               # Package manager queries
+│   │   ├── config.go                # Config file scanner (sshd, crypto-policies, certbot)
 │   │   ├── process.go               # Category 1: binaries in use
 │   │   ├── script.go                # Category 6: executable scripts
 │   │   ├── webapp.go                # Category 7: web application code
 │   │   ├── network.go               # Category 8: network applications
-│   │   └── protocol.go              # Category 9: network protocol probing
+│   │   ├── protocol.go              # Category 9: network protocol probing
+│   │   ├── container.go             # Dockerfile/compose/k8s config scanning
+│   │   ├── certstore.go             # OS certificate store scanning
+│   │   ├── database.go              # Database encryption auditing (TDE)
+│   │   ├── hsm.go                   # PKCS#11 / HSM scanning
+│   │   ├── ldap.go                  # LDAP directory certificate scanning
+│   │   ├── codesign.go              # Code signing verification
+│   │   ├── doctor.go                # Pre-scan environment check
+│   │   └── walker.go                # Filesystem walker utility
 │   ├── crypto/
-│   │   ├── pqc.go                   # Algorithm registry, PQC classification
+│   │   ├── pqc.go                   # Algorithm registry (~80+ algorithms), PQC classification
+│   │   ├── oid.go                   # ASN.1 OID → algorithm mapping (ML-KEM, ML-DSA, SLH-DSA, FN-DSA)
+│   │   ├── camm.go                  # CAMM Level 0-3 auto-assessment
 │   │   ├── agility.go               # Crypto-agility assessment
 │   │   └── rules.go                 # Detection pattern registry
+│   ├── policy/
+│   │   ├── policy.go                # Policy types (rules, conditions, thresholds)
+│   │   ├── engine.go                # Policy evaluation engine (per-system + aggregate)
+│   │   └── builtin/                 # Embedded policies (nacsa-2030, cnsa-2.0)
+│   ├── diff/
+│   │   └── diff.go                  # Scan diff/trend analysis
+│   ├── store/
+│   │   ├── store.go                 # Store interface (8 methods)
+│   │   └── postgres.go              # PostgreSQL implementation (pgx v5)
+│   ├── server/
+│   │   ├── server.go                # REST API server (go-chi/chi/v5)
+│   │   └── ui/                      # Embedded web UI (vanilla JS + Chart.js)
+│   ├── agent/
+│   │   └── agent.go                 # HTTP agent for remote scan submission
 │   └── report/
-│       ├── generator.go             # Report orchestrator
+│       ├── generator.go             # HTML report with PQC dashboard + per-system policy
+│       ├── cyclonedx.go             # CycloneDX CBOM v1.7 with crypto objects
 │       ├── jadual.go                # Jadual 1 (SBOM) + Jadual 2 (CBOM) CSV
 │       ├── grouper.go               # Finding → System grouper
-│       ├── json.go                  # Triton JSON schema export
-│       └── html.go                  # HTML dashboard
+│       ├── sarif.go                 # SARIF output for CI/CD
+│       └── json.go                  # Triton JSON schema export
 ├── test/
 │   └── fixtures/                    # Test data (certs, keys, scripts, etc.)
 ├── docs/
-│   ├── DEVELOPMENT_PLAN.md          # This development plan
+│   ├── DEVELOPMENT_PLAN.md          # Full development plan (Phases 1-11)
 │   ├── SYSTEM_ARCHITECTURE.md       # This document
 │   ├── CODE_REVIEW_CHECKLIST.md     # Review checklist
 │   ├── QA_GATE_CHECKLIST.md         # QA gate checklist
@@ -844,6 +972,7 @@ triton/
 │   └── sample/
 │       ├── Jadual_1_SBOM.csv        # Government format sample
 │       └── Jadual_2_CBOM.csv        # Government format sample
+├── compose.yaml                     # PostgreSQL 18 container (port 5434)
 ├── Makefile
 ├── go.mod
 ├── go.sum
@@ -852,9 +981,7 @@ triton/
 
 ---
 
-## 12. Future: Client-Server Architecture
-
-**Not for MVP.** Documented here for architectural awareness.
+## 13. Client-Server Architecture (Implemented)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐
@@ -866,18 +993,26 @@ triton/
          │ (ScanResult JSON)      │ (ScanResult JSON)
          ▼                        ▼
 ┌──────────────────────────────────────────┐
-│         Triton Server                     │
+│         Triton Server (go-chi/chi/v5)     │
 │                                           │
-│  • Receives scan results from agents      │
-│  • Stores in database                     │
-│  • Aggregates across machines             │
-│  • Generates organization-wide reports    │
-│  • Web dashboard                          │
-│  • API for integration                    │
+│  • REST API for scan submission/query     │
+│  • PostgreSQL 18 storage (pgx/v5)         │
+│  • Policy evaluation (per-system + agg)   │
+│  • Scan diff/trend analysis               │
+│  • Embedded Web UI (Chart.js)             │
+│  • CycloneDX CBOM v1.7 export             │
 └───────────────────────────────────────────┘
 ```
 
-The JSON export format (Triton schema) is designed to be the payload for agent → server communication. This is why the data model includes full `ScanResult` serialization even though the MVP only needs CSV output.
+**Key components:**
+- `pkg/server/server.go` — REST API with go-chi/chi/v5 router
+- `pkg/store/postgres.go` — PostgreSQL 18 via pgx/v5 (JSONB storage, connection pooling)
+- `pkg/agent/agent.go` — HTTP client for remote scan submission
+- `pkg/server/ui/` — Embedded vanilla JS + Chart.js web dashboard
+- `pkg/policy/` — YAML policy engine with builtins (nacsa-2030, cnsa-2.0)
+- `pkg/diff/` — Composite-key matching for scan-to-scan comparison
+
+**Database:** PostgreSQL 18 on port 5434 (via `compose.yaml`), using JSONB for scan results and TIMESTAMPTZ for timestamps.
 
 ---
 

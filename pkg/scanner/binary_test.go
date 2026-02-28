@@ -99,10 +99,51 @@ func TestMatchCryptoInStringsNewPatterns(t *testing.T) {
 	assert.True(t, algoSet["Argon2id"], "should detect Argon2id")
 	assert.True(t, algoSet["HKDF"], "should detect HKDF")
 	assert.True(t, algoSet["X25519"], "should detect X25519")
-	assert.True(t, algoSet["FALCON"], "should detect FALCON")
+	assert.True(t, algoSet["FN-DSA"], "should detect FN-DSA (via FALCON pattern)")
 	assert.True(t, algoSet["SPHINCS+"], "should detect SPHINCS+")
 	assert.True(t, algoSet["SLH-DSA"], "should detect SLH-DSA")
 	assert.True(t, algoSet["Bcrypt"], "should detect Bcrypt")
+}
+
+func TestMatchCryptoInStrings_FNDSA(t *testing.T) {
+	// String pattern matching: FN-DSA-512 matches the full regex, buildAlgorithmName
+	// returns the match text since it's longer than the base algorithm.
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"FN-DSA-512 signature", "FN-DSA-512"},
+		{"FN-DSA-1024 algorithm", "FN-DSA-1024"},
+		{"FN_DSA512 reference", "FN-DSA-512"},
+		{"FNDSA support", "FN-DSA"},
+		{"FNDSA1024 reference", "FN-DSA-1024"},
+		{"FALCON signature", "FN-DSA"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			algos := MatchCryptoInStrings(tt.input)
+			found := false
+			for _, a := range algos {
+				if a == tt.want {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "should detect %s in %q, got %v", tt.want, tt.input, algos)
+		})
+	}
+}
+
+func TestCryptoSymbolPatterns_FNDSA(t *testing.T) {
+	// OQS falcon symbol detection via symbol matching (not string matching)
+	symbols := []string{"OQS_SIG_falcon512_sign", "OQS_SIG_falcon1024_verify"}
+	matches := matchCryptoSymbols(symbols)
+	require.NotEmpty(t, matches)
+	for _, m := range matches {
+		assert.Equal(t, "FN-DSA", m.algorithm, "falcon symbol should map to FN-DSA")
+		assert.Equal(t, "PQC signature", m.function)
+	}
 }
 
 func TestBinaryScanWithFakeELF(t *testing.T) {

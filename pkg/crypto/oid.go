@@ -41,6 +41,10 @@ func init() {
 		"2.16.840.1.101.3.4.3.30": {OID: "2.16.840.1.101.3.4.3.30", Algorithm: "SLH-DSA-SHAKE-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE},
 		"2.16.840.1.101.3.4.3.31": {OID: "2.16.840.1.101.3.4.3.31", Algorithm: "SLH-DSA-SHAKE-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE},
 
+		// === FN-DSA (FIPS 206) — provisional NIST CSOR OIDs, may change when standard is finalized ===
+		"2.16.840.1.101.3.4.3.32": {OID: "2.16.840.1.101.3.4.3.32", Algorithm: "FN-DSA-512", Family: "Lattice", KeySize: 512, Status: SAFE},
+		"2.16.840.1.101.3.4.3.33": {OID: "2.16.840.1.101.3.4.3.33", Algorithm: "FN-DSA-1024", Family: "Lattice", KeySize: 1024, Status: SAFE},
+
 		// === Composite Signature OIDs (IETF LAMPS draft-ietf-lamps-pq-composite-sigs) ===
 		"2.16.840.1.114027.80.8.1.1":  {OID: "2.16.840.1.114027.80.8.1.1", Algorithm: "ML-DSA-44-RSA-2048", Family: "Composite", KeySize: 0, Status: SAFE},
 		"2.16.840.1.114027.80.8.1.2":  {OID: "2.16.840.1.114027.80.8.1.2", Algorithm: "ML-DSA-44-RSA-2048-PSS", Family: "Composite", KeySize: 0, Status: SAFE},

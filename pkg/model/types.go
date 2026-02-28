@@ -170,6 +170,10 @@ type CryptoAsset struct {
 	// NACSA
 	NACSALabel string `json:"nacsaLabel,omitempty"`
 
+	// Dependency reachability analysis
+	Reachability   string   `json:"reachability,omitempty"`   // "direct", "transitive", "unreachable"
+	DependencyPath []string `json:"dependencyPath,omitempty"` // import chain: ["myapp", "github.com/foo/bar", "crypto/des"]
+
 	// Binary/library analysis
 	Language        string   `json:"language,omitempty"`        // Go, Rust, C/C++, Python, etc.
 	State           string   `json:"state,omitempty"`           // IN_TRANSIT, AT_REST, IN_USE

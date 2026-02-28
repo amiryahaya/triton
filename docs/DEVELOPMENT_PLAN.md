@@ -18,6 +18,7 @@
 | **Reachability** | 12 | v2.2 | **Released** | Dependency crypto reachability scanner, false positive reduction |
 | **Licensing** | 9.1 | v2.3 | **Released** | Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise) |
 | **TLS Probing** | 13 | v2.4 | **Released** | Enhanced TLS probing — cipher enumeration, preference order, version range, PFS, chain validation |
+| **Integration Tests** | 14 | v2.5 | **Released** | Build-tagged integration/e2e tests — 48 tests across 7 files covering CLI, server, agent, cross-package, concurrent, error paths |
 
 ---
 
@@ -704,6 +705,39 @@ Key deadlines driving implementation priority:
 7. Binaries in use (category 1) — runtime view
 8. Package scanner — supporting data
 9. Kernel modules (category 4) — Linux-specific, lowest priority
+
+---
+
+### Phase 14: Integration & E2E Testing (v2.5)
+
+**Goal:** Add build-tagged integration/e2e tests that validate cross-package interactions, full pipelines, and concurrent behavior without slowing down `make test`.
+
+**Build tag strategy:** `//go:build integration` — unit tests run normally without the tag, integration tests require `-tags integration`.
+
+**Test structure:** `test/integration/` — 7 files, 48 tests total:
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `helpers_test.go` | Shared helpers (requireDB, requireServer, scanFixtures, makeScanResult, etc.) | Test infrastructure |
+| `cli_pipeline_test.go` | 11 tests | Config → engine → report → policy full pipeline |
+| `server_workflow_test.go` | 9 tests | Multi-step API workflows (submit→diff→trend→policy→report) |
+| `agent_server_test.go` | 7 tests | Real agent client → real test server |
+| `cross_package_test.go` | 6 tests | Engine + store + report + diff + policy interactions |
+| `concurrent_test.go` | 5 tests | Multi-module, multi-agent, race detector stress |
+| `error_paths_test.go` | 10 tests | Bad config, DB down, oversized payloads, 404s |
+
+**Infrastructure changes:**
+- `pkg/scanner/integration_test.go` — retrofitted with `//go:build integration` tag
+- `Makefile` — added `test-integration`, `test-all`, `test-integration-race` targets
+- `make test` now uses `-p 1` to prevent cross-package DB contention
+
+**Verification commands:**
+```bash
+make test                    # Unit tests only (~40s)
+make test-integration        # Integration only (~3s)
+make test-all                # Unit + integration (~45s)
+make test-integration-race   # Integration + race detector (~5s)
+```
 
 ---
 

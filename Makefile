@@ -1,4 +1,4 @@
-.PHONY: build build-all test bench vet clean install db-up db-down db-reset
+.PHONY: build build-all test test-integration test-all test-integration-race bench vet clean install run fmt lint deps db-up db-down db-reset
 
 # Build for current platform
 build:
@@ -30,9 +30,21 @@ db-reset:
 	@sleep 2
 	@podman exec triton-db psql -U triton -c "CREATE DATABASE triton_test"
 
-# Run tests (requires PostgreSQL running)
+# Run tests (requires PostgreSQL running; -p 1 serializes packages sharing DB)
 test: db-up
-	go test -v ./...
+	go test -v -p 1 ./...
+
+# Integration tests (requires PostgreSQL)
+test-integration: db-up
+	go test -v -tags integration -count=1 ./test/integration/...
+
+# Full suite: unit + integration (-p 1 serializes packages sharing DB)
+test-all: db-up
+	go test -v -tags integration -count=1 -p 1 ./...
+
+# Integration with race detector
+test-integration-race: db-up
+	go test -v -tags integration -race -count=1 ./test/integration/...
 
 # Clean build artifacts
 clean:

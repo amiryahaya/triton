@@ -319,9 +319,7 @@ func TestDatabaseModule_ExplicitTarget(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var collected []*model.Finding
-	for f := range findings {
-		collected = append(collected, f)
+	for range findings {
 	}
 	// Should have called psql (not pgrep for discovery)
 	assert.Contains(t, cmdsRun, "psql", "should probe postgres directly with psql")

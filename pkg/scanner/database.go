@@ -1015,7 +1015,7 @@ func normalizeMySQLAlgo(varName, value string) string {
 		// Return the value as-is; it might be "TLSv1.2,TLSv1.3"
 		return value
 	case "innodb_encrypt_tables", "default_table_encryption":
-		if strings.ToUpper(value) == "ON" {
+		if strings.EqualFold(value, "ON") {
 			return "AES"
 		}
 		return ""
@@ -1039,15 +1039,14 @@ func normalizeSQLServerAlgo(algo string) string {
 }
 
 // parseOracleAlgo extracts algorithm and key size from Oracle encryption names.
-func parseOracleAlgo(encAlgo string) (string, int) {
+func parseOracleAlgo(encAlgo string) (algo string, keySize int) {
 	matches := oracleAlgoRegex.FindStringSubmatch(encAlgo)
 	if matches == nil {
 		return encAlgo, 0
 	}
 
-	algo := matches[1]
+	algo = matches[1]
 
-	var keySize int
 	if matches[2] != "" {
 		keySize, _ = strconv.Atoi(matches[2])
 	}

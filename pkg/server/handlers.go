@@ -383,7 +383,7 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	case "sarif", "json", "cyclonedx":
 		w.Header().Set("Content-Type", "application/json")
 	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

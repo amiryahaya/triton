@@ -55,7 +55,7 @@ jobs:
         env:
           TRITON_TEST_DB_URL: postgres://triton:triton@localhost:5434/triton_test?sslmode=disable
         run: |
-          go test -v -race -coverprofile=coverage.out -covermode=atomic \
+          go test -v -race -p 1 -coverprofile=coverage.out -covermode=atomic \
             -coverpkg=./pkg/...,./internal/... ./...
 
       - name: Check coverage

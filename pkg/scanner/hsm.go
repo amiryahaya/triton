@@ -239,7 +239,7 @@ func (m *HSMModule) parseListObjects(output string) []hsmObject {
 
 // parseObjectAlgoInfo extracts algorithm and key size from object type info.
 // e.g., "RSA 2048 bits" → ("RSA", 2048), "EC" → ("EC", 0)
-func parseObjectAlgoInfo(info string) (string, int) {
+func parseObjectAlgoInfo(info string) (algo string, keySize int) {
 	info = strings.TrimSpace(info)
 	if info == "" {
 		return "Unknown", 0
@@ -251,7 +251,7 @@ func parseObjectAlgoInfo(info string) (string, int) {
 	}
 
 	parts := strings.Fields(info)
-	algo := parts[0]
+	algo = parts[0]
 
 	// Look for key size
 	for i, p := range parts {

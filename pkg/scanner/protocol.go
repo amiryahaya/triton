@@ -431,7 +431,7 @@ func (m *ProtocolModule) checkCRL(ctx context.Context, cert *x509.Certificate) s
 	}
 
 	crlURL := cert.CRLDistributionPoints[0]
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, crlURL, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, crlURL, http.NoBody)
 	if err != nil {
 		return ""
 	}

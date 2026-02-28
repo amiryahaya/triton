@@ -324,9 +324,6 @@ func (m *CodeSignModule) checkDpkgSignature(ctx context.Context, path string) []
 	return m.parseDpkgSigVerify(path, string(out), err)
 }
 
-// dpkgSigRegex parses dpkg-sig --verify output.
-var dpkgSigRegex = regexp.MustCompile(`(?i)GOODSIG|BADSIG|NOSIG|key\s+ID\s+(\S+)`)
-
 // parseDpkgSigVerify interprets dpkg-sig output into findings.
 func (m *CodeSignModule) parseDpkgSigVerify(path, output string, cmdErr error) []*model.Finding {
 	if cmdErr != nil {

@@ -28,6 +28,8 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
+	// Truncate at start to handle stale data from parallel package tests
+	require.NoError(t, db.TruncateAll(ctx))
 	t.Cleanup(func() {
 		_ = db.TruncateAll(ctx)
 		db.Close()
@@ -51,6 +53,8 @@ func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
+	// Truncate at start to handle stale data from parallel package tests
+	require.NoError(t, db.TruncateAll(ctx))
 	t.Cleanup(func() {
 		_ = db.TruncateAll(ctx)
 		db.Close()

@@ -103,6 +103,9 @@ func (e *Engine) RegisterDefaultModules() {
 	// Phase 10: P-Cert-inspired features
 	e.RegisterModule(NewLDAPModule(e.config))
 	e.RegisterModule(NewCodeSignModule(e.config))
+
+	// Phase 12: Dependency crypto reachability
+	e.RegisterModule(NewDepsModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

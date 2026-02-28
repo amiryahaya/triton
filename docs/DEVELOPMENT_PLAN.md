@@ -15,6 +15,7 @@
 | **NACSA-Ready** | 6-7 | v1.0 | **Released** | Official NACSA assessments — CycloneDX CBOM, CNSA 2.0, PQC detection, doctor |
 | **Enterprise** | 8-10 | v2.0 | **Released** | Client-server, PostgreSQL, policy engine, web UI, 18 scanner modules |
 | **Standards** | 11 | v2.1 | **Released** | FN-DSA (FIPS 206), CAMM Level 3, per-system policy evaluation |
+| **Reachability** | 12 | v2.2 | **Released** | Dependency crypto reachability scanner, false positive reduction |
 
 ---
 
@@ -427,7 +428,7 @@ go test -bench=. ./pkg/scanner/...
 
 ## 6. Post-MVP Roadmap (v1.0 → v2.0 → v2.1)
 
-MVP v0.1.0 (Phases 1-5) is released. Phases 6-11 are complete, delivering v1.0 NACSA-Ready, v2.0 Enterprise, and v2.1 Standards Completion. Gap analysis informed by industry leaders (IBM Quantum Safe, SandboxAQ, Keyfactor, Fortanix, AppViewX, ReversingLabs, CryptoNext).
+MVP v0.1.0 (Phases 1-5) is released. Phases 6-12 are complete, delivering v1.0 NACSA-Ready, v2.0 Enterprise, v2.1 Standards Completion, and v2.2 Reachability. Gap analysis informed by industry leaders (IBM Quantum Safe, SandboxAQ, Keyfactor, Fortanix, AppViewX, ReversingLabs, CryptoNext).
 
 ### Competitive Position
 
@@ -515,7 +516,7 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 9.1 | Enterprise licensing | **P3** | License key validation, feature gating (free tier: quick profile only; pro: all profiles + compliance reports; enterprise: API + multi-node). Seat management for paid tiers. | New `internal/license/` |
 | 9.2 | Client-server mode | **P3** | Agent deployed on target systems reports findings to central server. Server aggregates CBOMs across infrastructure. REST API for integration. | New `cmd/agent.go`, `cmd/server.go` |
 | 9.3 | Cloud KMS scanning | **P3** | Scan AWS KMS, Azure Key Vault, GCP KMS encryption settings. Detect key algorithm, rotation policy, usage patterns. Requires cloud credentials. | New `pkg/scanner/cloud.go` |
-| 9.4 | Dependency crypto reachability | **P3** | Trace transitive dependency crypto usage via call graph analysis for Go modules. Distinguish "crypto present in library" vs "crypto actually called by your code." Inspired by CryptoDeps/QRAMM. | New `pkg/scanner/deps.go` |
+| 9.4 | Dependency crypto reachability | **Done** | Trace transitive dependency crypto usage via import graph analysis for Go modules. Distinguish "crypto present in library" vs "crypto actually called by your code." Implemented in Phase 12. | New `pkg/scanner/deps.go` |
 | 9.5 | Web UI dashboard | **P3** | Browser-based dashboard for viewing scan results, comparing scans over time, exporting reports. Replaces HTML report with interactive SPA. | New `web/` directory |
 | 9.6 | PKCS#11 / HSM scanning | **P3** | Enumerate cryptographic objects in hardware security modules via PKCS#11 interface. Specialized hardware, low priority. | New `pkg/scanner/hsm.go` |
 | 9.7 | Database encryption auditing | **P3** | Detect TDE (Transparent Data Encryption) configs in MySQL, PostgreSQL, Oracle, SQL Server. Check algorithm strength and key management. | New `pkg/scanner/database.go` |
@@ -543,6 +544,20 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 11.3 | Per-system policy evaluation | SystemPattern in policy conditions, per-system thresholds (max_unsafe, min_safe_percent), EvaluateSystem() with glob matching, worst-verdict escalation | Enhanced `pkg/policy/engine.go`, `policy.go`, `pkg/report/generator.go` |
 
 **Phase 11 Delivery Summary:** All 4 NIST PQC standards now covered (ML-KEM FIPS 203, ML-DSA FIPS 204, SLH-DSA FIPS 205, FN-DSA FIPS 206). CAMM auto-assessment covers Levels 0-3 (Level 3 via rotation tool detection). Policy engine supports per-system evaluation with SystemPattern glob matching and per-system thresholds.
+
+---
+
+### Phase 12: Dependency Crypto Reachability _(v2.2 — COMPLETED)_
+
+**Goal:** Reduce false positives by distinguishing reachable vs unreachable crypto in Go module dependencies.
+
+| # | Task | Description | Deliverable |
+|---|------|-------------|-------------|
+| 12.1 | CryptoAsset reachability fields | Add `Reachability` (direct/transitive/unreachable) and `DependencyPath` (import chain) to CryptoAsset model | Enhanced `pkg/model/types.go` |
+| 12.2 | DepsModule scanner | go.mod/go.sum parsing, import graph via `go/parser`, BFS import chain finder, crypto import registry (30+ entries covering stdlib, x/crypto, PQC libs) | New `pkg/scanner/deps.go` |
+| 12.3 | Reachability classification | Direct imports → 0.95 confidence, transitive → 0.75, unreachable (go.sum only) → 0.50 with halved migration priority | `pkg/scanner/deps.go` |
+
+**Phase 12 Delivery Summary:** New `deps` scanner module (19 total) analyzes Go module dependencies at two levels: (1) go.mod/go.sum text parsing for module-level crypto detection, (2) import graph via `go/parser` stdlib for package-level reachability. BFS finds shortest import chains. Unreachable findings get reduced confidence (0.50) and halved migration priority, reducing false positives from transitive dependencies. 20 test cases with mock analyzer injection. Added to standard and comprehensive scan profiles.
 
 ---
 

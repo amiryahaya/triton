@@ -66,6 +66,10 @@ func issueToken() {
 		fmt.Fprintf(os.Stderr, "error decoding private key: %v\n", err)
 		os.Exit(1)
 	}
+	if len(privBytes) != 64 {
+		fmt.Fprintf(os.Stderr, "error: private key must be 64 bytes (128 hex chars), got %d bytes\n", len(privBytes))
+		os.Exit(1)
+	}
 
 	token, err := license.IssueToken(privBytes, license.Tier(*tier), *org, *seats, *days)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -24,7 +25,14 @@ var policyCmd = &cobra.Command{
 var policyCheckCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Evaluate a policy against the latest or specified scan",
-	RunE:  runPolicyCheck,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		f := license.FeaturePolicyBuiltin
+		if _, err := policy.LoadBuiltin(policyFile); err != nil {
+			f = license.FeaturePolicyCustom
+		}
+		return guard.EnforceFeature(f)
+	},
+	RunE: runPolicyCheck,
 }
 
 var policyListCmd = &cobra.Command{

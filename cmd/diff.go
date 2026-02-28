@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/diff"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -14,7 +15,10 @@ var diffCmd = &cobra.Command{
 	Use:   "diff <scan-id-1> <scan-id-2>",
 	Short: "Compare two scans",
 	Args:  cobra.ExactArgs(2),
-	RunE:  runDiff,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		return guard.EnforceFeature(license.FeatureDiff)
+	},
+	RunE: runDiff,
 }
 
 func init() {

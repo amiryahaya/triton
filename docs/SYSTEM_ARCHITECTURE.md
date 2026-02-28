@@ -1,7 +1,7 @@
 # Triton System Architecture
 
-**Version:** 4.0
-**Status:** Enterprise — CLI + Server + Web UI + Dependency Reachability
+**Version:** 5.0
+**Status:** Enterprise — CLI + Server + Web UI + Dependency Reachability + Licence Gating
 **Last Updated:** 2026-03-01
 
 ---
@@ -937,6 +937,13 @@ triton/
 ├── internal/
 │   ├── config/
 │   │   └── config.go                # Profile-based config, scan targets
+│   ├── license/
+│   │   ├── tier.go                  # Tier/Feature enums, 3-tier feature matrix
+│   │   ├── license.go               # Ed25519-signed licence token Parse/Encode
+│   │   ├── pubkey.go                # Embedded public key (ldflags-overridable)
+│   │   ├── guard.go                 # Guard: token resolution, enforcement, config filtering
+│   │   ├── keygen.go                # Keypair generation and token issuance
+│   │   └── cmd/keygen/main.go       # Standalone keygen tool (build-tagged ignore)
 │   └── version/
 │       └── version.go               # Version constant
 ├── pkg/
@@ -1044,6 +1051,38 @@ triton/
 - `pkg/diff/` — Composite-key matching for scan-to-scan comparison
 
 **Database:** PostgreSQL 18 on port 5434 (via `compose.yaml`), using JSONB for scan results and TIMESTAMPTZ for timestamps.
+
+---
+
+## 14. Licence & Feature Gating (Implemented)
+
+Three-tier licensing system (free/pro/enterprise) using Ed25519-signed JSON tokens. Offline-first with graceful degradation.
+
+**Token format:** `base64url(JSON claims).base64url(Ed25519 signature)`
+
+**Token resolution (precedence):** CLI flag `--license-key` → env `TRITON_LICENSE_KEY` → file `~/.triton/license.key`
+
+**Three-layer enforcement:**
+1. `Guard.FilterConfig(cfg)` — strips disallowed profiles and modules from config before engine sees it
+2. Subcommand `PreRunE` hooks — gate enterprise-only commands (server, agent) and pro+ commands (diff, trend, history, policy)
+3. Explicit `EnforceProfile/EnforceFormat/EnforceFeature` in `runScan` — block gated features early with clear error
+
+**Tier matrix:**
+
+| Feature | Free | Pro | Enterprise |
+|---------|------|-----|------------|
+| Profile: quick | Yes | Yes | Yes |
+| Profile: standard/comprehensive | No | Yes | Yes |
+| Modules | 3 | All 19 | All 19 |
+| Format: json | Yes | Yes | Yes |
+| Format: cdx, html, xlsx | No | Yes | Yes |
+| Format: sarif | No | No | Yes |
+| Server/Agent mode | No | No | Yes |
+| Metrics, Incremental, Diff/Trend | No | Yes | Yes |
+| DB persistence | No | Yes | Yes |
+| Policy: builtin / custom | No | Pro / No | Yes / Yes |
+
+**Key files:** `internal/license/` (tier.go, license.go, pubkey.go, guard.go, keygen.go), `cmd/license.go`
 
 ---
 

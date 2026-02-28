@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -18,7 +19,10 @@ var (
 var historyCmd = &cobra.Command{
 	Use:   "history",
 	Short: "List past scans stored in the database",
-	RunE:  runHistory,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		return guard.EnforceFeature(license.FeatureDB)
+	},
+	RunE: runHistory,
 }
 
 func init() {

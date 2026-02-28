@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/agent"
 	"github.com/amiryahaya/triton/pkg/scanner"
@@ -29,6 +30,9 @@ var agentCmd = &cobra.Command{
 	Short: "Run scan and submit results to a Triton server",
 	Long: `Agent mode runs a local scan and submits the results to a remote
 Triton server. Use --interval for continuous scanning.`,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		return guard.EnforceFeature(license.FeatureAgentMode)
+	},
 	RunE: runAgent,
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -26,7 +27,10 @@ var (
 var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Start the Triton REST API server",
-	RunE:  runServer,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		return guard.EnforceFeature(license.FeatureServerMode)
+	},
+	RunE: runServer,
 }
 
 func init() {

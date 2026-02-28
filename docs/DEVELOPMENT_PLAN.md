@@ -16,6 +16,7 @@
 | **Enterprise** | 8-10 | v2.0 | **Released** | Client-server, PostgreSQL, policy engine, web UI, 18 scanner modules |
 | **Standards** | 11 | v2.1 | **Released** | FN-DSA (FIPS 206), CAMM Level 3, per-system policy evaluation |
 | **Reachability** | 12 | v2.2 | **Released** | Dependency crypto reachability scanner, false positive reduction |
+| **Licensing** | 9.1 | v2.3 | **Released** | Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise) |
 
 ---
 
@@ -558,6 +559,25 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 12.3 | Reachability classification | Direct imports → 0.95 confidence, transitive → 0.75, unreachable (go.sum only) → 0.50 with halved migration priority | `pkg/scanner/deps.go` |
 
 **Phase 12 Delivery Summary:** New `deps` scanner module (19 total) analyzes Go module dependencies at two levels: (1) go.mod/go.sum text parsing for module-level crypto detection, (2) import graph via `go/parser` stdlib for package-level reachability. BFS finds shortest import chains. Unreachable findings get reduced confidence (0.50) and halved migration priority, reducing false positives from transitive dependencies. 20 test cases with mock analyzer injection. Added to standard and comprehensive scan profiles.
+
+---
+
+### Phase 9.1: Enterprise Feature Gating / Licensing _(v2.3 — COMPLETED)_
+
+Ed25519-signed licence key system with 3-tier feature gating (free/pro/enterprise) for commercial distribution. Offline-first — all validation is local signature verification, no phone-home. Graceful degradation — invalid/expired/missing licence = free tier.
+
+| Task | Description | Files |
+|------|-------------|-------|
+| 9.1.1 | Tier/Feature definitions | `internal/license/tier.go` — 17 feature constants, 3-tier matrix |
+| 9.1.2 | Licence parser | `internal/license/license.go` — Ed25519 signed JSON token (base64url claims + signature) |
+| 9.1.3 | Embedded public key | `internal/license/pubkey.go` — overridable via ldflags |
+| 9.1.4 | Guard enforcement | `internal/license/guard.go` — token resolution (flag→env→file), EnforceProfile/Format/Feature, FilterConfig |
+| 9.1.5 | Keygen tool | `internal/license/keygen.go` + `internal/license/cmd/keygen/main.go` (build-tagged ignore) |
+| 9.1.6 | Licence subcommand | `cmd/license.go` — `triton license show/verify` |
+| 9.1.7 | CLI integration | `cmd/root.go` — `--license-key` flag, PersistentPreRun guard init, default downgrade for free tier |
+| 9.1.8 | Subcommand gates | `cmd/server.go`, `cmd/agent.go` (enterprise), `cmd/diff.go`, `cmd/trend.go`, `cmd/history.go` (pro), `cmd/policy.go` (tiered) |
+
+**Phase 9.1 Delivery Summary:** 38 test cases across 4 test files. Three-layer enforcement: (1) config filter strips disallowed settings, (2) subcommand PreRunE hooks, (3) explicit enforcement in runScan. Free tier: quick profile, JSON only, 3 modules. Pro tier: all profiles/modules, most formats, analytics. Enterprise: everything including server, agent, SARIF, custom policies.
 
 ---
 

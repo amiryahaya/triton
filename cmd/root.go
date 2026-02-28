@@ -19,6 +19,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
@@ -42,6 +43,8 @@ var (
 	dbPath        string
 	incremental   bool
 	scanPolicyArg string
+	licenseKey    string
+	guard         *license.Guard
 
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
@@ -53,6 +56,9 @@ var (
 and Cryptographic Bill of Materials (CBOM) for Post-Quantum Cryptography compliance.
 
 Target: Malaysian government critical sectors for 2030 PQC readiness.`,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			guard = license.NewGuard(licenseKey)
+		},
 		RunE: runScan,
 	}
 )
@@ -70,6 +76,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
 	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
 	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
+	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -196,12 +203,60 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Triton SBOM/CBOM Scanner v%s\n", version.Version)
-	fmt.Printf("Platform: %s/%s\n\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Platform: %s/%s | Licence: %s\n\n", runtime.GOOS, runtime.GOARCH, guard.Tier())
+
+	// Enforce licence gates on profile and format.
+	// If the user explicitly set a value, error on restriction.
+	// Otherwise, silently downgrade defaults for the tier.
+	if cmd.Flags().Changed("profile") {
+		if err := guard.EnforceProfile(scanProfile); err != nil {
+			return err
+		}
+	} else {
+		allowed := license.AllowedProfiles(guard.Tier())
+		if len(allowed) > 0 {
+			scanProfile = allowed[len(allowed)-1]
+		}
+	}
+	if cmd.Flags().Changed("format") {
+		if err := guard.EnforceFormat(format); err != nil {
+			return err
+		}
+	} else if err := guard.EnforceFormat(format); err != nil {
+		format = "json"
+	}
 
 	cfg := config.Load(scanProfile)
 	if len(modules) > 0 {
 		cfg.Modules = modules
 	}
+
+	// Gate optional features behind licence tier.
+	if showMetrics {
+		if err := guard.EnforceFeature(license.FeatureMetrics); err != nil {
+			return err
+		}
+	}
+	if incremental {
+		if err := guard.EnforceFeature(license.FeatureIncremental); err != nil {
+			return err
+		}
+	}
+	if dbPath != "" {
+		if err := guard.EnforceFeature(license.FeatureDB); err != nil {
+			return err
+		}
+	}
+	if scanPolicyArg != "" {
+		f := license.FeaturePolicyBuiltin
+		if _, err := policy.LoadBuiltin(scanPolicyArg); err != nil {
+			f = license.FeaturePolicyCustom
+		}
+		if err := guard.EnforceFeature(f); err != nil {
+			return err
+		}
+	}
+
 	cfg.Metrics = showMetrics
 	cfg.Incremental = incremental
 	if dbPath != "" {
@@ -209,6 +264,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 	} else {
 		cfg.DBUrl = config.DefaultDBUrl()
 	}
+
+	// Apply licence-based config filtering (restricts modules for free tier).
+	guard.FilterConfig(cfg)
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()

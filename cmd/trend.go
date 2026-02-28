@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/diff"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -20,7 +21,10 @@ var (
 var trendCmd = &cobra.Command{
 	Use:   "trend",
 	Short: "Show PQC migration trend over recent scans",
-	RunE:  runTrend,
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		return guard.EnforceFeature(license.FeatureTrend)
+	},
+	RunE: runTrend,
 }
 
 func init() {

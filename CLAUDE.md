@@ -59,6 +59,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
 - **`pkg/server/`** — REST API server (go-chi/chi/v5) with embedded web UI
 - **`pkg/policy/`** — YAML policy engine with builtins (nacsa-2030, cnsa-2.0)
 - **`internal/config/`** — Profile-based configuration (quick/standard/comprehensive)
+- **`internal/license/`** — Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise)
 
 ### Module interface
 
@@ -82,7 +83,7 @@ Worker count is capped by CPU count.
 
 ## Development Methodology
 
-The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-12) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
+The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-12, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
 
 ## Go Version
 

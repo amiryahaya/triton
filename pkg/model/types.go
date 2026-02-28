@@ -21,6 +21,8 @@ const (
 	TargetFilesystem ScanTargetType = iota
 	TargetNetwork
 	TargetProcess
+	TargetDatabase
+	TargetHSM
 )
 
 // ScanResult is the top-level container for all scan output.

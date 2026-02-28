@@ -54,8 +54,8 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 14 modules
-	assert.Len(t, eng.modules, 14)
+	// Should register all 16 modules
+	assert.Len(t, eng.modules, 16)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -81,6 +81,10 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// Phase 8
 	assert.True(t, names["containers"])
 	assert.True(t, names["certstore"])
+
+	// Phase 9
+	assert.True(t, names["database"])
+	assert.True(t, names["hsm"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

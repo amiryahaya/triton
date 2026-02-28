@@ -95,6 +95,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Phase 8: Container & OS certificate store
 	e.RegisterModule(NewContainerModule(e.config))
 	e.RegisterModule(NewCertStoreModule(e.config))
+
+	// Phase 9: Database encryption auditing & HSM scanning
+	e.RegisterModule(NewDatabaseModule(e.config))
+	e.RegisterModule(NewHSMModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

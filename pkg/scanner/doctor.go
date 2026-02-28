@@ -91,6 +91,22 @@ func moduleDependencies() map[string][]platformTool {
 			{os: "linux", tool: "ss"},
 			{os: "linux", tool: "lsof"},
 		},
+		"database": {
+			{os: "darwin", tool: "psql"},
+			{os: "linux", tool: "psql"},
+			{os: "darwin", tool: "mysql"},
+			{os: "linux", tool: "mysql"},
+			{os: "darwin", tool: "sqlcmd"},
+			{os: "linux", tool: "sqlcmd"},
+			{os: "darwin", tool: "sqlplus"},
+			{os: "linux", tool: "sqlplus"},
+			{os: "darwin", tool: "pgrep"},
+			{os: "linux", tool: "pgrep"},
+		},
+		"hsm": {
+			{os: "linux", tool: "pkcs11-tool"},
+			{os: "darwin", tool: "pkcs11-tool"},
+		},
 	}
 }
 
@@ -286,6 +302,6 @@ func RunDoctorChecks(profile string) *DoctorReport {
 func filesystemModules() []string {
 	return []string{
 		"certificates", "keys", "libraries", "binaries",
-		"kernel", "scripts", "webapp",
+		"kernel", "scripts", "webapp", "configs",
 	}
 }

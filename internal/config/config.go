@@ -47,14 +47,14 @@ var Profiles = map[string]ScanProfile{
 	"standard": {
 		Name:        "standard",
 		Description: "Balanced scan of system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database"},
 		Depth:       10,
 		Workers:     8,
 	},
 	"comprehensive": {
 		Name:        "comprehensive",
 		Description: "Deep scan of entire system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm"},
 		Depth:       -1, // unlimited
 		Workers:     16,
 	},
@@ -90,6 +90,10 @@ func Load(profile string) *Config {
 			if !hasNetwork {
 				targets = append(targets, model.ScanTarget{Type: model.TargetNetwork, Value: "local"})
 			}
+		case "database":
+			targets = append(targets, model.ScanTarget{Type: model.TargetDatabase, Value: "auto"})
+		case "hsm":
+			targets = append(targets, model.ScanTarget{Type: model.TargetHSM, Value: "auto"})
 		}
 	}
 

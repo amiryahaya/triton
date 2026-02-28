@@ -1,6 +1,6 @@
 # Triton User Manual
 
-**Version 0.1.1** | SBOM/CBOM Scanner for Post-Quantum Cryptography Compliance
+**Version 2.3** | SBOM/CBOM Scanner for Post-Quantum Cryptography Compliance
 
 ---
 
@@ -16,10 +16,11 @@
 8. [Reading Reports](#8-reading-reports)
 9. [Using triton doctor](#9-using-triton-doctor)
 10. [Configuration](#10-configuration)
-11. [Platform Notes](#11-platform-notes)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Algorithm Reference](#13-algorithm-reference)
-14. [Glossary](#14-glossary)
+11. [Licensing](#11-licensing)
+12. [Platform Notes](#12-platform-notes)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Algorithm Reference](#14-algorithm-reference)
+15. [Glossary](#15-glossary)
 
 ---
 
@@ -41,7 +42,7 @@ The output helps Malaysian government agencies and critical infrastructure opera
 
 ### What does Triton detect?
 
-Triton scans 9 categories of cryptographic usage — from certificates on disk to TLS connections on the network — and classifies every finding as SAFE, TRANSITIONAL, DEPRECATED, or UNSAFE for the post-quantum era.
+Triton uses 19 scanner modules across 9 CBOM categories — from certificates on disk to TLS connections on the network — and classifies every finding as SAFE, TRANSITIONAL, DEPRECATED, or UNSAFE for the post-quantum era.
 
 ---
 
@@ -155,7 +156,7 @@ triton --profile comprehensive
 
 | Setting | Value |
 |---------|-------|
-| Modules | All 11 modules (including processes, network, protocol) |
+| Modules | All 19 modules (including processes, network, protocol, hsm, ldap, codesign) |
 | Depth | Unlimited |
 | Workers | 16 |
 | Use case | Full audit including runtime and network |
@@ -339,11 +340,15 @@ triton --format all       # default — generates all three
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--profile` | `-p` | `standard` | Scan profile: `quick`, `standard`, `comprehensive` |
-| `--format` | `-f` | `all` | Output format: `json`, `html`, `xlsx`, `all` |
+| `--format` | `-f` | `all` | Output format: `json`, `html`, `xlsx`, `sarif`, `cdx`, `all` |
 | `--output` | `-o` | `triton-report.json` | Output file (used with `--format json`) |
 | `--output-dir` | `-d` | `.` | Output directory for reports |
 | `--modules` | `-m` | (all) | Comma-separated list of specific modules to run |
-| `--metrics` | | `false` | Show per-module scan metrics table |
+| `--metrics` | | `false` | Show per-module scan metrics table (pro+) |
+| `--incremental` | | `false` | Skip unchanged files since last scan (pro+) |
+| `--db` | | | PostgreSQL connection URL for scan storage (pro+) |
+| `--policy` | | | Policy file or builtin name (pro+) |
+| `--license-key` | | | Licence key token (or set `TRITON_LICENSE_KEY` env / `~/.triton/license.key` file) |
 | `--config` | | `~/.triton.yaml` | Path to config file |
 | `--version` | | | Show version |
 
@@ -636,7 +641,76 @@ The default scan targets are platform-specific (see [Platform Notes](#11-platfor
 
 ---
 
-## 11. Platform Notes
+## 11. Licensing
+
+Triton uses a 3-tier licence system based on Ed25519-signed tokens. All licence validation is performed offline — no network connection is required.
+
+### Licence Tiers
+
+| Feature | Free | Pro | Enterprise |
+|---------|------|-----|------------|
+| Profile: quick | Yes | Yes | Yes |
+| Profile: standard / comprehensive | — | Yes | Yes |
+| Scanner modules | 3 (certificates, keys, packages) | All 19 | All 19 |
+| Format: JSON | Yes | Yes | Yes |
+| Format: CDX, HTML, XLSX | — | Yes | Yes |
+| Format: SARIF | — | — | Yes |
+| Server mode (`triton server`) | — | — | Yes |
+| Agent mode (`triton agent`) | — | — | Yes |
+| Policy: builtin (NACSA-2030, CNSA-2.0) | — | Yes | Yes |
+| Policy: custom YAML | — | — | Yes |
+| Metrics, incremental scan | — | Yes | Yes |
+| Diff / trend / history | — | Yes | Yes |
+| DB persistence | — | Yes | Yes |
+| Seats | 1 | Configured | Configured |
+
+### How It Works
+
+Without a licence key, Triton runs in **free tier** — it always works, just with limited features. Invalid or expired licence keys gracefully degrade to free tier rather than blocking the tool.
+
+### Setting a Licence Key
+
+There are three ways to provide a licence key (checked in this order):
+
+**1. CLI flag (highest priority):**
+```bash
+triton --license-key <token> --profile standard
+```
+
+**2. Environment variable:**
+```bash
+export TRITON_LICENSE_KEY=<token>
+triton --profile standard
+```
+
+**3. File (persists across sessions):**
+```bash
+mkdir -p ~/.triton
+echo "<token>" > ~/.triton/license.key
+triton --profile standard
+```
+
+### Checking Your Licence
+
+```bash
+# Show current licence info (tier, org, seats, expiry)
+triton license show
+
+# Verify a specific token
+triton license verify <token>
+```
+
+### Behaviour When Gated
+
+- **Profile gating:** If you run bare `triton` without explicitly setting `--profile`, the tool silently uses the highest profile your tier allows (free tier uses `quick`). If you explicitly request a profile above your tier, you get a clear error message.
+- **Format gating:** Same logic — defaults silently adjust, explicit requests produce clear errors.
+- **Module gating:** Free tier scans only certificates, keys, and packages. Additional modules are silently excluded.
+- **Subcommand gating:** Commands like `triton server`, `triton agent`, `triton diff`, `triton trend`, `triton history`, and `triton policy` require the appropriate tier and produce a clear error with upgrade guidance if unavailable.
+- **Expiry:** Licences have a 5-minute grace period after expiry. After that, the tool degrades to free tier.
+
+---
+
+## 12. Platform Notes
 
 ### Comparison Table
 
@@ -672,7 +746,7 @@ The default scan targets are platform-specific (see [Platform Notes](#11-platfor
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### Common Issues
 
@@ -705,7 +779,7 @@ If you encounter a bug, please report it at: https://github.com/amiryahaya/trito
 
 ---
 
-## 13. Algorithm Reference
+## 14. Algorithm Reference
 
 All algorithms recognized by Triton, grouped by PQC status. The "Break Year" column shows the estimated year a sufficiently powerful quantum computer could break the algorithm (where applicable).
 
@@ -827,7 +901,7 @@ All algorithms recognized by Triton, grouped by PQC status. The "Break Year" col
 
 ---
 
-## 14. Glossary
+## 15. Glossary
 
 | Term | Definition |
 |------|------------|

@@ -27,8 +27,7 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	db, err := store.NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = db.Pool().Exec(ctx, "DELETE FROM scans")
-		_, _ = db.Pool().Exec(ctx, "DELETE FROM file_hashes")
+		_ = db.TruncateAll(ctx)
 		db.Close()
 	})
 
@@ -49,8 +48,7 @@ func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
 	db, err := store.NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = db.Pool().Exec(ctx, "DELETE FROM scans")
-		_, _ = db.Pool().Exec(ctx, "DELETE FROM file_hashes")
+		_ = db.TruncateAll(ctx)
 		db.Close()
 	})
 

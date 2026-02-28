@@ -244,9 +244,15 @@ func (s *PostgresStore) PruneStaleHashes(ctx context.Context, before time.Time) 
 	return nil
 }
 
-// Pool returns the underlying pgxpool.Pool for direct access (e.g., test cleanup).
-func (s *PostgresStore) Pool() *pgxpool.Pool {
-	return s.pool
+// TruncateAll deletes all data from scans and file_hashes tables.
+// Intended for test cleanup only.
+func (s *PostgresStore) TruncateAll(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, "DELETE FROM scans")
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, "DELETE FROM file_hashes")
+	return err
 }
 
 // Close releases the connection pool.
@@ -256,9 +262,9 @@ func (s *PostgresStore) Close() error {
 }
 
 // SchemaVersion returns the current schema version.
-func (s *PostgresStore) SchemaVersion() (int, error) {
+func (s *PostgresStore) SchemaVersion(ctx context.Context) (int, error) {
 	var version int
-	err := s.pool.QueryRow(context.Background(),
+	err := s.pool.QueryRow(ctx,
 		"SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&version)
 	return version, err
 }

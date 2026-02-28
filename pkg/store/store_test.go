@@ -25,9 +25,7 @@ func testStore(t *testing.T) *PostgresStore {
 	s, err := NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		// Clean tables between tests
-		_, _ = s.pool.Exec(ctx, "DELETE FROM scans")
-		_, _ = s.pool.Exec(ctx, "DELETE FROM file_hashes")
+		_ = s.TruncateAll(ctx)
 		s.Close()
 	})
 	return s
@@ -82,7 +80,7 @@ func testScanResult(id, hostname, profile string) *model.ScanResult {
 func TestNewPostgresStore_Connection(t *testing.T) {
 	s := testStore(t)
 
-	v, err := s.SchemaVersion()
+	v, err := s.SchemaVersion(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, len(migrations), v)
 }
@@ -110,7 +108,7 @@ func TestNewPostgresStore_IdempotentMigrations(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	v, err := s2.SchemaVersion()
+	v, err := s2.SchemaVersion(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, len(migrations), v)
 }

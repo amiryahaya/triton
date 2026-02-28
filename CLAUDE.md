@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Triton is a Go CLI tool for generating Software Bill of Materials (SBOM) and Cryptographic Bill of Materials (CBOM) to assess Post-Quantum Cryptography (PQC) compliance. It targets Malaysian government critical infrastructure sectors. Currently in MVP phase.
+Triton is an enterprise-grade Go CLI + server tool that scans systems for cryptographic assets and generates SBOM/CBOM reports for Malaysian government PQC (Post-Quantum Cryptography) compliance assessment. It has 19 scanner modules across 6 target types, REST API server with PostgreSQL storage, policy engine, web UI dashboard, and multi-format report generation.
 
 ## Build & Development Commands
 
@@ -42,15 +42,23 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
 ### Key packages
 
 - **`cmd/`** — Cobra root command with BubbleTea progress UI
-- **`pkg/scanner/`** — Core scanning engine and modules
+- **`pkg/scanner/`** — Core scanning engine and 19 modules
   - `engine.go` — Orchestrator: manages concurrent module execution using goroutines with semaphore pattern, collects findings via channels
-  - `certificate.go` — Scans for X.509 certificates (.pem, .crt, .cer, .der)
-  - `key.go` — Detects private keys via file extension and PEM header pattern matching
-  - `package.go` — Queries OS package managers (brew/dpkg/rpm)
+  - `certificate.go`, `key.go` — Certificates and keys (Category 5)
+  - `library.go`, `binary.go`, `kernel.go` — Libraries, binaries, kernel modules (Categories 2-4)
+  - `package.go`, `config.go` — Package manager and config file scanning
+  - `script.go`, `webapp.go` — Source code scanning (Categories 6-7)
+  - `process.go`, `network.go`, `protocol.go` — Runtime and network scanning (Categories 1, 8-9)
+  - `container.go`, `certstore.go` — Container and OS cert store scanning
+  - `database.go`, `hsm.go`, `ldap.go`, `codesign.go` — Specialized scanners
+  - `deps.go` — Go dependency crypto reachability analysis (direct/transitive/unreachable classification)
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
 - **`pkg/model/`** — Data structures for SBOM, CBOM, findings, components
-- **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), and HTML
-- **`internal/config/`** — Profile-based configuration (quick/standard/comprehensive) with Viper
+- **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON
+- **`pkg/store/`** — PostgreSQL storage via pgx/v5
+- **`pkg/server/`** — REST API server (go-chi/chi/v5) with embedded web UI
+- **`pkg/policy/`** — YAML policy engine with builtins (nacsa-2030, cnsa-2.0)
+- **`internal/config/`** — Profile-based configuration (quick/standard/comprehensive)
 
 ### Module interface
 
@@ -58,21 +66,23 @@ Scanner modules implement `Module` interface in `pkg/scanner/engine.go`:
 ```go
 type Module interface {
     Name() string
-    Scan(ctx context.Context, target string, findings chan<- *model.Finding) error
+    Category() ModuleCategory
+    ScanTargetType() ScanTargetType
+    Scan(ctx context.Context, target ScanTarget, findings chan<- *Finding) error
 }
 ```
 
 ### Scan profiles
 
 - **quick** — certificates, keys, packages; depth 3; 4 workers
-- **standard** — adds libraries, services; depth 10; 8 workers
-- **comprehensive** — adds processes, configs; unlimited depth; 16 workers
+- **standard** — certificates, keys, packages, libraries, binaries, scripts, webapp, configs, containers, certstore, database, deps; depth 10; 8 workers
+- **comprehensive** — all 19 modules; unlimited depth; 16 workers
 
 Worker count is capped by CPU count.
 
 ## Development Methodology
 
-The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full 4-week MVP plan and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
+The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-12) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
 
 ## Go Version
 

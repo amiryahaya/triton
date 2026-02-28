@@ -1,8 +1,8 @@
 # Triton System Architecture
 
-**Version:** 3.0
-**Status:** Enterprise — CLI + Server + Web UI
-**Last Updated:** 2026-02-28
+**Version:** 4.0
+**Status:** Enterprise — CLI + Server + Web UI + Dependency Reachability
+**Last Updated:** 2026-03-01
 
 ---
 
@@ -10,7 +10,7 @@
 
 Triton is an enterprise-grade CLI + server tool that scans systems for cryptographic assets and generates reports for Malaysian government PQC (Post-Quantum Cryptography) compliance assessment.
 
-**Current scope:** 18 scanner modules across 6 target types (filesystem, network, process, database, HSM, LDAP), REST API server with PostgreSQL storage, policy engine with per-system evaluation, web UI dashboard, and multi-format report generation (Jadual 1/2 CSV, CycloneDX CBOM v1.7, HTML, SARIF, JSON).
+**Current scope:** 19 scanner modules across 6 target types (filesystem, network, process, database, HSM, LDAP), REST API server with PostgreSQL storage, policy engine with per-system evaluation, web UI dashboard, dependency crypto reachability analysis, and multi-format report generation (Jadual 1/2 CSV, CycloneDX CBOM v1.7, HTML, SARIF, JSON).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -54,7 +54,7 @@ Triton is an enterprise-grade CLI + server tool that scans systems for cryptogra
                     │       Scanner Engine         │
                     │    (pkg/scanner/engine.go)    │
                     │                              │
-                    │  • 18 scanner modules         │
+                    │  • 19 scanner modules         │
                     │  • 6 target types             │
                     │  • Concurrent execution       │
                     │  • Finding collection         │
@@ -68,7 +68,7 @@ Triton is an enterprise-grade CLI + server tool that scans systems for cryptogra
  │                 │ │                 │ │              │ │                  │
  │ • certificate(5)│ │ • process (1)   │ │ • script (6) │ │ • database       │
  │ • key         (5)│ │ • network (8)   │ │ • webapp (7) │ │ • hsm            │
- │ • library     (3)│ │ • protocol (9)  │ │              │ │ • ldap           │
+ │ • library     (3)│ │ • protocol (9)  │ │ • deps       │ │ • ldap           │
  │ • binary      (2)│ │                 │ │              │ │ • codesign       │
  │ • kernel      (4)│ │                 │ │              │ │ • certstore      │
  │ • package       │ │                 │ │              │ │ • container      │
@@ -221,6 +221,10 @@ type CryptoAsset struct {
     MigrationPriority int   // 0-100 urgency score
     BreakYear       int     // Estimated year quantum could break this
 
+    // Dependency reachability (Phase 12)
+    Reachability   string   // "direct", "transitive", "unreachable"
+    DependencyPath []string // Import chain: ["myapp", "github.com/foo/bar", "crypto/des"]
+
     // Certificate-specific (optional)
     Subject      string
     Issuer       string
@@ -315,7 +319,7 @@ const (
 )
 ```
 
-### 4.2 Module Registry (18 Modules)
+### 4.2 Module Registry (19 Modules)
 
 | Module | Category | Target Type | Scanning Cat. | Requires Root |
 |--------|----------|-------------|---------------|---------------|
@@ -337,10 +341,33 @@ const (
 | HSMModule | ActiveRuntime | HSM | — | No*** |
 | LDAPModule | ActiveNetwork | LDAP | — | No |
 | CodeSignModule | PassiveFile | Filesystem | — | No |
+| DepsModule | PassiveCode | Filesystem | — | No |
 
 \* Key files may have restrictive permissions
 \** Full process/network/certstore enumeration may require root; partial results available without
 \*** Requires appropriate credentials for database/HSM access
+
+#### DepsModule — Dependency Crypto Reachability (Phase 12)
+
+The DepsModule scans Go modules to classify crypto dependency reachability:
+
+- **Level 1 (Module-level):** Parses `go.mod` + `go.sum` as text to identify which modules contain crypto
+- **Level 2 (Import graph):** Parses `.go` files with `go/parser` (stdlib, no external deps) to build import graph and determine which crypto packages are transitively imported
+
+**Reachability classification:**
+
+| Status | Meaning | Confidence | Example |
+|--------|---------|------------|---------|
+| `direct` | Your code directly imports this crypto package | 0.95 | `import "crypto/aes"` in your `.go` file |
+| `transitive` | A dependency you import uses this crypto | 0.75 | Your code → `github.com/foo/bar` → `crypto/des` |
+| `unreachable` | Present in go.sum but not in any import chain | 0.50 | Module in go.sum, no package imports it |
+
+**Key features:**
+- BFS shortest-path algorithm for import chain discovery (stored in `CryptoAsset.DependencyPath`)
+- Migration priority halved for unreachable findings (reduces false positives)
+- Graceful degradation: works without Go toolchain
+- Vendor directory parsing support
+- Crypto registry: 13 `crypto/*` stdlib + 14 `golang.org/x/crypto/*` + 3 PQC third-party prefixes
 
 ### 4.3 Module Lifecycle
 
@@ -794,13 +821,16 @@ IPsec|IKEv[12]
 | Source | Base Confidence |
 |--------|----------------|
 | Certificate parsing (X.509) | 0.95 |
+| Dependency analysis — direct import | 0.95 |
 | PEM header match | 0.90 |
 | TLS handshake result | 0.95 |
 | SSH algorithm negotiation | 0.95 |
 | Library file detection | 0.85 |
-| Binary strings match | 0.60 |
+| Dependency analysis — transitive import | 0.75 |
 | Source code pattern match | 0.70 |
 | Kernel module strings | 0.65 |
+| Binary strings match | 0.60 |
+| Dependency analysis — unreachable | 0.50 |
 
 ---
 
@@ -932,10 +962,11 @@ triton/
 │   │   ├── hsm.go                   # PKCS#11 / HSM scanning
 │   │   ├── ldap.go                  # LDAP directory certificate scanning
 │   │   ├── codesign.go              # Code signing verification
+│   │   ├── deps.go                  # Go dependency crypto reachability (Phase 12)
 │   │   ├── doctor.go                # Pre-scan environment check
 │   │   └── walker.go                # Filesystem walker utility
 │   ├── crypto/
-│   │   ├── pqc.go                   # Algorithm registry (~80+ algorithms), PQC classification
+│   │   ├── pqc.go                   # Algorithm registry (~240+ algorithms), PQC classification
 │   │   ├── oid.go                   # ASN.1 OID → algorithm mapping (ML-KEM, ML-DSA, SLH-DSA, FN-DSA)
 │   │   ├── camm.go                  # CAMM Level 0-3 auto-assessment
 │   │   ├── agility.go               # Crypto-agility assessment
@@ -964,7 +995,7 @@ triton/
 ├── test/
 │   └── fixtures/                    # Test data (certs, keys, scripts, etc.)
 ├── docs/
-│   ├── DEVELOPMENT_PLAN.md          # Full development plan (Phases 1-11)
+│   ├── DEVELOPMENT_PLAN.md          # Full development plan (Phases 1-12)
 │   ├── SYSTEM_ARCHITECTURE.md       # This document
 │   ├── CODE_REVIEW_CHECKLIST.md     # Review checklist
 │   ├── QA_GATE_CHECKLIST.md         # QA gate checklist

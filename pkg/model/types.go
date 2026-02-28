@@ -200,8 +200,10 @@ type ScanTarget struct {
 	Depth int            `json:"depth"`
 }
 
-// AllCategories is the full list of CBOM scanning categories (1-9).
-var AllCategories = []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
+// AllCategories returns the full list of CBOM scanning categories (1-9).
+func AllCategories() []int {
+	return []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
+}
 
 // ComputeSummary calculates aggregate statistics from a list of findings.
 func ComputeSummary(findings []Finding) Summary {
@@ -234,7 +236,7 @@ func ComputeSummary(findings []Finding) Summary {
 	}
 
 	// Populate categories scanned/skipped
-	for _, cat := range AllCategories {
+	for _, cat := range AllCategories() {
 		if scannedSet[cat] {
 			s.CategoriesScanned = append(s.CategoriesScanned, cat)
 		} else {

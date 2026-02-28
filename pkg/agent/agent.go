@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,11 @@ func New(serverURL, apiKey string) *Client {
 		APIKey:    apiKey,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+				},
+			},
 		},
 	}
 }
@@ -60,7 +66,7 @@ func (c *Client) Submit(result *model.ScanResult) (*SubmitResponse, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
@@ -84,6 +90,9 @@ func (c *Client) Healthcheck() error {
 		return fmt.Errorf("health check failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// Drain body to allow connection reuse
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned %d", resp.StatusCode)

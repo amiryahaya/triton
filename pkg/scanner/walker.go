@@ -17,6 +17,7 @@ import (
 
 // walkerConfig holds common filesystem walk parameters.
 type walkerConfig struct {
+	ctx          context.Context
 	target       model.ScanTarget
 	config       *config.Config
 	matchFile    func(path string) bool
@@ -30,14 +31,23 @@ type walkerConfig struct {
 // walkTarget walks a scan target, enforcing depth limits, file size limits,
 // and exclude patterns. For each matching file, it calls processFile.
 func walkTarget(wc walkerConfig) error {
+	ctx := wc.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	rootDepth := strings.Count(filepath.Clean(wc.target.Value), string(filepath.Separator))
 
-	return filepath.Walk(wc.target.Value, func(path string, info os.FileInfo, err error) error {
+	return filepath.WalkDir(wc.target.Value, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue scanning
 		}
 
-		if info.IsDir() {
+		// Skip symlinks to avoid infinite loops
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		if d.IsDir() {
 			// Enforce max depth
 			if wc.target.Depth > 0 {
 				currentDepth := strings.Count(filepath.Clean(path), string(filepath.Separator))
@@ -68,9 +78,15 @@ func walkTarget(wc walkerConfig) error {
 			atomic.AddInt64(wc.filesMatched, 1)
 		}
 
-		// Enforce max file size
-		if wc.config != nil && wc.config.MaxFileSize > 0 && info.Size() > wc.config.MaxFileSize {
-			return nil
+		// Enforce max file size (requires stat)
+		if wc.config != nil && wc.config.MaxFileSize > 0 {
+			info, err := d.Info()
+			if err != nil {
+				return nil
+			}
+			if info.Size() > wc.config.MaxFileSize {
+				return nil
+			}
 		}
 
 		// Incremental scanning: skip unchanged files
@@ -87,7 +103,7 @@ func walkTarget(wc walkerConfig) error {
 				return err
 			}
 			if newHash != "" {
-				_ = wc.store.SetFileHash(context.Background(), path, newHash)
+				_ = wc.store.SetFileHash(ctx, path, newHash)
 			}
 			return nil
 		}
@@ -105,7 +121,8 @@ func checkFileChanged(s store.Store, path string) (skip bool, newHash string) {
 		return false, "" // Can't hash → process anyway
 	}
 
-	storedHash, _, err := s.GetFileHash(context.Background(), path)
+	// Use a short-lived context for the store lookup; caller manages cancellation.
+	storedHash, _, err := s.GetFileHash(context.TODO(), path)
 	if err == nil && storedHash == hash {
 		return true, "" // Unchanged
 	}

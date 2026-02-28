@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -99,9 +98,9 @@ func runPolicyCheck(_ *cobra.Command, _ []string) error {
 		fmt.Println("All policy checks passed.")
 	}
 
-	// Set exit code for CI/CD.
+	// Return sentinel error for CI/CD exit code.
 	if eval.Verdict == policy.VerdictFail {
-		os.Exit(1)
+		return ErrPolicyFail
 	}
 
 	return nil

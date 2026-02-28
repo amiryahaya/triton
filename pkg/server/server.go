@@ -29,6 +29,15 @@ type Server struct {
 	http   *http.Server
 }
 
+// securityHeaders adds security-related HTTP headers to all responses.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // New creates a new Server with the given config and store.
 func New(cfg *Config, s store.Store) *Server {
 	srv := &Server{
@@ -41,6 +50,8 @@ func New(cfg *Config, s store.Store) *Server {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(securityHeaders)
+	r.Use(middleware.Throttle(100))
 
 	// API routes with optional auth.
 	r.Route("/api/v1", func(r chi.Router) {

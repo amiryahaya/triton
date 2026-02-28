@@ -45,6 +45,18 @@ type EvaluationResult struct {
 
 // Evaluate runs the policy rules and thresholds against a scan result.
 func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
+	if pol == nil || result == nil {
+		return &EvaluationResult{
+			Verdict: VerdictFail,
+			Violations: []Violation{{
+				RuleID:   "system",
+				Severity: "error",
+				Action:   "fail",
+				Message:  "nil policy or scan result",
+			}},
+		}
+	}
+
 	eval := &EvaluationResult{
 		PolicyName:      pol.Name,
 		Verdict:         VerdictPass,
@@ -116,6 +128,20 @@ func matchesCondition(f *model.Finding, c *Condition) bool {
 	return true
 }
 
+// algorithmFamilies maps family identifiers to their known algorithm prefixes.
+var algorithmFamilies = map[string][]string{
+	"RSA":     {"RSA"},
+	"ECDSA":   {"ECDSA", "ECDSA-P"},
+	"EDDSA":   {"ED25519", "ED448"},
+	"AES":     {"AES"},
+	"DES":     {"DES", "3DES", "TRIPLE-DES"},
+	"SHA":     {"SHA-1", "SHA-224", "SHA-256", "SHA-384", "SHA-512", "SHA1", "SHA256", "SHA384", "SHA512"},
+	"SHA3":    {"SHA3"},
+	"MD5":     {"MD5"},
+	"CHACHA":  {"CHACHA20"},
+	"LATTICE": {"ML-KEM", "ML-DSA", "KYBER", "DILITHIUM"},
+}
+
 // matchesFamily checks if a crypto asset belongs to an algorithm family.
 func matchesFamily(a *model.CryptoAsset, family string) bool {
 	algo := strings.ToUpper(a.Algorithm)
@@ -127,20 +153,7 @@ func matchesFamily(a *model.CryptoAsset, family string) bool {
 	}
 
 	// Known family mappings.
-	families := map[string][]string{
-		"RSA":     {"RSA"},
-		"ECDSA":   {"ECDSA", "ECDSA-P"},
-		"EDDSA":   {"ED25519", "ED448"},
-		"AES":     {"AES"},
-		"DES":     {"DES", "3DES", "TRIPLE-DES"},
-		"SHA":     {"SHA-1", "SHA-224", "SHA-256", "SHA-384", "SHA-512", "SHA1", "SHA256", "SHA384", "SHA512"},
-		"SHA3":    {"SHA3"},
-		"MD5":     {"MD5"},
-		"CHACHA":  {"CHACHA20"},
-		"LATTICE": {"ML-KEM", "ML-DSA", "KYBER", "DILITHIUM"},
-	}
-
-	if members, ok := families[fam]; ok {
+	if members, ok := algorithmFamilies[fam]; ok {
 		for _, m := range members {
 			if strings.HasPrefix(algo, m) {
 				return true

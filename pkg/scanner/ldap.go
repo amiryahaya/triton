@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -259,9 +260,13 @@ func parseLDAPTarget(target string) (ldapTarget, error) {
 	}, nil
 }
 
-// defaultLDAPDial connects to an LDAP server using the go-ldap library.
+// defaultLDAPDial connects to an LDAP server using the go-ldap library with a 10s timeout.
 func defaultLDAPDial(addr string) (ldapConn, error) {
-	return ldap.Dial("tcp", addr)
+	conn, err := ldap.DialURL("ldap://"+addr, ldap.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}))
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // ldapBindCreds returns bind credentials from environment variables.

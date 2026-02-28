@@ -28,6 +28,13 @@ func defaultCmdRunner(ctx context.Context, name string, args ...string) ([]byte,
 	return cmd.Output()
 }
 
+// defaultCmdRunnerCombined executes a subprocess and captures both stdout and stderr.
+// Used for commands like `codesign --display` that write to stderr.
+func defaultCmdRunnerCombined(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
+}
+
 // discoveredDB holds info about a detected database process.
 type discoveredDB struct {
 	dbType  string // "postgres", "mysql", "sqlserver", "oracle"
@@ -217,6 +224,10 @@ func (m *DatabaseModule) probePostgres(ctx context.Context, endpoint string, fin
 		if db == "" {
 			db = "postgres"
 		}
+	}
+	// Reject database names that could be interpreted as CLI flags or contain control chars
+	if strings.HasPrefix(db, "-") || strings.ContainsAny(db, "\n\r\x00") {
+		return
 	}
 
 	baseArgs := []string{"-h", host, "-p", port, "-d", db, "-t", "-A"}

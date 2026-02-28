@@ -16,7 +16,9 @@ func openStore() (*store.PostgresStore, error) {
 	if url == "" {
 		url = config.DefaultDBUrl()
 	}
-	return store.NewPostgresStore(context.Background(), url)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return store.NewPostgresStore(ctx, url)
 }
 
 var cacheCmd = &cobra.Command{

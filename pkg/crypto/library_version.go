@@ -118,6 +118,9 @@ func parseVersion(version string) (major, minor int, ok bool) {
 			if err != nil {
 				return maj, 0, true // major parsed, minor unparseable — still usable
 			}
+			if minor < 0 {
+				return maj, 0, true
+			}
 		}
 	}
 

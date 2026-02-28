@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -27,8 +28,14 @@ type AlgorithmInfo struct {
 	NISTStandard bool // Is this a NIST-approved PQC algorithm
 }
 
-// AlgorithmRegistry maps algorithm names to their PQC status
-var AlgorithmRegistry = map[string]AlgorithmInfo{
+// GetAlgorithmInfo returns the AlgorithmInfo for a named algorithm and whether it was found.
+func GetAlgorithmInfo(name string) (AlgorithmInfo, bool) {
+	info, ok := algorithmRegistry[name]
+	return info, ok
+}
+
+// algorithmRegistry maps algorithm names to their PQC status.
+var algorithmRegistry = map[string]AlgorithmInfo{
 	// ===== SAFE algorithms (quantum-resistant) =====
 
 	// AES-256 variants (Grover's halves to 128-bit — still safe)
@@ -60,6 +67,7 @@ var AlgorithmRegistry = map[string]AlgorithmInfo{
 
 	// MACs with >=256-bit key
 	"HMAC-SHA256": {Name: "HMAC-SHA256", Family: "HMAC", KeySize: 256, Status: SAFE},
+	"HMAC-SHA384": {Name: "HMAC-SHA384", Family: "HMAC", KeySize: 384, Status: SAFE},
 	"HMAC-SHA512": {Name: "HMAC-SHA512", Family: "HMAC", KeySize: 512, Status: SAFE},
 	"Poly1305":    {Name: "Poly1305", Family: "MAC", KeySize: 256, Status: SAFE},
 
@@ -254,14 +262,14 @@ var familyRules []familyRule
 
 func init() {
 	// Build O(1) normalized map
-	normalizedMap = make(map[string]AlgorithmInfo, len(AlgorithmRegistry))
-	for name, info := range AlgorithmRegistry {
+	normalizedMap = make(map[string]AlgorithmInfo, len(algorithmRegistry))
+	for name, info := range algorithmRegistry {
 		norm := normalizeAlgo(name)
 		normalizedMap[norm] = info
 	}
 
 	// Build sorted list for substring matching
-	for name, info := range AlgorithmRegistry {
+	for name, info := range algorithmRegistry {
 		norm := normalizeAlgo(name)
 		normalizedRegistry = append(normalizedRegistry, normalizedEntry{
 			normalized: norm,
@@ -269,8 +277,13 @@ func init() {
 		})
 	}
 	// Sort by length descending — longer patterns are more specific and should match first.
+	// Secondary sort alphabetically for deterministic ordering among same-length entries.
 	sort.Slice(normalizedRegistry, func(i, j int) bool {
-		return len(normalizedRegistry[i].normalized) > len(normalizedRegistry[j].normalized)
+		li, lj := len(normalizedRegistry[i].normalized), len(normalizedRegistry[j].normalized)
+		if li != lj {
+			return li > lj
+		}
+		return normalizedRegistry[i].normalized < normalizedRegistry[j].normalized
 	})
 
 	// Build family prefix rules — catch hundreds of variants with ~30 rules.
@@ -320,6 +333,7 @@ func init() {
 
 		// HMAC variants
 		{prefix: "HMACSHA512", info: AlgorithmInfo{Name: "HMAC-SHA512", Family: "HMAC", KeySize: 512, Status: SAFE}},
+		{prefix: "HMACSHA384", info: AlgorithmInfo{Name: "HMAC-SHA384", Family: "HMAC", KeySize: 384, Status: SAFE}},
 		{prefix: "HMACSHA256", info: AlgorithmInfo{Name: "HMAC-SHA256", Family: "HMAC", KeySize: 256, Status: SAFE}},
 		{prefix: "HMACSHA1", info: AlgorithmInfo{Name: "HMAC-SHA1", Family: "HMAC", KeySize: 160, Status: TRANSITIONAL}},
 		{prefix: "HMACMD5", info: AlgorithmInfo{Name: "HMAC-MD5", Family: "HMAC", KeySize: 128, Status: DEPRECATED, BreakYear: 2020}},
@@ -342,11 +356,19 @@ func normalizeAlgo(s string) string {
 }
 
 // ClassifyAlgorithm determines the PQC status of a cryptographic algorithm.
-// 4-tier lookup: exact map → normalized map → family prefix → substring.
+// 5-tier lookup: exact map → key-size variant → normalized map → family prefix → substring.
 func ClassifyAlgorithm(algorithm string, keySize int) AlgorithmInfo {
 	// Tier 1: Exact match (fastest path)
-	if info, ok := AlgorithmRegistry[algorithm]; ok {
+	if info, ok := algorithmRegistry[algorithm]; ok {
 		return info
+	}
+
+	// Tier 1b: Try family-keySize variant when exact match fails and keySize is provided
+	if keySize > 0 {
+		variant := fmt.Sprintf("%s-%d", algorithm, keySize)
+		if info, ok := algorithmRegistry[variant]; ok {
+			return info
+		}
 	}
 
 	// Tier 2: Normalized exact match (e.g., "aes_256_gcm" → "AES256GCM")
@@ -410,7 +432,7 @@ func ClassifyCryptoAsset(asset *model.CryptoAsset) {
 	asset.NISTDisallowedYear = ci.NISTDisallowedYear
 	asset.ComplianceWarning = ci.Warning
 
-	// NACSA label
-	nacsa := AssessNACSA(asset)
+	// NACSA label — reuse compliance info to avoid double GetCompliance call
+	nacsa := AssessNACSAWithCompliance(asset, ci)
 	asset.NACSALabel = string(nacsa.Label)
 }

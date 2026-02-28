@@ -18,15 +18,17 @@ import (
 
 // CodeSignModule verifies code signing on executables, apps, and packages.
 type CodeSignModule struct {
-	config    *config.Config
-	cmdRunner cmdRunnerFunc
+	config         *config.Config
+	cmdRunner      cmdRunnerFunc
+	cmdRunCombined cmdRunnerFunc // for commands that write to stderr
 }
 
 // NewCodeSignModule creates a new CodeSignModule.
 func NewCodeSignModule(cfg *config.Config) *CodeSignModule {
 	return &CodeSignModule{
-		config:    cfg,
-		cmdRunner: defaultCmdRunner,
+		config:         cfg,
+		cmdRunner:      defaultCmdRunner,
+		cmdRunCombined: defaultCmdRunnerCombined,
 	}
 }
 
@@ -37,6 +39,7 @@ func (m *CodeSignModule) ScanTargetType() model.ScanTargetType { return model.Ta
 // Scan traverses the target filesystem looking for signed or unsigned binaries.
 func (m *CodeSignModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
 	return walkTarget(walkerConfig{
+		ctx:       ctx,
 		target:    target,
 		config:    m.config,
 		matchFile: isCodeSignCandidate,
@@ -118,8 +121,8 @@ func (m *CodeSignModule) checkMacOSCodeSign(ctx context.Context, path string) []
 	// Step 1: Verify signature
 	verifyOut, verifyErr := m.cmdRunner(ctx, "codesign", "--verify", "--deep", "--verbose=2", "--", path)
 
-	// Step 2: Display detailed signature info
-	displayOut, displayErr := m.cmdRunner(ctx, "codesign", "--display", "--verbose=4", "--", path)
+	// Step 2: Display detailed signature info (codesign --display writes to stderr)
+	displayOut, displayErr := m.cmdRunCombined(ctx, "codesign", "--display", "--verbose=4", "--", path)
 
 	return m.parseMacOSCodeSign(path, string(verifyOut), verifyErr, string(displayOut), displayErr)
 }

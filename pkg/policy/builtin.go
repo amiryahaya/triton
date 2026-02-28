@@ -1,6 +1,9 @@
 package policy
 
-import "embed"
+import (
+	"embed"
+	"sort"
+)
 
 //go:embed builtin/*.yaml
 var builtinFS embed.FS
@@ -30,6 +33,7 @@ func ListBuiltin() []string {
 	for name := range builtinPolicies {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

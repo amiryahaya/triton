@@ -195,11 +195,6 @@ func TestLDAPModule_ScanCACerts(t *testing.T) {
 	require.NoError(t, err)
 
 	// First call (userCertificate) returns empty, second call (cACertificate) returns CA cert
-	callCount := 0
-	mock := &mockLDAPConn{
-		searchResult: &ldap.SearchResult{},
-	}
-
 	m := &LDAPModule{
 		config: &config.Config{},
 		dialFn: func(addr string) (ldapConn, error) {
@@ -224,9 +219,6 @@ func TestLDAPModule_ScanCACerts(t *testing.T) {
 			}, nil
 		},
 	}
-	_ = callCount
-	_ = mock
-
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetLDAP, Value: "ldap://localhost:389/dc=example,dc=com"}
 

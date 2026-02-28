@@ -3,6 +3,7 @@ package server
 import (
 	"embed"
 	"io/fs"
+	"log"
 	"net/http"
 )
 
@@ -14,7 +15,7 @@ func uiHandler() http.Handler {
 	sub, err := fs.Sub(uiFS, "ui/dist")
 	if err != nil {
 		// Should never happen with valid embed directive
-		panic("embedded UI filesystem error: " + err.Error())
+		log.Fatalf("embedded UI filesystem error: %v", err)
 	}
 
 	fileServer := http.FileServer(http.FS(sub))

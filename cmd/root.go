@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -24,6 +26,10 @@ import (
 	"github.com/amiryahaya/triton/pkg/scanner"
 	"github.com/amiryahaya/triton/pkg/store"
 )
+
+// ErrPolicyFail is returned when a policy evaluation fails,
+// allowing the caller to set the appropriate exit code.
+var ErrPolicyFail = errors.New("policy evaluation failed")
 
 var (
 	cfgFile       string
@@ -262,7 +268,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 func runScanHeadless(eng *scanner.Engine) error {
 	progressCh := make(chan scanner.Progress, 16)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
 	go eng.Scan(ctx, progressCh)
 
@@ -469,7 +476,7 @@ func evaluateScanPolicy(result *model.ScanResult) error {
 	result.Metadata.PolicyResult = string(eval.Verdict)
 
 	if eval.Verdict == policy.VerdictFail {
-		os.Exit(2)
+		return ErrPolicyFail
 	}
 	return nil
 }

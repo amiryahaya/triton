@@ -56,6 +56,7 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 	atomic.StoreInt64(&m.lastScanned, 0)
 	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
+		ctx:          ctx,
 		target:       target,
 		config:       m.config,
 		matchFile:    m.isCertificateFile,

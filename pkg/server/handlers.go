@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +49,8 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.SaveScan(r.Context(), &result); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save scan: "+err.Error())
+		log.Printf("save scan error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -79,7 +82,8 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 
 	summaries, err := s.store.ListScans(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list scans error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if summaries == nil {
@@ -97,7 +101,8 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "scan not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("get scan error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -111,7 +116,8 @@ func (s *Server) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "scan not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("delete scan error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -126,7 +132,8 @@ func (s *Server) handleGetFindings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "scan not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("get findings error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -157,7 +164,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "base scan not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("diff base scan error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
@@ -166,7 +174,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "compare scan not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("diff compare scan error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
@@ -184,13 +193,17 @@ func (s *Server) handleTrend(w http.ResponseWriter, r *http.Request) {
 			last = n
 		}
 	}
+	if last > 100 {
+		last = 100
+	}
 
 	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{
 		Hostname: hostname,
 		Limit:    last,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("trend error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -209,9 +222,10 @@ func (s *Server) handleTrend(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/machines
 func (s *Server) handleListMachines(w http.ResponseWriter, r *http.Request) {
-	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{})
+	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Limit: 1000})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list machines error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -236,7 +250,8 @@ func (s *Server) handleMachineHistory(w http.ResponseWriter, r *http.Request) {
 	hostname := chi.URLParam(r, "hostname")
 	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Hostname: hostname})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("machine history error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if summaries == nil {
@@ -268,7 +283,8 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("policy evaluate scan error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
@@ -302,7 +318,8 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("generate report scan error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
@@ -321,33 +338,62 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	switch format {
 	case "sarif":
 		filename = fmt.Sprintf("triton-report-%s.sarif", ts)
-		err = gen.GenerateSARIF(result, filename)
 	case "html":
 		filename = fmt.Sprintf("triton-report-%s.html", ts)
-		err = gen.GenerateHTML(result, filename)
 	case "json":
 		filename = fmt.Sprintf("triton-report-%s.json", ts)
-		err = gen.GenerateTritonJSON(result, filename)
 	case "cyclonedx":
 		filename = fmt.Sprintf("triton-report-%s.cdx.json", ts)
-		err = gen.GenerateCycloneDXBOM(result, filename)
 	default:
 		writeError(w, http.StatusBadRequest, "unsupported format: "+format)
 		return
 	}
 
+	fullPath := filepath.Join(dir, filename)
+
+	switch format {
+	case "sarif":
+		err = gen.GenerateSARIF(result, fullPath)
+	case "html":
+		err = gen.GenerateHTML(result, fullPath)
+	case "json":
+		err = gen.GenerateTritonJSON(result, fullPath)
+	case "cyclonedx":
+		err = gen.GenerateCycloneDXBOM(result, fullPath)
+	}
+
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "report generation failed: "+err.Error())
+		log.Printf("report generation error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"file": filename})
+
+	data, readErr := os.ReadFile(fullPath)
+	if readErr != nil {
+		log.Printf("read report error: %v", readErr)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	defer os.Remove(fullPath) // clean up temp file
+
+	// Set content type based on format
+	switch format {
+	case "html":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	case "sarif", "json", "cyclonedx":
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 // GET /api/v1/aggregate
 func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
-	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{})
+	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Limit: 1000})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("aggregate error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"runtime"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -36,7 +37,7 @@ type ScanProfile struct {
 	Workers     int
 }
 
-var Profiles = map[string]ScanProfile{
+var profiles = map[string]ScanProfile{
 	"quick": {
 		Name:        "quick",
 		Description: "Fast scan of critical areas only",
@@ -60,10 +61,18 @@ var Profiles = map[string]ScanProfile{
 	},
 }
 
+// GetProfile returns the scan profile for the given name.
+// Returns the profile and true if found, or zero value and false otherwise.
+func GetProfile(name string) (ScanProfile, bool) {
+	p, ok := profiles[name]
+	return p, ok
+}
+
 func Load(profile string) *Config {
-	p, ok := Profiles[profile]
+	p, ok := profiles[profile]
 	if !ok {
-		p = Profiles["standard"]
+		log.Printf("warning: unknown profile %q, falling back to standard", profile)
+		p = profiles["standard"]
 	}
 
 	workers := p.Workers

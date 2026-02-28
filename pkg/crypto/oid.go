@@ -280,12 +280,29 @@ func parseOID(data []byte) string {
 		return ""
 	}
 
-	length := int(data[1])
-	if 2+length > len(data) {
+	// Parse length (supports short and long form)
+	pos := 1
+	length := 0
+	if data[pos]&0x80 == 0 {
+		length = int(data[pos])
+		pos++
+	} else {
+		numBytes := int(data[pos] & 0x7F)
+		pos++
+		if numBytes == 0 || numBytes > 4 || pos+numBytes > len(data) {
+			return ""
+		}
+		for i := 0; i < numBytes; i++ {
+			length = (length << 8) | int(data[pos])
+			pos++
+		}
+	}
+
+	if pos+length > len(data) {
 		return ""
 	}
 
-	oidBytes := data[2 : 2+length]
+	oidBytes := data[pos : pos+length]
 	return decodeOID(oidBytes)
 }
 
@@ -306,6 +323,10 @@ func decodeOID(data []byte) string {
 	// Subsequent bytes encode remaining components in base-128
 	value := 0
 	for i := 1; i < len(data); i++ {
+		// Guard against int overflow: if value is already huge, bail out
+		if value > 1<<24 {
+			return ""
+		}
 		value = (value << 7) | int(data[i]&0x7F)
 		if data[i]&0x80 == 0 {
 			result = append(result, '.')
@@ -321,6 +342,10 @@ func decodeOID(data []byte) string {
 func appendInt(b []byte, v int) []byte {
 	if v == 0 {
 		return append(b, '0')
+	}
+	if v < 0 {
+		b = append(b, '-')
+		v = -v
 	}
 
 	// Calculate number of digits

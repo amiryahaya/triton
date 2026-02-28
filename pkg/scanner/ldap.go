@@ -272,6 +272,6 @@ func defaultLDAPDial(addr string) (ldapConn, error) {
 // ldapBindCreds returns bind credentials from environment variables.
 // Set TRITON_LDAP_BIND_DN and TRITON_LDAP_BIND_PW for authenticated binds.
 // Returns empty strings for anonymous bind when env vars are not set.
-func ldapBindCreds() (dn string, pw string) {
+func ldapBindCreds() (dn, pw string) {
 	return os.Getenv("TRITON_LDAP_BIND_DN"), os.Getenv("TRITON_LDAP_BIND_PW")
 }

@@ -1,4 +1,4 @@
-.PHONY: build build-all test bench vet clean install
+.PHONY: build build-all test bench vet clean install db-up db-down db-reset
 
 # Build for current platform
 build:
@@ -12,8 +12,26 @@ build-all:
 	GOOS=linux GOARCH=arm64 go build -o bin/triton-linux-arm64 main.go
 	GOOS=windows GOARCH=amd64 go build -o bin/triton-windows-amd64.exe main.go
 
-# Run tests
-test:
+# Database lifecycle
+db-up:
+	podman compose up -d postgres
+	@echo "Waiting for PostgreSQL..."
+	@sleep 2
+	@podman exec triton-db psql -U triton -tc "SELECT 1 FROM pg_database WHERE datname='triton_test'" | grep -q 1 || \
+		podman exec triton-db psql -U triton -c "CREATE DATABASE triton_test"
+
+db-down:
+	podman compose down
+
+db-reset:
+	podman compose down -v
+	podman compose up -d postgres
+	@echo "Waiting for PostgreSQL..."
+	@sleep 2
+	@podman exec triton-db psql -U triton -c "CREATE DATABASE triton_test"
+
+# Run tests (requires PostgreSQL running)
+test: db-up
 	go test -v ./...
 
 # Clean build artifacts

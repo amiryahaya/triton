@@ -61,7 +61,7 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVarP(&modules, "modules", "m", []string{}, "Specific modules to run (default: all)")
 	rootCmd.PersistentFlags().StringVarP(&format, "format", "f", "all", "Output format: json, cdx, html, xlsx, sarif, all")
 	rootCmd.PersistentFlags().BoolVar(&showMetrics, "metrics", false, "Show per-module scan metrics table")
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "Database path (default: ~/.triton/triton.db)")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
 	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
 	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
 
@@ -199,17 +199,17 @@ func runScan(cmd *cobra.Command, args []string) error {
 	cfg.Metrics = showMetrics
 	cfg.Incremental = incremental
 	if dbPath != "" {
-		cfg.DBPath = dbPath
+		cfg.DBUrl = dbPath
 	} else {
-		cfg.DBPath = config.DefaultDBPath()
+		cfg.DBUrl = config.DefaultDBUrl()
 	}
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()
 
 	// Initialize store for incremental scanning and result persistence.
-	if cfg.DBPath != "" {
-		db, err := store.NewSQLiteStore(cfg.DBPath)
+	if cfg.DBUrl != "" {
+		db, err := store.NewPostgresStore(context.Background(), cfg.DBUrl)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to open database: %v\n", err)
 		} else {

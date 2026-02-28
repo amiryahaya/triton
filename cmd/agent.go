@@ -67,14 +67,14 @@ func runAgentScan(client *agent.Client) error {
 	fmt.Printf("\nStarting scan (profile: %s)...\n", agentProfile)
 
 	cfg := config.Load(agentProfile)
-	cfg.DBPath = config.DefaultDBPath()
+	cfg.DBUrl = config.DefaultDBUrl()
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()
 
 	// Initialize store for incremental scanning
-	if cfg.DBPath != "" {
-		db, err := store.NewSQLiteStore(cfg.DBPath)
+	if cfg.DBUrl != "" {
+		db, err := store.NewPostgresStore(context.Background(), cfg.DBUrl)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to open database: %v\n", err)
 		} else {

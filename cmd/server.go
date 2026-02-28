@@ -31,7 +31,7 @@ var serverCmd = &cobra.Command{
 
 func init() {
 	serverCmd.Flags().StringVar(&serverListen, "listen", ":8080", "Listen address")
-	serverCmd.Flags().StringVar(&serverDB, "db", "", "Database path (default: ~/.triton/triton.db)")
+	serverCmd.Flags().StringVar(&serverDB, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
 	serverCmd.Flags().StringSliceVar(&serverAPIKeys, "api-key", nil, "Allowed API keys (can be specified multiple times)")
 	serverCmd.Flags().StringVar(&serverTLSCert, "tls-cert", "", "TLS certificate file")
 	serverCmd.Flags().StringVar(&serverTLSKey, "tls-key", "", "TLS key file")
@@ -39,12 +39,13 @@ func init() {
 }
 
 func runServer(_ *cobra.Command, _ []string) error {
-	dbPathVal := serverDB
-	if dbPathVal == "" {
-		dbPathVal = config.DefaultDBPath()
+	dbUrlVal := serverDB
+	if dbUrlVal == "" {
+		dbUrlVal = config.DefaultDBUrl()
 	}
 
-	db, err := store.NewSQLiteStore(dbPathVal)
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrlVal)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
@@ -52,7 +53,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 
 	cfg := &server.Config{
 		ListenAddr: serverListen,
-		DBPath:     dbPathVal,
+		DBUrl:      dbUrlVal,
 		APIKeys:    serverAPIKeys,
 		TLSCert:    serverTLSCert,
 		TLSKey:     serverTLSKey,

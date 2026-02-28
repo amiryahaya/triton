@@ -1,8 +1,6 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -21,17 +19,13 @@ type Config struct {
 	Workers         int
 	ScanTargets     []model.ScanTarget
 	Metrics         bool
-	DBPath          string
+	DBUrl           string
 	Incremental     bool
 }
 
-// DefaultDBPath returns the default database path (~/.triton/triton.db).
-func DefaultDBPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "triton.db"
-	}
-	return filepath.Join(home, ".triton", "triton.db")
+// DefaultDBUrl returns the default PostgreSQL connection URL.
+func DefaultDBUrl() string {
+	return "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
 }
 
 type ScanProfile struct {

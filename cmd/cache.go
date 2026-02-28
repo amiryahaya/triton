@@ -11,6 +11,14 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
+func openStore() (*store.PostgresStore, error) {
+	url := dbPath
+	if url == "" {
+		url = config.DefaultDBUrl()
+	}
+	return store.NewPostgresStore(context.Background(), url)
+}
+
 var cacheCmd = &cobra.Command{
 	Use:   "cache",
 	Short: "Manage the file hash cache used for incremental scanning",
@@ -32,14 +40,6 @@ func init() {
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheStatsCmd)
 	cacheCmd.AddCommand(cacheClearCmd)
-}
-
-func openStore() (*store.SQLiteStore, error) {
-	path := dbPath
-	if path == "" {
-		path = config.DefaultDBPath()
-	}
-	return store.NewSQLiteStore(path)
 }
 
 func runCacheStats(_ *cobra.Command, _ []string) error {

@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"os"
 	"testing"
 	"time"
 
@@ -13,18 +13,28 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
-// testStore creates a temporary SQLite store for testing.
-func testStore(t *testing.T) *SQLiteStore {
+// testStore creates a PostgresStore for testing.
+// Requires PostgreSQL running (e.g., podman compose up -d).
+func testStore(t *testing.T) *PostgresStore {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	s, err := NewSQLiteStore(dbPath)
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	s, err := NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() {
+		// Clean tables between tests
+		_, _ = s.pool.Exec(ctx, "DELETE FROM scans")
+		_, _ = s.pool.Exec(ctx, "DELETE FROM file_hashes")
+		s.Close()
+	})
 	return s
 }
 
 func testScanResult(id, hostname, profile string) *model.ScanResult {
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &model.ScanResult{
 		ID: id,
 		Metadata: model.ScanMetadata{
@@ -69,34 +79,34 @@ func testScanResult(id, hostname, profile string) *model.ScanResult {
 
 // --- Schema / Migration Tests ---
 
-func TestNewSQLiteStore_CreatesDatabase(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "new.db")
-	s, err := NewSQLiteStore(dbPath)
-	require.NoError(t, err)
-	defer s.Close()
+func TestNewPostgresStore_Connection(t *testing.T) {
+	s := testStore(t)
 
 	v, err := s.SchemaVersion()
 	require.NoError(t, err)
 	assert.Equal(t, len(migrations), v)
 }
 
-func TestNewSQLiteStore_CreatesParentDir(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "nested", "deep", "test.db")
-	s, err := NewSQLiteStore(dbPath)
-	require.NoError(t, err)
-	defer s.Close()
+func TestNewPostgresStore_BadURL(t *testing.T) {
+	ctx := context.Background()
+	_, err := NewPostgresStore(ctx, "postgres://baduser:badpass@localhost:59999/nonexistent?sslmode=disable")
+	require.Error(t, err)
 }
 
-func TestNewSQLiteStore_IdempotentMigrations(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "reopen.db")
+func TestNewPostgresStore_IdempotentMigrations(t *testing.T) {
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
 
 	// First open — runs migrations.
-	s1, err := NewSQLiteStore(dbPath)
+	s1, err := NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
 	s1.Close()
 
 	// Second open — should not fail (migrations already applied).
-	s2, err := NewSQLiteStore(dbPath)
+	s2, err := NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -187,7 +197,7 @@ func TestListScans_All(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		r := testScanResult("scan-list-"+string(rune('a'+i)), "host-a", "standard")
-		r.Metadata.Timestamp = time.Now().UTC().Add(time.Duration(i) * time.Hour).Truncate(time.Second)
+		r.Metadata.Timestamp = time.Now().UTC().Add(time.Duration(i) * time.Hour).Truncate(time.Microsecond)
 		require.NoError(t, s.SaveScan(ctx, r))
 	}
 
@@ -251,7 +261,7 @@ func TestListScans_Limit(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		r := testScanResult("lim-"+string(rune('a'+i)), "host-a", "quick")
-		r.Metadata.Timestamp = time.Now().UTC().Add(time.Duration(i) * time.Hour).Truncate(time.Second)
+		r.Metadata.Timestamp = time.Now().UTC().Add(time.Duration(i) * time.Hour).Truncate(time.Microsecond)
 		require.NoError(t, s.SaveScan(ctx, r))
 	}
 

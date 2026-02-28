@@ -15,7 +15,7 @@ import (
 // Config holds server configuration.
 type Config struct {
 	ListenAddr string
-	DBPath     string
+	DBUrl      string
 	APIKeys    []string
 	TLSCert    string
 	TLSKey     string

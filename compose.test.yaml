@@ -1,0 +1,4 @@
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: triton_test

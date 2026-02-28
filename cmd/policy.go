@@ -122,7 +122,7 @@ func runPolicyList(_ *cobra.Command, _ []string) error {
 }
 
 // loadTargetScan loads a specific scan by ID, or the most recent scan if no ID is given.
-func loadTargetScan(db *store.SQLiteStore, scanID string) (*model.ScanResult, error) {
+func loadTargetScan(db *store.PostgresStore, scanID string) (*model.ScanResult, error) {
 	ctx := context.Background()
 
 	if scanID != "" {

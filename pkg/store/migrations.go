@@ -7,14 +7,14 @@ var migrations = []string{
 	`CREATE TABLE IF NOT EXISTS scans (
 		id TEXT PRIMARY KEY,
 		hostname TEXT NOT NULL,
-		timestamp TEXT NOT NULL,
+		timestamp TIMESTAMPTZ NOT NULL,
 		profile TEXT NOT NULL,
 		total_findings INTEGER NOT NULL DEFAULT 0,
 		safe INTEGER NOT NULL DEFAULT 0,
 		transitional INTEGER NOT NULL DEFAULT 0,
 		deprecated INTEGER NOT NULL DEFAULT 0,
 		unsafe INTEGER NOT NULL DEFAULT 0,
-		result_json BLOB NOT NULL
+		result_json JSONB NOT NULL
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_scans_hostname ON scans(hostname);
@@ -23,7 +23,7 @@ var migrations = []string{
 	CREATE TABLE IF NOT EXISTS file_hashes (
 		path TEXT PRIMARY KEY,
 		hash TEXT NOT NULL,
-		scanned_at TEXT NOT NULL
+		scanned_at TIMESTAMPTZ NOT NULL
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_file_hashes_scanned_at ON file_hashes(scanned_at);`,

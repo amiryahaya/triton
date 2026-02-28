@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"os"
 	"testing"
 	"time"
 
@@ -17,12 +17,20 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
-func testServer(t *testing.T) (*Server, *store.SQLiteStore) {
+func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := store.NewSQLiteStore(dbPath)
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		_, _ = db.Pool().Exec(ctx, "DELETE FROM scans")
+		_, _ = db.Pool().Exec(ctx, "DELETE FROM file_hashes")
+		db.Close()
+	})
 
 	cfg := &Config{
 		ListenAddr: ":0",
@@ -31,12 +39,20 @@ func testServer(t *testing.T) (*Server, *store.SQLiteStore) {
 	return srv, db
 }
 
-func testServerWithAuth(t *testing.T) (*Server, *store.SQLiteStore) {
+func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := store.NewSQLiteStore(dbPath)
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		_, _ = db.Pool().Exec(ctx, "DELETE FROM scans")
+		_, _ = db.Pool().Exec(ctx, "DELETE FROM file_hashes")
+		db.Close()
+	})
 
 	cfg := &Config{
 		ListenAddr: ":0",
@@ -50,7 +66,7 @@ func testScanResult(id, hostname string) *model.ScanResult {
 	return &model.ScanResult{
 		ID: id,
 		Metadata: model.ScanMetadata{
-			Timestamp:   time.Now().UTC().Truncate(time.Second),
+			Timestamp:   time.Now().UTC().Truncate(time.Microsecond),
 			Hostname:    hostname,
 			ScanProfile: "quick",
 			ToolVersion: "2.0.0-test",

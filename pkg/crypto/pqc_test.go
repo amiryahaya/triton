@@ -253,12 +253,12 @@ func TestClassifyCryptoAsset(t *testing.T) {
 
 func TestRegistryEntryCount(t *testing.T) {
 	// Ensure we have >= 90 entries (expanded from ~30)
-	assert.GreaterOrEqual(t, len(AlgorithmRegistry), 90, "registry should have at least 90 entries")
+	assert.GreaterOrEqual(t, len(algorithmRegistry), 90, "registry should have at least 90 entries")
 }
 
 func TestNormalizedMapConsistency(t *testing.T) {
-	// Every entry in AlgorithmRegistry should be in normalizedMap
-	for name := range AlgorithmRegistry {
+	// Every entry in algorithmRegistry should be in normalizedMap
+	for name := range algorithmRegistry {
 		norm := normalizeAlgo(name)
 		_, ok := normalizedMap[norm]
 		assert.True(t, ok, "normalizedMap should contain %s (normalized: %s)", name, norm)

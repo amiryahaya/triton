@@ -116,7 +116,7 @@ func (g *Generator) GenerateCycloneDXBOM(result *model.ScanResult, filename stri
 		return fmt.Errorf("marshaling CycloneDX: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0o644)
+	return os.WriteFile(filename, data, 0o600)
 }
 
 // findingToComponent converts a Triton finding into a CycloneDX component.

@@ -8,6 +8,7 @@ import (
 	"debug/macho"
 	"debug/pe"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -199,6 +200,7 @@ func (m *BinaryModule) Scan(ctx context.Context, target model.ScanTarget, findin
 	atomic.StoreInt64(&m.lastScanned, 0)
 	atomic.StoreInt64(&m.lastMatched, 0)
 	return walkTarget(walkerConfig{
+		ctx:          ctx,
 		target:       target,
 		config:       m.config,
 		matchFile:    m.isBinaryFile,
@@ -711,8 +713,8 @@ func (m *BinaryModule) readBinaryHead(path string) ([]byte, error) {
 	}
 
 	buf := make([]byte, size)
-	n, err := f.Read(buf)
-	if err != nil {
+	n, err := io.ReadFull(f, buf)
+	if err != nil && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
 

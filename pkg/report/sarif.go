@@ -137,7 +137,7 @@ func (g *Generator) GenerateSARIF(result *model.ScanResult, filename string) err
 	if err != nil {
 		return fmt.Errorf("marshalling SARIF: %w", err)
 	}
-	return os.WriteFile(filename, data, 0o644)
+	return os.WriteFile(filename, data, 0o600)
 }
 
 func buildSARIFResults(result *model.ScanResult) []sarifResult {

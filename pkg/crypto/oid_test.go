@@ -379,7 +379,7 @@ func buildSyntheticCertDER(t *testing.T, sigOID, pubKeyOID string) []byte {
 
 	// Issuer: SEQUENCE { SET { SEQUENCE { OID(CN), UTF8String("test") } } }
 	cnOID := []byte{0x06, 0x03, 0x55, 0x04, 0x03} // 2.5.4.3
-	cnValue := wrapASN1(0x0C, []byte("test"))       // UTF8String
+	cnValue := wrapASN1(0x0C, []byte("test"))     // UTF8String
 	rdnSeq := wrapASN1(0x30, append(cnOID, cnValue...))
 	rdnSet := wrapASN1(0x31, rdnSeq)
 	issuer := wrapASN1(0x30, rdnSet)

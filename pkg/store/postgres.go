@@ -40,7 +40,7 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 // migrate applies any unapplied schema migrations.
 func (s *PostgresStore) migrate(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_version (
-		version INTEGER NOT NULL,
+		version INTEGER NOT NULL UNIQUE,
 		applied_at TIMESTAMPTZ NOT NULL
 	)`)
 	if err != nil {
@@ -84,6 +84,13 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 
 // SaveScan persists a scan result to the database.
 func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) error {
+	if result == nil {
+		return fmt.Errorf("cannot save nil scan result")
+	}
+	if result.ID == "" {
+		return fmt.Errorf("scan result must have an ID")
+	}
+
 	blob, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("marshalling scan result: %w", err)
@@ -177,7 +184,7 @@ func (s *PostgresStore) ListScans(ctx context.Context, filter ScanFilter) ([]Sca
 	}
 	defer rows.Close()
 
-	var summaries []ScanSummary
+	summaries := make([]ScanSummary, 0)
 	for rows.Next() {
 		var ss ScanSummary
 		if err := rows.Scan(&ss.ID, &ss.Hostname, &ss.Timestamp, &ss.Profile,
@@ -247,12 +254,19 @@ func (s *PostgresStore) PruneStaleHashes(ctx context.Context, before time.Time) 
 // TruncateAll deletes all data from scans and file_hashes tables.
 // Intended for test cleanup only.
 func (s *PostgresStore) TruncateAll(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, "DELETE FROM scans")
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("begin truncate transaction: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM scans"); err != nil {
+		_ = tx.Rollback(ctx)
 		return err
 	}
-	_, err = s.pool.Exec(ctx, "DELETE FROM file_hashes")
-	return err
+	if _, err := tx.Exec(ctx, "DELETE FROM file_hashes"); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Close releases the connection pool.

@@ -692,7 +692,7 @@ func TestGenerateReport_JSON(t *testing.T) {
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "file")
+	assert.Contains(t, w.Body.String(), "result")
 }
 
 func TestGenerateReport_SARIF(t *testing.T) {
@@ -704,7 +704,7 @@ func TestGenerateReport_SARIF(t *testing.T) {
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "file")
+	assert.Contains(t, w.Body.String(), "$schema")
 }
 
 func TestGenerateReport_HTML(t *testing.T) {
@@ -716,7 +716,7 @@ func TestGenerateReport_HTML(t *testing.T) {
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "file")
+	assert.Contains(t, w.Body.String(), "<!DOCTYPE html>")
 }
 
 func TestGenerateReport_CycloneDX(t *testing.T) {
@@ -728,7 +728,7 @@ func TestGenerateReport_CycloneDX(t *testing.T) {
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "file")
+	assert.Contains(t, w.Body.String(), "bomFormat")
 }
 
 // --- Policy Evaluate Edge Cases ---

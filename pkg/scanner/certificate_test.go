@@ -598,7 +598,7 @@ func TestBuildPQCAlgorithmName_FallbackToOID(t *testing.T) {
 
 func TestBuildPQCAlgorithmName_SyntheticPQCCert(t *testing.T) {
 	// Build synthetic DER with ML-DSA-44 signature OID and ML-KEM-768 pubkey OID
-	mlkemOID := "2.16.840.1.101.3.4.4.2" // ML-KEM-768
+	mlkemOID := "2.16.840.1.101.3.4.4.2"  // ML-KEM-768
 	mldsaOID := "2.16.840.1.101.3.4.3.17" // ML-DSA-44
 	certDER := buildSyntheticCertDERForScanner(t, mldsaOID, mlkemOID)
 

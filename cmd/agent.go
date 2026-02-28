@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"time"
 
@@ -41,6 +42,9 @@ func init() {
 }
 
 func runAgent(_ *cobra.Command, _ []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	client := agent.New(agentServer, agentAPIKey)
 
 	// Check server connectivity
@@ -50,7 +54,7 @@ func runAgent(_ *cobra.Command, _ []string) error {
 	fmt.Printf("Connected to server: %s\n", agentServer)
 
 	for {
-		if err := runAgentScan(client); err != nil {
+		if err := runAgentScan(ctx, client); err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
 		}
 
@@ -59,11 +63,16 @@ func runAgent(_ *cobra.Command, _ []string) error {
 		}
 
 		fmt.Printf("Next scan in %s...\n", agentInterval)
-		time.Sleep(agentInterval)
+		select {
+		case <-time.After(agentInterval):
+		case <-ctx.Done():
+			fmt.Println("\nAgent stopped.")
+			return nil
+		}
 	}
 }
 
-func runAgentScan(client *agent.Client) error {
+func runAgentScan(ctx context.Context, client *agent.Client) error {
 	fmt.Printf("\nStarting scan (profile: %s)...\n", agentProfile)
 
 	cfg := config.Load(agentProfile)
@@ -84,7 +93,6 @@ func runAgentScan(client *agent.Client) error {
 	}
 
 	progressCh := make(chan scanner.Progress, 16)
-	ctx := context.Background()
 
 	go eng.Scan(ctx, progressCh)
 

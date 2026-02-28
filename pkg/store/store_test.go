@@ -24,6 +24,8 @@ func testStore(t *testing.T) *PostgresStore {
 	ctx := context.Background()
 	s, err := NewPostgresStore(ctx, dbUrl)
 	require.NoError(t, err)
+	// Truncate at start to handle stale data from parallel package tests
+	require.NoError(t, s.TruncateAll(ctx))
 	t.Cleanup(func() {
 		_ = s.TruncateAll(ctx)
 		s.Close()

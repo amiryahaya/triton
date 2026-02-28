@@ -23,6 +23,7 @@ const (
 	TargetProcess
 	TargetDatabase
 	TargetHSM
+	TargetLDAP
 )
 
 // ScanResult is the top-level container for all scan output.
@@ -148,6 +149,15 @@ type CryptoAsset struct {
 	NotBefore    *time.Time `json:"notBefore,omitempty"`
 	NotAfter     *time.Time `json:"notAfter,omitempty"`
 	IsCA         bool       `json:"isCA,omitempty"`
+
+	// Revocation status (for OCSP/CRL checking)
+	RevocationStatus string   `json:"revocationStatus,omitempty"` // "GOOD", "REVOKED", "UNKNOWN", "ERROR"
+	OCSPResponder    string   `json:"ocspResponder,omitempty"`
+	CRLDistPoints    []string `json:"crlDistributionPoints,omitempty"`
+
+	// Chain position (for TLS chain analysis)
+	ChainPosition string `json:"chainPosition,omitempty"` // "leaf", "intermediate", "root"
+	ChainDepth    int    `json:"chainDepth,omitempty"`
 }
 
 // Summary holds aggregated statistics for a scan result.
@@ -190,8 +200,10 @@ type ScanTarget struct {
 	Depth int            `json:"depth"`
 }
 
-// AllCategories is the full list of CBOM scanning categories (1-9).
-var AllCategories = []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
+// AllCategories returns the full list of CBOM scanning categories (1-9).
+func AllCategories() []int {
+	return []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
+}
 
 // ComputeSummary calculates aggregate statistics from a list of findings.
 func ComputeSummary(findings []Finding) Summary {
@@ -224,7 +236,7 @@ func ComputeSummary(findings []Finding) Summary {
 	}
 
 	// Populate categories scanned/skipped
-	for _, cat := range AllCategories {
+	for _, cat := range AllCategories() {
 		if scannedSet[cat] {
 			s.CategoriesScanned = append(s.CategoriesScanned, cat)
 		} else {

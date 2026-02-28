@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"runtime"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -36,7 +37,7 @@ type ScanProfile struct {
 	Workers     int
 }
 
-var Profiles = map[string]ScanProfile{
+var profiles = map[string]ScanProfile{
 	"quick": {
 		Name:        "quick",
 		Description: "Fast scan of critical areas only",
@@ -54,16 +55,24 @@ var Profiles = map[string]ScanProfile{
 	"comprehensive": {
 		Name:        "comprehensive",
 		Description: "Deep scan of entire system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign"},
 		Depth:       -1, // unlimited
 		Workers:     16,
 	},
 }
 
+// GetProfile returns the scan profile for the given name.
+// Returns the profile and true if found, or zero value and false otherwise.
+func GetProfile(name string) (ScanProfile, bool) {
+	p, ok := profiles[name]
+	return p, ok
+}
+
 func Load(profile string) *Config {
-	p, ok := Profiles[profile]
+	p, ok := profiles[profile]
 	if !ok {
-		p = Profiles["standard"]
+		log.Printf("warning: unknown profile %q, falling back to standard", profile)
+		p = profiles["standard"]
 	}
 
 	workers := p.Workers
@@ -94,6 +103,8 @@ func Load(profile string) *Config {
 			targets = append(targets, model.ScanTarget{Type: model.TargetDatabase, Value: "auto"})
 		case "hsm":
 			targets = append(targets, model.ScanTarget{Type: model.TargetHSM, Value: "auto"})
+		case "ldap":
+			// No auto-discovery for LDAP — requires explicit target via --target flag
 		}
 	}
 

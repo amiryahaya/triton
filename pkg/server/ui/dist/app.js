@@ -22,6 +22,11 @@
     info: '#1565c0'
   };
 
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   // Router
   function route() {
     const hash = location.hash || '#/';
@@ -47,8 +52,8 @@
 
   // Render helpers
   function badge(status) {
-    const s = (status || '').toUpperCase();
-    return `<span class="badge badge-${s.toLowerCase()}">${s}</span>`;
+    const s = escapeHtml((status || '').toUpperCase());
+    return `<span class="badge badge-${escapeHtml((status || '').toLowerCase())}">${s}</span>`;
   }
 
   function formatDate(ts) {
@@ -65,12 +70,12 @@
       let html = `<h2>Organization Overview</h2>`;
 
       html += `<div class="card-grid">
-        <div class="card info"><div class="value">${agg.machineCount}</div><div class="label">Machines</div></div>
-        <div class="card info"><div class="value">${agg.totalFindings}</div><div class="label">Total Findings</div></div>
-        <div class="card safe"><div class="value">${agg.safe}</div><div class="label">Safe</div></div>
-        <div class="card transitional"><div class="value">${agg.transitional}</div><div class="label">Transitional</div></div>
-        <div class="card deprecated"><div class="value">${agg.deprecated}</div><div class="label">Deprecated</div></div>
-        <div class="card unsafe"><div class="value">${agg.unsafe}</div><div class="label">Unsafe</div></div>
+        <div class="card info"><div class="value">${escapeHtml(agg.machineCount)}</div><div class="label">Machines</div></div>
+        <div class="card info"><div class="value">${escapeHtml(agg.totalFindings)}</div><div class="label">Total Findings</div></div>
+        <div class="card safe"><div class="value">${escapeHtml(agg.safe)}</div><div class="label">Safe</div></div>
+        <div class="card transitional"><div class="value">${escapeHtml(agg.transitional)}</div><div class="label">Transitional</div></div>
+        <div class="card deprecated"><div class="value">${escapeHtml(agg.deprecated)}</div><div class="label">Deprecated</div></div>
+        <div class="card unsafe"><div class="value">${escapeHtml(agg.unsafe)}</div><div class="label">Unsafe</div></div>
       </div>`;
 
       html += `<div class="charts-row">
@@ -83,11 +88,11 @@
         html += `<h2>Machines</h2><table>
           <tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr>`;
         for (const m of agg.machines) {
-          html += `<tr style="cursor:pointer" onclick="location.hash='#/machines/${m.hostname}'">
-            <td>${m.hostname}</td><td>${formatDate(m.timestamp)}</td>
-            <td>${m.totalFindings}</td>
-            <td>${m.safe}</td><td>${m.transitional}</td>
-            <td>${m.deprecated}</td><td>${m.unsafe}</td></tr>`;
+          html += `<tr style="cursor:pointer" onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+            <td>${escapeHtml(m.hostname)}</td><td>${formatDate(m.timestamp)}</td>
+            <td>${escapeHtml(m.totalFindings)}</td>
+            <td>${escapeHtml(m.safe)}</td><td>${escapeHtml(m.transitional)}</td>
+            <td>${escapeHtml(m.deprecated)}</td><td>${escapeHtml(m.unsafe)}</td></tr>`;
         }
         html += `</table>`;
       }
@@ -98,7 +103,7 @@
       renderDonutChart(agg);
       renderBarChart(agg);
     } catch(e) {
-      content.innerHTML = `<div class="error">Failed to load: ${e.message}</div>`;
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
   }
 
@@ -154,14 +159,14 @@
       let html = `<h2>Machines</h2><table>
         <tr><th>Hostname</th><th>Latest Scan ID</th><th>Scan Time</th><th>Findings</th></tr>`;
       for (const m of machines) {
-        html += `<tr style="cursor:pointer" onclick="location.hash='#/machines/${m.hostname}'">
-          <td>${m.hostname}</td><td>${m.id}</td>
-          <td>${formatDate(m.timestamp)}</td><td>${m.totalFindings}</td></tr>`;
+        html += `<tr style="cursor:pointer" onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+          <td>${escapeHtml(m.hostname)}</td><td>${escapeHtml(m.id)}</td>
+          <td>${formatDate(m.timestamp)}</td><td>${escapeHtml(m.totalFindings)}</td></tr>`;
       }
       html += `</table>`;
       content.innerHTML = html;
     } catch(e) {
-      content.innerHTML = `<div class="error">Failed to load: ${e.message}</div>`;
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
   }
 
@@ -170,18 +175,18 @@
     content.innerHTML = '<div class="loading">Loading machine...</div>';
     try {
       const scans = await api(`/machines/${hostname}`);
-      let html = `<div class="view-header"><h2>Machine: ${hostname}</h2>
+      let html = `<div class="view-header"><h2>Machine: ${escapeHtml(hostname)}</h2>
         <button class="btn btn-outline" onclick="location.hash='#/machines'">Back</button></div>`;
 
       html += `<table>
         <tr><th>Scan ID</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr>`;
       for (const s of scans) {
-        html += `<tr style="cursor:pointer" onclick="location.hash='#/scans/${s.id}'">
-          <td>${s.id.slice(0,8)}...</td>
-          <td>${formatDate(s.timestamp)}</td><td>${s.profile}</td>
-          <td>${s.totalFindings}</td>
-          <td>${s.safe}</td><td>${s.transitional}</td>
-          <td>${s.deprecated}</td><td>${s.unsafe}</td></tr>`;
+        html += `<tr style="cursor:pointer" onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+          <td>${escapeHtml(s.id.slice(0,8))}...</td>
+          <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
+          <td>${escapeHtml(s.totalFindings)}</td>
+          <td>${escapeHtml(s.safe)}</td><td>${escapeHtml(s.transitional)}</td>
+          <td>${escapeHtml(s.deprecated)}</td><td>${escapeHtml(s.unsafe)}</td></tr>`;
       }
       html += `</table>`;
 
@@ -196,7 +201,7 @@
         renderMachineTrend(scans);
       }
     } catch(e) {
-      content.innerHTML = `<div class="error">Failed to load: ${e.message}</div>`;
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
   }
 
@@ -230,15 +235,15 @@
       let html = `<h2>All Scans</h2><table>
         <tr><th>ID</th><th>Hostname</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Unsafe</th></tr>`;
       for (const s of scans) {
-        html += `<tr style="cursor:pointer" onclick="location.hash='#/scans/${s.id}'">
-          <td>${s.id.slice(0,8)}...</td><td>${s.hostname}</td>
-          <td>${formatDate(s.timestamp)}</td><td>${s.profile}</td>
-          <td>${s.totalFindings}</td><td>${s.safe}</td><td>${s.unsafe}</td></tr>`;
+        html += `<tr style="cursor:pointer" onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+          <td>${escapeHtml(s.id.slice(0,8))}...</td><td>${escapeHtml(s.hostname)}</td>
+          <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
+          <td>${escapeHtml(s.totalFindings)}</td><td>${escapeHtml(s.safe)}</td><td>${escapeHtml(s.unsafe)}</td></tr>`;
       }
       html += `</table>`;
       content.innerHTML = html;
     } catch(e) {
-      content.innerHTML = `<div class="error">Failed to load: ${e.message}</div>`;
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
   }
 
@@ -247,17 +252,17 @@
     content.innerHTML = '<div class="loading">Loading scan...</div>';
     try {
       const scan = await api(`/scans/${id}`);
-      let html = `<div class="view-header"><h2>Scan: ${id.slice(0,12)}...</h2>
+      let html = `<div class="view-header"><h2>Scan: ${escapeHtml(id.slice(0,12))}...</h2>
         <button class="btn btn-outline" onclick="location.hash='#/scans'">Back</button></div>`;
 
       html += `<div class="card-grid">
-        <div class="card info"><div class="value">${scan.metadata.hostname}</div><div class="label">Hostname</div></div>
-        <div class="card info"><div class="value">${scan.metadata.scanProfile}</div><div class="label">Profile</div></div>
-        <div class="card info"><div class="value">${scan.summary.totalFindings}</div><div class="label">Total Findings</div></div>
-        <div class="card safe"><div class="value">${scan.summary.safe}</div><div class="label">Safe</div></div>
-        <div class="card transitional"><div class="value">${scan.summary.transitional}</div><div class="label">Transitional</div></div>
-        <div class="card deprecated"><div class="value">${scan.summary.deprecated}</div><div class="label">Deprecated</div></div>
-        <div class="card unsafe"><div class="value">${scan.summary.unsafe}</div><div class="label">Unsafe</div></div>
+        <div class="card info"><div class="value">${escapeHtml(scan.metadata.hostname)}</div><div class="label">Hostname</div></div>
+        <div class="card info"><div class="value">${escapeHtml(scan.metadata.scanProfile)}</div><div class="label">Profile</div></div>
+        <div class="card info"><div class="value">${escapeHtml(scan.summary.totalFindings)}</div><div class="label">Total Findings</div></div>
+        <div class="card safe"><div class="value">${escapeHtml(scan.summary.safe)}</div><div class="label">Safe</div></div>
+        <div class="card transitional"><div class="value">${escapeHtml(scan.summary.transitional)}</div><div class="label">Transitional</div></div>
+        <div class="card deprecated"><div class="value">${escapeHtml(scan.summary.deprecated)}</div><div class="label">Deprecated</div></div>
+        <div class="card unsafe"><div class="value">${escapeHtml(scan.summary.unsafe)}</div><div class="label">Unsafe</div></div>
       </div>`;
 
       // Findings table
@@ -270,8 +275,8 @@
           const keySize = f.cryptoAsset && f.cryptoAsset.keySize ? f.cryptoAsset.keySize : '-';
           const source = f.source.path || f.source.endpoint || '-';
           html += `<tr>
-            <td>${f.module}</td><td>${source}</td>
-            <td>${algo}</td><td>${badge(status)}</td><td>${keySize}</td></tr>`;
+            <td>${escapeHtml(f.module)}</td><td>${escapeHtml(source)}</td>
+            <td>${escapeHtml(algo)}</td><td>${badge(status)}</td><td>${escapeHtml(keySize)}</td></tr>`;
         }
         html += `</table>`;
       }
@@ -281,7 +286,7 @@
         html += `<h2>Systems</h2><table>
           <tr><th>Name</th><th>Criticality</th><th>Crypto Assets</th></tr>`;
         for (const sys of scan.systems) {
-          html += `<tr><td>${sys.name}</td><td>${sys.criticalityLevel || '-'}</td>
+          html += `<tr><td>${escapeHtml(sys.name)}</td><td>${escapeHtml(sys.criticalityLevel || '-')}</td>
             <td>${(sys.cryptoAssets || []).length}</td></tr>`;
         }
         html += `</table>`;
@@ -289,7 +294,7 @@
 
       content.innerHTML = html;
     } catch(e) {
-      content.innerHTML = `<div class="error">Failed to load: ${e.message}</div>`;
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
   }
 
@@ -314,16 +319,16 @@
     try {
       const diff = await api(`/diff?base=${base}&compare=${compare}`);
       let html = `<div class="card-grid">
-        <div class="card safe"><div class="value">${diff.addedCount || 0}</div><div class="label">Added</div></div>
-        <div class="card unsafe"><div class="value">${diff.removedCount || 0}</div><div class="label">Removed</div></div>
-        <div class="card transitional"><div class="value">${diff.changedCount || 0}</div><div class="label">Changed</div></div>
+        <div class="card safe"><div class="value">${escapeHtml(diff.addedCount || 0)}</div><div class="label">Added</div></div>
+        <div class="card unsafe"><div class="value">${escapeHtml(diff.removedCount || 0)}</div><div class="label">Removed</div></div>
+        <div class="card transitional"><div class="value">${escapeHtml(diff.changedCount || 0)}</div><div class="label">Changed</div></div>
       </div>`;
 
       if (diff.added && diff.added.length > 0) {
         html += `<h3>Added Findings</h3><table class="diff-added">
           <tr><th>Module</th><th>Algorithm</th><th>Status</th></tr>`;
         for (const f of diff.added) {
-          html += `<tr><td>${f.module}</td><td>${f.cryptoAsset ? f.cryptoAsset.algorithm : '-'}</td>
+          html += `<tr><td>${escapeHtml(f.module)}</td><td>${escapeHtml(f.cryptoAsset ? f.cryptoAsset.algorithm : '-')}</td>
             <td>${badge(f.cryptoAsset ? f.cryptoAsset.pqcStatus : '')}</td></tr>`;
         }
         html += `</table>`;
@@ -333,7 +338,7 @@
         html += `<h3>Removed Findings</h3><table class="diff-removed">
           <tr><th>Module</th><th>Algorithm</th><th>Status</th></tr>`;
         for (const f of diff.removed) {
-          html += `<tr><td>${f.module}</td><td>${f.cryptoAsset ? f.cryptoAsset.algorithm : '-'}</td>
+          html += `<tr><td>${escapeHtml(f.module)}</td><td>${escapeHtml(f.cryptoAsset ? f.cryptoAsset.algorithm : '-')}</td>
             <td>${badge(f.cryptoAsset ? f.cryptoAsset.pqcStatus : '')}</td></tr>`;
         }
         html += `</table>`;
@@ -341,7 +346,7 @@
 
       el.innerHTML = html;
     } catch(e) {
-      el.innerHTML = `<div class="error">Diff failed: ${e.message}</div>`;
+      el.innerHTML = `<div class="error">Diff failed: ${escapeHtml(e.message)}</div>`;
     }
   };
 
@@ -370,8 +375,8 @@
 
       let html = '';
       if (trend.direction) {
-        const dir = trend.direction;
-        const cls = dir === 'improving' ? 'safe' : dir === 'declining' ? 'unsafe' : 'info';
+        const dir = escapeHtml(trend.direction);
+        const cls = trend.direction === 'improving' ? 'safe' : trend.direction === 'declining' ? 'unsafe' : 'info';
         html += `<div class="card ${cls}" style="display:inline-block;margin-bottom:16px">
           <div class="value" style="font-size:1.2em;text-transform:capitalize">${dir}</div>
           <div class="label">Overall Direction</div></div>`;
@@ -403,7 +408,7 @@
         });
       }
     } catch(e) {
-      el.innerHTML = `<div class="error">Trend failed: ${e.message}</div>`;
+      el.innerHTML = `<div class="error">Trend failed: ${escapeHtml(e.message)}</div>`;
     }
   };
 

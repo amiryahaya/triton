@@ -80,7 +80,7 @@ func (g *Generator) GenerateTritonJSON(result *model.ScanResult, filename string
 		return err
 	}
 
-	return os.WriteFile(filename, data, 0o644)
+	return os.WriteFile(filename, data, 0o600)
 }
 
 // GenerateHTML creates an HTML report with PQC dashboard, systems table, and CBOM detail.
@@ -305,7 +305,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 	b.WriteString(`</body>
 </html>`)
 
-	return os.WriteFile(filename, []byte(b.String()), 0o644)
+	return os.WriteFile(filename, []byte(b.String()), 0o600)
 }
 
 // pqcSortOrder returns a numeric priority for PQC status (lower = more severe).

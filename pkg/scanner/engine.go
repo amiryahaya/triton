@@ -99,6 +99,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Phase 9: Database encryption auditing & HSM scanning
 	e.RegisterModule(NewDatabaseModule(e.config))
 	e.RegisterModule(NewHSMModule(e.config))
+
+	// Phase 10: P-Cert-inspired features
+	e.RegisterModule(NewLDAPModule(e.config))
+	e.RegisterModule(NewCodeSignModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.
@@ -121,17 +125,14 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 	}
 
 	findings := make(chan *model.Finding, 100)
-	var mu sync.Mutex
 
-	// Collector goroutine
+	// Collector goroutine — single consumer, no mutex needed.
 	var collectorWg sync.WaitGroup
 	collectorWg.Add(1)
 	go func() {
 		defer collectorWg.Done()
 		for f := range findings {
-			mu.Lock()
 			result.Findings = append(result.Findings, *f)
-			mu.Unlock()
 		}
 	}()
 
@@ -179,7 +180,12 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 
 	for i, pair := range pairs {
 		wg.Add(1)
-		semaphore <- struct{}{}
+		select {
+		case semaphore <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			continue
+		}
 
 		go func(idx int, mt moduleTarget) {
 			defer wg.Done()
@@ -247,7 +253,10 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 				if err != nil {
 					p.Error = fmt.Errorf("module %s failed on %s: %w", mt.module.Name(), mt.target.Value, err)
 				}
-				progressCh <- p
+				select {
+				case progressCh <- p:
+				case <-ctx.Done():
+				}
 			}
 		}(i, pair)
 	}
@@ -267,11 +276,14 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 
 	result.Summary = model.ComputeSummary(result.Findings)
 
-	progressCh <- Progress{
+	select {
+	case progressCh <- Progress{
 		Percent:  1.0,
 		Status:   "Scan complete",
 		Complete: true,
 		Result:   result,
+	}:
+	case <-ctx.Done():
 	}
 
 	return result

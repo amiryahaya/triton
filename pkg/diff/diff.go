@@ -37,6 +37,17 @@ type DiffSummary struct {
 // ComputeDiff compares two scan results and returns the diff.
 // base is the older scan, compare is the newer scan.
 func ComputeDiff(base, compare *model.ScanResult) *ScanDiff {
+	if base == nil || compare == nil {
+		d := &ScanDiff{}
+		if base != nil {
+			d.BaseID = base.ID
+		}
+		if compare != nil {
+			d.CompareID = compare.ID
+		}
+		return d
+	}
+
 	d := &ScanDiff{
 		BaseID:    base.ID,
 		CompareID: compare.ID,

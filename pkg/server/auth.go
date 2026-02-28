@@ -18,6 +18,8 @@ func APIKeyAuth(validKeys []string) func(http.Handler) http.Handler {
 				return
 			}
 			valid := false
+			// Check all keys to ensure constant-time comparison regardless of
+			// which key matches. Breaking early would leak timing information.
 			for _, k := range validKeys {
 				if subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
 					valid = true

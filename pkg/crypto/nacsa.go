@@ -34,6 +34,18 @@ func AssessNACSA(asset *model.CryptoAsset) NACSAResult {
 	}
 
 	ci := GetCompliance(asset.Algorithm)
+	return AssessNACSAWithCompliance(asset, ci)
+}
+
+// AssessNACSAWithCompliance determines the NACSA label using pre-computed compliance info,
+// avoiding a redundant GetCompliance call when the caller already has it.
+func AssessNACSAWithCompliance(asset *model.CryptoAsset, ci ComplianceInfo) NACSAResult {
+	if asset == nil {
+		return NACSAResult{
+			Label:       NACSATidakPatuh,
+			Description: "Tiada maklumat aset kriptografi",
+		}
+	}
 
 	switch PQCStatus(asset.PQCStatus) {
 	case SAFE:

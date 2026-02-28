@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -91,7 +92,7 @@ func AssessCryptoAgility(assets []model.CryptoAsset) AgilityResult {
 	if algoCount == 1 {
 		return AgilityResult{
 			Level: AgilitySevereLimited,
-			Text:  fmt.Sprintf("Terhad (satu algoritma sahaja: %s; tiada kepelbagaian)", firstKey(uniqueAlgos)),
+			Text:  fmt.Sprintf("Terhad (satu algoritma sahaja: %s; tiada kepelbagaian)", sortedFirstKey(uniqueAlgos)),
 		}
 	}
 
@@ -152,9 +153,15 @@ func FormatKeySize(keySize int) string {
 	return fmt.Sprintf("%d-bit", keySize)
 }
 
-func firstKey(m map[string]bool) string {
+// sortedFirstKey returns the alphabetically first key from a map for deterministic output.
+func sortedFirstKey(m map[string]bool) string {
+	keys := make([]string, 0, len(m))
 	for k := range m {
-		return k
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		return keys[0]
 	}
 	return ""
 }

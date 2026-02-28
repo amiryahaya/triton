@@ -9,19 +9,23 @@ Triton is an enterprise-grade Go CLI + server tool that scans systems for crypto
 ## Build & Development Commands
 
 ```bash
-make build          # Build for current platform → bin/triton
-make build-all      # Cross-compile (macOS/Linux/Windows, amd64/arm64)
-make test           # Run all tests (go test -v ./...)
-make run            # Run with quick profile
-make fmt            # Format code (go fmt ./...)
-make lint           # Lint (golangci-lint run)
-make deps           # Download and tidy dependencies
-make clean          # Remove bin/
+make build                  # Build for current platform → bin/triton
+make build-all              # Cross-compile (macOS/Linux/Windows, amd64/arm64)
+make test                   # Run unit tests only (go test -v -p 1 ./...)
+make test-integration       # Run integration tests (requires PostgreSQL)
+make test-all               # Run unit + integration tests
+make test-integration-race  # Integration tests with race detector
+make run                    # Run with quick profile
+make fmt                    # Format code (go fmt ./...)
+make lint                   # Lint (golangci-lint run)
+make deps                   # Download and tidy dependencies
+make clean                  # Remove bin/
 ```
 
 Run a single test:
 ```bash
 go test -v -run TestName ./pkg/scanner
+go test -v -tags integration -run TestWorkflow_FullChain ./test/integration/...
 ```
 
 Coverage:
@@ -83,7 +87,11 @@ Worker count is capped by CPU count.
 
 ## Development Methodology
 
-The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-13, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
+The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-14, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
+
+### Integration tests
+
+Build-tagged with `//go:build integration` — 48 tests in `test/integration/` covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, and error paths. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
 
 ## Go Version
 

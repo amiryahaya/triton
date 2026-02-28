@@ -99,6 +99,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Phase 9: Database encryption auditing & HSM scanning
 	e.RegisterModule(NewDatabaseModule(e.config))
 	e.RegisterModule(NewHSMModule(e.config))
+
+	// Phase 10: P-Cert-inspired features
+	e.RegisterModule(NewLDAPModule(e.config))
+	e.RegisterModule(NewCodeSignModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -8,11 +9,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/ocsp"
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/pkg/crypto"
@@ -21,14 +25,23 @@ import (
 
 const defaultProbeTimeout = 5 * time.Second
 
+// revocationHTTPTimeout is the max time for OCSP/CRL HTTP requests.
+const revocationHTTPTimeout = 5 * time.Second
+
 // ProtocolModule performs active TLS handshake probing to extract cipher suites
 // and certificate information from network endpoints.
 type ProtocolModule struct {
-	config *config.Config
+	config     *config.Config
+	httpClient *http.Client // injectable for testing
 }
 
 func NewProtocolModule(cfg *config.Config) *ProtocolModule {
-	return &ProtocolModule{config: cfg}
+	return &ProtocolModule{
+		config: cfg,
+		httpClient: &http.Client{
+			Timeout: revocationHTTPTimeout,
+		},
+	}
 }
 
 func (m *ProtocolModule) Name() string {
@@ -90,7 +103,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	}
 
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		InsecureSkipVerify: true,            // We're probing, not validating trust
+		InsecureSkipVerify: true,             // We're probing, not validating trust
 		MinVersion:         tls.VersionTLS10, // Accept deprecated versions to detect them
 	})
 	if err != nil {
@@ -127,8 +140,9 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 		}
 	}
 
-	// Extract certificate info from peer certificates
-	for _, cert := range state.PeerCertificates {
+	// Extract certificate info from peer certificates with chain position labels
+	chainLen := len(state.PeerCertificates)
+	for i, cert := range state.PeerCertificates {
 		keySize := 0
 		algoName := ""
 		switch pub := cert.PublicKey.(type) {
@@ -145,28 +159,51 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 			algoName = cert.PublicKeyAlgorithm.String()
 		}
 
+		position, function := chainPosition(i, chainLen, cert)
+
 		notBefore := cert.NotBefore
 		notAfter := cert.NotAfter
 
+		// Extract OCSP and CRL endpoints from certificate extensions
+		var ocspResponder string
+		if len(cert.OCSPServer) > 0 {
+			ocspResponder = cert.OCSPServer[0]
+		}
+
 		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-			ID:           uuid.New().String(),
-			Function:     "TLS server certificate",
-			Algorithm:    algoName,
-			KeySize:      keySize,
-			Subject:      cert.Subject.String(),
-			Issuer:       cert.Issuer.String(),
-			SerialNumber: cert.SerialNumber.String(),
-			NotBefore:    &notBefore,
-			NotAfter:     &notAfter,
-			IsCA:         cert.IsCA,
-			Purpose:      fmt.Sprintf("Certificate presented by %s", addr),
+			ID:            uuid.New().String(),
+			Function:      function,
+			Algorithm:     algoName,
+			KeySize:       keySize,
+			Subject:       cert.Subject.String(),
+			Issuer:        cert.Issuer.String(),
+			SerialNumber:  cert.SerialNumber.String(),
+			NotBefore:     &notBefore,
+			NotAfter:      &notAfter,
+			IsCA:          cert.IsCA,
+			Purpose:       fmt.Sprintf("Certificate presented by %s", addr),
+			ChainPosition: position,
+			ChainDepth:    chainLen,
+			OCSPResponder: ocspResponder,
+			CRLDistPoints: cert.CRLDistributionPoints,
 		}, findings); err != nil {
 			return err
 		}
 	}
 
+	// Check revocation status via OCSP/CRL
+	m.checkRevocation(ctx, addr, state.PeerCertificates, findings)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Validate certificate chain against system roots
 	m.validateCertChain(ctx, addr, state, findings)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	// Detect session resumption support
 	m.detectSessionResumption(ctx, addr, findings)
@@ -249,8 +286,8 @@ func (m *ProtocolModule) detectSessionResumption(ctx context.Context, addr strin
 
 	// First connection — populate session cache
 	conn1, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		InsecureSkipVerify:  true,
-		MinVersion:          tls.VersionTLS10,
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS10,
 		ClientSessionCache: cache,
 	})
 	if err != nil {
@@ -260,8 +297,8 @@ func (m *ProtocolModule) detectSessionResumption(ctx context.Context, addr strin
 
 	// Second connection — attempt resumption
 	conn2, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		InsecureSkipVerify:  true,
-		MinVersion:          tls.VersionTLS10,
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS10,
 		ClientSessionCache: cache,
 	})
 	if err != nil {
@@ -281,6 +318,165 @@ func (m *ProtocolModule) detectSessionResumption(ctx context.Context, addr strin
 		Algorithm: "TLS Session Resumption",
 		Purpose:   fmt.Sprintf("Session resumption %s for %s", mechanism, addr),
 	}, findings)
+}
+
+// checkRevocation checks OCSP/CRL revocation status for each certificate in the chain.
+func (m *ProtocolModule) checkRevocation(ctx context.Context, addr string, certs []*x509.Certificate, findings chan<- *model.Finding) {
+	for i, cert := range certs {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Skip certs with no revocation endpoints
+		if len(cert.OCSPServer) == 0 && len(cert.CRLDistributionPoints) == 0 {
+			continue
+		}
+
+		issuer := findIssuer(cert, certs, i)
+
+		status := m.checkOCSP(ctx, cert, issuer)
+		if status == "" {
+			status = m.checkCRL(ctx, cert)
+		}
+		if status == "" {
+			status = "UNKNOWN"
+		}
+
+		position, _ := chainPosition(i, len(certs), cert)
+		algoName := certAlgoName(cert)
+
+		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+			ID:               uuid.New().String(),
+			Function:         "Certificate revocation status",
+			Algorithm:        algoName,
+			Subject:          cert.Subject.String(),
+			Issuer:           cert.Issuer.String(),
+			SerialNumber:     cert.SerialNumber.String(),
+			RevocationStatus: status,
+			ChainPosition:    position,
+			Purpose:          fmt.Sprintf("Revocation status: %s for %s certificate", status, position),
+		}, findings)
+	}
+}
+
+// findIssuer finds the issuer certificate within the chain.
+func findIssuer(cert *x509.Certificate, chain []*x509.Certificate, certIndex int) *x509.Certificate {
+	for i, candidate := range chain {
+		if i == certIndex {
+			continue
+		}
+		if err := cert.CheckSignatureFrom(candidate); err == nil {
+			return candidate
+		}
+	}
+	return nil
+}
+
+// checkOCSP sends an OCSP request and returns the revocation status string.
+// Returns "" if OCSP checking is unavailable or fails.
+func (m *ProtocolModule) checkOCSP(ctx context.Context, cert, issuer *x509.Certificate) string {
+	if len(cert.OCSPServer) == 0 || issuer == nil {
+		return ""
+	}
+
+	ocspReq, err := ocsp.CreateRequest(cert, issuer, nil)
+	if err != nil {
+		return ""
+	}
+
+	responderURL := cert.OCSPServer[0]
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, responderURL, bytes.NewReader(ocspReq))
+	if err != nil {
+		return ""
+	}
+	httpReq.Header.Set("Content-Type", "application/ocsp-request")
+
+	resp, err := m.httpClient.Do(httpReq)
+	if err != nil {
+		return "ERROR"
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "ERROR"
+	}
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // 1MB max
+	if err != nil {
+		return "ERROR"
+	}
+
+	ocspResp, err := ocsp.ParseResponse(respBody, issuer)
+	if err != nil {
+		return "ERROR"
+	}
+
+	switch ocspResp.Status {
+	case ocsp.Good:
+		return "GOOD"
+	case ocsp.Revoked:
+		return "REVOKED"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// checkCRL fetches the CRL and checks if the certificate's serial is revoked.
+// Returns "" if CRL checking is unavailable or fails.
+func (m *ProtocolModule) checkCRL(ctx context.Context, cert *x509.Certificate) string {
+	if len(cert.CRLDistributionPoints) == 0 {
+		return ""
+	}
+
+	crlURL := cert.CRLDistributionPoints[0]
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, crlURL, nil)
+	if err != nil {
+		return ""
+	}
+
+	resp, err := m.httpClient.Do(httpReq)
+	if err != nil {
+		return "ERROR"
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "ERROR"
+	}
+
+	crlBytes, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
+	if err != nil {
+		return "ERROR"
+	}
+
+	crl, err := x509.ParseRevocationList(crlBytes)
+	if err != nil {
+		return "ERROR"
+	}
+
+	for _, revoked := range crl.RevokedCertificateEntries {
+		if revoked.SerialNumber.Cmp(cert.SerialNumber) == 0 {
+			return "REVOKED"
+		}
+	}
+
+	return "GOOD"
+}
+
+// certAlgoName extracts the algorithm name from a certificate's public key.
+func certAlgoName(cert *x509.Certificate) string {
+	switch pub := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		return fmt.Sprintf("RSA-%d", pub.N.BitLen())
+	case *ecdsa.PublicKey:
+		return fmt.Sprintf("ECDSA-P%d", pub.Curve.Params().BitSize)
+	case ed25519.PublicKey:
+		return "Ed25519"
+	default:
+		return cert.PublicKeyAlgorithm.String()
+	}
 }
 
 // cipherSuiteAlgorithm extracts the primary symmetric algorithm from a TLS cipher suite.
@@ -306,6 +502,27 @@ func cipherSuiteAlgorithm(suite uint16) string {
 	default:
 		return "TLS"
 	}
+}
+
+// chainPosition determines the chain position label and function name for a cert.
+func chainPosition(index, chainLen int, cert *x509.Certificate) (position, function string) {
+	switch {
+	case index == 0:
+		position = "leaf"
+		function = "TLS leaf certificate"
+	case index == chainLen-1 && cert.IsCA && isSelfSigned(cert):
+		position = "root"
+		function = "TLS root certificate"
+	default:
+		position = "intermediate"
+		function = "TLS intermediate certificate"
+	}
+	return position, function
+}
+
+// isSelfSigned checks if a certificate is self-signed by comparing raw issuer and subject bytes.
+func isSelfSigned(cert *x509.Certificate) bool {
+	return bytes.Equal(cert.RawIssuer, cert.RawSubject)
 }
 
 // tlsVersionName returns a human-readable TLS version string.

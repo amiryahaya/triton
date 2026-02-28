@@ -23,6 +23,7 @@ const (
 	TargetProcess
 	TargetDatabase
 	TargetHSM
+	TargetLDAP
 )
 
 // ScanResult is the top-level container for all scan output.
@@ -148,6 +149,15 @@ type CryptoAsset struct {
 	NotBefore    *time.Time `json:"notBefore,omitempty"`
 	NotAfter     *time.Time `json:"notAfter,omitempty"`
 	IsCA         bool       `json:"isCA,omitempty"`
+
+	// Revocation status (for OCSP/CRL checking)
+	RevocationStatus string   `json:"revocationStatus,omitempty"` // "GOOD", "REVOKED", "UNKNOWN", "ERROR"
+	OCSPResponder    string   `json:"ocspResponder,omitempty"`
+	CRLDistPoints    []string `json:"crlDistributionPoints,omitempty"`
+
+	// Chain position (for TLS chain analysis)
+	ChainPosition string `json:"chainPosition,omitempty"` // "leaf", "intermediate", "root"
+	ChainDepth    int    `json:"chainDepth,omitempty"`
 }
 
 // Summary holds aggregated statistics for a scan result.

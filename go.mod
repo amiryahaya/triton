@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbles v0.18.0
 	github.com/charmbracelet/bubbletea v0.25.0
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/klauspost/compress v1.18.4
@@ -14,18 +15,21 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/ulikunitz/xz v0.5.15
 	github.com/xuri/excelize/v2 v2.10.1
+	golang.org/x/crypto v0.48.0
 	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 	software.sslmate.com/src/go-pkcs12 v0.7.0
 )
 
 require (
+	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/lipgloss v0.10.0 // indirect
 	github.com/containerd/console v1.0.4-0.20230313162750-1ae8d489ac81 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -58,7 +62,6 @@ require (
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect

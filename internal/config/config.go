@@ -54,7 +54,7 @@ var Profiles = map[string]ScanProfile{
 	"comprehensive": {
 		Name:        "comprehensive",
 		Description: "Deep scan of entire system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm"},
+		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign"},
 		Depth:       -1, // unlimited
 		Workers:     16,
 	},
@@ -94,6 +94,8 @@ func Load(profile string) *Config {
 			targets = append(targets, model.ScanTarget{Type: model.TargetDatabase, Value: "auto"})
 		case "hsm":
 			targets = append(targets, model.ScanTarget{Type: model.TargetHSM, Value: "auto"})
+		case "ldap":
+			// No auto-discovery for LDAP — requires explicit target via --target flag
 		}
 	}
 

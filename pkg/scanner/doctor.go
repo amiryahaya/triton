@@ -107,6 +107,11 @@ func moduleDependencies() map[string][]platformTool {
 			{os: "linux", tool: "pkcs11-tool"},
 			{os: "darwin", tool: "pkcs11-tool"},
 		},
+		"codesign": {
+			{os: "darwin", tool: "codesign"},
+			{os: "linux", tool: "rpm"},
+			{os: "linux", tool: "dpkg-sig"},
+		},
 	}
 }
 

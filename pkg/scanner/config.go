@@ -3,8 +3,10 @@ package scanner
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -83,6 +85,12 @@ func (m *ConfigModule) isConfigFile(path string) bool {
 		return strings.Contains(path, "crypto-policies")
 	case "java.security":
 		return true
+	case "renewal.conf":
+		return strings.Contains(path, "letsencrypt")
+	}
+	// Match *.conf files under letsencrypt/renewal/ directories
+	if filepath.Ext(path) == ".conf" && strings.Contains(path, "letsencrypt") && strings.Contains(path, "renewal") {
+		return true
 	}
 	return false
 }
@@ -99,6 +107,15 @@ func (m *ConfigModule) parseConfigFile(path string) []*model.Finding {
 		}
 	case "java.security":
 		return m.parseJavaSecurity(path)
+	case "renewal.conf":
+		if strings.Contains(path, "letsencrypt") {
+			return m.parseCertbotConfig(path)
+		}
+	default:
+		// Match *.conf files under letsencrypt/renewal/ directories
+		if filepath.Ext(path) == ".conf" && strings.Contains(path, "letsencrypt") && strings.Contains(path, "renewal") {
+			return m.parseCertbotConfig(path)
+		}
 	}
 	return nil
 }
@@ -418,4 +435,82 @@ func (m *ConfigModule) parseJavaSecurityProperty(path, key, value string) []*mod
 	}
 
 	return findings
+}
+
+// parseCertbotConfig parses a Let's Encrypt/certbot renewal configuration file.
+func (m *ConfigModule) parseCertbotConfig(path string) []*model.Finding {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	content := string(data)
+	if content == "" {
+		return nil
+	}
+
+	asset := &model.CryptoAsset{
+		ID:       uuid.New().String(),
+		Function: "ACME certificate renewal",
+		Purpose:  "ACME certificate renewal",
+	}
+
+	// Try to extract key type and size from the config.
+	// Certbot uses both underscore (key_type) and hyphen (key-type) forms.
+	algo := "RSA-2048" // default
+	rsaKeySize := 0
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		// Normalize key names: treat underscores and hyphens as equivalent
+		normalized := strings.ReplaceAll(line, "-", "_")
+		if strings.HasPrefix(normalized, "key_type ") || strings.HasPrefix(normalized, "key_type=") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				parts = strings.SplitN(line, " ", 2)
+			}
+			if len(parts) == 2 {
+				kt := strings.TrimSpace(parts[1])
+				switch strings.ToLower(kt) {
+				case "ecdsa":
+					algo = "ECDSA-P256"
+				case "rsa":
+					algo = "RSA-2048"
+				}
+			}
+		}
+		if strings.HasPrefix(normalized, "rsa_key_size ") || strings.HasPrefix(normalized, "rsa_key_size=") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				parts = strings.SplitN(line, " ", 2)
+			}
+			if len(parts) == 2 {
+				sizeStr := strings.TrimSpace(parts[1])
+				if size, err := strconv.Atoi(sizeStr); err == nil && size > 0 {
+					rsaKeySize = size
+				}
+			}
+		}
+	}
+
+	// Apply rsa_key_size if key_type is RSA (or default)
+	if rsaKeySize > 0 && strings.HasPrefix(algo, "RSA") {
+		algo = fmt.Sprintf("RSA-%d", rsaKeySize)
+	}
+
+	asset.Algorithm = algo
+	crypto.ClassifyCryptoAsset(asset)
+
+	return []*model.Finding{{
+		ID:       uuid.New().String(),
+		Category: 8,
+		Source: model.FindingSource{
+			Type:            "file",
+			Path:            path,
+			DetectionMethod: "configuration",
+		},
+		CryptoAsset: asset,
+		Confidence:  0.85,
+		Module:      "configs",
+		Timestamp:   time.Now(),
+	}}
 }

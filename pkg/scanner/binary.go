@@ -75,7 +75,8 @@ var cryptoPatterns = []struct {
 	{regexp.MustCompile(`\b[Bb]crypt\b`), "Bcrypt", "Password-Hash"},
 	{regexp.MustCompile(`\bX25519\b`), "X25519", "ECDH"},
 	{regexp.MustCompile(`\bX448\b`), "X448", "ECDH"},
-	{regexp.MustCompile(`\bFALCON\b`), "FALCON", "Lattice"},
+	{regexp.MustCompile(`\bFN[-_]?DSA[-_]?(512|1024)?\b`), "FN-DSA", "Lattice"},
+	{regexp.MustCompile(`\bFALCON\b`), "FN-DSA", "Lattice"},
 	{regexp.MustCompile(`SPHINCS\+`), "SPHINCS+", "Hash-Based"},
 	{regexp.MustCompile(`SLH[-_]?DSA`), "SLH-DSA", "Hash-Based"},
 }
@@ -93,6 +94,7 @@ var cryptoSymbolPatterns = []struct {
 	{regexp.MustCompile(`ED25519_sign|ED25519_verify`), "Ed25519", "Digital signature"},
 	{regexp.MustCompile(`OQS_SIG_.*dilithium`), "ML-DSA", "PQC signature"},
 	{regexp.MustCompile(`OQS_KEM_.*kyber`), "ML-KEM", "PQC key encapsulation"},
+	{regexp.MustCompile(`OQS_SIG_.*falcon`), "FN-DSA", "PQC signature"},
 }
 
 // symbolMatch represents a crypto algorithm detected from a symbol.
@@ -804,12 +806,54 @@ func (m *BinaryModule) matchCryptoPatterns(path, content string, meta *binaryMet
 
 // buildAlgorithmName creates a canonical algorithm name from the pattern match.
 func buildAlgorithmName(baseAlgo, match string) string {
-	// For specific matches like "AES-256-GCM", use the match directly
 	match = strings.ReplaceAll(match, "_", "-")
-	if len(match) > len(baseAlgo) {
-		return match
+	if len(match) <= len(baseAlgo) {
+		return baseAlgo
 	}
-	return baseAlgo
+
+	// Align baseAlgo against match, skipping hyphens in both, to find
+	// where the suffix starts in match. E.g. baseAlgo="FN-DSA" aligns
+	// against "FNDSA1024" → suffix starts at index 5.
+	bi, mi := 0, 0
+	for bi < len(baseAlgo) && mi < len(match) {
+		for bi < len(baseAlgo) && (baseAlgo[bi] == '-' || baseAlgo[bi] == '_') {
+			bi++
+		}
+		for mi < len(match) && (match[mi] == '-' || match[mi] == '_') {
+			mi++
+		}
+		if bi >= len(baseAlgo) || mi >= len(match) {
+			break
+		}
+		if !equalFoldByte(baseAlgo[bi], match[mi]) {
+			return match // prefix doesn't align — return match as-is
+		}
+		bi++
+		mi++
+	}
+
+	// If baseAlgo was fully consumed and a digit suffix remains, insert hyphen
+	if bi >= len(baseAlgo) && mi < len(match) {
+		suffix := match[mi:]
+		if suffix[0] >= '0' && suffix[0] <= '9' {
+			return baseAlgo + "-" + suffix
+		}
+	}
+	return match
+}
+
+// equalFoldByte compares two ASCII bytes case-insensitively.
+func equalFoldByte(a, b byte) bool {
+	if a == b {
+		return true
+	}
+	if a >= 'A' && a <= 'Z' {
+		a += 'a' - 'A'
+	}
+	if b >= 'A' && b <= 'Z' {
+		b += 'a' - 'A'
+	}
+	return a == b
 }
 
 // appendUnique appends s to slice if not already present.

@@ -125,9 +125,14 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	"ML-DSA-87-ECDSA-P384":   {Name: "ML-DSA-87-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
 	"ML-DSA-87-Ed448":        {Name: "ML-DSA-87-Ed448", Family: "Composite", KeySize: 0, Status: SAFE},
 
+	// FN-DSA (FIPS 206)
+	"FN-DSA":      {Name: "FN-DSA", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
+	"FN-DSA-512":  {Name: "FN-DSA-512", Family: "Lattice", KeySize: 512, Status: SAFE, NISTStandard: true},
+	"FN-DSA-1024": {Name: "FN-DSA-1024", Family: "Lattice", KeySize: 1024, Status: SAFE, NISTStandard: true},
+
 	// Other PQC candidates
 	"SPHINCS+":         {Name: "SPHINCS+", Family: "Hash-Based", KeySize: 0, Status: SAFE, NISTStandard: true},
-	"FALCON":           {Name: "FALCON", Family: "Lattice", KeySize: 0, Status: SAFE},
+	"FALCON":           {Name: "FN-DSA", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
 	"FrodoKEM":         {Name: "FrodoKEM", Family: "Lattice", KeySize: 0, Status: SAFE},
 	"BIKE":             {Name: "BIKE", Family: "Code-Based", KeySize: 0, Status: SAFE},
 	"HQC":              {Name: "HQC", Family: "Code-Based", KeySize: 0, Status: SAFE},

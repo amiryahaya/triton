@@ -2,7 +2,7 @@
 
 ## SBOM/CBOM Scanner for PQC Compliance
 
-**Version:** 3.0
+**Version:** 4.0
 **Methodology:** Test-Driven Development (TDD) + Code Review + QA Gates
 **Language:** Go 1.24+
 **Go Quick Reference:** See `docs/GO_QUICK_REFERENCE.md`
@@ -12,8 +12,9 @@
 | Milestone | Phases | Version | Status | Purpose |
 |-----------|--------|---------|--------|---------|
 | **MVP** | 1-5 | v0.1.0 | **Released** | Technical demo, partner buy-in — all 9 scan categories, Jadual 1 & 2, CI/CD |
-| **NACSA-Ready** | 6 + 7 (selected) | v1.0 | Next | Official NACSA assessments — CycloneDX CBOM, CNSA 2.0, PQC detection, doctor |
-| **Enterprise** | 8-9 | v2.0 | Future | Paid tiers, client-server, cloud KMS, web UI |
+| **NACSA-Ready** | 6-7 | v1.0 | **Released** | Official NACSA assessments — CycloneDX CBOM, CNSA 2.0, PQC detection, doctor |
+| **Enterprise** | 8-10 | v2.0 | **Released** | Client-server, PostgreSQL, policy engine, web UI, 18 scanner modules |
+| **Standards** | 11 | v2.1 | **Released** | FN-DSA (FIPS 206), CAMM Level 3, per-system policy evaluation |
 
 ---
 
@@ -33,11 +34,13 @@
 | Decision | Status | Notes |
 |----------|--------|-------|
 | Standalone CLI | **MVP** | Single binary, no server |
-| Client-server mode | **Deferred** | Future: agent reports to central server |
+| Client-server mode | **Done** | REST API server + agent mode (v2.0) |
 | CI/CD pipeline | **Done** | GitHub Actions CI + GoReleaser release pipeline |
 | Government format (Jadual 1 & 2) | **Primary output** | Exact column match required |
-| CycloneDX JSON | Secondary | For interoperability |
-| HTML dashboard | Secondary | For presentations |
+| CycloneDX CBOM v1.7 | **Done** | Full crypto object modeling |
+| HTML dashboard | **Done** | PQC dashboard with CAMM scoring |
+| Policy engine | **Done** | YAML rules + builtins (nacsa-2030, cnsa-2.0) |
+| Web UI | **Done** | Embedded vanilla JS + Chart.js |
 
 ### 1.3 Success Criteria
 
@@ -48,7 +51,7 @@
 | Binary size | < 50MB |
 | False positive rate | < 5% |
 | Test coverage | > 80% |
-| Scanning categories | 9 of 9 |
+| Scanning categories | 9 of 9 (18 scanner modules) |
 | Government format compliance | Jadual 1 + Jadual 2 exact match |
 
 ---
@@ -422,9 +425,9 @@ go test -bench=. ./pkg/scanner/...
 
 ---
 
-## 6. Post-MVP Roadmap (v1.0 NACSA-Ready → v2.0 Enterprise)
+## 6. Post-MVP Roadmap (v1.0 → v2.0 → v2.1)
 
-MVP v0.1.0 (Phases 1-5) is released. The roadmap below targets **v1.0 NACSA-Ready** as the next milestone, prioritized for **Malaysian government / NACSA alignment** as the primary market. Gap analysis informed by industry leaders (IBM Quantum Safe, SandboxAQ, Keyfactor, Fortanix, AppViewX, ReversingLabs, CryptoNext).
+MVP v0.1.0 (Phases 1-5) is released. Phases 6-11 are complete, delivering v1.0 NACSA-Ready, v2.0 Enterprise, and v2.1 Standards Completion. Gap analysis informed by industry leaders (IBM Quantum Safe, SandboxAQ, Keyfactor, Fortanix, AppViewX, ReversingLabs, CryptoNext).
 
 ### Competitive Position
 
@@ -450,7 +453,7 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 
 ---
 
-### Phase 6: NACSA Alignment & Standards Compliance _(v1.0 — Priority: CRITICAL)_
+### Phase 6: NACSA Alignment & Standards Compliance _(v1.0 — COMPLETED)_
 
 **Goal:** Align Triton output with Malaysia's National PQC Readiness Roadmap (2025-2030) and international CBOM standards. This is the highest priority — without it, Triton cannot be used in official NACSA assessments.
 
@@ -466,17 +469,11 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 6.6 | CAMM-aligned crypto-agility scoring | **P1** | Replace basic agility scoring with CAMM Level 0-4 framework (Knowledge, Process, System Property dimensions). Output CAMM level per system in reports. | Enhanced `pkg/crypto/agility.go` |
 | 6.7 | Compliance summary report | **P1** | New "Compliance Summary" sheet in Excel: overall NACSA readiness score, CNSA 2.0 gap count, NIST IR 8547 timeline risk, CAMM agility level, recommended migration priority order. | Enhanced `pkg/report/excel.go` |
 
-**Phase 6 QA Gate:**
-```bash
-# CycloneDX CBOM output validates against CycloneDX 1.7 schema
-# Every finding includes CNSA 2.0 status + NIST deprecation timeline
-# Excel report contains Compliance Summary sheet
-# PQC algorithm OIDs detected in test fixture certificates
-```
+**Phase 6 Delivery Summary:** CycloneDX CBOM v1.7 with full crypto object modeling, CNSA 2.0 timeline mapping on every finding, NACSA framework alignment with Malay-language compliance labels, ML-KEM/ML-DSA/SLH-DSA OID detection, hybrid certificate detection, CAMM Level 0-2 auto-assessment, compliance summary in Excel report. ~80+ classified algorithms in registry.
 
 ---
 
-### Phase 7: Scan Depth Improvements _(v1.0 partial + v2.0)_
+### Phase 7: Scan Depth Improvements _(v1.0 partial + v2.0 — COMPLETED)_
 
 **Goal:** Bring scan depth to parity with enterprise tools where it matters most for NACSA assessments.
 
@@ -488,17 +485,11 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 7.4 | OS certificate store scanning | **P2** | v2.0 | Scan macOS Keychain (`security find-certificate`), Linux ca-certificates (`/etc/ssl/certs/`), Windows certificate store. Currently only scans files on disk. | New logic in `pkg/scanner/certificate.go` |
 | 7.5 | `triton doctor` command | **P1** | **v1.0** | Pre-scan environment check: verify permissions (root/sudo for process inspection), tool availability (`openssl`, `lsof`, `ss`), directory access, OS compatibility. Output pass/fail checklist per scan category. Aligns with QRAMM pre-assessment concept. | New `cmd/doctor.go` |
 
-**Phase 7 QA Gate:**
-```bash
-# triton doctor outputs pass/fail for all 9 categories
-# TLS probe extracts cipher preference order
-# sshd_config and crypto-policies scanned
-# OS certificate store findings included in report
-```
+**Phase 7 Delivery Summary:** Enhanced TLS probing with cipher preference ordering, config scanner for sshd_config/crypto-policies/java.security, improved binary analysis with ELF/Mach-O symbol extraction, OS certificate store scanning (macOS Keychain, Linux ca-certificates), `triton doctor` command with per-category pass/fail.
 
 ---
 
-### Phase 8: Performance & Operational _(v2.0 — Priority: MEDIUM)_
+### Phase 8: Performance & Operational _(v2.0 — COMPLETED)_
 
 **Goal:** Production-ready performance for enterprise-scale deployments.
 
@@ -511,9 +502,11 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 8.3 | Container image scanning | **P2** | Scan Docker/OCI image layers for embedded crypto libraries, certificates, keys. Extract and inspect each layer. First mover in crypto-specific container analysis (industry gap). | New `pkg/scanner/container.go` |
 | 8.4 | Scan metrics dashboard | **P3** | Enhanced `--metrics` output: scan duration per module, findings per category, coverage heatmap, trend comparison vs previous scan. | Enhanced `cmd/root.go` |
 
+**Phase 8 Delivery Summary:** Incremental scanning with file hash cache, SARIF output for CI/CD integration, container image scanning (Dockerfile/compose/k8s), scan metrics with per-module performance tracking. Added container and certstore scanner modules (14 total at this point).
+
 ---
 
-### Phase 9: Enterprise & Ecosystem _(v2.0 — Priority: LOW)_
+### Phase 9: Enterprise & Ecosystem _(v2.0 — COMPLETED)_
 
 **Goal:** Features for enterprise deployment and paid tiers.
 
@@ -526,6 +519,30 @@ v1.0 NACSA-Ready includes **all of Phase 6** plus selected Phase 7 tasks critica
 | 9.5 | Web UI dashboard | **P3** | Browser-based dashboard for viewing scan results, comparing scans over time, exporting reports. Replaces HTML report with interactive SPA. | New `web/` directory |
 | 9.6 | PKCS#11 / HSM scanning | **P3** | Enumerate cryptographic objects in hardware security modules via PKCS#11 interface. Specialized hardware, low priority. | New `pkg/scanner/hsm.go` |
 | 9.7 | Database encryption auditing | **P3** | Detect TDE (Transparent Data Encryption) configs in MySQL, PostgreSQL, Oracle, SQL Server. Check algorithm strength and key management. | New `pkg/scanner/database.go` |
+
+**Phase 9 Delivery Summary:** Client-server mode with REST API (go-chi/chi/v5), PostgreSQL 18 storage via pgx/v5, agent mode for remote scan submission, embedded web UI (vanilla JS + Chart.js), HSM scanning via PKCS#11 interface, database encryption auditing (MySQL/PostgreSQL/Oracle/SQL Server). 16 scanner modules at this point.
+
+---
+
+### Phase 10: P-Cert Integration _(v2.0 — COMPLETED)_
+
+**Goal:** Advanced certificate analysis inspired by P-Cert, plus additional scanner modules.
+
+**Delivery Summary:** TLS chain extraction with leaf/intermediate/root analysis, OCSP/CRL revocation checking, LDAP directory scanning for certificates, code signing verification (macOS/Linux), policy engine with YAML rules and builtins (nacsa-2030, cnsa-2.0), scan diff/trend analysis. Added LDAP and codesign scanner modules (18 total).
+
+---
+
+### Phase 11: Standards Completion _(v2.1 — COMPLETED)_
+
+**Goal:** Close standards gaps with FN-DSA (FIPS 206) support, CAMM Level 3 partial automation, and per-system policy evaluation.
+
+| # | Task | Description | Deliverable |
+|---|------|-------------|-------------|
+| 11.1 | FN-DSA (FIPS 206) detection | Add FN-DSA OIDs (2.16.840.1.101.3.4.3.32/33), registry entries (FN-DSA-512/1024), binary scanner patterns, NIST quantum security levels, FALCON→FN-DSA normalization | Enhanced `pkg/crypto/oid.go`, `pqc.go`, `pkg/scanner/binary.go`, `pkg/report/cyclonedx.go` |
+| 11.2 | CAMM Level 3 partial automation | Detect rotation automation tools (certbot/ACME, Vault PKI, cert-manager) in scan findings, enable auto-assessment for indicator 3.1 "Automated Rotation" | Enhanced `pkg/crypto/camm.go`, `pkg/scanner/config.go` |
+| 11.3 | Per-system policy evaluation | SystemPattern in policy conditions, per-system thresholds (max_unsafe, min_safe_percent), EvaluateSystem() with glob matching, worst-verdict escalation | Enhanced `pkg/policy/engine.go`, `policy.go`, `pkg/report/generator.go` |
+
+**Phase 11 Delivery Summary:** All 4 NIST PQC standards now covered (ML-KEM FIPS 203, ML-DSA FIPS 204, SLH-DSA FIPS 205, FN-DSA FIPS 206). CAMM auto-assessment covers Levels 0-3 (Level 3 via rotation tool detection). Policy engine supports per-system evaluation with SystemPattern glob matching and per-system thresholds.
 
 ---
 
@@ -582,16 +599,32 @@ Key deadlines driving implementation priority:
 - [x] CI/CD pipeline (lint + test + build + release)
 
 ### For NACSA-Ready (v1.0):
-- [ ] CycloneDX CBOM validates against v1.7 schema
-- [ ] Every finding includes CNSA 2.0 status + NIST deprecation timeline
-- [ ] NACSA compliance column in Jadual 2
-- [ ] PQC algorithm OIDs detected (ML-KEM, ML-DSA, SLH-DSA, FN-DSA)
-- [ ] Hybrid certificate detection working
-- [ ] CAMM-aligned crypto-agility scoring (Level 0-4)
-- [ ] Compliance Summary sheet in Excel report
-- [ ] Config scanner covers sshd_config, crypto-policies
-- [ ] `triton doctor` outputs pass/fail per scan category
-- [ ] All tests pass with >80% coverage
+- [x] CycloneDX CBOM validates against v1.7 schema
+- [x] Every finding includes CNSA 2.0 status + NIST deprecation timeline
+- [x] NACSA compliance column in Jadual 2
+- [x] PQC algorithm OIDs detected (ML-KEM, ML-DSA, SLH-DSA, FN-DSA)
+- [x] Hybrid certificate detection working
+- [x] CAMM-aligned crypto-agility scoring (Level 0-3 auto, Level 4 manual)
+- [x] Compliance Summary sheet in Excel report
+- [x] Config scanner covers sshd_config, crypto-policies
+- [x] `triton doctor` outputs pass/fail per scan category
+- [x] All tests pass with >80% coverage
+
+### For Enterprise (v2.0):
+- [x] Client-server mode with REST API
+- [x] PostgreSQL storage with pgx/v5
+- [x] Policy engine with YAML rules and builtin policies
+- [x] Web UI dashboard with Chart.js
+- [x] 18 scanner modules across 6 target types
+- [x] HSM scanning, database encryption auditing
+- [x] LDAP scanning, code signing verification
+- [x] Scan diff/trend analysis
+
+### For Standards Completion (v2.1):
+- [x] All 4 NIST PQC standards: ML-KEM, ML-DSA, SLH-DSA, FN-DSA
+- [x] CAMM Level 3 auto-assessment (rotation tool detection)
+- [x] Per-system policy evaluation with SystemPattern matching
+- [x] Per-system thresholds (max_unsafe, max_deprecated, min_safe_percent)
 
 ---
 

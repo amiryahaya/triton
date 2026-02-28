@@ -39,14 +39,29 @@ var cammIndicators = []CAMMIndicator{
 	{ID: "2.2", Name: "Algorithm Intersection", AutoAssess: true, Description: "Algorithm diversity across subsystems"},
 	{ID: "2.3", Name: "Algorithm Exclusion", AutoAssess: true, Description: "Disabled algorithms configured (sshd_config, crypto-policies)"},
 	{ID: "2.4", Name: "Opportunistic Security", AutoAssess: true, Description: "Strongest cipher ordered first"},
-	{ID: "3.1", Name: "Automated Rotation", AutoAssess: false, Description: "Automated key/certificate rotation capability"},
+	{ID: "3.1", Name: "Automated Rotation", AutoAssess: true, Description: "Automated key/certificate rotation capability"},
 	{ID: "3.2", Name: "Testing Framework", AutoAssess: false, Description: "Cryptographic algorithm testing framework"},
 	{ID: "4.1", Name: "Full PQC Migration", AutoAssess: false, Description: "Complete PQC migration plan and execution"},
 	{ID: "4.2", Name: "Continuous Monitoring", AutoAssess: false, Description: "Continuous cryptographic compliance monitoring"},
 }
 
+// rotationIndicator describes a certificate/key rotation tool pattern.
+type rotationIndicator struct {
+	Name     string
+	Patterns []string
+	Tool     string
+}
+
+// rotationIndicators defines patterns for detecting automated rotation tools.
+var rotationIndicators = []rotationIndicator{
+	{Name: "ACME/certbot", Patterns: []string{"certbot", "acme.sh", "letsencrypt", "dehydrated"}, Tool: "ACME protocol"},
+	{Name: "Vault PKI", Patterns: []string{"hashicorp-vault", "vault-pki", "pki/issue", "transit/", "VAULT_ADDR"}, Tool: "HashiCorp Vault PKI"},
+	{Name: "cert-manager", Patterns: []string{"cert-manager", "ClusterIssuer", "cert-manager.io"}, Tool: "Kubernetes cert-manager"},
+	{Name: "Automated renewal", Patterns: []string{"cert-renew", "key-rotate", "auto-renew", "certificate-renewal", "cert_renewal"}, Tool: "Certificate renewal automation"},
+}
+
 // AssessCAMM evaluates the CAMM maturity level from scan results.
-// Auto-assesses up to Level 2. Levels 3-4 require manual assessment.
+// Auto-assesses up to Level 3. Level 4 requires manual assessment.
 func AssessCAMM(systems []model.System, findings []model.Finding) CAMMResult {
 	result := CAMMResult{
 		Confidence: "Auto-assessed",
@@ -73,8 +88,17 @@ func AssessCAMM(systems []model.System, findings []model.Finding) CAMMResult {
 		level2Met = checkLevel2(allAssets, findings, &result)
 	}
 
+	// Check Level 3 indicators
+	level3Met := false
+	if level2Met {
+		level3Met = checkLevel3(findings, &result)
+	}
+
 	// Determine level
 	switch {
+	case level3Met:
+		result.Level = CAMMLevel3
+		result.Confidence = "Partial"
 	case level2Met:
 		result.Level = CAMMLevel2
 	case level1Met:
@@ -83,7 +107,7 @@ func AssessCAMM(systems []model.System, findings []model.Finding) CAMMResult {
 		result.Level = CAMMLevel0
 	}
 
-	// Add manual assessment requirements for Level 3+4
+	// Add manual assessment requirements for remaining levels
 	result.Manual = manualIndicators()
 
 	return result
@@ -180,6 +204,46 @@ func checkLevel2(assets []model.CryptoAsset, findings []model.Finding, result *C
 	}
 
 	return indicators >= 2
+}
+
+// checkLevel3 checks CAMM Level 3 requirements (automated rotation).
+func checkLevel3(findings []model.Finding, result *CAMMResult) bool {
+	if detectRotationAutomation(findings) {
+		result.Indicators = append(result.Indicators, "3.1 Automated Rotation: Rotation/renewal automation detected")
+		return true
+	}
+	return false
+}
+
+// detectRotationAutomation scans findings from configs, scripts, and containers
+// modules for evidence of certificate/key rotation tools.
+func detectRotationAutomation(findings []model.Finding) bool {
+	for i := range findings {
+		f := &findings[i]
+		// Only check relevant modules
+		switch f.Module {
+		case "configs", "scripts", "containers":
+		default:
+			continue
+		}
+
+		// Check source path and crypto asset purpose for rotation indicators
+		pathLower := strings.ToLower(f.Source.Path)
+		purposeLower := ""
+		if f.CryptoAsset != nil {
+			purposeLower = strings.ToLower(f.CryptoAsset.Purpose)
+		}
+
+		for _, ri := range rotationIndicators {
+			for _, pattern := range ri.Patterns {
+				p := strings.ToLower(pattern)
+				if strings.Contains(pathLower, p) || strings.Contains(purposeLower, p) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // manualIndicators returns the list of CAMM requirements that need manual assessment.

@@ -455,6 +455,7 @@ func evaluateScanPolicy(result *model.ScanResult) error {
 	}
 
 	eval := policy.Evaluate(pol, result)
+	result.PolicyEvaluation = eval.ToModelResult()
 
 	fmt.Printf("\nPolicy Evaluation: %s\n", eval.PolicyName)
 	fmt.Printf("Verdict: %s\n", eval.Verdict)

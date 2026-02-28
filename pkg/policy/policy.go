@@ -33,14 +33,24 @@ type Condition struct {
 	KeySizeAbove    int    `yaml:"key_size_above,omitempty" json:"key_size_above,omitempty"`
 	Module          string `yaml:"module,omitempty" json:"module,omitempty"`
 	Category        int    `yaml:"category,omitempty" json:"category,omitempty"`
+	SystemPattern   string `yaml:"system_pattern,omitempty" json:"system_pattern,omitempty"`
+}
+
+// SystemThresholds defines per-system threshold requirements.
+type SystemThresholds struct {
+	SystemPattern  string  `yaml:"system_pattern" json:"system_pattern"`
+	MaxUnsafeCount *int    `yaml:"max_unsafe_count,omitempty" json:"max_unsafe_count,omitempty"`
+	MaxDeprecated  *int    `yaml:"max_deprecated_count,omitempty" json:"max_deprecated_count,omitempty"`
+	MinSafePercent float64 `yaml:"min_safe_percent,omitempty" json:"min_safe_percent,omitempty"`
 }
 
 // Thresholds define aggregate limits that trigger policy failure.
 type Thresholds struct {
-	MinNACSAReadiness float64 `yaml:"min_nacsa_readiness,omitempty" json:"min_nacsa_readiness,omitempty"`
-	MaxUnsafeCount    *int    `yaml:"max_unsafe_count,omitempty" json:"max_unsafe_count,omitempty"`
-	MaxDeprecated     *int    `yaml:"max_deprecated_count,omitempty" json:"max_deprecated_count,omitempty"`
-	MinSafePercent    float64 `yaml:"min_safe_percent,omitempty" json:"min_safe_percent,omitempty"`
+	MinNACSAReadiness float64            `yaml:"min_nacsa_readiness,omitempty" json:"min_nacsa_readiness,omitempty"`
+	MaxUnsafeCount    *int               `yaml:"max_unsafe_count,omitempty" json:"max_unsafe_count,omitempty"`
+	MaxDeprecated     *int               `yaml:"max_deprecated_count,omitempty" json:"max_deprecated_count,omitempty"`
+	MinSafePercent    float64            `yaml:"min_safe_percent,omitempty" json:"min_safe_percent,omitempty"`
+	PerSystem         []SystemThresholds `yaml:"per_system,omitempty" json:"per_system,omitempty"`
 }
 
 // LoadFromFile parses a YAML policy file.

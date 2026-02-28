@@ -237,7 +237,7 @@ func derivePrimitive(algorithm, _ string) string {
 	case strings.Contains(alg, "RSA") || strings.Contains(alg, "ECDSA") ||
 		strings.Contains(alg, "ED25519") || strings.Contains(alg, "ED448") ||
 		strings.Contains(alg, "ML-DSA") || strings.Contains(alg, "SLH-DSA") ||
-		strings.Contains(alg, "DSA"):
+		strings.Contains(alg, "FN-DSA") || strings.Contains(alg, "DSA"):
 		return "signature"
 
 	case strings.Contains(alg, "ML-KEM") || strings.Contains(alg, "ECDH") ||
@@ -289,11 +289,11 @@ func deriveMode(algorithm string) string {
 func deriveNISTQuantumLevel(algorithm string) int {
 	alg := strings.ToUpper(algorithm)
 	switch {
-	case strings.Contains(alg, "ML-KEM-512") || strings.Contains(alg, "ML-DSA-44"):
+	case strings.Contains(alg, "ML-KEM-512") || strings.Contains(alg, "ML-DSA-44") || strings.Contains(alg, "FN-DSA-512"):
 		return 1
 	case strings.Contains(alg, "ML-KEM-768") || strings.Contains(alg, "ML-DSA-65"):
 		return 3
-	case strings.Contains(alg, "ML-KEM-1024") || strings.Contains(alg, "ML-DSA-87"):
+	case strings.Contains(alg, "ML-KEM-1024") || strings.Contains(alg, "ML-DSA-87") || strings.Contains(alg, "FN-DSA-1024"):
 		return 5
 	case strings.Contains(alg, "SLH-DSA-128") || strings.Contains(alg, "SLH-DSA-SHA2-128") || strings.Contains(alg, "SLH-DSA-SHAKE-128"):
 		return 1

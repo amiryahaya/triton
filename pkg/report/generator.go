@@ -302,6 +302,38 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 `)
 	}
 
+	// Per-System Policy Results (if policy evaluation data is present)
+	if result.PolicyEvaluation != nil && len(result.PolicyEvaluation.SystemEvaluations) > 0 {
+		b.WriteString(`	<h2>Per-System Policy Results</h2>
+	<table>
+		<tr>
+			<th>#</th>
+			<th>System</th>
+			<th>Verdict</th>
+			<th>Violations</th>
+		</tr>
+`)
+		for i, se := range result.PolicyEvaluation.SystemEvaluations {
+			verdictClass := "status-SAFE"
+			switch se.Verdict {
+			case "FAIL":
+				verdictClass = "status-UNSAFE"
+			case "WARN":
+				verdictClass = "status-TRANSITIONAL"
+			}
+			violationCount := len(se.Violations) + len(se.ThresholdViolations)
+			b.WriteString(fmt.Sprintf(`		<tr>
+			<td>%d</td>
+			<td>%s</td>
+			<td class="%s">%s</td>
+			<td>%d</td>
+		</tr>
+`, i+1, html.EscapeString(se.SystemName), verdictClass, html.EscapeString(se.Verdict), violationCount))
+		}
+		b.WriteString(`	</table>
+`)
+	}
+
 	b.WriteString(`</body>
 </html>`)
 

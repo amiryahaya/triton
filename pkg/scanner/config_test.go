@@ -336,6 +336,80 @@ func TestParseCryptoPolicies_Empty(t *testing.T) {
 	assert.Empty(t, collected, "Empty policy file should produce no findings")
 }
 
+func TestConfigModule_CertbotRenewalConf(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create letsencrypt/renewal.conf path
+	renewalDir := filepath.Join(tmpDir, "etc", "letsencrypt", "renewal")
+	err := os.MkdirAll(renewalDir, 0755)
+	require.NoError(t, err)
+
+	renewalConf := filepath.Join(renewalDir, "renewal.conf")
+	err = os.WriteFile(renewalConf, []byte(`
+# Certbot renewal config
+cert = /etc/letsencrypt/live/example.com/cert.pem
+privkey = /etc/letsencrypt/live/example.com/privkey.pem
+key_type = ecdsa
+`), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+
+	// Verify isConfigFile matches
+	assert.True(t, m.isConfigFile(renewalConf), "should match letsencrypt renewal.conf")
+	assert.False(t, m.isConfigFile("/tmp/renewal.conf"), "should not match non-letsencrypt renewal.conf")
+
+	// Parse the file
+	findings := m.parseCertbotConfig(renewalConf)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "ACME certificate renewal", findings[0].CryptoAsset.Purpose)
+	assert.Equal(t, "ECDSA-P256", findings[0].CryptoAsset.Algorithm)
+	assert.Equal(t, "configs", findings[0].Module)
+}
+
+func TestConfigModule_CertbotHyphenatedKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	renewalDir := filepath.Join(tmpDir, "etc", "letsencrypt", "renewal")
+	err := os.MkdirAll(renewalDir, 0755)
+	require.NoError(t, err)
+
+	// Use hyphenated key names (certbot's actual format)
+	renewalConf := filepath.Join(renewalDir, "renewal.conf")
+	err = os.WriteFile(renewalConf, []byte(`
+# Certbot renewal config with hyphenated keys
+cert = /etc/letsencrypt/live/example.com/cert.pem
+key-type = rsa
+rsa-key-size = 4096
+`), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	findings := m.parseCertbotConfig(renewalConf)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "RSA-4096", findings[0].CryptoAsset.Algorithm)
+}
+
+func TestConfigModule_CertbotDomainConf(t *testing.T) {
+	tmpDir := t.TempDir()
+	renewalDir := filepath.Join(tmpDir, "etc", "letsencrypt", "renewal")
+	err := os.MkdirAll(renewalDir, 0755)
+	require.NoError(t, err)
+
+	// Domain-named conf file (real certbot format)
+	domainConf := filepath.Join(renewalDir, "example.com.conf")
+	err = os.WriteFile(domainConf, []byte(`
+cert = /etc/letsencrypt/live/example.com/cert.pem
+key_type = ecdsa
+`), 0644)
+	require.NoError(t, err)
+
+	m := NewConfigModule(&config.Config{})
+	assert.True(t, m.isConfigFile(domainConf), "should match domain.conf under letsencrypt/renewal/")
+
+	findings := m.parseCertbotConfig(domainConf)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "ECDSA-P256", findings[0].CryptoAsset.Algorithm)
+}
+
 func TestScanFixtureConfigs(t *testing.T) {
 	// Test against the actual fixture files
 	fixtureDir := filepath.Join("../../test/fixtures/configs")

@@ -222,7 +222,7 @@ func (m *DepsModule) analyzeGoModule(ctx context.Context, moduleRoot, goModPath 
 
 		// Reduce migration priority for unreachable findings
 		if cf.reachability == "unreachable" {
-			asset.MigrationPriority = asset.MigrationPriority / 2
+			asset.MigrationPriority /= 2
 		}
 
 		finding := &model.Finding{
@@ -549,8 +549,10 @@ func (a *defaultAnalyzer) BuildImportGraph(ctx context.Context, moduleRoot strin
 func (a *defaultAnalyzer) parseDirectoryImports(ctx context.Context, dir string, graph *goImportGraph) error {
 	fset := token.NewFileSet()
 
-	// Parse .go files in the directory
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
+	// Parse .go files in the directory (ImportsOnly mode — lightweight, no type checking).
+	// We intentionally use ParseDir over x/tools/go/packages to avoid adding a heavy
+	// external dependency; build tags are not relevant for import-only scanning.
+	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool { //nolint:staticcheck // see above
 		return strings.HasSuffix(fi.Name(), ".go") && !strings.HasSuffix(fi.Name(), "_test.go")
 	}, parser.ImportsOnly)
 	if err != nil {
@@ -637,7 +639,7 @@ func (a *defaultAnalyzer) parseVendorImports(ctx context.Context, vendorDir stri
 
 		// Try to parse .go files in this directory
 		fset := token.NewFileSet()
-		pkgs, err := parser.ParseDir(fset, path, func(fi os.FileInfo) bool {
+		pkgs, err := parser.ParseDir(fset, path, func(fi os.FileInfo) bool { //nolint:staticcheck // intentional: avoids x/tools dep
 			return strings.HasSuffix(fi.Name(), ".go") && !strings.HasSuffix(fi.Name(), "_test.go")
 		}, parser.ImportsOnly)
 		if err != nil {

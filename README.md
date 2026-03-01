@@ -134,6 +134,47 @@ The default (`--format all`) generates all available formats for your licence ti
 | **DEPRECATED** | Replace soon (RSA-1024, SHA-1, 3DES, MD5) | Schedule update |
 | **UNSAFE** | Immediate vulnerability (DES, RC4, MD4, NULL) | Emergency fix |
 
+## Policy Engine
+
+Triton includes two built-in compliance policies. Without `--policy`, Triton scans and classifies findings but does not produce a PASS/FAIL verdict. Adding `--policy` enforces rules against every finding.
+
+```bash
+# Scan without policy (classification only, no verdict)
+./bin/triton --profile comprehensive
+
+# Scan with NACSA-2030 policy (Malaysian government compliance)
+./bin/triton --profile comprehensive --policy nacsa-2030
+
+# Scan with CNSA 2.0 policy (US national security compliance)
+./bin/triton --profile comprehensive --policy cnsa-2.0
+
+# Scan with custom policy (enterprise tier)
+./bin/triton --profile comprehensive --policy ./my-policy.yaml
+```
+
+### Built-in Policy Comparison
+
+| Rule | NACSA-2030 | CNSA 2.0 |
+|------|-----------|----------|
+| UNSAFE algorithms (DES, RC4, SSL, NULL) | FAIL | FAIL |
+| DEPRECATED algorithms | warn | warn |
+| RSA minimum key size | **2048** bits | **3072** bits |
+| ECDSA minimum curve | _(not checked)_ | **P-384** required |
+| SHA-256 | allowed | **warn** (prefers SHA-384+) |
+| MD5 | FAIL | caught by DEPRECATED |
+| SHA-1 | warn | caught by DEPRECATED |
+| DES/3DES | FAIL | caught by UNSAFE |
+| RC4 | FAIL | caught by UNSAFE |
+
+| Threshold | NACSA-2030 | CNSA 2.0 |
+|-----------|-----------|----------|
+| Max UNSAFE count | 0 | 0 |
+| Min readiness | 60% NACSA-ready | 50% SAFE |
+
+**NACSA-2030** targets Malaysian government PQC readiness with granular rules for specific weak algorithms and NACSA compliance labels (Patuh / Dalam Peralihan / Tidak Patuh / Perlu Tindakan Segera).
+
+**CNSA 2.0** targets US national security with stricter key size minimums (RSA ≥ 3072, ECDSA ≥ P-384) and preference for SHA-384+ over SHA-256.
+
 ## Architecture
 
 ```

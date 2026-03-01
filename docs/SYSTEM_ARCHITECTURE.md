@@ -885,6 +885,50 @@ The policy engine evaluates rules both at the aggregate level (all findings) and
 | nacsa-2030 | `pkg/policy/builtin/nacsa-2030.yaml` | NACSA PQC Migration Framework compliance |
 | cnsa-2.0 | `pkg/policy/builtin/cnsa-2.0.yaml` | NSA CNSA 2.0 requirements |
 
+### 10.4 Default Scan vs NACSA-2030 vs CNSA 2.0
+
+Running Triton without `--policy` performs a scan and classifies findings by PQC status (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE) but does not enforce compliance rules or produce a PASS/FAIL verdict. Adding `--policy` activates the policy engine which evaluates rules against every finding and returns a verdict.
+
+**Behaviour comparison:**
+
+| Aspect | Default (no policy) | `--policy nacsa-2030` | `--policy cnsa-2.0` |
+|--------|--------------------|-----------------------|---------------------|
+| Scan execution | Yes | Yes | Yes |
+| PQC classification | Yes | Yes | Yes |
+| Rule evaluation | No | Yes (7 rules) | Yes (5 rules) |
+| Threshold checks | No | Yes | Yes |
+| Verdict | None | PASS / FAIL | PASS / FAIL |
+| Exit code on violation | 0 | 2 | 2 |
+
+**Rule comparison:**
+
+| Rule | NACSA-2030 | CNSA 2.0 | Rationale |
+|------|-----------|----------|-----------|
+| UNSAFE algorithms | FAIL | FAIL | Both reject broken crypto (DES, RC4, SSL, NULL) |
+| DEPRECATED algorithms | warn | warn | Both flag deprecated crypto for migration planning |
+| RSA minimum key size | **2048** bits (FAIL) | **3072** bits (FAIL) | CNSA 2.0 is stricter — RSA-2048 passes NACSA but fails CNSA |
+| ECDSA minimum curve | _(not checked)_ | **P-384** (FAIL) | CNSA 2.0 rejects ECDSA-P256; NACSA accepts it as TRANSITIONAL |
+| SHA-256 | _(allowed)_ | **warn** (prefers SHA-384+) | CNSA 2.0 recommends SHA-384/SHA-512 over SHA-256 |
+| MD5 | FAIL (explicit rule) | _(caught by DEPRECATED rule)_ | NACSA has a dedicated MD5 rule; CNSA catches it generically |
+| SHA-1 | warn (explicit rule) | _(caught by DEPRECATED rule)_ | NACSA has a dedicated SHA-1 rule; CNSA catches it generically |
+| DES/3DES | FAIL (explicit rule) | _(caught by UNSAFE/DEPRECATED)_ | NACSA has a dedicated DES rule; CNSA catches it generically |
+| RC4 | FAIL (explicit rule) | _(caught by UNSAFE rule)_ | NACSA has a dedicated RC4 rule; CNSA catches it generically |
+
+**Threshold comparison:**
+
+| Threshold | NACSA-2030 | CNSA 2.0 |
+|-----------|-----------|----------|
+| Max UNSAFE count | 0 | 0 |
+| Min readiness score | 60% NACSA-ready | — |
+| Min SAFE percent | — | 50% |
+
+**When to use which:**
+
+- **No policy** — Quick assessment or exploratory scans where you only need the PQC classification data
+- **NACSA-2030** — Malaysian government compliance assessments; granular rules targeting specific weak algorithms (MD5, SHA-1, DES, RC4) with actionable messages in Malay (via NACSA labels)
+- **CNSA 2.0** — US national security / defence compliance; stricter minimum key sizes (RSA ≥ 3072, ECDSA ≥ P-384) and preference for SHA-384+ over SHA-256
+- **Custom YAML** (enterprise) — Organisation-specific rules combining elements from both or adding domain-specific constraints
+
 ---
 
 ## 11. Security Considerations

@@ -62,10 +62,10 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `deps.go` — Go dependency crypto reachability analysis (direct/transitive/unreachable classification)
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
 - **`pkg/model/`** — Data structures for SBOM, CBOM, findings, components
-- **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON
+- **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON. HTML report includes policy analysis summary (verdict banner, violations-by-rule table, threshold violations) when `--policy` is used.
 - **`pkg/store/`** — PostgreSQL storage via pgx/v5
 - **`pkg/server/`** — REST API server (go-chi/chi/v5) with embedded web UI
-- **`pkg/policy/`** — YAML policy engine with builtins (nacsa-2030, cnsa-2.0)
+- **`pkg/policy/`** — YAML policy engine with builtins (nacsa-2030, cnsa-2.0). `ToModelResult()` converts aggregate violations, threshold violations, and stats for report rendering.
 - **`internal/config/`** — Profile-based configuration (quick/standard/comprehensive)
 - **`internal/license/`** — Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise), machine fingerprint binding
 

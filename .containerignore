@@ -1,0 +1,13 @@
+.git
+.github
+.claude
+bin/
+dist/
+docs/
+test/
+*.md
+coverage.*
+compose*.yaml
+.goreleaser.yml
+.containerignore
+Containerfile

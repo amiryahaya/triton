@@ -34,6 +34,13 @@ func main() {
 	}
 	defer func() { _ = db.Close() }()
 
+	// Truncate stale data so E2E count-based assertions are deterministic.
+	// The global-setup will re-seed immediately after the health check passes.
+	if err := db.TruncateAll(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "truncate: %v\n", err)
+		os.Exit(1)
+	}
+
 	cfg := &server.Config{
 		ListenAddr: listen,
 		DBUrl:      dbURL,

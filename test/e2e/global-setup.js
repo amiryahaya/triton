@@ -3,8 +3,14 @@ const { request } = require('@playwright/test');
 
 const BASE_URL = 'http://localhost:8080';
 
-function makeScan(id, hostname, safe, trans, dep, unsafe) {
+// hoursAgo returns an ISO timestamp offset from now by the given hours.
+function hoursAgo(h) {
+  return new Date(Date.now() - h * 3600_000).toISOString();
+}
+
+function makeScan(id, hostname, safe, trans, dep, unsafe, ageHours) {
   const total = safe + trans + dep + unsafe;
+  const ts = hoursAgo(ageHours);
   const findings = [];
   let idx = 0;
 
@@ -22,7 +28,7 @@ function makeScan(id, hostname, safe, trans, dep, unsafe) {
         },
         module: 'certificates',
         confidence: 0.95,
-        timestamp: new Date().toISOString(),
+        timestamp: ts,
       });
       idx++;
     }
@@ -36,7 +42,7 @@ function makeScan(id, hostname, safe, trans, dep, unsafe) {
   return {
     id,
     metadata: {
-      timestamp: new Date().toISOString(),
+      timestamp: ts,
       hostname,
       os: 'linux',
       scanProfile: 'quick',
@@ -57,11 +63,12 @@ function makeScan(id, hostname, safe, trans, dep, unsafe) {
 async function globalSetup() {
   const ctx = await request.newContext({ baseURL: BASE_URL });
 
+  // Offset timestamps so ordering is deterministic (oldest first).
   const scans = [
-    makeScan('scan-e2e-001', 'web-server-01', 10, 5, 3, 2),
-    makeScan('scan-e2e-002', 'web-server-01', 12, 6, 2, 1),
-    makeScan('scan-e2e-003', 'db-server-01', 8, 4, 5, 3),
-    makeScan('scan-e2e-004', 'db-server-01', 10, 3, 4, 2),
+    makeScan('scan-e2e-001', 'web-server-01', 10, 5, 3, 2, 4), // 4 hours ago
+    makeScan('scan-e2e-002', 'web-server-01', 12, 6, 2, 1, 3), // 3 hours ago (newer)
+    makeScan('scan-e2e-003', 'db-server-01',  8, 4, 5, 3, 2),  // 2 hours ago
+    makeScan('scan-e2e-004', 'db-server-01', 10, 3, 4, 2, 1),  // 1 hour ago (newest)
   ];
 
   for (const scan of scans) {

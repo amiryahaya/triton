@@ -16,6 +16,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
 	if dbURL == "" {
 		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
@@ -29,16 +36,14 @@ func main() {
 	ctx := context.Background()
 	db, err := store.NewPostgresStore(ctx, dbURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("database: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
 	// Truncate stale data so E2E count-based assertions are deterministic.
 	// The global-setup will re-seed immediately after the health check passes.
 	if err := db.TruncateAll(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "truncate: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("truncate: %w", err)
 	}
 
 	cfg := &server.Config{
@@ -55,15 +60,11 @@ func main() {
 
 	select {
 	case err := <-errCh:
-		fmt.Fprintf(os.Stderr, "server: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("server: %w", err)
 	case sig := <-sigCh:
 		fmt.Printf("\nReceived %v, shutting down...\n", sig)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
-			os.Exit(1)
-		}
+		return srv.Shutdown(shutdownCtx)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -374,6 +376,189 @@ func TestLicenseTier_ProAllowedFormats(t *testing.T) {
 	assert.Contains(t, allowed, "html")
 	assert.Contains(t, allowed, "xlsx")
 	assert.NotContains(t, allowed, "sarif", "Pro tier should not include SARIF")
+}
+
+// --- Test 12: Server middleware blocks free tier from /diff ---
+
+func TestLicenseTier_ServerMiddlewareBlocksFreeDiff(t *testing.T) {
+	serverURL, db := requireServerWithGuard(t, license.TierFree)
+
+	// Seed two scans so diff has valid targets
+	s1 := makeScanResult("diff-free-1", "host-a", 5)
+	s2 := makeScanResult("diff-free-2", "host-a", 5)
+	require.NoError(t, db.SaveScan(context.Background(), s1))
+	require.NoError(t, db.SaveScan(context.Background(), s2))
+
+	resp, err := http.Get(serverURL + "/api/v1/diff?base=diff-free-1&compare=diff-free-2")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "free tier should be blocked from /diff")
+
+	body, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, string(body), "higher licence tier")
+}
+
+// --- Test 13: Server middleware blocks free tier from /trend ---
+
+func TestLicenseTier_ServerMiddlewareBlocksFreeTrend(t *testing.T) {
+	serverURL, _ := requireServerWithGuard(t, license.TierFree)
+
+	resp, err := http.Get(serverURL + "/api/v1/trend?hostname=host-a")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "free tier should be blocked from /trend")
+}
+
+// --- Test 14: Enterprise server allows diff and trend ---
+
+func TestLicenseTier_ServerMiddlewareAllowsEnterprise(t *testing.T) {
+	serverURL, db := requireServerWithGuard(t, license.TierEnterprise)
+
+	s1 := makeScanResult("diff-ent-1", "host-a", 5)
+	s2 := makeScanResult("diff-ent-2", "host-a", 5)
+	require.NoError(t, db.SaveScan(context.Background(), s1))
+	require.NoError(t, db.SaveScan(context.Background(), s2))
+
+	// Diff should succeed
+	resp, err := http.Get(serverURL + "/api/v1/diff?base=diff-ent-1&compare=diff-ent-2")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access /diff")
+
+	// Trend should succeed
+	resp2, err := http.Get(serverURL + "/api/v1/trend?hostname=host-a")
+	require.NoError(t, err)
+	resp2.Body.Close()
+	assert.Equal(t, http.StatusOK, resp2.StatusCode, "enterprise should access /trend")
+}
+
+// --- Test 15: Pro server blocks SARIF report format ---
+
+func TestLicenseTier_ServerBlocksSarifForPro(t *testing.T) {
+	serverURL, db := requireServerWithGuard(t, license.TierPro)
+
+	scan := makeScanResult("rpt-pro-sarif", "host-a", 3)
+	require.NoError(t, db.SaveScan(context.Background(), scan))
+
+	// SARIF should be blocked
+	resp, err := http.Get(serverURL + "/api/v1/reports/rpt-pro-sarif/sarif")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "pro tier should not get SARIF")
+
+	// JSON should be allowed
+	resp2, err := http.Get(serverURL + "/api/v1/reports/rpt-pro-sarif/json")
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	assert.Equal(t, http.StatusOK, resp2.StatusCode, "pro tier should get JSON")
+}
+
+// --- Test 16: Free tier FilterConfig clears DBUrl ---
+
+func TestLicenseTier_FreeTierClearsDBUrl(t *testing.T) {
+	token, pub := generateTestToken(t, license.TierFree, "FreeOrg", 1, 365)
+	guard := license.NewGuardFromToken(token, pub)
+
+	cfg := config.Load("comprehensive")
+	cfg.DBUrl = "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
+
+	guard.FilterConfig(cfg)
+
+	assert.Empty(t, cfg.DBUrl, "free tier FilterConfig should clear DBUrl")
+	assert.Equal(t, "quick", cfg.Profile, "free tier should downgrade profile")
+}
+
+// --- Test 17: Pro tier FilterConfig preserves DBUrl ---
+
+func TestLicenseTier_ProTierPreservesDBUrl(t *testing.T) {
+	token, pub := generateTestToken(t, license.TierPro, "ProOrg", 10, 365)
+	guard := license.NewGuardFromToken(token, pub)
+
+	dbURL := "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
+	cfg := config.Load("standard")
+	cfg.DBUrl = dbURL
+
+	guard.FilterConfig(cfg)
+
+	assert.Equal(t, dbURL, cfg.DBUrl, "pro tier FilterConfig should preserve DBUrl")
+}
+
+// --- Test 18: Machine-bound token mismatch degrades full pipeline ---
+
+func TestLicenseTier_MachineMismatchDegradesToFreePipeline(t *testing.T) {
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+
+	// Create a token bound to a fake machine fingerprint
+	lic := &license.License{
+		ID:        "wrong-machine",
+		Tier:      license.TierEnterprise,
+		Org:       "EntCorp",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		MachineID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	token, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+
+	// Guard should degrade to free tier
+	guard := license.NewGuardFromToken(token, pub)
+	assert.Equal(t, license.TierFree, guard.Tier(), "machine mismatch should degrade to free")
+
+	// Full pipeline: config should be restricted to free tier
+	cfg := config.Load("comprehensive")
+	cfg.DBUrl = "postgres://localhost:5434/triton?sslmode=disable"
+	guard.FilterConfig(cfg)
+
+	assert.Equal(t, "quick", cfg.Profile, "degraded guard should force quick profile")
+	assert.Len(t, cfg.Modules, 3, "degraded guard should restrict to 3 modules")
+	assert.Empty(t, cfg.DBUrl, "degraded guard should clear DBUrl")
+
+	// Enterprise features should be blocked
+	assert.Error(t, guard.EnforceFeature(license.FeatureServerMode))
+	assert.Error(t, guard.EnforceFeature(license.FeatureDiff))
+	assert.Error(t, guard.EnforceFormat("sarif"))
+}
+
+// --- Test 19: Machine-bound token match succeeds full pipeline ---
+
+func TestLicenseTier_MachineMatchSucceedsPipeline(t *testing.T) {
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+
+	// Create a token bound to THIS machine
+	lic := &license.License{
+		ID:        "correct-machine",
+		Tier:      license.TierEnterprise,
+		Org:       "EntCorp",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		MachineID: license.MachineFingerprint(),
+	}
+	token, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+
+	guard := license.NewGuardFromToken(token, pub)
+	assert.Equal(t, license.TierEnterprise, guard.Tier(), "matching machine should preserve tier")
+
+	// Full pipeline: config should be unrestricted
+	cfg := config.Load("comprehensive")
+	dbURL := "postgres://localhost:5434/triton?sslmode=disable"
+	cfg.DBUrl = dbURL
+	guard.FilterConfig(cfg)
+
+	assert.Equal(t, "comprehensive", cfg.Profile)
+	assert.Equal(t, 19, len(cfg.Modules))
+	assert.Equal(t, dbURL, cfg.DBUrl, "enterprise should keep DBUrl")
+
+	// All features available
+	assert.NoError(t, guard.EnforceFeature(license.FeatureServerMode))
+	assert.NoError(t, guard.EnforceFeature(license.FeatureDiff))
+	assert.NoError(t, guard.EnforceFormat("sarif"))
 }
 
 // splitToken splits a licence token into its claims and signature parts.

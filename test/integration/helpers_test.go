@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner"
 	"github.com/amiryahaya/triton/pkg/server"
@@ -66,6 +67,29 @@ func requireServerWithAuth(t *testing.T, keys []string) (string, *store.Postgres
 	cfg := &server.Config{
 		ListenAddr: ":0",
 		APIKeys:    keys,
+	}
+	srv := server.New(cfg, db)
+	ts := httptest.NewServer(srv.Router())
+	t.Cleanup(ts.Close)
+	return ts.URL, db
+}
+
+// requireServerWithGuard creates a real TCP httptest.NewServer with licence enforcement.
+// Generates an ephemeral keypair, issues a token for the given tier, and configures the
+// server's LicenceGate middleware accordingly.
+func requireServerWithGuard(t *testing.T, tier license.Tier) (string, *store.PostgresStore) {
+	t.Helper()
+	db := requireDB(t)
+
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+	token, err := license.IssueTokenWithOptions(priv, tier, "IntegrationTest", 1, 365, false)
+	require.NoError(t, err)
+	guard := license.NewGuardFromToken(token, pub)
+
+	cfg := &server.Config{
+		ListenAddr: ":0",
+		Guard:      guard,
 	}
 	srv := server.New(cfg, db)
 	ts := httptest.NewServer(srv.Router())

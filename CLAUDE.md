@@ -105,9 +105,9 @@ The project follows TDD (Red → Green → Refactor). Coverage target is >80%. S
 
 ### Integration tests
 
-Build-tagged with `//go:build integration` — 59 tests in `test/integration/` across 8 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, and licence tier enforcement. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+Build-tagged with `//go:build integration` — 67 tests in `test/integration/` across 8 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, and licence tier enforcement. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
 
-- **`license_tier_test.go`** (11 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, real scan pipelines with report generation gated by licence tier, and Pro tier allowed-formats validation
+- **`license_tier_test.go`** (19 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, real scan pipelines with report generation gated by licence tier, Pro tier allowed-formats validation, server middleware route blocking (diff/trend/report format), FilterConfig DB URL clearing, and machine-bound token degradation through full pipeline
 
 ### E2E browser tests
 

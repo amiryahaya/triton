@@ -67,7 +67,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
 - **`pkg/server/`** — REST API server (go-chi/chi/v5) with embedded web UI
 - **`pkg/policy/`** — YAML policy engine with builtins (nacsa-2030, cnsa-2.0)
 - **`internal/config/`** — Profile-based configuration (quick/standard/comprehensive)
-- **`internal/license/`** — Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise)
+- **`internal/license/`** — Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise), machine fingerprint binding
 
 ### Module interface
 
@@ -89,15 +89,25 @@ type Module interface {
 
 Worker count is capped by CPU count.
 
+### Licence enforcement
+
+3-tier system (free/pro/enterprise) with Ed25519-signed tokens in `internal/license/`:
+
+- **Machine binding**: Tokens include `MachineID` (SHA-256 of `hostname|GOOS|GOARCH`). Mismatch → graceful degradation to free tier. Legacy tokens without `mid` are backward compatible.
+- **Guard**: `guard.go` — Primary enforcement point. `FilterConfig()` restricts profile, modules, and DB URL. `EnforceFormat("all")` succeeds for all tiers; `AllowedFormats()` determines which formats to generate.
+- **Keygen**: `IssueToken()` binds to current machine by default; `IssueTokenWithOptions(..., bind)` for opt-out. CLI: `--no-bind` flag.
+- **Server middleware**: `pkg/server/license.go` — `LicenceGate` middleware gates `/diff` and `/trend` routes by tier. Handler-level enforcement in report generation (format gating) and policy evaluation (builtin vs custom). Nil guard = no enforcement (used by E2E testserver).
+- **Fingerprint**: `fingerprint.go` — `MachineFingerprint()` returns deterministic 64-char hex string, no elevated privileges required.
+
 ## Development Methodology
 
 The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-14, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
 
 ### Integration tests
 
-Build-tagged with `//go:build integration` — 58 tests in `test/integration/` across 8 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, and licence tier enforcement. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+Build-tagged with `//go:build integration` — 59 tests in `test/integration/` across 8 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, and licence tier enforcement. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
 
-- **`license_tier_test.go`** (10 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, and real scan pipelines with report generation gated by licence tier
+- **`license_tier_test.go`** (11 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, real scan pipelines with report generation gated by licence tier, and Pro tier allowed-formats validation
 
 ### E2E browser tests
 

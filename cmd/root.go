@@ -407,7 +407,7 @@ func generateReports(result *model.ScanResult) error {
 		fmt.Printf("SARIF report saved to: %s\n", sarifFile)
 
 	default: // "all"
-		files, err := gen.GenerateAllReports(result, ts)
+		files, err := generateAllowedReports(gen, result, ts)
 		if err != nil {
 			return err
 		}
@@ -538,6 +538,38 @@ func evaluateScanPolicy(result *model.ScanResult) error {
 		return ErrPolicyFail
 	}
 	return nil
+}
+
+// generateAllowedReports generates all report formats allowed by the current licence tier.
+func generateAllowedReports(gen *report.Generator, result *model.ScanResult, ts string) ([]string, error) {
+	allowed := license.AllowedFormats(guard.Tier())
+	var files []string
+	for _, fmtName := range allowed {
+		var path string
+		var err error
+		switch fmtName {
+		case "json":
+			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.json", ts))
+			err = gen.GenerateTritonJSON(result, path)
+		case "cdx":
+			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.cdx.json", ts))
+			err = gen.GenerateCycloneDXBOM(result, path)
+		case "html":
+			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.html", ts))
+			err = gen.GenerateHTML(result, path)
+		case "xlsx":
+			path = filepath.Join(outputDir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", ts))
+			err = gen.GenerateExcel(result, path)
+		case "sarif":
+			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.sarif", ts))
+			err = gen.GenerateSARIF(result, path)
+		}
+		if err != nil {
+			return files, err
+		}
+		files = append(files, path)
+	}
+	return files, nil
 }
 
 func formatDuration(d time.Duration) string {

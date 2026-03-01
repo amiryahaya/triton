@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -860,6 +861,84 @@ func TestAggregate_Empty(t *testing.T) {
 	var agg map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &agg))
 	assert.Equal(t, float64(0), agg["machineCount"])
+}
+
+// --- Licence Middleware ---
+
+func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.PostgresStore) {
+	t.Helper()
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	// Generate ephemeral keypair and token for the given tier
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+	token, err := license.IssueTokenWithOptions(priv, tier, "Test Org", 1, 365, false)
+	require.NoError(t, err)
+	guard := license.NewGuardFromToken(token, pub)
+
+	cfg := &Config{
+		ListenAddr: ":0",
+		Guard:      guard,
+	}
+	srv := New(cfg, db)
+	return srv, db
+}
+
+func TestLicenceMiddleware_BlocksDiffForFreeTier(t *testing.T) {
+	srv, _ := testServerWithGuard(t, license.TierFree)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/diff?base=a&compare=b", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestLicenceMiddleware_AllowsDiffForEnterprise(t *testing.T) {
+	srv, db := testServerWithGuard(t, license.TierEnterprise)
+	s1 := testScanResult("diff-lic-1", "host-a")
+	s2 := testScanResult("diff-lic-2", "host-a")
+	require.NoError(t, db.SaveScan(context.Background(), s1))
+	require.NoError(t, db.SaveScan(context.Background(), s2))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/diff?base=diff-lic-1&compare=diff-lic-2", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestLicenceMiddleware_NilGuardAllowsAll(t *testing.T) {
+	srv, db := testServer(t) // testServer has no Guard → nil
+	s1 := testScanResult("nilg-1", "host-a")
+	s2 := testScanResult("nilg-2", "host-a")
+	require.NoError(t, db.SaveScan(context.Background(), s1))
+	require.NoError(t, db.SaveScan(context.Background(), s2))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/diff?base=nilg-1&compare=nilg-2", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusOK, w.Code, "nil guard should allow all requests")
+}
+
+func TestLicenceMiddleware_BlocksSarifReportForPro(t *testing.T) {
+	srv, db := testServerWithGuard(t, license.TierPro)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-lic", "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-lic/sarif", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 // --- Start / Shutdown ---

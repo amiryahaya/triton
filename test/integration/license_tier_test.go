@@ -365,6 +365,17 @@ func TestLicenseTier_EnterpriseScanPipelineWithSARIF(t *testing.T) {
 	}
 }
 
+// --- Test 11: Pro "all" format generates only allowed formats ---
+
+func TestLicenseTier_ProAllowedFormats(t *testing.T) {
+	allowed := license.AllowedFormats(license.TierPro)
+	assert.Contains(t, allowed, "json")
+	assert.Contains(t, allowed, "cdx")
+	assert.Contains(t, allowed, "html")
+	assert.Contains(t, allowed, "xlsx")
+	assert.NotContains(t, allowed, "sarif", "Pro tier should not include SARIF")
+}
+
 // splitToken splits a licence token into its claims and signature parts.
 func splitToken(t *testing.T, token string) [2]string {
 	t.Helper()

@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -19,6 +20,7 @@ type Config struct {
 	APIKeys    []string
 	TLSCert    string
 	TLSKey     string
+	Guard      *license.Guard // nil = no enforcement (backward compat for testserver)
 }
 
 // Server is the Triton REST API server.
@@ -27,6 +29,7 @@ type Server struct {
 	store  store.Store
 	router chi.Router
 	http   *http.Server
+	guard  *license.Guard
 }
 
 // securityHeaders adds security-related HTTP headers to all responses.
@@ -43,6 +46,7 @@ func New(cfg *Config, s store.Store) *Server {
 	srv := &Server{
 		config: cfg,
 		store:  s,
+		guard:  cfg.Guard,
 	}
 
 	r := chi.NewRouter()
@@ -57,6 +61,9 @@ func New(cfg *Config, s store.Store) *Server {
 	r.Route("/api/v1", func(r chi.Router) {
 		if len(cfg.APIKeys) > 0 {
 			r.Use(APIKeyAuth(cfg.APIKeys))
+		}
+		if cfg.Guard != nil {
+			r.Use(LicenceGate(cfg.Guard))
 		}
 		srv.registerAPIRoutes(r)
 	})

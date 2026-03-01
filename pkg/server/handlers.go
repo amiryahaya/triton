@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/diff"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
@@ -289,6 +290,18 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce policy licence gate
+	if s.guard != nil {
+		feature := license.FeaturePolicyBuiltin
+		if req.PolicyYAML != "" {
+			feature = license.FeaturePolicyCustom
+		}
+		if err := s.guard.EnforceFeature(feature); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
 	var pol *policy.Policy
 	switch {
 	case req.PolicyYAML != "":
@@ -312,6 +325,18 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	format := chi.URLParam(r, "format")
+
+	// Enforce format-level licence gate
+	if s.guard != nil {
+		licFormat := format
+		if licFormat == "cyclonedx" {
+			licFormat = "cdx"
+		}
+		if err := s.guard.EnforceFormat(licFormat); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
 
 	result, err := s.store.GetScan(r.Context(), id)
 	if err != nil {

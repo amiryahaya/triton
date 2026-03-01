@@ -50,6 +50,7 @@ func issueToken() {
 	seats := fs.Int("seats", 1, "Number of seats")
 	days := fs.Int("days", 365, "Validity in days")
 	privKeyHex := fs.String("key", "", "Private key (hex)")
+	noBind := fs.Bool("no-bind", false, "Do not bind token to this machine")
 	_ = fs.Parse(os.Args[2:])
 
 	if *privKeyHex == "" {
@@ -71,7 +72,9 @@ func issueToken() {
 		os.Exit(1)
 	}
 
-	token, err := license.IssueToken(privBytes, license.Tier(*tier), *org, *seats, *days)
+	fmt.Printf("Machine fingerprint: %s\n", license.MachineFingerprint())
+
+	token, err := license.IssueTokenWithOptions(privBytes, license.Tier(*tier), *org, *seats, *days, !*noBind)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error issuing token: %v\n", err)
 		os.Exit(1)

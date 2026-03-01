@@ -189,6 +189,64 @@ func TestIsExpired(t *testing.T) {
 	assert.True(t, pastGrace.IsExpired(), "should be past grace period")
 }
 
+func TestParse_MachineIDMismatch(t *testing.T) {
+	pub, priv := testKeypair(t)
+	lic := &License{
+		ID:        "machine-bound",
+		Tier:      TierPro,
+		Org:       "Bound Corp",
+		Seats:     1,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		MachineID: "0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	token, err := Encode(lic, priv)
+	require.NoError(t, err)
+
+	_, err = Parse(token, pub)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "different machine")
+}
+
+func TestParse_MachineIDMatch(t *testing.T) {
+	pub, priv := testKeypair(t)
+	lic := &License{
+		ID:        "machine-match",
+		Tier:      TierPro,
+		Org:       "Match Corp",
+		Seats:     1,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		MachineID: MachineFingerprint(),
+	}
+	token, err := Encode(lic, priv)
+	require.NoError(t, err)
+
+	parsed, err := Parse(token, pub)
+	require.NoError(t, err)
+	assert.Equal(t, MachineFingerprint(), parsed.MachineID)
+}
+
+func TestParse_NoMachineID_BackwardCompat(t *testing.T) {
+	pub, priv := testKeypair(t)
+	// Token without MachineID (legacy format)
+	lic := &License{
+		ID:        "no-mid",
+		Tier:      TierPro,
+		Org:       "Legacy Corp",
+		Seats:     5,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	token, err := Encode(lic, priv)
+	require.NoError(t, err)
+
+	parsed, err := Parse(token, pub)
+	require.NoError(t, err)
+	assert.Empty(t, parsed.MachineID, "legacy tokens should have empty MachineID")
+	assert.Equal(t, TierPro, parsed.Tier)
+}
+
 func TestParse_TamperedTier(t *testing.T) {
 	pub, priv := testKeypair(t)
 	token := testToken(t, TierPro, priv)

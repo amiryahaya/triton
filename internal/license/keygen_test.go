@@ -45,3 +45,27 @@ func TestIssueToken_RoundTrip(t *testing.T) {
 	actualExp := time.Unix(lic.ExpiresAt, 0)
 	assert.WithinDuration(t, expectedExp, actualExp, time.Minute)
 }
+
+func TestIssueToken_IncludesMachineID(t *testing.T) {
+	pub, priv, err := GenerateKeypair()
+	require.NoError(t, err)
+
+	token, err := IssueToken(priv, TierPro, "Bound Corp", 1, 30)
+	require.NoError(t, err)
+
+	lic, err := Parse(token, pub)
+	require.NoError(t, err)
+	assert.Equal(t, MachineFingerprint(), lic.MachineID, "IssueToken should include machine fingerprint")
+}
+
+func TestIssueTokenWithOptions_NoBind(t *testing.T) {
+	pub, priv, err := GenerateKeypair()
+	require.NoError(t, err)
+
+	token, err := IssueTokenWithOptions(priv, TierPro, "Unbound Corp", 1, 30, false)
+	require.NoError(t, err)
+
+	lic, err := Parse(token, pub)
+	require.NoError(t, err)
+	assert.Empty(t, lic.MachineID, "NoBind should produce empty MachineID")
+}

@@ -126,6 +126,25 @@ func TestGuard_EnforceFormat_Allowed(t *testing.T) {
 	assert.NoError(t, g.EnforceFormat("html"))
 }
 
+func TestGuard_EnforceFormat_All_FreeTier(t *testing.T) {
+	g := NewGuardFromToken("", nil) // free
+	assert.NoError(t, g.EnforceFormat("all"), "all should succeed for free tier")
+}
+
+func TestGuard_EnforceFormat_All_ProTier(t *testing.T) {
+	pub, priv := testKeypair(t)
+	token := testToken(t, TierPro, priv)
+	g := NewGuardFromToken(token, pub)
+	assert.NoError(t, g.EnforceFormat("all"), "all should succeed for pro tier")
+}
+
+func TestGuard_EnforceFormat_All_EnterpriseTier(t *testing.T) {
+	pub, priv := testKeypair(t)
+	token := testToken(t, TierEnterprise, priv)
+	g := NewGuardFromToken(token, pub)
+	assert.NoError(t, g.EnforceFormat("all"), "all should succeed for enterprise tier")
+}
+
 func TestGuard_FilterConfig_FreeTier(t *testing.T) {
 	g := NewGuardFromToken("", nil) // free
 
@@ -155,6 +174,32 @@ func TestGuard_FilterConfig_ProTier(t *testing.T) {
 	// Pro allows all profiles and modules
 	assert.Equal(t, "comprehensive", cfg.Profile)
 	assert.Equal(t, []string{"certificates", "keys", "packages", "libraries", "binaries"}, cfg.Modules)
+}
+
+func TestGuard_FilterConfig_FreeTierClearsDBUrl(t *testing.T) {
+	g := NewGuardFromToken("", nil) // free
+	cfg := &config.Config{
+		Profile: "quick",
+		Modules: []string{"certificates", "keys", "packages"},
+		DBUrl:   "postgres://localhost:5434/triton?sslmode=disable",
+	}
+	g.FilterConfig(cfg)
+	assert.Empty(t, cfg.DBUrl, "free tier should clear DBUrl")
+}
+
+func TestGuard_FilterConfig_ProTierKeepsDBUrl(t *testing.T) {
+	pub, priv := testKeypair(t)
+	token := testToken(t, TierPro, priv)
+	g := NewGuardFromToken(token, pub)
+
+	dbUrl := "postgres://localhost:5434/triton?sslmode=disable"
+	cfg := &config.Config{
+		Profile: "standard",
+		Modules: []string{"certificates", "keys", "packages"},
+		DBUrl:   dbUrl,
+	}
+	g.FilterConfig(cfg)
+	assert.Equal(t, dbUrl, cfg.DBUrl, "pro tier should preserve DBUrl")
 }
 
 func TestGuard_Seats(t *testing.T) {
@@ -188,6 +233,25 @@ func TestErrFeatureGated_Message(t *testing.T) {
 	assert.Contains(t, msg, "server")
 	assert.Contains(t, msg, "free")
 	assert.Contains(t, msg, "Upgrade", "should mention upgrade")
+}
+
+func TestNewGuard_MachineIDMismatch_DegradesToFree(t *testing.T) {
+	pub, priv := testKeypair(t)
+	lic := &License{
+		ID:        "mismatch-mid",
+		Tier:      TierEnterprise,
+		Org:       "Wrong Machine Corp",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		MachineID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	token, err := Encode(lic, priv)
+	require.NoError(t, err)
+
+	g := NewGuardFromToken(token, pub)
+	assert.Equal(t, TierFree, g.Tier(), "machine mismatch should degrade to free tier")
+	assert.Nil(t, g.License())
 }
 
 // testTokenWithOrg creates a token with a specific org name.

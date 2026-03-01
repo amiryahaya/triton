@@ -14,12 +14,15 @@ const gracePeriod = 5 * time.Minute
 
 // License represents a signed licence token's claims.
 type License struct {
-	ID        string `json:"lid"`
-	Tier      Tier   `json:"tier"`
-	Org       string `json:"org"`
+	ID   string `json:"lid"`
+	Tier Tier   `json:"tier"`
+	Org  string `json:"org"`
+	// Seats represents the number of machine-bound tokens the org is entitled to.
+	// Enforcement is at keygen time; runtime binding is via MachineID.
 	Seats     int    `json:"seats"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
+	MachineID string `json:"mid,omitempty"` // SHA-256 machine fingerprint
 }
 
 // IsExpired reports whether the licence has passed its expiry plus grace period.
@@ -82,6 +85,10 @@ func Parse(token string, pubKey ed25519.PublicKey) (*License, error) {
 
 	if lic.IsExpired() {
 		return nil, fmt.Errorf("licence expired at %s", time.Unix(lic.ExpiresAt, 0).UTC().Format(time.RFC3339))
+	}
+
+	if lic.MachineID != "" && lic.MachineID != MachineFingerprint() {
+		return nil, fmt.Errorf("licence bound to different machine")
 	}
 
 	return &lic, nil

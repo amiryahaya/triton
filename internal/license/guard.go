@@ -115,15 +115,11 @@ func (g *Guard) EnforceProfile(profile string) error {
 }
 
 // EnforceFormat returns an error if the output format is not allowed.
+// For "all", this always succeeds — the caller should use AllowedFormats
+// to determine which formats to generate for the tier.
 func (g *Guard) EnforceFormat(format string) error {
 	if format == "all" {
-		// "all" requires the highest format the tier allows; check each
-		for _, f := range []Feature{FeatureFormatCDX, FeatureFormatHTML, FeatureFormatXLSX, FeatureFormatSARIF} {
-			if !g.Allowed(f) {
-				return g.EnforceFeature(f)
-			}
-		}
-		return nil
+		return nil // "all" means "generate all my tier allows"
 	}
 	f, ok := formatFeature[format]
 	if !ok {
@@ -149,6 +145,11 @@ func (g *Guard) FilterConfig(cfg *config.Config) {
 		if len(allowed) > 0 {
 			cfg.Profile = allowed[len(allowed)-1] // highest allowed
 		}
+	}
+
+	// Clear DB URL if tier does not allow DB feature
+	if !g.Allowed(FeatureDB) {
+		cfg.DBUrl = ""
 	}
 
 	// Restrict modules for free tier

@@ -61,6 +61,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 		APIKeys:    serverAPIKeys,
 		TLSCert:    serverTLSCert,
 		TLSKey:     serverTLSKey,
+		Guard:      guard,
 	}
 
 	srv := server.New(cfg, db)

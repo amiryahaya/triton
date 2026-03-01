@@ -20,6 +20,9 @@ make fmt                    # Format code (go fmt ./...)
 make lint                   # Lint (golangci-lint run)
 make deps                   # Download and tidy dependencies
 make clean                  # Remove bin/
+make container-build        # Build container image (triton:local)
+make container-run          # Build + start full stack (postgres + triton server)
+make container-stop         # Stop full stack
 ```
 
 Run a single test:
@@ -92,6 +95,17 @@ The project follows TDD (Red → Green → Refactor). Coverage target is >80%. S
 ### Integration tests
 
 Build-tagged with `//go:build integration` — 48 tests in `test/integration/` covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, and error paths. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+
+## Container Infrastructure
+
+- **Containerfile** — Multi-stage build (`golang:1.25` → `scratch`), ~10MB production image with CA certs and timezone data
+- **compose.yaml** — PostgreSQL 18 (port 5434) + triton server behind `profiles: [server]`; `make db-up` only starts postgres, full stack requires `--profile server`
+- **.containerignore** — Excludes `.git`, `docs/`, `test/`, `bin/` from build context
+
+### CI/CD (`.github/workflows/`)
+
+- **ci.yml** — 4 jobs: Lint → Unit Test → Integration Test → Build. Integration tests run with PostgreSQL 18 service container, `-tags integration -race`
+- **release.yml** — Triggered on `v*` tags. 3 jobs: Test (unit + integration with PostgreSQL) → Release (GoReleaser) + Container Image (multi-arch push to `ghcr.io/amiryahaya/triton`)
 
 ## Go Version
 

@@ -1,4 +1,4 @@
-.PHONY: build build-all test test-integration test-all test-integration-race bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop
+.PHONY: build build-all test test-integration test-all test-integration-race test-e2e bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop
 
 # Build for current platform
 build:
@@ -55,6 +55,10 @@ test-all: db-up
 # Integration with race detector
 test-integration-race: db-up
 	go test -v -tags integration -race -count=1 ./test/integration/...
+
+# Playwright E2E browser tests (requires PostgreSQL + Chromium)
+test-e2e: db-up
+	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test
 
 # Clean build artifacts
 clean:

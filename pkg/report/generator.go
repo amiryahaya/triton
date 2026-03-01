@@ -302,6 +302,108 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 `)
 	}
 
+	// Policy Analysis Summary (if policy evaluation data is present)
+	if result.PolicyEvaluation != nil {
+		pe := result.PolicyEvaluation
+
+		// Verdict banner
+		verdictColor := "#2e7d32"
+		verdictBg := "#e8f5e9"
+		switch pe.Verdict {
+		case "FAIL":
+			verdictColor = "#b71c1c"
+			verdictBg = "#ffebee"
+		case "WARN":
+			verdictColor = "#e65100"
+			verdictBg = "#fff3e0"
+		}
+		totalViolations := len(pe.Violations) + len(pe.ThresholdViolations)
+		b.WriteString(fmt.Sprintf(`	<h2>Policy Analysis Summary</h2>
+	<div class="card" style="background:%s;color:%s;text-align:left;max-width:600px;margin-bottom:20px">
+		<h3 style="font-size:1.4em;margin:0 0 8px 0">%s: %s</h3>
+		<p>Rules evaluated: %d | Findings checked: %d | Violations: %d</p>
+	</div>
+`, verdictBg, verdictColor,
+			html.EscapeString(pe.PolicyName),
+			html.EscapeString(pe.Verdict),
+			pe.RulesEvaluated, pe.FindingsChecked, totalViolations))
+
+		// Violations by rule table
+		if len(pe.Violations) > 0 {
+			// Aggregate violations by RuleID
+			type ruleAgg struct {
+				ruleID  string
+				action  string
+				count   int
+				message string
+			}
+			aggMap := make(map[string]*ruleAgg)
+			var aggOrder []string
+			for _, v := range pe.Violations {
+				if a, ok := aggMap[v.RuleID]; ok {
+					a.count++
+				} else {
+					aggMap[v.RuleID] = &ruleAgg{ruleID: v.RuleID, action: v.Action, count: 1, message: v.Message}
+					aggOrder = append(aggOrder, v.RuleID)
+				}
+			}
+			// Sort by count descending
+			sort.Slice(aggOrder, func(i, j int) bool {
+				return aggMap[aggOrder[i]].count > aggMap[aggOrder[j]].count
+			})
+
+			b.WriteString(`	<h3>Violations by Rule</h3>
+	<table>
+		<tr>
+			<th>Rule ID</th>
+			<th>Action</th>
+			<th>Count</th>
+			<th>Example Message</th>
+		</tr>
+`)
+			for _, id := range aggOrder {
+				a := aggMap[id]
+				actionClass := "status-TRANSITIONAL"
+				if strings.EqualFold(a.action, "fail") {
+					actionClass = "status-UNSAFE"
+				}
+				b.WriteString(fmt.Sprintf(`		<tr>
+			<td>%s</td>
+			<td class="%s">%s</td>
+			<td>%d</td>
+			<td>%s</td>
+		</tr>
+`, html.EscapeString(a.ruleID), actionClass, html.EscapeString(strings.ToUpper(a.action)), a.count, html.EscapeString(a.message)))
+			}
+			b.WriteString(`	</table>
+`)
+		}
+
+		// Threshold violations table
+		if len(pe.ThresholdViolations) > 0 {
+			b.WriteString(`	<h3>Threshold Violations</h3>
+	<table>
+		<tr>
+			<th>Threshold</th>
+			<th>Expected</th>
+			<th>Actual</th>
+			<th>Message</th>
+		</tr>
+`)
+			for _, tv := range pe.ThresholdViolations {
+				b.WriteString(fmt.Sprintf(`		<tr>
+			<td>%s</td>
+			<td>%s</td>
+			<td class="status-UNSAFE">%s</td>
+			<td>%s</td>
+		</tr>
+`, html.EscapeString(tv.Name), html.EscapeString(tv.Expected), html.EscapeString(tv.Actual), html.EscapeString(tv.Message)))
+			}
+			b.WriteString(`	</table>
+`)
+		}
+	}
+
 	// Per-System Policy Results (if policy evaluation data is present)
 	if result.PolicyEvaluation != nil && len(result.PolicyEvaluation.SystemEvaluations) > 0 {
 		b.WriteString(`	<h2>Per-System Policy Results</h2>

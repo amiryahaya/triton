@@ -403,8 +403,17 @@ func TestEvaluateSystem_ModuleFilteredRulesSkipped(t *testing.T) {
 
 func TestToModelResult(t *testing.T) {
 	eval := &EvaluationResult{
-		PolicyName: "test-policy",
-		Verdict:    VerdictFail,
+		PolicyName:      "test-policy",
+		Verdict:         VerdictFail,
+		RulesEvaluated:  5,
+		FindingsChecked: 12,
+		Violations: []Violation{
+			{RuleID: "r1", Severity: "error", Action: "fail", Message: "aggregate bad algo"},
+			{RuleID: "r2", Severity: "warning", Action: "warn", Message: "aggregate weak key"},
+		},
+		ThresholdViolations: []ThresholdViolation{
+			{Name: "min_safe_percent", Expected: ">= 50.0%", Actual: "25.0%", Message: "too low"},
+		},
 		SystemEvaluations: []SystemEvaluation{
 			{
 				SystemName:      "TLS Service",
@@ -424,6 +433,22 @@ func TestToModelResult(t *testing.T) {
 	require.NotNil(t, mr)
 	assert.Equal(t, "test-policy", mr.PolicyName)
 	assert.Equal(t, "FAIL", mr.Verdict)
+	assert.Equal(t, 5, mr.RulesEvaluated)
+	assert.Equal(t, 12, mr.FindingsChecked)
+
+	// Aggregate violations
+	require.Len(t, mr.Violations, 2)
+	assert.Equal(t, "r1", mr.Violations[0].RuleID)
+	assert.Equal(t, "fail", mr.Violations[0].Action)
+	assert.Equal(t, "r2", mr.Violations[1].RuleID)
+
+	// Aggregate threshold violations
+	require.Len(t, mr.ThresholdViolations, 1)
+	assert.Equal(t, "min_safe_percent", mr.ThresholdViolations[0].Name)
+	assert.Equal(t, ">= 50.0%", mr.ThresholdViolations[0].Expected)
+	assert.Equal(t, "25.0%", mr.ThresholdViolations[0].Actual)
+
+	// Per-system evaluations
 	require.Len(t, mr.SystemEvaluations, 1)
 	assert.Equal(t, "TLS Service", mr.SystemEvaluations[0].SystemName)
 	assert.Equal(t, "FAIL", mr.SystemEvaluations[0].Verdict)

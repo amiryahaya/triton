@@ -53,9 +53,13 @@ type PolicySystemEvaluation struct {
 
 // PolicyEvaluationResult holds policy evaluation data for report rendering.
 type PolicyEvaluationResult struct {
-	PolicyName        string                   `json:"policyName"`
-	Verdict           string                   `json:"verdict"`
-	SystemEvaluations []PolicySystemEvaluation `json:"systemEvaluations,omitempty"`
+	PolicyName          string                     `json:"policyName"`
+	Verdict             string                     `json:"verdict"`
+	Violations          []PolicyViolation          `json:"violations,omitempty"`
+	ThresholdViolations []PolicyThresholdViolation `json:"thresholdViolations,omitempty"`
+	RulesEvaluated      int                        `json:"rulesEvaluated"`
+	FindingsChecked     int                        `json:"findingsChecked"`
+	SystemEvaluations   []PolicySystemEvaluation   `json:"systemEvaluations,omitempty"`
 }
 
 // ScanResult is the top-level container for all scan output.

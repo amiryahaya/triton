@@ -236,3 +236,76 @@ func TestGenerateHTMLCBOMSortOrder(t *testing.T) {
 	assert.Greater(t, transitionalPos, deprecatedPos, "TRANSITIONAL should appear after DEPRECATED")
 	assert.Greater(t, safePos, transitionalPos, "SAFE should appear after TRANSITIONAL")
 }
+
+func TestGenerateHTMLPolicySummary(t *testing.T) {
+	tmpFile := t.TempDir() + "/report.html"
+	g := New("")
+	result := sampleScanResult()
+
+	// Attach policy evaluation data
+	result.PolicyEvaluation = &model.PolicyEvaluationResult{
+		PolicyName:      "nacsa-2030",
+		Verdict:         "FAIL",
+		RulesEvaluated:  8,
+		FindingsChecked: 15,
+		Violations: []model.PolicyViolation{
+			{RuleID: "nacsa-weak-hash", Severity: "error", Action: "fail", Message: "MD5 found"},
+			{RuleID: "nacsa-weak-hash", Severity: "error", Action: "fail", Message: "SHA-1 found"},
+			{RuleID: "nacsa-small-key", Severity: "warning", Action: "warn", Message: "RSA-1024 key"},
+		},
+		ThresholdViolations: []model.PolicyThresholdViolation{
+			{Name: "min_safe_percent", Expected: ">= 60.0%", Actual: "33.3%", Message: "Safe percentage 33.3% below minimum 60.0%"},
+		},
+		SystemEvaluations: []model.PolicySystemEvaluation{
+			{SystemName: "Test System", Verdict: "FAIL", FindingsChecked: 5},
+		},
+	}
+
+	err := g.GenerateHTML(result, tmpFile)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	html := string(content)
+
+	// Verdict banner
+	assert.Contains(t, html, "Policy Analysis Summary")
+	assert.Contains(t, html, "nacsa-2030")
+	assert.Contains(t, html, "FAIL")
+	assert.Contains(t, html, "Rules evaluated: 8")
+	assert.Contains(t, html, "Findings checked: 15")
+
+	// Violations by rule table (aggregated)
+	assert.Contains(t, html, "Violations by Rule")
+	assert.Contains(t, html, "nacsa-weak-hash")
+	assert.Contains(t, html, "nacsa-small-key")
+
+	// Threshold violations table
+	assert.Contains(t, html, "Threshold Violations")
+	assert.Contains(t, html, "min_safe_percent")
+	assert.Contains(t, html, "&gt;= 60.0%")
+	assert.Contains(t, html, "33.3%")
+
+	// Per-system table still present
+	assert.Contains(t, html, "Per-System Policy Results")
+	assert.Contains(t, html, "Test System")
+}
+
+func TestGenerateHTMLNoPolicySummary(t *testing.T) {
+	tmpFile := t.TempDir() + "/report.html"
+	g := New("")
+	result := sampleScanResult()
+	result.PolicyEvaluation = nil
+
+	err := g.GenerateHTML(result, tmpFile)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	html := string(content)
+
+	// Policy section should not be present
+	assert.NotContains(t, html, "Policy Analysis Summary")
+	assert.NotContains(t, html, "Violations by Rule")
+	assert.NotContains(t, html, "Per-System Policy Results")
+}

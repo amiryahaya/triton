@@ -317,11 +317,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save scan to database: %v\n", err)
 	}
 
+	// Evaluate policy first so result.PolicyEvaluation is populated for HTML report.
+	policyErr := evaluateScanPolicy(final.result)
+
 	if err := generateReports(final.result); err != nil {
 		return err
 	}
 
-	return evaluateScanPolicy(final.result)
+	return policyErr
 }
 
 func runScanHeadless(eng *scanner.Engine) error {
@@ -342,10 +345,12 @@ func runScanHeadless(eng *scanner.Engine) error {
 			if err := saveScanResult(eng, p.Result); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to save scan to database: %v\n", err)
 			}
+			// Evaluate policy first so result.PolicyEvaluation is populated for HTML report.
+			policyErr := evaluateScanPolicy(p.Result)
 			if err := generateReports(p.Result); err != nil {
 				return err
 			}
-			return evaluateScanPolicy(p.Result)
+			return policyErr
 		}
 	}
 	return nil

@@ -426,8 +426,26 @@ func (e *EvaluationResult) ToModelResult() *model.PolicyEvaluationResult {
 		return nil
 	}
 	r := &model.PolicyEvaluationResult{
-		PolicyName: e.PolicyName,
-		Verdict:    string(e.Verdict),
+		PolicyName:      e.PolicyName,
+		Verdict:         string(e.Verdict),
+		RulesEvaluated:  e.RulesEvaluated,
+		FindingsChecked: e.FindingsChecked,
+	}
+	for _, v := range e.Violations {
+		r.Violations = append(r.Violations, model.PolicyViolation{
+			RuleID:   v.RuleID,
+			Severity: v.Severity,
+			Action:   v.Action,
+			Message:  v.Message,
+		})
+	}
+	for _, tv := range e.ThresholdViolations {
+		r.ThresholdViolations = append(r.ThresholdViolations, model.PolicyThresholdViolation{
+			Name:     tv.Name,
+			Expected: tv.Expected,
+			Actual:   tv.Actual,
+			Message:  tv.Message,
+		})
 	}
 	for _, se := range e.SystemEvaluations {
 		mse := model.PolicySystemEvaluation{

@@ -103,8 +103,8 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	}
 
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		InsecureSkipVerify: true,               // We're probing, not validating trust
-		MinVersion:         tls.VersionTLS10,   // Accept deprecated versions to detect them
+		InsecureSkipVerify: true,                     // We're probing, not validating trust
+		MinVersion:         tls.VersionTLS10,         // Accept deprecated versions to detect them
 		CipherSuites:       allTLS12CipherSuiteIDs(), // Offer all ciphers for audit discovery
 	})
 	if err != nil {
@@ -876,11 +876,13 @@ func sigAlgoToPQCAlgorithm(algo x509.SignatureAlgorithm) string {
 // allTLS12CipherSuiteIDs returns a combined list of all TLS 1.2 cipher suite IDs
 // from both secure and insecure suites.
 func allTLS12CipherSuiteIDs() []uint16 {
-	var ids []uint16
-	for _, s := range tls.CipherSuites() {
+	secure := tls.CipherSuites()
+	insecure := tls.InsecureCipherSuites()
+	ids := make([]uint16, 0, len(secure)+len(insecure))
+	for _, s := range secure {
 		ids = append(ids, s.ID)
 	}
-	for _, s := range tls.InsecureCipherSuites() {
+	for _, s := range insecure {
 		ids = append(ids, s.ID)
 	}
 	return ids

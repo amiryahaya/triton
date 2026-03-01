@@ -1,4 +1,4 @@
-.PHONY: build build-all test test-integration test-all test-integration-race bench vet clean install run fmt lint deps db-up db-down db-reset
+.PHONY: build build-all test test-integration test-all test-integration-race bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop
 
 # Build for current platform
 build:
@@ -29,6 +29,16 @@ db-reset:
 	@echo "Waiting for PostgreSQL..."
 	@sleep 2
 	@podman exec triton-db psql -U triton -c "CREATE DATABASE triton_test"
+
+# Container lifecycle
+container-build:
+	podman build -t triton:local -f Containerfile .
+
+container-run: container-build
+	podman compose --profile server up -d
+
+container-stop:
+	podman compose --profile server down
 
 # Run tests (requires PostgreSQL running; -p 1 serializes packages sharing DB)
 test: db-up

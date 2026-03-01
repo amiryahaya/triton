@@ -16,5 +16,21 @@ services:
       timeout: 5s
       retries: 5
 
+  triton:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: triton-server
+    profiles: [server]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TRITON_DB_URL: postgres://triton:triton@postgres:5432/triton?sslmode=disable
+      TRITON_LISTEN: ":8080"
+    ports:
+      - "8080:8080"
+    command: ["server", "--listen", ":8080", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable"]
+
 volumes:
   triton-data:

@@ -7,11 +7,26 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
-  release:
-    name: Release
+  test:
+    name: Test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: triton
+          POSTGRES_PASSWORD: triton
+          POSTGRES_DB: triton_test
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U triton -d triton_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,8 +39,28 @@ jobs:
       - name: Generate test fixtures
         run: go run test/fixtures/generate.go
 
-      - name: Run tests
-        run: go test -v -race ./...
+      - name: Run unit tests
+        env:
+          TRITON_TEST_DB_URL: postgres://triton:triton@localhost:5434/triton_test?sslmode=disable
+        run: go test -v -race -p 1 ./...
+
+      - name: Run integration tests
+        env:
+          TRITON_TEST_DB_URL: postgres://triton:triton@localhost:5434/triton_test?sslmode=disable
+        run: go test -v -tags integration -race -count=1 -p 1 ./...
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - uses: goreleaser/goreleaser-action@v6
         with:
@@ -33,3 +68,39 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  container:
+    name: Container Image
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/amiryahaya/triton:${{ steps.version.outputs.version }}
+            ghcr.io/amiryahaya/triton:latest
+          labels: |
+            org.opencontainers.image.title=Triton
+            org.opencontainers.image.description=Enterprise SBOM/CBOM scanner for PQC compliance
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.source=https://github.com/amiryahaya/triton
+            org.opencontainers.image.licenses=MIT

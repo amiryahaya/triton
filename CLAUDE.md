@@ -113,7 +113,7 @@ Build-tagged with `//go:build integration` — 67 tests in `test/integration/` a
 
 25 Playwright tests in `test/e2e/` validate the embedded web UI (`pkg/server/ui/dist/`) end-to-end in a real Chromium browser against a live PostgreSQL-backed server.
 
-- **Test server:** `test/e2e/cmd/testserver/main.go` — Lightweight Go server that imports `pkg/server` + `pkg/store` directly, bypassing the CLI licence gate. Truncates DB on startup for isolation.
+- **Test server:** `test/e2e/cmd/testserver/main.go` — Lightweight Go server that imports `pkg/server` + `pkg/store` directly, bypassing the CLI licence gate. Truncates DB on startup for isolation. Uses `run()` pattern to satisfy gocritic `exitAfterDefer`.
 - **Global setup:** `test/e2e/global-setup.js` — Seeds 4 scans (2 machines) with deterministic timestamps via `POST /api/v1/scans`
 - **`dashboard.spec.js`** (4 tests) — Stat cards, machines table, Chart.js charts, aggregate counts
 - **`navigation.spec.js`** (5 tests) — Sidebar nav links, hash routing, active class, error page, root redirect

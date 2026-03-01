@@ -15,6 +15,7 @@ make test                   # Run unit tests only (go test -v -p 1 ./...)
 make test-integration       # Run integration tests (requires PostgreSQL)
 make test-all               # Run unit + integration tests
 make test-integration-race  # Integration tests with race detector
+make test-e2e               # Playwright E2E browser tests (requires PostgreSQL + Chromium)
 make run                    # Run with quick profile
 make fmt                    # Format code (go fmt ./...)
 make lint                   # Lint (golangci-lint run)
@@ -94,7 +95,22 @@ The project follows TDD (Red → Green → Refactor). Coverage target is >80%. S
 
 ### Integration tests
 
-Build-tagged with `//go:build integration` — 48 tests in `test/integration/` covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, and error paths. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+Build-tagged with `//go:build integration` — 58 tests in `test/integration/` across 8 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, and licence tier enforcement. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+
+- **`license_tier_test.go`** (10 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, and real scan pipelines with report generation gated by licence tier
+
+### E2E browser tests
+
+25 Playwright tests in `test/e2e/` validate the embedded web UI (`pkg/server/ui/dist/`) end-to-end in a real Chromium browser against a live PostgreSQL-backed server.
+
+- **Test server:** `test/e2e/cmd/testserver/main.go` — Lightweight Go server that imports `pkg/server` + `pkg/store` directly, bypassing the CLI licence gate. Truncates DB on startup for isolation.
+- **Global setup:** `test/e2e/global-setup.js` — Seeds 4 scans (2 machines) with deterministic timestamps via `POST /api/v1/scans`
+- **`dashboard.spec.js`** (4 tests) — Stat cards, machines table, Chart.js charts, aggregate counts
+- **`navigation.spec.js`** (5 tests) — Sidebar nav links, hash routing, active class, error page, root redirect
+- **`scans.spec.js`** (8 tests) — Scans list/detail, back navigation, machines list/detail, trend chart
+- **`diff-trend.spec.js`** (8 tests) — Diff form/result/error paths, trend form/chart/all-hosts
+
+Run with `make test-e2e` (requires PostgreSQL running + Chromium installed via Playwright).
 
 ## Container Infrastructure
 

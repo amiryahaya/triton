@@ -101,7 +101,7 @@ Worker count is capped by CPU count.
 
 ## Development Methodology
 
-The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-14, 9.1) and `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines.
+The project follows TDD (Red → Green → Refactor). Coverage target is >80%. See `docs/DEVELOPMENT_PLAN.md` for the full development plan (Phases 1-14, 9.1), `docs/CODE_REVIEW_CHECKLIST.md` for review guidelines, and `docs/DEPLOYMENT_GUIDE.md` for client-server deployment (server, agent, PostgreSQL, TLS, API auth, systemd, production checklist).
 
 ### Integration tests
 

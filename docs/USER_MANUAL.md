@@ -65,9 +65,19 @@ Triton uses 19 scanner modules across 9 CBOM categories — from certificates on
    # Compare with checksums.txt in the release
    ```
 4. Make it executable and move to PATH:
+
+   **macOS / Linux:**
    ```bash
    chmod +x triton_darwin_arm64
    sudo mv triton_darwin_arm64 /usr/local/bin/triton
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   # Move to a directory in your PATH, e.g.:
+   Move-Item triton_windows_amd64.exe C:\Users\<you>\bin\triton.exe
+   # Add to PATH if needed (persistent, user-level):
+   [Environment]::SetEnvironmentVariable("Path", "$env:Path;C:\Users\<you>\bin", "User")
    ```
 5. Verify installation:
    ```bash
@@ -630,7 +640,7 @@ Results: 5 passed, 2 warnings, 0 failures
 
 ### Config File
 
-Triton looks for a configuration file at `~/.triton.yaml`. You can override this with `--config`:
+Triton looks for a configuration file at `~/.triton.yaml` (`%USERPROFILE%\.triton.yaml` on Windows). You can override this with `--config`:
 
 ```bash
 triton --config /path/to/my-config.yaml
@@ -640,10 +650,30 @@ triton --config /path/to/my-config.yaml
 
 All flags can be set via environment variables prefixed with `TRITON_`:
 
+**macOS / Linux (bash/zsh):**
 ```bash
 export TRITON_PROFILE=comprehensive
 export TRITON_OUTPUT=my-report.json
 triton  # Uses comprehensive profile
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:TRITON_PROFILE = "comprehensive"
+$env:TRITON_OUTPUT = "my-report.json"
+triton  # Uses comprehensive profile
+```
+
+**Windows (Command Prompt):**
+```cmd
+set TRITON_PROFILE=comprehensive
+set TRITON_OUTPUT=my-report.json
+triton
+```
+
+To set environment variables permanently on Windows, use System Properties > Environment Variables, or:
+```powershell
+[Environment]::SetEnvironmentVariable("TRITON_PROFILE", "comprehensive", "User")
 ```
 
 ### Custom Scan Targets
@@ -811,15 +841,45 @@ triton --license-key <token> --profile standard
 ```
 
 **2. Environment variable:**
+
+macOS / Linux:
 ```bash
 export TRITON_LICENSE_KEY=<token>
 triton --profile standard
 ```
 
+Windows (PowerShell):
+```powershell
+$env:TRITON_LICENSE_KEY = "<token>"
+triton --profile standard
+```
+
+Windows (Command Prompt):
+```cmd
+set TRITON_LICENSE_KEY=<token>
+triton --profile standard
+```
+
+To persist the environment variable on Windows:
+```powershell
+[Environment]::SetEnvironmentVariable("TRITON_LICENSE_KEY", "<token>", "User")
+```
+
 **3. File (persists across sessions):**
+
+The licence file location is `~/.triton/license.key` — on Windows this resolves to `%USERPROFILE%\.triton\license.key` (e.g. `C:\Users\<you>\.triton\license.key`).
+
+macOS / Linux:
 ```bash
 mkdir -p ~/.triton
 echo "<token>" > ~/.triton/license.key
+triton --profile standard
+```
+
+Windows (PowerShell):
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.triton"
+Set-Content -Path "$env:USERPROFILE\.triton\license.key" -Value "<token>"
 triton --profile standard
 ```
 
@@ -886,6 +946,10 @@ triton license verify <token>
 - Active scanning modules (processes, network, protocol) are not supported
 - Package manager scanning is not supported
 - Permission checks are skipped
+- **Config file:** `%USERPROFILE%\.triton.yaml` (e.g. `C:\Users\<you>\.triton.yaml`)
+- **Licence file:** `%USERPROFILE%\.triton\license.key`
+- **Environment variables:** Use `$env:TRITON_*` (PowerShell) or `set TRITON_*` (cmd) — see [Configuration](#10-configuration) and [Licensing](#13-licensing) for examples
+- **PATH:** Add the directory containing `triton.exe` to your `Path` environment variable via System Properties or PowerShell
 
 ---
 

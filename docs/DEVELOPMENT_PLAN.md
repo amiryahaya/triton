@@ -19,6 +19,7 @@
 | **Licensing** | 9.1 | v2.3 | **Released** | Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise) |
 | **TLS Probing** | 13 | v2.4 | **Released** | Enhanced TLS probing — cipher enumeration, preference order, version range, PFS, chain validation |
 | **Integration Tests** | 14 | v2.5 | **Released** | Build-tagged integration/e2e tests — 48 tests across 7 files covering CLI, server, agent, cross-package, concurrent, error paths |
+| **Container Infra** | 15 | v2.6 | **Released** | Containerfile, compose server profile, CI integration tests, ghcr.io image push |
 
 ---
 
@@ -39,7 +40,7 @@
 |----------|--------|-------|
 | Standalone CLI | **MVP** | Single binary, no server |
 | Client-server mode | **Done** | REST API server + agent mode (v2.0) |
-| CI/CD pipeline | **Done** | GitHub Actions CI + GoReleaser release pipeline |
+| CI/CD pipeline | **Done** | GitHub Actions CI (lint + unit + integration + build) + GoReleaser + ghcr.io container push |
 | Government format (Jadual 1 & 2) | **Primary output** | Exact column match required |
 | CycloneDX CBOM v1.7 | **Done** | Full crypto object modeling |
 | HTML dashboard | **Done** | PQC dashboard with CAMM scoring |
@@ -737,6 +738,43 @@ make test                    # Unit tests only (~40s)
 make test-integration        # Integration only (~3s)
 make test-all                # Unit + integration (~45s)
 make test-integration-race   # Integration + race detector (~5s)
+```
+
+---
+
+### Phase 15: Container Infrastructure _(v2.6 — COMPLETED)_
+
+**Goal:** Full local + CI container infrastructure for deployment and testing. Enables reproducible builds, full-stack local development, CI integration tests, and automated container image publishing.
+
+| Task | Description | Files |
+|------|-------------|-------|
+| 15.1 | Containerfile | Multi-stage build (`golang:1.25` → `scratch`), `CGO_ENABLED=0` static binary, ldflags version injection via `ARG VERSION=dev`, CA certs + timezone data, `EXPOSE 8080`, ~10MB production image | `Containerfile` |
+| 15.2 | Build context exclusions | Excludes `.git`, `.github`, `.claude`, `bin/`, `docs/`, `test/`, `*.md` from build context | `.containerignore` |
+| 15.3 | Compose server service | Triton server service with `profiles: [server]`, depends on postgres healthy, internal network (`postgres:5432`), `make db-up` unchanged | `compose.yaml` |
+| 15.4 | Makefile container targets | `container-build` (podman build), `container-run` (build + compose --profile server up), `container-stop` (compose down) | `Makefile` |
+| 15.5 | CI integration tests | Renamed test→"Unit Test", added `integration-test` job with PostgreSQL 18 service, `-tags integration -race -count=1 -p 1` | `.github/workflows/ci.yml` |
+| 15.6 | Release pipeline | Split into 3 jobs: Test (unit + integration with PostgreSQL) → Release (GoReleaser) + Container Image (multi-arch `linux/amd64,linux/arm64` push to `ghcr.io/amiryahaya/triton`), OCI labels | `.github/workflows/release.yml` |
+
+**CI pipeline (4 jobs):**
+```
+Lint ──→ Unit Test ──→ Integration Test
+              │
+              └──→ Build
+```
+
+**Release pipeline (3 jobs):**
+```
+Test (unit + integration) ──→ Release (GoReleaser)
+                           ──→ Container Image (ghcr.io push)
+```
+
+**Verification commands:**
+```bash
+podman build -t triton:local -f Containerfile .   # Build image
+podman run --rm triton:local --version             # Verify binary
+make container-run                                 # Full stack (postgres + triton)
+curl http://localhost:8080/api/v1/health           # Health check
+make container-stop                                # Tear down
 ```
 
 ---

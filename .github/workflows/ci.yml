@@ -111,8 +111,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build
+      - name: Build triton
         run: go build -o bin/triton main.go
 
-      - name: Verify binary
+      - name: Build license server
+        run: go build -o bin/triton-license-server cmd/licenseserver/main.go
+
+      - name: Verify triton binary
         run: ./bin/triton --version
+
+      - name: Verify license server binary
+        run: test -x ./bin/triton-license-server

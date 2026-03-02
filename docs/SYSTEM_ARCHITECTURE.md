@@ -1,8 +1,8 @@
 # Triton System Architecture
 
-**Version:** 5.0
-**Status:** Enterprise — CLI + Server + Web UI + Dependency Reachability + Licence Gating
-**Last Updated:** 2026-03-01
+**Version:** 6.0
+**Status:** Enterprise — CLI + Server + Web UI + Dependency Reachability + Licence Gating + License Server
+**Last Updated:** 2026-03-02
 
 ---
 
@@ -1132,6 +1132,63 @@ Three-tier licensing system (free/pro/enterprise) using Ed25519-signed JSON toke
 | Policy: builtin / custom | No | Pro / No | Yes / Yes |
 
 **Key files:** `internal/license/` (tier.go, license.go, pubkey.go, guard.go, keygen.go), `cmd/license.go`
+
+---
+
+## 15. License Server (Implemented)
+
+Centralized license management service for org-based seat pools, online validation, and admin oversight. Runs as a separate binary alongside the Triton CLI.
+
+```
+┌──────────────┐     activate/validate     ┌───────────────────┐
+│  Triton CLI  │ ◄──────────────────────► │  License Server   │
+│  (client)    │     POST /api/v1/license  │  (pkg/licenseserver)
+│              │                           │                   │
+│  guard.go    │     offline fallback      │  Chi router       │
+│  client.go   │     (cached token +       │  PostgreSQL       │
+│  cache.go    │      7-day grace)         │  Ed25519 signing  │
+└──────────────┘                           │  Admin Web UI     │
+                                           └───────────────────┘
+```
+
+### 15.1 Database Schema
+
+Four tables in `pkg/licensestore/`:
+- `organizations` — Org name, contact, notes
+- `licenses` — Tied to org, tier (free/pro/enterprise), seats, expiry, revocation status
+- `activations` — Per-license per-machine, UNIQUE(license_id, machine_id), token storage
+- `audit_log` — Event log (activate, deactivate, revoke, org_create, license_create)
+
+Seat enforcement via serializable transactions: `SELECT COUNT(*) WHERE active=TRUE` inside the activation insert.
+
+### 15.2 API
+
+**Admin API** (requires `X-Triton-Admin-Key`): Org CRUD, license CRUD + revoke, activation management, audit log, dashboard stats.
+
+**Client API** (no auth): Activate (`POST /api/v1/license/activate`), deactivate, validate, health check.
+
+### 15.3 Online Validation Flow
+
+```
+if --license-server configured:
+  POST /api/v1/license/validate
+  ├─ server responds valid     → update cache, use server tier
+  ├─ server responds invalid   → free tier
+  └─ server unreachable
+      ├─ cache < 7 days        → use cached tier
+      └─ cache > 7 days        → free tier
+else:
+  existing offline validation (unchanged)
+```
+
+### 15.4 Key Files
+
+- `pkg/licensestore/` — Database layer (store interface, PostgreSQL impl, migrations)
+- `pkg/licenseserver/` — REST API server (handlers, middleware, config, embedded admin UI)
+- `cmd/licenseserver/main.go` — Standalone binary entry point
+- `internal/license/client.go` — HTTP client (Activate, Deactivate, Validate, Health)
+- `internal/license/cache.go` — Offline cache metadata (`~/.triton/license.meta`)
+- `internal/license/guard.go` — `NewGuardWithServer()` constructor for online validation
 
 ---
 

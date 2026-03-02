@@ -42,9 +42,11 @@ var (
 	showMetrics   bool
 	dbPath        string
 	incremental   bool
-	scanPolicyArg string
-	licenseKey    string
-	guard         *license.Guard
+	scanPolicyArg    string
+	licenseKey       string
+	licenseServerURL string
+	licenseID        string
+	guard            *license.Guard
 
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
@@ -57,7 +59,11 @@ and Cryptographic Bill of Materials (CBOM) for Post-Quantum Cryptography complia
 
 Target: Malaysian government critical sectors for 2030 PQC readiness.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			guard = license.NewGuard(licenseKey)
+			if licenseServerURL != "" {
+				guard = license.NewGuardWithServer(licenseKey, licenseServerURL, licenseID)
+			} else {
+				guard = license.NewGuard(licenseKey)
+			}
 		},
 		RunE: runScan,
 	}
@@ -77,6 +83,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
 	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
 	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token")
+	rootCmd.PersistentFlags().StringVar(&licenseServerURL, "license-server", "", "License server URL for online validation")
+	rootCmd.PersistentFlags().StringVar(&licenseID, "license-id", "", "License ID for server activation")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))

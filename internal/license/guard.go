@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/amiryahaya/triton/internal/config"
 )
@@ -43,7 +44,7 @@ func NewGuardFromToken(token string, pubKey ed25519.PublicKey) *Guard {
 
 // newGuardWithKey resolves the token from flag → env → file, then validates.
 func newGuardWithKey(flagKey string, pubKey ed25519.PublicKey) *Guard {
-	token := resolveToken(flagKey, defaultLicensePath())
+	token := resolveToken(flagKey, DefaultLicensePath())
 	return NewGuardFromToken(token, pubKey)
 }
 
@@ -73,8 +74,8 @@ func resolveToken(flagKey, filePath string) string {
 	return ""
 }
 
-// defaultLicensePath returns ~/.triton/license.key.
-func defaultLicensePath() string {
+// DefaultLicensePath returns ~/.triton/license.key.
+func DefaultLicensePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -167,6 +168,89 @@ func (g *Guard) FilterConfig(cfg *config.Config) {
 		}
 		cfg.Modules = filtered
 	}
+}
+
+// NewGuardWithServer creates a Guard that validates tokens online against a
+// license server, with offline cache fallback. If the server is unreachable
+// and the cached token is fresh (< GracePeriodDays), the cached tier is used.
+// Otherwise, it falls back to free tier.
+func NewGuardWithServer(flagKey, serverURL, lid string) *Guard {
+	pubKey := loadPublicKey()
+	token := resolveToken(flagKey, DefaultLicensePath())
+
+	// If no server URL, fall back to standard offline validation
+	if serverURL == "" {
+		return NewGuardFromToken(token, pubKey)
+	}
+
+	// Read license ID from flag or cache
+	if lid == "" {
+		if meta, err := LoadCacheMeta(DefaultCacheMetaPath()); err == nil {
+			lid = meta.LicenseID
+		}
+	}
+
+	// If we have no license ID, fall back to offline
+	if lid == "" {
+		return NewGuardFromToken(token, pubKey)
+	}
+
+	// Try online validation
+	client := NewServerClient(serverURL)
+	resp, err := client.Validate(lid, token)
+	if err == nil {
+		if resp.Valid {
+			// Server says valid — update cache, use server tier
+			meta := &CacheMeta{
+				ServerURL:     serverURL,
+				LicenseID:     lid,
+				Tier:          resp.Tier,
+				Seats:         resp.Seats,
+				SeatsUsed:     resp.SeatsUsed,
+				ExpiresAt:     resp.ExpiresAt,
+				LastValidated: timeNow(),
+			}
+			_ = meta.Save(DefaultCacheMetaPath())
+
+			// Parse token for full Guard (signature already verified by server)
+			g := NewGuardFromToken(token, pubKey)
+			if g.tier == TierFree && resp.Tier != "" && g.license != nil {
+				// Server says a higher tier and local validation succeeded —
+				// trust it only if it's a known tier
+				switch Tier(resp.Tier) {
+				case TierFree, TierPro, TierEnterprise:
+					g.tier = Tier(resp.Tier)
+				}
+			}
+			return g
+		}
+		// Server says invalid
+		log.Printf("warning: license server says token is invalid: %s (falling back to free tier)", resp.Reason)
+		return &Guard{tier: TierFree}
+	}
+
+	// Server unreachable — try offline cache
+	log.Printf("warning: license server unreachable: %v (checking offline cache)", err)
+	if meta, err := LoadCacheMeta(DefaultCacheMetaPath()); err == nil && meta.IsFresh() {
+		log.Printf("warning: using cached licence tier %s (last validated %s)", meta.Tier, meta.LastValidated.Format("2006-01-02"))
+		g := NewGuardFromToken(token, pubKey)
+		if g.tier == TierFree && meta.Tier != "" && g.license != nil {
+			switch Tier(meta.Tier) {
+			case TierFree, TierPro, TierEnterprise:
+				g.tier = Tier(meta.Tier)
+			}
+		}
+		return g
+	}
+
+	// Stale or no cache — fall back to free tier
+	log.Printf("warning: offline cache stale or missing, falling back to free tier")
+	return NewGuardFromToken(token, pubKey)
+}
+
+// timeNow is a function variable for testing.
+var timeNow = func() time.Time {
+	return time.Now().UTC()
 }
 
 // ErrFeatureGated is returned when a feature requires a higher licence tier.

@@ -32,5 +32,22 @@ services:
       - "8080:8080"
     command: ["server", "--listen", ":8080", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable"]
 
+  license-server:
+    build:
+      context: .
+      dockerfile: Containerfile.licenseserver
+    container_name: triton-license-server
+    profiles: [license-server]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TRITON_LICENSE_SERVER_DB_URL: postgres://triton:triton@postgres:5432/triton_license?sslmode=disable
+      TRITON_LICENSE_SERVER_LISTEN: ":8081"
+      TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY}"
+      TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY}"
+    ports:
+      - "8081:8081"
+
 volumes:
   triton-data:

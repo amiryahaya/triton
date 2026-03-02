@@ -334,11 +334,11 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 	}
 	if lic.Revoked {
 		_ = tx.Rollback(ctx)
-		return fmt.Errorf("license is revoked")
+		return &ErrLicenseRevoked{LicenseID: act.LicenseID}
 	}
 	if time.Now().After(lic.ExpiresAt) {
 		_ = tx.Rollback(ctx)
-		return fmt.Errorf("license has expired")
+		return &ErrLicenseExpired{LicenseID: act.LicenseID}
 	}
 
 	if existingFound {

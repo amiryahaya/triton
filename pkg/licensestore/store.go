@@ -165,3 +165,21 @@ type ErrConflict struct {
 func (e *ErrConflict) Error() string {
 	return e.Message
 }
+
+// ErrLicenseRevoked is returned when an operation targets a revoked license.
+type ErrLicenseRevoked struct {
+	LicenseID string
+}
+
+func (e *ErrLicenseRevoked) Error() string {
+	return fmt.Sprintf("license %s has been revoked", e.LicenseID)
+}
+
+// ErrLicenseExpired is returned when an operation targets an expired license.
+type ErrLicenseExpired struct {
+	LicenseID string
+}
+
+func (e *ErrLicenseExpired) Error() string {
+	return fmt.Sprintf("license %s has expired", e.LicenseID)
+}

@@ -83,6 +83,16 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, sf.Error())
 			return
 		}
+		var revoked *licensestore.ErrLicenseRevoked
+		if errors.As(err, &revoked) {
+			writeError(w, http.StatusForbidden, "license has been revoked")
+			return
+		}
+		var expired *licensestore.ErrLicenseExpired
+		if errors.As(err, &expired) {
+			writeError(w, http.StatusForbidden, "license has expired")
+			return
+		}
 		log.Printf("activate error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
@@ -98,9 +108,12 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	token = stored.Token
 	act.ID = stored.ID
 
-	seatsUsed, _ := s.store.CountActiveSeats(r.Context(), req.LicenseID)
+	seatsUsed, seatErr := s.store.CountActiveSeats(r.Context(), req.LicenseID)
+	if seatErr != nil {
+		log.Printf("count active seats error: %v", seatErr)
+	}
 
-	s.audit(r, "activate", req.LicenseID, "", req.MachineID, map[string]any{
+	s.audit(r, "activate", req.LicenseID, lic.OrgID, req.MachineID, map[string]any{
 		"hostname": req.Hostname, "os": req.OS, "arch": req.Arch,
 	})
 

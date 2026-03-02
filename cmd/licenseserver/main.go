@@ -50,10 +50,7 @@ func run() error {
 	privKey := ed25519.PrivateKey(signingKeyBytes)
 	pubKey := privKey.Public().(ed25519.PublicKey)
 
-	var adminKeys []string
-	if adminKey != "" {
-		adminKeys = strings.Split(adminKey, ",")
-	}
+	adminKeys := strings.Split(adminKey, ",")
 
 	ctx := context.Background()
 	store, err := licensestore.NewPostgresStore(ctx, dbURL)

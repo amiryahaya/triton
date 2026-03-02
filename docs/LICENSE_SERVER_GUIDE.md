@@ -470,7 +470,7 @@ For 1,000 machines with ~20 events/machine/year: ~10 MB/year. For 10,000 machine
 
 ```sql
 -- Delete audit entries older than 1 year
-DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '1 year';
+DELETE FROM audit_log WHERE timestamp < NOW() - INTERVAL '1 year';
 ```
 
 ### Transaction Isolation

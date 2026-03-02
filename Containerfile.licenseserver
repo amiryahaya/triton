@@ -9,7 +9,7 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X github.com/amiryahaya/triton/internal/version.Version=${VERSION}" \
     -o /triton-license-server cmd/licenseserver/main.go
 
 # Stage 2: Minimal production image

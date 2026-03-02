@@ -10,6 +10,7 @@ services:
       - "5434:5432"
     volumes:
       - triton-data:/var/lib/postgresql
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U triton"]
       interval: 5s

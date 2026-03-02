@@ -18,7 +18,8 @@ func AdminKeyAuth(validKeys []string) func(http.Handler) http.Handler {
 			}
 			valid := false
 			for _, k := range validKeys {
-				if subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
+				if subtle.ConstantTimeEq(int32(len(key)), int32(len(k))) == 1 &&
+					subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
 					valid = true
 				}
 			}

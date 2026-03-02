@@ -1,0 +1,35 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
+#app { display: flex; min-height: 100vh; }
+#sidebar { width: 220px; background: #1a1a2e; color: #fff; padding: 20px 0; }
+.logo { font-size: 1.2em; font-weight: bold; padding: 0 20px 20px; border-bottom: 1px solid #333; margin-bottom: 10px; }
+.nav-link { display: block; padding: 12px 20px; color: #ccc; text-decoration: none; }
+.nav-link:hover, .nav-link.active { background: #16213e; color: #fff; }
+#content { flex: 1; padding: 30px; }
+.stat-cards { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 30px; }
+.stat-card { background: #fff; border-radius: 8px; padding: 20px; min-width: 160px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.stat-card .value { font-size: 2em; font-weight: bold; color: #1a1a2e; }
+.stat-card .label { color: #666; font-size: 0.9em; margin-top: 5px; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f8f9fa; font-weight: 600; color: #333; }
+tr:hover { background: #f8f9fa; }
+.btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+.btn-primary { background: #1a1a2e; color: #fff; }
+.btn-danger { background: #dc3545; color: #fff; }
+.btn-sm { padding: 4px 10px; font-size: 0.85em; }
+.form-group { margin-bottom: 15px; }
+.form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; }
+.badge { padding: 3px 8px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+.badge-active { background: #d4edda; color: #155724; }
+.badge-revoked { background: #f8d7da; color: #721c24; }
+.badge-expired { background: #fff3cd; color: #856404; }
+h2 { margin-bottom: 20px; color: #1a1a2e; }
+.actions { margin-bottom: 20px; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: #fff; border-radius: 8px; padding: 30px; min-width: 400px; max-width: 500px; }
+.modal h3 { margin-bottom: 20px; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+#auth-prompt { text-align: center; padding: 100px 20px; }
+#auth-prompt input { width: 300px; padding: 10px; margin: 10px 0; }

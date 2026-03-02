@@ -26,6 +26,7 @@ vendor/
 bin/
 dist/
 !pkg/server/ui/dist/
+!pkg/licenseserver/ui/dist/
 build/
 
 # Go module cache (if vendoring)

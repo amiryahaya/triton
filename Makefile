@@ -1,8 +1,12 @@
-.PHONY: build build-all test test-integration test-all test-integration-race test-e2e bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop
+.PHONY: build build-all build-licenseserver test test-integration test-all test-integration-race test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver
 
 # Build for current platform
 build:
 	go build -o bin/triton main.go
+
+# Build license server binary
+build-licenseserver:
+	go build -o bin/triton-license-server cmd/licenseserver/main.go
 
 # Build for all platforms
 build-all:
@@ -40,6 +44,16 @@ container-run: container-build
 container-stop:
 	podman compose --profile server down
 
+# License server container lifecycle
+container-build-licenseserver:
+	podman build -t triton-license-server:local -f Containerfile.licenseserver .
+
+container-run-licenseserver: container-build-licenseserver
+	podman compose --profile license-server up -d
+
+container-stop-licenseserver:
+	podman compose --profile license-server down
+
 # Run tests (requires PostgreSQL running; -p 1 serializes packages sharing DB)
 test: db-up
 	go test -v -p 1 ./...
@@ -59,6 +73,10 @@ test-integration-race: db-up
 # Playwright E2E browser tests (requires PostgreSQL + Chromium)
 test-e2e: db-up
 	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test
+
+# Playwright E2E browser tests for license server admin UI
+test-e2e-license: db-up
+	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test --config=playwright.license.config.js
 
 # Clean build artifacts
 clean:

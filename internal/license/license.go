@@ -22,7 +22,7 @@ type License struct {
 	Seats     int    `json:"seats"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
-	MachineID string `json:"mid,omitempty"` // SHA-256 machine fingerprint
+	MachineID string `json:"mid,omitempty"` // SHA-3-256 machine fingerprint
 }
 
 // IsExpired reports whether the licence has passed its expiry plus grace period.

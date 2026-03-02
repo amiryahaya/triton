@@ -16,14 +16,19 @@ make test-integration       # Run integration tests (requires PostgreSQL)
 make test-all               # Run unit + integration tests
 make test-integration-race  # Integration tests with race detector
 make test-e2e               # Playwright E2E browser tests (requires PostgreSQL + Chromium)
+make test-e2e-license       # Playwright E2E tests for license server admin UI
 make run                    # Run with quick profile
 make fmt                    # Format code (go fmt ./...)
 make lint                   # Lint (golangci-lint run)
 make deps                   # Download and tidy dependencies
 make clean                  # Remove bin/
+make build-licenseserver    # Build license server → bin/triton-license-server
 make container-build        # Build container image (triton:local)
 make container-run          # Build + start full stack (postgres + triton server)
 make container-stop         # Stop full stack
+make container-build-licenseserver  # Build license server container
+make container-run-licenseserver    # Start license server + postgres
+make container-stop-licenseserver   # Stop license server
 ```
 
 Run a single test:
@@ -93,11 +98,26 @@ Worker count is capped by CPU count.
 
 3-tier system (free/pro/enterprise) with Ed25519-signed tokens in `internal/license/`:
 
-- **Machine binding**: Tokens include `MachineID` (SHA-256 of `hostname|GOOS|GOARCH`). Mismatch → graceful degradation to free tier. Legacy tokens without `mid` are backward compatible.
+- **Machine binding**: Tokens include `MachineID` (SHA-3-256 of `hostname|GOOS|GOARCH`). Mismatch → graceful degradation to free tier. Legacy tokens without `mid` are backward compatible.
 - **Guard**: `guard.go` — Primary enforcement point. `FilterConfig()` restricts profile, modules, and DB URL. `EnforceFormat("all")` succeeds for all tiers; `AllowedFormats()` determines which formats to generate.
 - **Keygen**: `IssueToken()` binds to current machine by default; `IssueTokenWithOptions(..., bind)` for opt-out. CLI: `--no-bind` flag.
 - **Server middleware**: `pkg/server/license.go` — `LicenceGate` middleware gates `/diff` and `/trend` routes by tier. Handler-level enforcement in report generation (format gating) and policy evaluation (builtin vs custom). Nil guard = no enforcement (used by E2E testserver).
-- **Fingerprint**: `fingerprint.go` — `MachineFingerprint()` returns deterministic 64-char hex string, no elevated privileges required.
+- **Fingerprint**: `fingerprint.go` — `MachineFingerprint()` returns deterministic 64-char hex string (SHA-3-256), no elevated privileges required.
+- **License Server**: Standalone service (`cmd/licenseserver/`) for centralized license management with org-based seat pools, online validation with 7-day offline fallback. See below.
+
+### License server
+
+Standalone binary (`cmd/licenseserver/main.go`) with separate PostgreSQL schema (`pkg/licensestore/`), Chi REST API (`pkg/licenseserver/`), and embedded admin web UI.
+
+- **Store**: `pkg/licensestore/` — 4 tables (organizations, licenses, activations, audit_log), separate `license_schema_version` table, pgx/v5
+- **Server**: `pkg/licenseserver/` — Admin API (X-Triton-Admin-Key auth) + Client API (no auth, secured by license UUID + fingerprint)
+- **Client**: `internal/license/client.go` — `ServerClient` with Activate/Deactivate/Validate/Health
+- **Cache**: `internal/license/cache.go` — `CacheMeta` at `~/.triton/license.meta`, 7-day grace period
+- **Guard integration**: `NewGuardWithServer()` validates online, falls back to cached tier if server unreachable
+- **CLI commands**: `triton license activate`, `triton license deactivate` (flags: `--license-server`, `--license-id`)
+- **Binary**: `cmd/licenseserver/main.go` — env config (`TRITON_LICENSE_SERVER_*`), signal handling
+- **Container**: `Containerfile.licenseserver`, compose profile `license-server` on port 8081
+- **Admin UI**: Embedded vanilla JS SPA at `/ui/` with hash routing (dashboard, orgs, licenses, activations, audit)
 
 ## Development Methodology
 
@@ -105,9 +125,10 @@ The project follows TDD (Red → Green → Refactor). Coverage target is >80%. S
 
 ### Integration tests
 
-Build-tagged with `//go:build integration` — 67 tests in `test/integration/` across 8 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, and licence tier enforcement. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+Build-tagged with `//go:build integration` — 80 tests in `test/integration/` across 9 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, licence tier enforcement, and license server workflows. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
 
 - **`license_tier_test.go`** (19 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, real scan pipelines with report generation gated by licence tier, Pro tier allowed-formats validation, server middleware route blocking (diff/trend/report format), FilterConfig DB URL clearing, and machine-bound token degradation through full pipeline
+- **`license_server_test.go`** (13 tests) — Full lifecycle (activate→validate→deactivate), seat limits, revocation, reactivation, concurrent activation (race), admin CRUD, audit trail, Guard online validation, offline fallback (fresh/stale cache), backward compat (offline token), expired license, health check
 
 ### E2E browser tests
 
@@ -121,6 +142,17 @@ Build-tagged with `//go:build integration` — 67 tests in `test/integration/` a
 - **`diff-trend.spec.js`** (8 tests) — Diff form/result/error paths, trend form/chart/all-hosts
 
 Run with `make test-e2e` (requires PostgreSQL running + Chromium installed via Playwright).
+
+#### License server admin UI E2E tests
+
+10 Playwright tests in `test/e2e/license-admin.spec.js` validate the license server admin web UI (`pkg/licenseserver/ui/dist/`) against a live PostgreSQL-backed license server.
+
+- **Test server:** `test/e2e/cmd/testlicenseserver/main.go` — Lightweight license server with ephemeral Ed25519 keypair, admin key `e2e-test-key`
+- **Global setup:** `test/e2e/license-global-setup.js` — Seeds 2 orgs, 2 licenses, 1 activation
+- **Config:** `test/e2e/playwright.license.config.js` — Separate Playwright config (baseURL `:8081`)
+- **`license-admin.spec.js`** (10 tests) — Auth prompt, dashboard stats, org CRUD, license listing, license detail, activations, audit log, navigation
+
+Run with `make test-e2e-license` (requires PostgreSQL running + Chromium installed via Playwright).
 
 ## Container Infrastructure
 

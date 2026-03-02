@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -27,9 +30,25 @@ var licenseVerifyCmd = &cobra.Command{
 	RunE:  runLicenseVerify,
 }
 
+var licenseActivateCmd = &cobra.Command{
+	Use:   "activate",
+	Short: "Activate this machine with the license server",
+	Long:  `Registers this machine with the license server, consuming one seat. Requires --license-server and --license-id flags.`,
+	RunE:  runLicenseActivate,
+}
+
+var licenseDeactivateCmd = &cobra.Command{
+	Use:   "deactivate",
+	Short: "Deactivate this machine from the license server",
+	Long:  `Unregisters this machine from the license server, freeing a seat.`,
+	RunE:  runLicenseDeactivate,
+}
+
 func init() {
 	licenseCmd.AddCommand(licenseShowCmd)
 	licenseCmd.AddCommand(licenseVerifyCmd)
+	licenseCmd.AddCommand(licenseActivateCmd)
+	licenseCmd.AddCommand(licenseDeactivateCmd)
 	rootCmd.AddCommand(licenseCmd)
 }
 
@@ -54,11 +73,24 @@ func runLicenseShow(_ *cobra.Command, _ []string) error {
 		fmt.Printf("Allowed modules:  %v\n", mods)
 	}
 
+	// Show server metadata if available
+	metaPath := license.DefaultCacheMetaPath()
+	if meta, err := license.LoadCacheMeta(metaPath); err == nil {
+		fmt.Printf("\nLicense Server:   %s\n", meta.ServerURL)
+		fmt.Printf("Server Tier:      %s\n", meta.Tier)
+		fmt.Printf("Seats:            %d/%d used\n", meta.SeatsUsed, meta.Seats)
+		fmt.Printf("Last Validated:   %s\n", meta.LastValidated.Format(time.RFC3339))
+		if meta.IsFresh() {
+			fmt.Printf("Cache Status:     fresh\n")
+		} else {
+			fmt.Printf("Cache Status:     stale (>%d days)\n", license.GracePeriodDays)
+		}
+	}
+
 	return nil
 }
 
 func runLicenseVerify(_ *cobra.Command, args []string) error {
-	// Create a new guard from the provided token to verify it
 	g := license.NewGuard(args[0])
 
 	fmt.Printf("Tier: %s\n", g.Tier())
@@ -74,5 +106,100 @@ func runLicenseVerify(_ *cobra.Command, args []string) error {
 		fmt.Println("\nLicence validation failed — displaying free tier defaults.")
 	}
 
+	return nil
+}
+
+func runLicenseActivate(_ *cobra.Command, _ []string) error {
+	if licenseServerURL == "" {
+		return fmt.Errorf("--license-server is required for activation")
+	}
+	if licenseID == "" {
+		return fmt.Errorf("--license-id is required for activation")
+	}
+
+	// Normalize server URL
+	serverURL := strings.TrimRight(licenseServerURL, "/")
+
+	client := license.NewServerClient(serverURL)
+
+	fmt.Printf("Activating machine with license server at %s...\n", serverURL)
+	fmt.Printf("Machine fingerprint: %s\n", license.MachineFingerprint())
+
+	resp, err := client.Activate(licenseID)
+	if err != nil {
+		return fmt.Errorf("activation failed: %w", err)
+	}
+
+	// Save token to ~/.triton/license.key
+	tokenPath := license.DefaultLicensePath()
+	dir := filepath.Dir(tokenPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte(resp.Token), 0600); err != nil {
+		return fmt.Errorf("writing token: %w", err)
+	}
+
+	// Save metadata
+	meta := &license.CacheMeta{
+		ServerURL:     serverURL,
+		LicenseID:     licenseID,
+		Tier:          resp.Tier,
+		Seats:         resp.Seats,
+		SeatsUsed:     resp.SeatsUsed,
+		ExpiresAt:     resp.ExpiresAt,
+		LastValidated: time.Now().UTC(),
+	}
+	metaPath := license.DefaultCacheMetaPath()
+	if err := meta.Save(metaPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save cache metadata: %v\n", err)
+	}
+
+	fmt.Printf("\nActivation successful!\n")
+	fmt.Printf("  Tier:       %s\n", resp.Tier)
+	fmt.Printf("  Seats:      %d/%d used\n", resp.SeatsUsed, resp.Seats)
+	fmt.Printf("  Expires:    %s\n", resp.ExpiresAt)
+	fmt.Printf("  Token:      %s\n", tokenPath)
+
+	return nil
+}
+
+func runLicenseDeactivate(_ *cobra.Command, _ []string) error {
+	// Try to load metadata for server URL and license ID
+	serverURL := licenseServerURL
+	lid := licenseID
+
+	metaPath := license.DefaultCacheMetaPath()
+	if meta, err := license.LoadCacheMeta(metaPath); err == nil {
+		if serverURL == "" {
+			serverURL = meta.ServerURL
+		}
+		if lid == "" {
+			lid = meta.LicenseID
+		}
+	}
+
+	if serverURL == "" {
+		return fmt.Errorf("--license-server is required (or cached from activation)")
+	}
+	if lid == "" {
+		return fmt.Errorf("--license-id is required (or cached from activation)")
+	}
+
+	serverURL = strings.TrimRight(serverURL, "/")
+	client := license.NewServerClient(serverURL)
+
+	fmt.Printf("Deactivating machine from license server at %s...\n", serverURL)
+
+	if err := client.Deactivate(lid); err != nil {
+		return fmt.Errorf("deactivation failed: %w (you can retry later)", err)
+	}
+
+	// Remove local files
+	tokenPath := license.DefaultLicensePath()
+	_ = os.Remove(tokenPath)
+	license.RemoveCacheMeta(metaPath)
+
+	fmt.Println("Deactivation successful. Seat freed.")
 	return nil
 }

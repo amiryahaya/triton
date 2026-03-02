@@ -104,3 +104,39 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.source=https://github.com/amiryahaya/triton
             org.opencontainers.image.licenses=MIT
+
+  container-licenseserver:
+    name: License Server Container Image
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile.licenseserver
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/amiryahaya/triton-license-server:${{ steps.version.outputs.version }}
+            ghcr.io/amiryahaya/triton-license-server:latest
+          labels: |
+            org.opencontainers.image.title=Triton License Server
+            org.opencontainers.image.description=Centralized license management for Triton
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.source=https://github.com/amiryahaya/triton
+            org.opencontainers.image.licenses=MIT

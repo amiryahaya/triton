@@ -20,6 +20,7 @@ An enterprise-grade, cross-platform CLI + server tool for generating Software Bi
 - **REST API server** — go-chi based HTTP server with embedded web UI dashboard
 - **PostgreSQL storage** — scan history, diff/trend analysis, incremental scanning
 - **3-tier licensing** — Ed25519-signed licence keys with free/pro/enterprise feature gating
+- **License server** — Centralized seat pool management, online validation, admin web UI
 - **Government-format Excel reports** — Jadual 1 (SBOM) and Jadual 2 (CBOM) in a single `.xlsx` workbook
 - **Multiple output formats** — CycloneDX 1.7 CBOM JSON, HTML dashboard, Excel (`.xlsx`), SARIF
 - **Cross-platform** — macOS (primary), Linux, Windows
@@ -328,9 +329,15 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 - [x] Key exchange / forward secrecy analysis (ECDHE, DHE, RSA, TLS13)
 - [x] Enhanced certificate chain validation (weak signatures, expiry warnings, SANs)
 
-### Future
+### v3.0 License Server (Released)
 
-_(none planned)_
+- [x] Centralized license server with org-based seat pool management
+- [x] Online validation with 7-day offline fallback grace period
+- [x] Admin web UI (dashboard, org/license/activation management, audit log)
+- [x] `triton license activate/deactivate` CLI commands
+- [x] SHA-3-256 machine fingerprinting (upgraded from SHA-256)
+- [x] PostgreSQL-backed license store with serializable seat enforcement
+- [x] Containerized deployment with Docker Compose
 
 ## Licensing
 
@@ -369,6 +376,22 @@ triton --profile standard
 ```
 
 Precedence: CLI flag > environment variable > file.
+
+### License Server (Centralized Management)
+
+For organizations managing multiple machines, the license server provides centralized seat pool management:
+
+```bash
+# Activate this machine (one-time setup)
+triton license activate \
+  --license-server http://license-server:8081 \
+  --license-id <license-uuid>
+
+# Deactivate when decommissioning
+triton license deactivate
+```
+
+See the [License Server Guide](docs/LICENSE_SERVER_GUIDE.md) for full setup instructions.
 
 ### Verifying a Licence
 

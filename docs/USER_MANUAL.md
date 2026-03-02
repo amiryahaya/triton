@@ -1,6 +1,6 @@
 # Triton User Manual
 
-**Version 2.3** | SBOM/CBOM Scanner for Post-Quantum Cryptography Compliance
+**Version 2.7** | SBOM/CBOM Scanner for Post-Quantum Cryptography Compliance
 
 ---
 
@@ -16,11 +16,13 @@
 8. [Reading Reports](#8-reading-reports)
 9. [Using triton doctor](#9-using-triton-doctor)
 10. [Configuration](#10-configuration)
-11. [Licensing](#11-licensing)
-12. [Platform Notes](#12-platform-notes)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Algorithm Reference](#14-algorithm-reference)
-15. [Glossary](#15-glossary)
+11. [Policy Evaluation](#11-policy-evaluation)
+12. [Server Mode](#12-server-mode)
+13. [Licensing](#13-licensing)
+14. [Platform Notes](#14-platform-notes)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Algorithm Reference](#16-algorithm-reference)
+17. [Glossary](#17-glossary)
 
 ---
 
@@ -63,9 +65,19 @@ Triton uses 19 scanner modules across 9 CBOM categories — from certificates on
    # Compare with checksums.txt in the release
    ```
 4. Make it executable and move to PATH:
+
+   **macOS / Linux:**
    ```bash
    chmod +x triton_darwin_arm64
    sudo mv triton_darwin_arm64 /usr/local/bin/triton
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   # Move to a directory in your PATH, e.g.:
+   Move-Item triton_windows_amd64.exe C:\Users\<you>\bin\triton.exe
+   # Add to PATH if needed (persistent, user-level):
+   [Environment]::SetEnvironmentVariable("Path", "$env:Path;C:\Users\<you>\bin", "User")
    ```
 5. Verify installation:
    ```bash
@@ -251,7 +263,13 @@ Detects listening network services that use cryptographic protocols by checking 
 
 Performs active TLS probing to identify the actual cipher suites and protocol versions in use by listening services.
 
-**Detection method:** Initiates TLS handshakes with discovered services and enumerates supported cipher suites and protocol versions.
+**Detection method:** Initiates TLS handshakes with discovered services and performs:
+
+- **Cipher enumeration** — tests each TLS 1.2 cipher suite individually (~24 suites) to identify all supported ciphers, not just the negotiated default
+- **Cipher preference order** — uses iterative removal to determine server cipher preference ordering
+- **TLS version range** — probes TLS 1.0, 1.1, 1.2, and 1.3 individually to map the supported version range
+- **Key exchange / PFS analysis** — classifies each cipher finding by key exchange type (ECDHE, DHE, RSA, TLS 1.3) and forward secrecy support
+- **Chain validation** — checks for weak signatures (SHA-1, MD5), certificate expiry warnings (30-day window), and Subject Alternative Name (SAN) extraction
 
 ---
 
@@ -530,8 +548,11 @@ The HTML report provides a visual dashboard with:
 
 - PQC status distribution chart
 - Summary statistics
+- NACSA compliance summary cards and bar chart
+- CAMM crypto-agility assessment
 - Searchable findings table
 - System-level grouping
+- **Policy analysis summary** (when `--policy` is used): verdict banner (color-coded PASS/WARN/FAIL), violations-by-rule table, and threshold violations table
 
 ```bash
 triton --format html
@@ -619,7 +640,7 @@ Results: 5 passed, 2 warnings, 0 failures
 
 ### Config File
 
-Triton looks for a configuration file at `~/.triton.yaml`. You can override this with `--config`:
+Triton looks for a configuration file at `~/.triton.yaml` (`%USERPROFILE%\.triton.yaml` on Windows). You can override this with `--config`:
 
 ```bash
 triton --config /path/to/my-config.yaml
@@ -629,19 +650,161 @@ triton --config /path/to/my-config.yaml
 
 All flags can be set via environment variables prefixed with `TRITON_`:
 
+**macOS / Linux (bash/zsh):**
 ```bash
 export TRITON_PROFILE=comprehensive
 export TRITON_OUTPUT=my-report.json
 triton  # Uses comprehensive profile
 ```
 
+**Windows (PowerShell):**
+```powershell
+$env:TRITON_PROFILE = "comprehensive"
+$env:TRITON_OUTPUT = "my-report.json"
+triton  # Uses comprehensive profile
+```
+
+**Windows (Command Prompt):**
+```cmd
+set TRITON_PROFILE=comprehensive
+set TRITON_OUTPUT=my-report.json
+triton
+```
+
+To set environment variables permanently on Windows, use System Properties > Environment Variables, or:
+```powershell
+[Environment]::SetEnvironmentVariable("TRITON_PROFILE", "comprehensive", "User")
+```
+
 ### Custom Scan Targets
 
-The default scan targets are platform-specific (see [Platform Notes](#11-platform-notes)). Custom targets can be configured through the config file.
+The default scan targets are platform-specific (see [Platform Notes](#14-platform-notes)). Custom targets can be configured through the config file.
 
 ---
 
-## 11. Licensing
+## 11. Policy Evaluation
+
+Policies enforce compliance rules against scan findings and produce a **PASS**, **WARN**, or **FAIL** verdict. Use policies to validate scans against organizational or regulatory standards.
+
+### 11.1 Built-in Policies
+
+Triton ships with two built-in policies (pro tier and above):
+
+**NACSA 2030** — Malaysian NACSA PQC compliance:
+
+```bash
+triton --profile standard --policy nacsa-2030
+```
+
+**CNSA 2.0** — NSA Commercial National Security Algorithm Suite:
+
+```bash
+triton --profile standard --policy cnsa-2.0
+```
+
+### 11.2 Custom Policies
+
+Enterprise tier users can write custom policies in YAML format:
+
+```bash
+triton --profile standard --policy /path/to/my-policy.yaml
+```
+
+Custom policies use the same YAML schema as the built-in policies. See `pkg/policy/builtin/nacsa-2030.yaml` for an example.
+
+### 11.3 Policy Comparison
+
+| Feature | NACSA 2030 | CNSA 2.0 |
+|---------|-----------|----------|
+| Minimum RSA key size | 2048 bits | 3072 bits |
+| Minimum ECDSA key size | — | P-384 |
+| SHA-256 | Allowed | Warning (prefers SHA-384+) |
+| MD5 | Error (fail) | — (caught by UNSAFE rule) |
+| SHA-1 | Warning | — (caught by DEPRECATED rule) |
+| RC4 | Error (fail) | — (caught by UNSAFE rule) |
+| DES/3DES | Error (fail) | — (caught by UNSAFE rule) |
+| Readiness threshold | 60% NACSA readiness | 50% SAFE |
+| Max UNSAFE count | 0 | 0 |
+
+### 11.4 Understanding Verdicts
+
+| Verdict | Meaning | Exit Code |
+|---------|---------|-----------|
+| **PASS** | All rules satisfied, all thresholds met | 0 |
+| **WARN** | Advisory warnings triggered but no failures | 0 |
+| **FAIL** | One or more error-severity rules violated, or a threshold breached | 1 |
+
+The verdict is determined by the most severe outcome across all rules and thresholds. A single `fail` action or threshold breach causes a FAIL verdict even if all other rules pass.
+
+### 11.5 Policy in Reports
+
+When `--policy` is used alongside `--format html` (or `--format all`), the HTML report includes a policy analysis summary:
+
+- **Verdict banner** — color-coded card showing PASS (green), WARN (amber), or FAIL (red) with the policy name, rules evaluated, findings checked, and total violations
+- **Violations-by-rule table** — aggregated violation counts by rule ID, sorted by count descending
+- **Threshold violations table** — expected vs actual values for any breached thresholds
+
+Without `--policy`, the HTML report omits the policy section entirely.
+
+### 11.6 CLI Examples
+
+```bash
+# Scan with NACSA 2030 policy and all report formats
+triton --profile standard --policy nacsa-2030 --format all
+
+# Scan with CNSA 2.0 policy, JSON output only
+triton --profile comprehensive --policy cnsa-2.0 --format json
+
+# Use a custom policy file (enterprise tier)
+triton --profile standard --policy ./policies/internal.yaml
+
+# Store results in PostgreSQL with policy evaluation
+triton --profile standard --policy nacsa-2030 --db postgres://triton:triton@localhost:5434/triton
+```
+
+---
+
+## 12. Server Mode
+
+Triton includes a REST API server with an embedded web dashboard for centralized scan management (enterprise tier).
+
+### Starting the Server
+
+```bash
+triton server --db postgres://triton:triton@localhost:5434/triton
+```
+
+The server listens on port 8080 by default and provides:
+
+- REST API for submitting, querying, and comparing scans
+- Web dashboard with scan history, machine inventory, diff, and trend views
+- Policy evaluation via API
+- Multi-format report generation
+
+### Agent Mode
+
+Remote machines can submit scans to the server using agent mode:
+
+```bash
+triton agent --server http://triton-server:8080 --profile standard
+```
+
+The agent runs a local scan and uploads the results to the central server.
+
+### Container Deployment
+
+Triton provides a multi-stage container image (~10MB) for production deployment:
+
+```bash
+make container-run   # Starts PostgreSQL + Triton server
+make container-stop  # Stops the stack
+```
+
+For full setup instructions — including PostgreSQL configuration, TLS, API authentication, systemd services, and production checklist — see [Deployment Guide](DEPLOYMENT_GUIDE.md).
+
+---
+
+## 13. Licensing
 
 Triton uses a 3-tier licence system based on Ed25519-signed tokens. All licence validation is performed offline — no network connection is required.
 
@@ -678,22 +841,62 @@ triton --license-key <token> --profile standard
 ```
 
 **2. Environment variable:**
+
+macOS / Linux:
 ```bash
 export TRITON_LICENSE_KEY=<token>
 triton --profile standard
 ```
 
+Windows (PowerShell):
+```powershell
+$env:TRITON_LICENSE_KEY = "<token>"
+triton --profile standard
+```
+
+Windows (Command Prompt):
+```cmd
+set TRITON_LICENSE_KEY=<token>
+triton --profile standard
+```
+
+To persist the environment variable on Windows:
+```powershell
+[Environment]::SetEnvironmentVariable("TRITON_LICENSE_KEY", "<token>", "User")
+```
+
 **3. File (persists across sessions):**
+
+The licence file location is `~/.triton/license.key` — on Windows this resolves to `%USERPROFILE%\.triton\license.key` (e.g. `C:\Users\<you>\.triton\license.key`).
+
+macOS / Linux:
 ```bash
 mkdir -p ~/.triton
 echo "<token>" > ~/.triton/license.key
 triton --profile standard
 ```
 
+Windows (PowerShell):
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.triton"
+Set-Content -Path "$env:USERPROFILE\.triton\license.key" -Value "<token>"
+triton --profile standard
+```
+
+### Machine Binding
+
+Licence tokens are bound to a specific machine by default. The machine fingerprint is a SHA-256 hash of `hostname|GOOS|GOARCH` — a deterministic 64-character hex string that requires no elevated privileges to compute.
+
+- **Default behaviour:** `IssueToken()` binds the token to the current machine. Running it on a different machine gracefully degrades to free tier.
+- **Portable tokens:** Use `--no-bind` at keygen time to create tokens that work on any machine.
+- **Checking fingerprint:** `triton license show` displays your machine's fingerprint alongside the licence details.
+
+If you see unexpected free-tier behaviour, check that the licence token's machine ID matches the current machine (hostname, OS, or architecture may have changed).
+
 ### Checking Your Licence
 
 ```bash
-# Show current licence info (tier, org, seats, expiry)
+# Show current licence info (tier, org, seats, expiry, machine fingerprint)
 triton license show
 
 # Verify a specific token
@@ -710,7 +913,7 @@ triton license verify <token>
 
 ---
 
-## 12. Platform Notes
+## 14. Platform Notes
 
 ### Comparison Table
 
@@ -743,10 +946,14 @@ triton license verify <token>
 - Active scanning modules (processes, network, protocol) are not supported
 - Package manager scanning is not supported
 - Permission checks are skipped
+- **Config file:** `%USERPROFILE%\.triton.yaml` (e.g. `C:\Users\<you>\.triton.yaml`)
+- **Licence file:** `%USERPROFILE%\.triton\license.key`
+- **Environment variables:** Use `$env:TRITON_*` (PowerShell) or `set TRITON_*` (cmd) — see [Configuration](#10-configuration) and [Licensing](#13-licensing) for examples
+- **PATH:** Add the directory containing `triton.exe` to your `Path` environment variable via System Properties or PowerShell
 
 ---
 
-## 13. Troubleshooting
+## 15. Troubleshooting
 
 ### Common Issues
 
@@ -761,6 +968,9 @@ triton license verify <token>
 | Very slow scan | Comprehensive profile on large filesystem | Use `--profile quick` for initial triage; reduce with `--modules` |
 | "command not found: triton" | Binary not in PATH | Add install directory to PATH or use full path `./bin/triton` |
 | Report files not appearing | Wrong output directory | Check `--output-dir` flag; default is current directory |
+| Policy verdict FAIL but scan succeeded | Policy rules triggered `fail` action | Exit code 1 is expected when policy violations are found; review the violations in the report |
+| Licence shows free tier unexpectedly | Machine binding mismatch or expired token | Run `triton license show` to check fingerprint and expiry; re-issue token for current machine or use `--no-bind` |
+| Policy section missing from HTML report | `--policy` flag not set | Add `--policy nacsa-2030` (or another policy) to include policy analysis in the HTML report |
 
 ### Getting Help
 
@@ -779,7 +989,7 @@ If you encounter a bug, please report it at: https://github.com/amiryahaya/trito
 
 ---
 
-## 14. Algorithm Reference
+## 16. Algorithm Reference
 
 All algorithms recognized by Triton, grouped by PQC status. The "Break Year" column shows the estimated year a sufficiently powerful quantum computer could break the algorithm (where applicable).
 
@@ -901,7 +1111,7 @@ All algorithms recognized by Triton, grouped by PQC status. The "Break Year" col
 
 ---
 
-## 15. Glossary
+## 17. Glossary
 
 | Term | Definition |
 |------|------------|

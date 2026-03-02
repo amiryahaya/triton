@@ -14,8 +14,9 @@ This guide covers deploying Triton in client-server mode: a central server with 
 6. [Web Dashboard](#6-web-dashboard)
 7. [API Reference](#7-api-reference)
 8. [Licence Management](#8-licence-management)
-9. [Production Checklist](#9-production-checklist)
-10. [Troubleshooting](#10-troubleshooting)
+9. [License Server Deployment](#9-license-server-deployment)
+10. [Production Checklist](#10-production-checklist)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -498,7 +499,46 @@ triton license verify <token>
 
 ---
 
-## 9. Production Checklist
+## 9. License Server Deployment
+
+For centralized license management with seat pools and online validation, deploy the License Server alongside your Triton infrastructure. See the full [License Server Guide](LICENSE_SERVER_GUIDE.md) for detailed setup.
+
+### Quick Setup
+
+```bash
+# Build the license server
+make build-licenseserver
+
+# Configure and run
+export TRITON_LICENSE_SERVER_DB_URL="postgres://triton:triton@localhost:5434/triton_license?sslmode=disable"
+export TRITON_LICENSE_SERVER_ADMIN_KEY="your-secret-admin-key"
+export TRITON_LICENSE_SERVER_SIGNING_KEY="<hex-encoded-ed25519-private-key>"
+./bin/triton-license-server
+```
+
+### With Docker Compose
+
+```bash
+make container-run-licenseserver
+# License server available at http://localhost:8081
+# Admin UI at http://localhost:8081/ui/
+```
+
+### Client Activation
+
+On each machine:
+
+```bash
+triton license activate \
+  --license-server http://license-server:8081 \
+  --license-id <license-uuid>
+```
+
+The CLI automatically validates against the server on each run. If the server is unreachable, a 7-day offline grace period uses cached validation.
+
+---
+
+## 10. Production Checklist
 
 - [ ] **Database credentials** — Use strong credentials (not the default `triton/triton`)
 - [ ] **TLS** — Enable TLS on the server (`--tls-cert` / `--tls-key`)
@@ -508,13 +548,14 @@ triton license verify <token>
 - [ ] **PostgreSQL TLS** — Use `sslmode=require` or `sslmode=verify-full` in the DB connection URL
 - [ ] **Volume backups** — Back up the `triton-data` PostgreSQL volume regularly
 - [ ] **Agent scheduling** — Run agents with `--interval` or via systemd for continuous scanning
+- [ ] **License server** — If using centralized licensing, deploy with TLS and strong admin key
 - [ ] **Monitoring** — Poll `GET /api/v1/health` from your monitoring system
 - [ ] **Log aggregation** — Collect container logs: `podman logs triton-server`
 - [ ] **Resource limits** — Set container memory/CPU limits in production compose files
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### Common Issues
 

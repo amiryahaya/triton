@@ -133,10 +133,10 @@ func runLicenseActivate(_ *cobra.Command, _ []string) error {
 	// Save token to ~/.triton/license.key
 	tokenPath := license.DefaultLicensePath()
 	dir := filepath.Dir(tokenPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
-	if err := os.WriteFile(tokenPath, []byte(resp.Token), 0600); err != nil {
+	if err := os.WriteFile(tokenPath, []byte(resp.Token), 0o600); err != nil {
 		return fmt.Errorf("writing token: %w", err)
 	}
 

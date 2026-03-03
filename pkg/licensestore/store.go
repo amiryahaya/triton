@@ -68,9 +68,9 @@ type LicenseRecord struct {
 	CreatedAt time.Time  `json:"createdAt"`
 
 	// Populated by joins, not stored directly.
-	OrgName    string `json:"orgName,omitempty"`
-	SeatsUsed  int    `json:"seatsUsed,omitempty"`
-	IsExpired  bool   `json:"isExpired,omitempty"`
+	OrgName   string `json:"orgName,omitempty"`
+	SeatsUsed int    `json:"seatsUsed,omitempty"`
+	IsExpired bool   `json:"isExpired,omitempty"`
 }
 
 // Activation represents a machine activation record.

@@ -67,7 +67,7 @@ func (c *ServerClient) Activate(licenseID string) (*ActivateResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connecting to license server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -111,7 +111,7 @@ func (c *ServerClient) Deactivate(licenseID string) error {
 	if err != nil {
 		return fmt.Errorf("connecting to license server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -137,7 +137,7 @@ func (c *ServerClient) Validate(licenseID, token string) (*ValidateResponse, err
 	if err != nil {
 		return nil, fmt.Errorf("connecting to license server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -157,7 +157,7 @@ func (c *ServerClient) Health() error {
 	if err != nil {
 		return fmt.Errorf("connecting to license server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("license server unhealthy (status %d)", resp.StatusCode)

@@ -33,15 +33,15 @@ import (
 var ErrPolicyFail = errors.New("policy evaluation failed")
 
 var (
-	cfgFile       string
-	outputDir     string
-	outputFile    string
-	scanProfile   string
-	modules       []string
-	format        string
-	showMetrics   bool
-	dbPath        string
-	incremental   bool
+	cfgFile          string
+	outputDir        string
+	outputFile       string
+	scanProfile      string
+	modules          []string
+	format           string
+	showMetrics      bool
+	dbPath           string
+	incremental      bool
 	scanPolicyArg    string
 	licenseKey       string
 	licenseServerURL string

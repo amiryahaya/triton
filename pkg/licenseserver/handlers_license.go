@@ -59,7 +59,8 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	var expiresAt time.Time
-	if req.ExpiresAt != "" {
+	switch {
+	case req.ExpiresAt != "":
 		var err error
 		expiresAt, err = time.Parse(time.RFC3339, req.ExpiresAt)
 		if err != nil {
@@ -70,12 +71,12 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "expiresAt must be in the future")
 			return
 		}
-	} else if req.Days > 0 {
+	case req.Days > 0:
 		expiresAt = now.Add(time.Duration(req.Days) * 24 * time.Hour)
-	} else if req.Days < 0 {
+	case req.Days < 0:
 		writeError(w, http.StatusBadRequest, "days must be positive")
 		return
-	} else {
+	default:
 		expiresAt = now.Add(365 * 24 * time.Hour) // default 1 year
 	}
 

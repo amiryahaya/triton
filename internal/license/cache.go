@@ -21,7 +21,7 @@ type CacheMeta struct {
 
 // GracePeriodDays is the number of days a cached token remains valid
 // when the license server is unreachable.
-const GracePeriodDays = 7
+const GracePeriodDays = 5
 
 // DefaultCacheMetaPath returns ~/.triton/license.meta.
 func DefaultCacheMetaPath() string {
@@ -48,7 +48,7 @@ func LoadCacheMeta(path string) (*CacheMeta, error) {
 // Save writes the cache metadata to disk atomically (write temp + rename).
 func (m *CacheMeta) Save(path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -56,7 +56,7 @@ func (m *CacheMeta) Save(path string) error {
 		return fmt.Errorf("marshalling cache meta: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("writing temp cache meta: %w", err)
 	}
 	return os.Rename(tmp, path)
@@ -64,7 +64,7 @@ func (m *CacheMeta) Save(path string) error {
 
 // IsFresh returns true if the cache was validated within the grace period.
 func (m *CacheMeta) IsFresh() bool {
-	return time.Since(m.LastValidated) < time.Duration(GracePeriodDays) * 24 * time.Hour
+	return time.Since(m.LastValidated) < time.Duration(GracePeriodDays)*24*time.Hour
 }
 
 // RemoveCacheMeta deletes the cache metadata file.

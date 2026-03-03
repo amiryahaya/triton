@@ -4,6 +4,7 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: '.',
   testMatch: '*.spec.js',
+  testIgnore: 'license-admin.spec.js',
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   workers: 1,

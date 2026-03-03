@@ -1,0 +1,44 @@
+name: Deploy License Server
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            # Pull latest image
+            podman pull ghcr.io/amiryahaya/triton-license-server:latest
+
+            # Stop existing container (ignore if not running)
+            podman stop triton-license-server 2>/dev/null || true
+            podman rm triton-license-server 2>/dev/null || true
+
+            # Start with env file
+            # Ensure binaries directory exists
+            mkdir -p /opt/triton/binaries
+
+            podman run -d \
+              --name triton-license-server \
+              --restart always \
+              --network host \
+              --env-file /opt/triton/.env \
+              -v /opt/triton/binaries:/opt/triton/binaries \
+              ghcr.io/amiryahaya/triton-license-server:latest
+
+            # Verify it's running
+            sleep 3
+            podman ps | grep triton-license-server

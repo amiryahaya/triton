@@ -105,6 +105,70 @@ jobs:
             org.opencontainers.image.source=https://github.com/amiryahaya/triton
             org.opencontainers.image.licenses=MIT
 
+  upload-binaries:
+    name: Upload Binaries to License Server
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: ${{ vars.LICENSE_SERVER_URL != '' }}
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "triton_*_*.tar.gz" \
+            --pattern "triton_*_*.zip" \
+            --dir ./release-assets
+
+      - name: Upload binaries to license server
+        env:
+          LICENSE_SERVER_URL: ${{ vars.LICENSE_SERVER_URL }}
+          LICENSE_SERVER_ADMIN_KEY: ${{ secrets.LICENSE_SERVER_ADMIN_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd release-assets
+          for archive in *; do
+            # Extract os and arch from filename: triton_{version}_{os}_{arch}.tar.gz
+            base="${archive%%.tar.gz}"
+            base="${base%%.zip}"
+            os=$(echo "$base" | awk -F_ '{print $(NF-1)}')
+            arch=$(echo "$base" | awk -F_ '{print $NF}')
+
+            # Normalize os names (GoReleaser uses Darwin/Linux/Windows)
+            os=$(echo "$os" | tr '[:upper:]' '[:lower:]')
+
+            # Extract binary
+            tmpdir=$(mktemp -d)
+            if [[ "$archive" == *.zip ]]; then
+              unzip -q "$archive" -d "$tmpdir"
+            else
+              tar xzf "$archive" -C "$tmpdir"
+            fi
+
+            # Find the binary
+            binary=$(find "$tmpdir" -name "triton" -o -name "triton.exe" | head -1)
+            if [ -z "$binary" ]; then
+              echo "No binary found in $archive, skipping"
+              rm -rf "$tmpdir"
+              continue
+            fi
+
+            echo "Uploading $os/$arch from $archive..."
+            curl -sf -X POST "${LICENSE_SERVER_URL}/api/v1/admin/binaries" \
+              -H "X-Triton-Admin-Key: ${LICENSE_SERVER_ADMIN_KEY}" \
+              -F "version=${VERSION}" \
+              -F "os=${os}" \
+              -F "arch=${arch}" \
+              -F "file=@${binary}" || echo "Warning: upload failed for $os/$arch"
+
+            rm -rf "$tmpdir"
+          done
+
   container-licenseserver:
     name: License Server Container Image
     runs-on: ubuntu-latest

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Download Triton</title>
+<link rel="stylesheet" href="download.css">
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Triton</h1>
+    <p class="subtitle">Enterprise SBOM/CBOM Scanner for PQC Compliance</p>
+  </div>
+  <div id="app">
+    <!-- Step 1: License -->
+    <div id="step-license" class="step">
+      <h2>Step 1: Enter your License ID</h2>
+      <p>Your license ID was provided by your organization administrator.</p>
+      <div class="input-group">
+        <input type="text" id="license-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off">
+        <button id="btn-continue" class="btn btn-primary">Continue</button>
+      </div>
+      <div id="license-error" class="error" hidden></div>
+    </div>
+
+    <!-- Step 2: Platform -->
+    <div id="step-platform" class="step" hidden>
+      <h2>Step 2: Choose your platform</h2>
+      <div id="platforms"></div>
+      <p id="no-platforms" hidden>No binaries are available for download at this time.</p>
+    </div>
+
+    <!-- Step 3: Instructions -->
+    <div id="step-instructions" class="step" hidden>
+      <h2>Step 3: Install & Activate</h2>
+      <div id="instructions"></div>
+    </div>
+  </div>
+  <footer>
+    <p>Need help? Contact your organization administrator.</p>
+  </footer>
+</div>
+<script src="download.js"></script>
+</body>
+</html>

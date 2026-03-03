@@ -1,0 +1,178 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f7fa;
+  color: #1a1a2e;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #0d6efd;
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  color: #6c757d;
+  font-size: 1rem;
+}
+
+.step {
+  background: #fff;
+  border-radius: 8px;
+  padding: 28px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.step h2 {
+  font-size: 1.2rem;
+  margin-bottom: 12px;
+  color: #1a1a2e;
+}
+
+.step p {
+  color: #6c757d;
+  margin-bottom: 16px;
+  font-size: 0.95rem;
+}
+
+.input-group {
+  display: flex;
+  gap: 10px;
+}
+
+.input-group input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.input-group input:focus {
+  outline: none;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 3px rgba(13,110,253,0.15);
+}
+
+.btn {
+  display: inline-block;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.btn-primary {
+  background: #0d6efd;
+  color: #fff;
+}
+
+.btn-primary:hover { background: #0b5ed7; }
+
+.btn-download {
+  background: #198754;
+  color: #fff;
+  font-size: 1.1rem;
+  padding: 14px 32px;
+}
+
+.btn-download:hover { background: #157347; }
+
+.btn-secondary {
+  background: #e9ecef;
+  color: #495057;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+}
+
+.btn-secondary:hover { background: #dee2e6; }
+
+.error {
+  color: #dc3545;
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+
+.platform-main {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.platform-main .detected {
+  color: #6c757d;
+  font-size: 0.85rem;
+  margin-bottom: 10px;
+}
+
+.platform-others {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.platform-others span {
+  color: #6c757d;
+  font-size: 0.85rem;
+  align-self: center;
+}
+
+.version-info {
+  text-align: center;
+  color: #6c757d;
+  font-size: 0.85rem;
+  margin-top: 12px;
+}
+
+.instructions-block {
+  margin-bottom: 20px;
+}
+
+.instructions-block h3 {
+  font-size: 1rem;
+  margin-bottom: 8px;
+  color: #495057;
+}
+
+.code-block {
+  background: #1a1a2e;
+  color: #e9ecef;
+  padding: 16px;
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 0.85rem;
+  overflow-x: auto;
+  line-height: 1.8;
+  white-space: pre;
+}
+
+.code-block .comment {
+  color: #6c757d;
+}
+
+footer {
+  text-align: center;
+  color: #adb5bd;
+  font-size: 0.85rem;
+  margin-top: 40px;
+}

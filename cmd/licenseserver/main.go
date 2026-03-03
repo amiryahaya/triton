@@ -29,6 +29,7 @@ func run() error {
 	signingKeyHex := envOr("TRITON_LICENSE_SERVER_SIGNING_KEY", "")
 	tlsCert := envOr("TRITON_LICENSE_SERVER_TLS_CERT", "")
 	tlsKey := envOr("TRITON_LICENSE_SERVER_TLS_KEY", "")
+	binariesDir := envOr("TRITON_LICENSE_SERVER_BINARIES_DIR", "/opt/triton/binaries")
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_DB_URL is required")
@@ -50,6 +51,10 @@ func run() error {
 	privKey := ed25519.PrivateKey(signingKeyBytes)
 	pubKey := privKey.Public().(ed25519.PublicKey)
 
+	if err := os.MkdirAll(binariesDir, 0o755); err != nil {
+		return fmt.Errorf("creating binaries directory: %w", err)
+	}
+
 	adminKeys := strings.Split(adminKey, ",")
 
 	ctx := context.Background()
@@ -57,16 +62,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := &licenseserver.Config{
-		ListenAddr: listen,
-		DBUrl:      dbURL,
-		AdminKeys:  adminKeys,
-		TLSCert:    tlsCert,
-		TLSKey:     tlsKey,
-		SigningKey:  privKey,
-		PublicKey:   pubKey,
+		ListenAddr:  listen,
+		DBUrl:       dbURL,
+		AdminKeys:   adminKeys,
+		TLSCert:     tlsCert,
+		TLSKey:      tlsKey,
+		SigningKey:   privKey,
+		PublicKey:    pubKey,
+		BinariesDir: binariesDir,
 	}
 
 	srv := licenseserver.New(cfg, store)

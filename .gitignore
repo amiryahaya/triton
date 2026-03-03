@@ -27,6 +27,7 @@ bin/
 dist/
 !pkg/server/ui/dist/
 !pkg/licenseserver/ui/dist/
+!pkg/licenseserver/download/dist/
 build/
 
 # Go module cache (if vendoring)

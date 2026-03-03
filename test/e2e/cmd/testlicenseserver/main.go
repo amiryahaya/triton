@@ -51,11 +51,18 @@ func run() error {
 		return fmt.Errorf("keygen: %w", err)
 	}
 
+	binDir, err := os.MkdirTemp("", "triton-e2e-binaries-*")
+	if err != nil {
+		return fmt.Errorf("create temp binaries dir: %w", err)
+	}
+	defer os.RemoveAll(binDir)
+
 	cfg := &licenseserver.Config{
-		ListenAddr: listen,
-		AdminKeys:  []string{"e2e-test-key"},
-		SigningKey:  priv,
-		PublicKey:   pub,
+		ListenAddr:  listen,
+		AdminKeys:   []string{"e2e-test-key"},
+		SigningKey:   priv,
+		PublicKey:    pub,
+		BinariesDir: binDir,
 	}
 	srv := licenseserver.New(cfg, store)
 

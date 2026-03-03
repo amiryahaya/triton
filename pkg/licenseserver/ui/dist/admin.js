@@ -277,6 +277,92 @@
     } catch(e) { if (e.message !== 'Unauthorized') page.innerHTML = '<p>Error loading audit log</p>'; }
   }
 
+  // --- Binaries ---
+
+  async function binariesPage() {
+    page.innerHTML = '<h2>Binaries</h2><p>Loading...</p>';
+    try {
+      const binaries = await api('GET', '/api/v1/admin/binaries');
+      let html = `<h2>Binaries</h2>
+        <div class="actions"><button class="btn btn-primary" id="upload-bin-btn">Upload Binary</button></div>
+        <table><thead><tr><th>Version</th><th>OS</th><th>Arch</th><th>Size</th><th>SHA-256</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>`;
+      for (const b of binaries) {
+        const sizeMB = (b.size / (1024 * 1024)).toFixed(1) + ' MB';
+        html += `<tr>
+          <td>${escapeHtml(b.version)}</td>
+          <td>${escapeHtml(b.os)}</td>
+          <td>${escapeHtml(b.arch)}</td>
+          <td>${sizeMB}</td>
+          <td title="${escapeHtml(b.sha256)}">${escapeHtml(b.sha256.substring(0,12))}...</td>
+          <td>${formatDate(b.uploadedAt)}</td>
+          <td><button class="btn btn-danger btn-sm" data-delete-bin="${b.version}/${b.os}/${b.arch}">Delete</button></td>
+        </tr>`;
+      }
+      if (binaries.length === 0) {
+        html += '<tr><td colspan="7" style="text-align:center;color:#6c757d">No binaries uploaded</td></tr>';
+      }
+      html += '</tbody></table>';
+      page.innerHTML = html;
+      document.getElementById('upload-bin-btn').onclick = showUploadBinaryModal;
+      page.querySelectorAll('[data-delete-bin]').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Delete this binary?')) return;
+          try {
+            await fetch('/api/v1/admin/binaries/' + btn.dataset.deleteBin, {
+              method: 'DELETE',
+              headers: { 'X-Triton-Admin-Key': adminKey }
+            });
+            binariesPage();
+          } catch(e) { alert('Failed: ' + e.message); }
+        };
+      });
+    } catch(e) { if (e.message !== 'Unauthorized') page.innerHTML = '<p>Error loading binaries</p>'; }
+  }
+
+  function showUploadBinaryModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `<div class="modal">
+      <h3>Upload Binary</h3>
+      <div class="form-group"><label>Version</label><input id="bin-version" placeholder="e.g. 1.0.0"></div>
+      <div class="form-group"><label>OS</label><select id="bin-os"><option>linux</option><option>darwin</option><option>windows</option></select></div>
+      <div class="form-group"><label>Architecture</label><select id="bin-arch"><option>amd64</option><option>arm64</option></select></div>
+      <div class="form-group"><label>Binary File</label><input type="file" id="bin-file"></div>
+      <div id="upload-progress" style="display:none;margin:10px 0;color:#0d6efd"></div>
+      <div class="modal-actions">
+        <button class="btn" id="modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-upload">Upload</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#modal-cancel').onclick = () => overlay.remove();
+    overlay.querySelector('#modal-upload').onclick = async () => {
+      const version = document.getElementById('bin-version').value;
+      const os = document.getElementById('bin-os').value;
+      const arch = document.getElementById('bin-arch').value;
+      const fileInput = document.getElementById('bin-file');
+      if (!version || !fileInput.files.length) { alert('Version and file are required'); return; }
+      const progress = document.getElementById('upload-progress');
+      progress.style.display = 'block';
+      progress.textContent = 'Uploading...';
+      try {
+        const fd = new FormData();
+        fd.append('version', version);
+        fd.append('os', os);
+        fd.append('arch', arch);
+        fd.append('file', fileInput.files[0]);
+        const resp = await fetch('/api/v1/admin/binaries', {
+          method: 'POST',
+          headers: { 'X-Triton-Admin-Key': adminKey },
+          body: fd
+        });
+        if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Upload failed'); }
+        overlay.remove();
+        binariesPage();
+      } catch(e) { progress.textContent = 'Error: ' + e.message; progress.style.color = '#dc3545'; }
+    };
+  }
+
   // --- Routing ---
 
   function route() {
@@ -291,6 +377,7 @@
     else if (hash.startsWith('#/licenses/')) licenseDetailPage(hash.split('/')[2]);
     else if (hash === '#/activations') activationsPage();
     else if (hash === '#/audit') auditPage();
+    else if (hash === '#/binaries') binariesPage();
     else page.innerHTML = '<h2>Page Not Found</h2>';
   }
 

@@ -55,13 +55,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create temp binaries dir: %w", err)
 	}
-	defer os.RemoveAll(binDir)
+	defer func() { _ = os.RemoveAll(binDir) }()
 
 	cfg := &licenseserver.Config{
 		ListenAddr:  listen,
 		AdminKeys:   []string{"e2e-test-key"},
-		SigningKey:   priv,
-		PublicKey:    pub,
+		SigningKey:  priv,
+		PublicKey:   pub,
 		BinariesDir: binDir,
 	}
 	srv := licenseserver.New(cfg, store)

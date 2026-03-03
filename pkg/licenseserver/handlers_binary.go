@@ -127,7 +127,7 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Determine binary filename.
 	filename := "triton"
@@ -153,9 +153,9 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 	tmpPath := tmpFile.Name()
 	renamed := false
 	defer func() {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		if !renamed {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
@@ -254,15 +254,15 @@ func (s *Server) handleDeleteBinary(w http.ResponseWriter, r *http.Request) {
 
 	// Delete known files only (no RemoveAll).
 	binaryFilename := filepath.Base(meta.Filename) // sanitize
-	os.Remove(filepath.Join(dir, binaryFilename))
-	os.Remove(metaPath)
-	os.Remove(dir) // succeeds only if empty
+	_ = os.Remove(filepath.Join(dir, binaryFilename))
+	_ = os.Remove(metaPath)
+	_ = os.Remove(dir) // succeeds only if empty
 
 	// Clean up empty version directory.
 	versionDir := filepath.Join(s.config.BinariesDir, version)
 	entries, _ := os.ReadDir(versionDir)
 	if len(entries) == 0 {
-		os.Remove(versionDir)
+		_ = os.Remove(versionDir)
 	}
 
 	s.audit(r, "binary_delete", "", "", "", map[string]any{
@@ -367,7 +367,7 @@ func (s *Server) handleDownloadBinary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "binary file missing")
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -450,8 +450,8 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	tmpPath := tmp.Name()
 	defer func() {
-		tmp.Close()
-		os.Remove(tmpPath) // no-op if rename succeeded
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath) // no-op if rename succeeded
 	}()
 
 	if _, err := tmp.Write(data); err != nil {

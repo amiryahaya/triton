@@ -70,8 +70,8 @@ func run() error {
 		AdminKeys:   adminKeys,
 		TLSCert:     tlsCert,
 		TLSKey:      tlsKey,
-		SigningKey:   privKey,
-		PublicKey:    pubKey,
+		SigningKey:  privKey,
+		PublicKey:   pubKey,
 		BinariesDir: binariesDir,
 	}
 

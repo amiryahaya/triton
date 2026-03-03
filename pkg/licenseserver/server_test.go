@@ -40,8 +40,8 @@ func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStor
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
 		AdminKeys:   []string{"test-admin-key"},
-		SigningKey:   priv,
-		PublicKey:    pub,
+		SigningKey:  priv,
+		PublicKey:   pub,
 		BinariesDir: t.TempDir(),
 	}
 	srv := licenseserver.New(cfg, store)
@@ -635,8 +635,8 @@ func TestAdminAuth_EmptyKeys(t *testing.T) {
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
 		AdminKeys:   []string{},
-		SigningKey:   priv,
-		PublicKey:    pub,
+		SigningKey:  priv,
+		PublicKey:   pub,
 		BinariesDir: t.TempDir(),
 	}
 	srv := licenseserver.New(cfg, store)

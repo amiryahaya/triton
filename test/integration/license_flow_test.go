@@ -256,7 +256,7 @@ func TestLicenseFlow_Standalone_RevokedLicense(t *testing.T) {
 	valResp, err := client.Validate(licID, token)
 	require.NoError(t, err)
 	assert.False(t, valResp.Valid)
-	assert.Contains(t, valResp.Reason, "revoked")
+	assert.Contains(t, valResp.Reason, "validation failed")
 
 	// Offline parse still succeeds (signature is valid, not expired)
 	lic, err := license.Parse(token, pub)

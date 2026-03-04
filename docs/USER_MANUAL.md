@@ -84,6 +84,35 @@ Triton uses 19 scanner modules across 9 CBOM categories — from certificates on
    triton --version
    ```
 
+### Download from License Server
+
+If your organization uses a Triton License Server, you can download the binary directly from it:
+
+1. Open the download page in your browser:
+   ```
+   https://<your-license-server>/download
+   ```
+2. Enter your **License ID** (a UUID provided by your administrator) and click **Continue**.
+3. The page auto-detects your operating system and architecture. Click **Download Triton** for the recommended platform, or choose another platform from the list.
+4. Follow the on-screen installation instructions. The key steps are:
+
+   **macOS / Linux:**
+   ```bash
+   chmod +x triton
+   sudo mv triton /usr/local/bin/triton
+   triton license activate --license-server https://<your-license-server> --license-id <your-license-id>
+   triton --version
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   Move-Item triton.exe C:\Windows\triton.exe
+   triton license activate --license-server https://<your-license-server> --license-id <your-license-id>
+   triton --version
+   ```
+
+The download page validates your license before serving the binary — revoked or expired licenses are rejected.
+
 ### Prerequisites
 
 Building from source requires **Go 1.24 or later**. If you don't have Go installed:

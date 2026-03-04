@@ -15,10 +15,11 @@ This guide covers deploying and managing the Triton License Server — a central
 7. [License Management](#7-license-management)
 8. [Client Activation](#8-client-activation)
 9. [Admin Web UI](#9-admin-web-ui)
-10. [Offline Fallback](#10-offline-fallback)
-11. [API Reference](#11-api-reference)
-12. [Sizing & Capacity Planning](#12-sizing--capacity-planning)
-13. [Troubleshooting](#13-troubleshooting)
+10. [Binary Downloads](#10-binary-downloads)
+11. [Offline Fallback](#11-offline-fallback)
+12. [API Reference](#12-api-reference)
+13. [Sizing & Capacity Planning](#13-sizing--capacity-planning)
+14. [Troubleshooting](#14-troubleshooting)
 
 ---
 
@@ -107,6 +108,7 @@ All configuration is via environment variables:
 | `TRITON_LICENSE_SERVER_SIGNING_KEY` | (required) | Ed25519 private key (hex-encoded) |
 | `TRITON_LICENSE_SERVER_TLS_CERT` | (optional) | TLS certificate file path |
 | `TRITON_LICENSE_SERVER_TLS_KEY` | (optional) | TLS private key file path |
+| `TRITON_LICENSE_SERVER_BINARIES_DIR` | `/opt/triton/binaries` | Directory for uploaded binary files |
 
 ### Database Setup
 
@@ -280,7 +282,142 @@ Chronological log of all actions: org creation, license creation, activations, d
 
 ---
 
-## 10. Offline Fallback
+## 10. Binary Downloads
+
+The license server can host Triton CLI binaries for client self-service download. This eliminates the need to share binaries manually — clients visit a download page, enter their license ID, and get the correct binary for their platform.
+
+### Admin: Uploading Binaries
+
+Upload binaries via the admin API or the admin web UI.
+
+**Via API (curl):**
+
+```bash
+# Upload a Linux amd64 binary
+curl -X POST https://license-server:8081/api/v1/admin/binaries \
+  -H "X-Triton-Admin-Key: your-admin-key" \
+  -F "file=@bin/triton" \
+  -F "version=3.1" \
+  -F "os=linux" \
+  -F "arch=amd64"
+
+# Upload a Windows amd64 binary
+curl -X POST https://license-server:8081/api/v1/admin/binaries \
+  -H "X-Triton-Admin-Key: your-admin-key" \
+  -F "file=@bin/triton.exe" \
+  -F "version=3.1" \
+  -F "os=windows" \
+  -F "arch=amd64"
+```
+
+Parameters:
+- `file` — The binary file (max 50 MB)
+- `version` — Semver version string (e.g. `3.1`, `3.1.0`)
+- `os` — `linux`, `darwin`, or `windows`
+- `arch` — `amd64` or `arm64`
+
+The server computes a SHA-256 checksum and stores the binary at `{BinariesDir}/{version}/{os}-{arch}/triton[.exe]` with a `meta.json` sidecar.
+
+**Via Admin Web UI:**
+
+1. Navigate to `https://license-server:8081/ui/` and go to the **Binaries** tab
+2. Click **Upload Binary** and fill in the version, OS, architecture, and select the file
+3. Click **Upload**
+
+**Automated CI/CD upload:**
+
+If `LICENSE_SERVER_URL` and `LICENSE_SERVER_ADMIN_KEY` are configured in your GitHub repository settings, the release workflow automatically uploads binaries after each tagged release.
+
+### Admin: Managing Binaries
+
+**List all uploaded binaries:**
+
+```bash
+curl https://license-server:8081/api/v1/admin/binaries \
+  -H "X-Triton-Admin-Key: your-admin-key"
+```
+
+**Delete a specific binary:**
+
+```bash
+curl -X DELETE https://license-server:8081/api/v1/admin/binaries/3.1/linux/amd64 \
+  -H "X-Triton-Admin-Key: your-admin-key"
+```
+
+### Client: Downloading Binaries
+
+Clients download binaries through the self-service download page — no admin key required.
+
+**Step 1: Open the download page**
+
+Direct your clients to:
+
+```
+https://license-server:8081/download
+```
+
+**Step 2: Enter license ID**
+
+The client enters their License ID (UUID) and clicks **Continue**. The page fetches the latest available version and platform list from the server.
+
+**Step 3: Select platform and download**
+
+The page auto-detects the client's operating system and architecture. The client clicks the download button for their platform (or selects an alternative).
+
+The download is gated by license validation — revoked or expired licenses are rejected with a clear error message.
+
+**Step 4: Install and activate**
+
+After downloading, the page shows platform-specific instructions with the client's license ID pre-filled:
+
+macOS / Linux:
+```bash
+chmod +x triton
+sudo mv triton /usr/local/bin/triton
+triton license activate --license-server https://license-server:8081 --license-id <license-id>
+triton --version
+triton license show
+```
+
+Windows (PowerShell):
+```powershell
+Move-Item triton.exe C:\Windows\triton.exe
+triton license activate --license-server https://license-server:8081 --license-id <license-id>
+triton --version
+triton license show
+```
+
+### Configuration
+
+The binaries directory is configured via environment variable:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRITON_LICENSE_SERVER_BINARIES_DIR` | `/opt/triton/binaries` | Directory for uploaded binary files |
+
+Ensure the directory exists and is writable by the server process. For container deployments, mount a persistent volume:
+
+```bash
+# Create directory on host
+mkdir -p /opt/triton/binaries
+
+# Docker/Podman: mount as volume
+podman run -v /opt/triton/binaries:/opt/triton/binaries ...
+```
+
+### Download API Reference
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/v1/admin/binaries` | Admin key | Upload binary (multipart form) |
+| GET | `/api/v1/admin/binaries` | Admin key | List all binaries |
+| DELETE | `/api/v1/admin/binaries/{version}/{os}/{arch}` | Admin key | Delete a binary |
+| GET | `/api/v1/license/download/latest-version` | None | Latest version + available platforms |
+| GET | `/api/v1/license/download/{version}/{os}/{arch}?license_id=UUID` | License ID | Download binary (license must be valid) |
+
+---
+
+## 11. Offline Fallback
 
 When the license server is unreachable, the Triton CLI uses cached validation:
 
@@ -294,7 +431,7 @@ Cache metadata is stored at `~/.triton/license.meta` and is updated on every suc
 
 ---
 
-## 11. API Reference
+## 12. API Reference
 
 ### Admin API
 
@@ -315,6 +452,9 @@ All admin endpoints require the `X-Triton-Admin-Key` header.
 | POST | `/api/v1/admin/activations/{id}/deactivate` | Force-deactivate |
 | GET | `/api/v1/admin/audit` | Audit log |
 | GET | `/api/v1/admin/stats` | Dashboard statistics |
+| POST | `/api/v1/admin/binaries` | Upload binary (multipart form) |
+| GET | `/api/v1/admin/binaries` | List uploaded binaries |
+| DELETE | `/api/v1/admin/binaries/{version}/{os}/{arch}` | Delete a binary |
 
 ### Client API
 
@@ -325,11 +465,13 @@ No authentication required (secured by license UUID + machine fingerprint).
 | POST | `/api/v1/license/activate` | Activate machine |
 | POST | `/api/v1/license/deactivate` | Deactivate machine |
 | POST | `/api/v1/license/validate` | Validate token |
+| GET | `/api/v1/license/download/latest-version` | Latest version + platforms |
+| GET | `/api/v1/license/download/{version}/{os}/{arch}?license_id=UUID` | Download binary |
 | GET | `/api/v1/health` | Health check |
 
 ---
 
-## 12. Sizing & Capacity Planning
+## 13. Sizing & Capacity Planning
 
 This section provides resource sizing recommendations based on the license server's architecture and runtime characteristics.
 
@@ -342,6 +484,7 @@ The license server handles lightweight JSON payloads (100-300 bytes per request)
 | `POST /license/validate` | Every CLI run (if online) | 2 queries (license + activation lookup) | Skipped if cache is fresh and server unreachable |
 | `POST /license/activate` | Once per machine setup | Serializable transaction (seat enforcement) | Heaviest operation; rare |
 | `POST /license/deactivate` | Machine teardown | 1 update | Rare |
+| `GET /license/download/...` | Binary download | 1 query (license check) | Large response (~10-50 MB); rare |
 | `GET /admin/*` | Admin browsing | 1-2 queries per page | Negligible compared to client traffic |
 
 ### Built-in Limits
@@ -523,7 +666,7 @@ For production deployments:
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Problem | Cause | Solution |
 |---------|-------|----------|

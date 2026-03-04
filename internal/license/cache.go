@@ -21,7 +21,7 @@ type CacheMeta struct {
 
 // GracePeriodDays is the number of days a cached token remains valid
 // when the license server is unreachable.
-const GracePeriodDays = 5
+const GracePeriodDays = 7
 
 // DefaultCacheMetaPath returns ~/.triton/license.meta.
 func DefaultCacheMetaPath() string {

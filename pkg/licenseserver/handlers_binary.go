@@ -40,7 +40,7 @@ type binaryMeta struct {
 // validPathSegments checks that all path segments are safe (no traversal, not empty).
 func validPathSegments(segments ...string) bool {
 	for _, v := range segments {
-		if v == "" || strings.Contains(v, "..") || strings.ContainsAny(v, "/\\") {
+		if v == "" || v == "." || strings.Contains(v, "..") || strings.ContainsAny(v, "/\\") {
 			return false
 		}
 	}
@@ -59,7 +59,8 @@ func compareSemver(a, b string) int {
 	}
 
 	for i := 0; i < maxLen; i++ {
-		var aStr, bStr string
+		aStr := "0"
+		bStr := "0"
 		if i < len(aParts) {
 			aStr = aParts[i]
 		}
@@ -96,7 +97,11 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBinaryUpload+1<<20) // extra 1MB for form fields
 
 	if err := r.ParseMultipartForm(maxBinaryUpload); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		if strings.Contains(err.Error(), "too large") {
+			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds maximum upload size (50 MB)")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
 
@@ -174,6 +179,13 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	checksum := fmt.Sprintf("%x", h.Sum(nil))
+
+	// Set readable permissions before rename.
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		log.Printf("chmod binary error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
 
 	// Atomic rename binary into place.
 	targetPath := filepath.Join(dir, filename)

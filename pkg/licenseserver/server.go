@@ -26,7 +26,7 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -55,7 +55,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/deactivate", srv.handleDeactivate)
 		r.Post("/validate", srv.handleValidate)
 		r.Get("/download/latest-version", srv.handleLatestVersion)
-		r.Get("/download/{version}/{os}/{arch}", srv.handleDownloadBinary)
+		r.With(middleware.Timeout(300*time.Second)).Get("/download/{version}/{os}/{arch}", srv.handleDownloadBinary)
 	})
 
 	// Admin API (requires admin key — always applies auth middleware).

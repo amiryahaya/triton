@@ -295,7 +295,7 @@
           <td>${sizeMB}</td>
           <td title="${escapeHtml(b.sha256)}">${escapeHtml(b.sha256.substring(0,12))}...</td>
           <td>${formatDate(b.uploadedAt)}</td>
-          <td><button class="btn btn-danger btn-sm" data-delete-bin="${b.version}/${b.os}/${b.arch}">Delete</button></td>
+          <td><button class="btn btn-danger btn-sm" data-delete-bin="${escapeHtml(b.version)}/${escapeHtml(b.os)}/${escapeHtml(b.arch)}">Delete</button></td>
         </tr>`;
       }
       if (binaries.length === 0) {
@@ -308,10 +308,15 @@
         btn.onclick = async () => {
           if (!confirm('Delete this binary?')) return;
           try {
-            await fetch('/api/v1/admin/binaries/' + btn.dataset.deleteBin, {
+            const resp = await fetch('/api/v1/admin/binaries/' + btn.dataset.deleteBin, {
               method: 'DELETE',
               headers: { 'X-Triton-Admin-Key': adminKey }
             });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert('Delete failed: ' + (err.error || 'Unknown error'));
+              return;
+            }
             binariesPage();
           } catch(e) { alert('Failed: ' + e.message); }
         };

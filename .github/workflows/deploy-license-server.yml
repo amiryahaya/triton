@@ -34,7 +34,7 @@ jobs:
             podman run -d \
               --name triton-license-server \
               --restart always \
-              --network host \
+              -p 127.0.0.1:8081:8081 \
               --env-file /opt/triton/.env \
               -v /opt/triton/binaries:/opt/triton/binaries \
               ghcr.io/amiryahaya/triton-license-server:latest

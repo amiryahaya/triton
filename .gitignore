@@ -187,3 +187,8 @@ vigilantscan_logo_bright.png
 test/e2e/node_modules/
 test/e2e/test-results/
 test/e2e/playwright-report/
+
+# Compiled test binaries (root-level only)
+/testserver
+/testlicenseserver
+/licenseserver

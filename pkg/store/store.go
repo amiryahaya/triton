@@ -7,9 +7,8 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
-// Store defines the persistence interface for scan results and file hash caches.
-// Implementations must be safe for concurrent use.
-type Store interface {
+// ScanStore is the persistence interface for scan results.
+type ScanStore interface {
 	// SaveScan persists a complete scan result.
 	SaveScan(ctx context.Context, result *model.ScanResult) error
 
@@ -21,7 +20,10 @@ type Store interface {
 
 	// DeleteScan removes a scan result by ID.
 	DeleteScan(ctx context.Context, id string) error
+}
 
+// HashStore is the file-hash caching interface for incremental scanning.
+type HashStore interface {
 	// GetFileHash retrieves the stored hash and scan time for a file path.
 	GetFileHash(ctx context.Context, path string) (hash string, scannedAt time.Time, err error)
 
@@ -30,6 +32,16 @@ type Store interface {
 
 	// PruneStaleHashes removes file hash entries older than the given time.
 	PruneStaleHashes(ctx context.Context, before time.Time) error
+
+	// FileHashStats returns summary statistics about the file hash cache.
+	FileHashStats(ctx context.Context) (count int, oldest, newest time.Time, err error)
+}
+
+// Store composes all storage interfaces.
+// Implementations must be safe for concurrent use.
+type Store interface {
+	ScanStore
+	HashStore
 
 	// Close releases any resources held by the store.
 	Close() error

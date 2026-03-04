@@ -102,6 +102,7 @@ func (m *ContainerModule) Scan(ctx context.Context, target model.ScanTarget, fin
 	var scanned, matched int64
 
 	wc := walkerConfig{
+		ctx:          ctx,
 		target:       target,
 		config:       m.config,
 		filesScanned: &scanned,

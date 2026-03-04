@@ -26,6 +26,14 @@ const (
 	TargetLDAP
 )
 
+// PQC readiness status constants.
+const (
+	PQCStatusSafe         = "SAFE"
+	PQCStatusTransitional = "TRANSITIONAL"
+	PQCStatusDeprecated   = "DEPRECATED"
+	PQCStatusUnsafe       = "UNSAFE"
+)
+
 // PolicyViolation holds a single policy rule violation for report rendering.
 type PolicyViolation struct {
 	RuleID   string `json:"ruleID"`
@@ -270,13 +278,13 @@ func ComputeSummary(findings []Finding) Summary {
 		s.TotalCryptoAssets++
 
 		switch findings[i].CryptoAsset.PQCStatus {
-		case "SAFE":
+		case PQCStatusSafe:
 			s.Safe++
-		case "TRANSITIONAL":
+		case PQCStatusTransitional:
 			s.Transitional++
-		case "DEPRECATED":
+		case PQCStatusDeprecated:
 			s.Deprecated++
-		case "UNSAFE":
+		case PQCStatusUnsafe:
 			s.Unsafe++
 		}
 	}

@@ -2,9 +2,6 @@ package scanner
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -143,21 +140,7 @@ func (m *LDAPModule) searchCerts(ctx context.Context, conn ldapConn, lt ldapTarg
 				continue
 			}
 
-			keySize := 0
-			algoName := ""
-			switch pub := cert.PublicKey.(type) {
-			case *rsa.PublicKey:
-				keySize = pub.N.BitLen()
-				algoName = fmt.Sprintf("RSA-%d", keySize)
-			case *ecdsa.PublicKey:
-				keySize = pub.Curve.Params().BitSize
-				algoName = fmt.Sprintf("ECDSA-P%d", keySize)
-			case ed25519.PublicKey:
-				keySize = 256
-				algoName = "Ed25519"
-			default:
-				algoName = cert.PublicKeyAlgorithm.String()
-			}
+			algoName, keySize := certPublicKeyInfo(cert)
 
 			notBefore := cert.NotBefore
 			notAfter := cert.NotAfter

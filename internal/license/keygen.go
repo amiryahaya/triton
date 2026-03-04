@@ -20,13 +20,14 @@ func IssueToken(privKey ed25519.PrivateKey, tier Tier, org string, seats, days i
 
 // IssueTokenWithOptions creates a licence token with optional machine binding.
 func IssueTokenWithOptions(privKey ed25519.PrivateKey, tier Tier, org string, seats, days int, bind bool) (string, error) {
+	now := time.Now()
 	lic := &License{
 		ID:        uuid.New().String(),
 		Tier:      tier,
 		Org:       org,
 		Seats:     seats,
-		IssuedAt:  time.Now().Unix(),
-		ExpiresAt: time.Now().Add(time.Duration(days) * 24 * time.Hour).Unix(),
+		IssuedAt:  now.Unix(),
+		ExpiresAt: now.Add(time.Duration(days) * 24 * time.Hour).Unix(),
 	}
 	if bind {
 		lic.MachineID = MachineFingerprint()

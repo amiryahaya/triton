@@ -89,21 +89,26 @@ func run() error {
 
 	srv := licenseserver.New(cfg, store)
 
-	// Graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
+	errCh := make(chan error, 1)
 	go func() {
-		<-sigCh
+		errCh <- srv.Start()
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
 		log.Println("shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("shutdown error: %v", err)
 		}
-	}()
-
-	return srv.Start()
+		return nil
+	}
 }
 
 func envOr(key, fallback string) string {

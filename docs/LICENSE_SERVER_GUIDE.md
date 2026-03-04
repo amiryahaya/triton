@@ -35,7 +35,7 @@ The License Server provides centralized license management for Triton deployment
 
 ```
 ┌──────────────┐     activate/validate     ┌───────────────────┐
-│  Triton CLI  │ ◄──────────────────────► │  License Server   │
+│  Triton CLI  │ ◄──────────────────────►  │  License Server   │
 │  (client)    │     POST /api/v1/license  │  (separate binary)│
 │              │                           │                   │
 │  guard.go    │     offline fallback      │  Chi router       │

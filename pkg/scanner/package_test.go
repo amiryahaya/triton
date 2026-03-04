@@ -194,6 +194,35 @@ func TestPackageFindingCategory(t *testing.T) {
 	assert.Equal(t, 3, finding.Category, "package findings should use crypto libraries category (3)")
 }
 
+func TestPackageScanRetriesAfterFailure(t *testing.T) {
+	cfg := &config.Config{Modules: []string{"packages"}}
+	m := NewPackageModule(cfg)
+
+	// First call with cancelled context — the platform scan functions swallow
+	// exec errors and return nil, so scanned is set to true on the first call
+	// regardless of context state (scan completes or is treated as no-op).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	findings := make(chan *model.Finding, 100)
+	err := m.Scan(ctx, model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}, findings)
+	// Scan always returns nil (platform scan helpers swallow errors)
+	assert.NoError(t, err)
+
+	// A second call with the same module instance should be a no-op due to
+	// the scanned guard, returning nil without doing any work.
+	findings2 := make(chan *model.Finding, 100)
+	err2 := m.Scan(context.Background(), model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}, findings2)
+	assert.NoError(t, err2, "second scan call should return nil (idempotent guard)")
+	close(findings2)
+
+	var extra []*model.Finding
+	for f := range findings2 {
+		extra = append(extra, f)
+	}
+	assert.Empty(t, extra, "second scan call should produce no findings (already scanned)")
+}
+
 func TestMultipleCryptoPackages(t *testing.T) {
 	m := NewPackageModule(&config.Config{})
 

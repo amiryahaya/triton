@@ -160,9 +160,9 @@ var sshAlgorithmMap = map[string]string{
 	"diffie-hellman-group14-sha1":          "DH",
 	"diffie-hellman-group-exchange-sha256": "DH",
 	"ssh-ed25519":                          "Ed25519",
-	"ssh-rsa":                              "RSA-2048", // Key size unknown; assumes common default
-	"rsa-sha2-512":                         "RSA-4096", // Key size unknown; assumes strong config
-	"rsa-sha2-256":                         "RSA-2048", // Key size unknown; assumes common default
+	"ssh-rsa":                              "RSA", // Signature algorithm; actual key size unknown
+	"rsa-sha2-512":                         "RSA", // SHA-512 signature; actual key size unknown
+	"rsa-sha2-256":                         "RSA", // SHA-256 signature; actual key size unknown
 	"ecdsa-sha2-nistp256":                  "ECDSA-P256",
 	"ecdsa-sha2-nistp384":                  "ECDSA-P384",
 	"ecdsa-sha2-nistp521":                  "ECDSA-P521",

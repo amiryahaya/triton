@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/amiryahaya/triton/pkg/report"
 )
 
 // Verdict is the overall policy evaluation outcome.
@@ -105,7 +104,7 @@ func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
 	evaluateThresholds(pol, result, eval)
 
 	// Per-system evaluation
-	systems := report.GroupFindingsIntoSystems(result.Findings)
+	systems := model.GroupFindingsIntoSystems(result.Findings)
 	for i := range systems {
 		sysEval := EvaluateSystem(pol, &systems[i])
 		eval.SystemEvaluations = append(eval.SystemEvaluations, sysEval)

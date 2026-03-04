@@ -26,15 +26,21 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
+// testDBURL returns the PostgreSQL connection URL for integration tests.
+// It checks TRITON_TEST_DB_URL first, falling back to the default local URL.
+func testDBURL() string {
+	if u := os.Getenv("TRITON_TEST_DB_URL"); u != "" {
+		return u
+	}
+	return "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+}
+
 // requireDB creates a PostgresStore for integration testing.
 // Connects to test PostgreSQL, truncates all data, registers cleanup.
 // Skips the test if the database is unavailable.
 func requireDB(t *testing.T) *store.PostgresStore {
 	t.Helper()
-	dbURL := os.Getenv("TRITON_TEST_DB_URL")
-	if dbURL == "" {
-		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
-	}
+	dbURL := testDBURL()
 	ctx := context.Background()
 	s, err := store.NewPostgresStore(ctx, dbURL)
 	if err != nil {
@@ -112,17 +118,21 @@ func scanFixtures(t *testing.T, profile string, mods []string) *model.ScanResult
 	eng.RegisterDefaultModules()
 
 	progressCh := make(chan scanner.Progress, 500)
+	go func() {
+		for range progressCh {
+		}
+	}()
 	result := eng.Scan(context.Background(), progressCh)
-	// Drain any remaining progress messages
-	for range progressCh {
-	}
 	require.NotNil(t, result)
 	return result
 }
 
 // fixturesDir returns the absolute path to test/fixtures/ relative to this file.
 func fixturesDir() string {
-	_, filename, _, _ := runtime.Caller(0)
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("runtime.Caller failed: cannot determine fixtures directory")
+	}
 	return filepath.Join(filepath.Dir(filename), "..", "fixtures")
 }
 

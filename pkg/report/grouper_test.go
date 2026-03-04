@@ -221,7 +221,7 @@ func TestDeriveAppFromPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := deriveAppFromPath(tt.path)
+			result := model.DeriveAppFromPath(tt.path)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

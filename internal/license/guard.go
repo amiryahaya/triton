@@ -212,14 +212,12 @@ func NewGuardWithServer(flagKey, serverURL, lid string) *Guard {
 			}
 			_ = meta.Save(DefaultCacheMetaPath())
 
-			// Parse token for full Guard (signature already verified by server)
+			// Parse token for full Guard (signature already verified by server).
+			// Trust the server tier directly — the token signature is valid.
 			g := NewGuardFromToken(token, pubKey)
-			if g.tier == TierFree && resp.Tier != "" && g.license != nil {
-				// Server says a higher tier and local validation succeeded —
-				// trust it only if it's a known tier
-				switch Tier(resp.Tier) {
-				case TierFree, TierPro, TierEnterprise:
-					g.tier = Tier(resp.Tier)
+			if g.license != nil && resp.Tier != "" {
+				if t := Tier(resp.Tier); t == TierFree || t == TierPro || t == TierEnterprise {
+					g.tier = t
 				}
 			}
 			return g
@@ -234,10 +232,9 @@ func NewGuardWithServer(flagKey, serverURL, lid string) *Guard {
 	if meta, err := LoadCacheMeta(DefaultCacheMetaPath()); err == nil && meta.IsFresh() {
 		log.Printf("warning: using cached licence tier %s (last validated %s)", meta.Tier, meta.LastValidated.Format("2006-01-02"))
 		g := NewGuardFromToken(token, pubKey)
-		if g.tier == TierFree && meta.Tier != "" && g.license != nil {
-			switch Tier(meta.Tier) {
-			case TierFree, TierPro, TierEnterprise:
-				g.tier = Tier(meta.Tier)
+		if g.license != nil && meta.Tier != "" {
+			if t := Tier(meta.Tier); t == TierFree || t == TierPro || t == TierEnterprise {
+				g.tier = t
 			}
 		}
 		return g

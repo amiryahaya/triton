@@ -3,9 +3,6 @@ package scanner
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -24,6 +21,17 @@ import (
 )
 
 const defaultProbeTimeout = 5 * time.Second
+
+// newDialer creates a net.Dialer with a timeout, respecting the context deadline.
+func newDialer(ctx context.Context) *net.Dialer {
+	timeout := defaultProbeTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			timeout = remaining
+		}
+	}
+	return &net.Dialer{Timeout: timeout}
+}
 
 // revocationHTTPTimeout is the max time for OCSP/CRL HTTP requests.
 const revocationHTTPTimeout = 5 * time.Second
@@ -92,15 +100,7 @@ func (m *ProtocolModule) emitFinding(ctx context.Context, addr string, asset *mo
 
 // probeTLS performs a TLS handshake and extracts cipher suite and certificate info.
 func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings chan<- *model.Finding) error {
-	dialer := &net.Dialer{Timeout: defaultProbeTimeout}
-
-	// Use context deadline if shorter than default
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining < defaultProbeTimeout {
-			dialer.Timeout = remaining
-		}
-	}
+	dialer := newDialer(ctx)
 
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 		InsecureSkipVerify: true,                     // We're probing, not validating trust
@@ -148,21 +148,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	// Extract certificate info from peer certificates with chain position labels
 	chainLen := len(state.PeerCertificates)
 	for i, cert := range state.PeerCertificates {
-		keySize := 0
-		algoName := ""
-		switch pub := cert.PublicKey.(type) {
-		case *rsa.PublicKey:
-			keySize = pub.N.BitLen()
-			algoName = fmt.Sprintf("RSA-%d", keySize)
-		case *ecdsa.PublicKey:
-			keySize = pub.Curve.Params().BitSize
-			algoName = fmt.Sprintf("ECDSA-P%d", keySize)
-		case ed25519.PublicKey:
-			keySize = 256
-			algoName = "Ed25519"
-		default:
-			algoName = cert.PublicKeyAlgorithm.String()
-		}
+		algoName, keySize := certPublicKeyInfo(cert)
 
 		position, function := chainPosition(i, chainLen, cert)
 
@@ -284,15 +270,7 @@ func (m *ProtocolModule) validateCertChain(ctx context.Context, addr string, sta
 		DNSName:       host,
 	})
 	if verifyErr != nil {
-		algoName := leaf.PublicKeyAlgorithm.String()
-		switch pub := leaf.PublicKey.(type) {
-		case *rsa.PublicKey:
-			algoName = fmt.Sprintf("RSA-%d", pub.N.BitLen())
-		case *ecdsa.PublicKey:
-			algoName = fmt.Sprintf("ECDSA-P%d", pub.Curve.Params().BitSize)
-		case ed25519.PublicKey:
-			algoName = "Ed25519"
-		}
+		algoName, _ := certPublicKeyInfo(leaf)
 
 		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
 			ID:        uuid.New().String(),
@@ -330,13 +308,7 @@ func (m *ProtocolModule) probeVersionRange(ctx context.Context, addr string, fin
 		default:
 		}
 
-		dialer := &net.Dialer{Timeout: defaultProbeTimeout}
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			if remaining < defaultProbeTimeout {
-				dialer.Timeout = remaining
-			}
-		}
+		dialer := newDialer(ctx)
 
 		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 			InsecureSkipVerify: true,
@@ -376,13 +348,7 @@ func (m *ProtocolModule) enumerateSupportedCiphers(ctx context.Context, addr str
 		default:
 		}
 
-		dialer := &net.Dialer{Timeout: defaultProbeTimeout}
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			if remaining < defaultProbeTimeout {
-				dialer.Timeout = remaining
-			}
-		}
+		dialer := newDialer(ctx)
 
 		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 			InsecureSkipVerify: true,
@@ -444,13 +410,7 @@ func (m *ProtocolModule) probeCipherPreference(ctx context.Context, addr string,
 		default:
 		}
 
-		dialer := &net.Dialer{Timeout: defaultProbeTimeout}
-		if deadline, ok := ctx.Deadline(); ok {
-			rem := time.Until(deadline)
-			if rem < defaultProbeTimeout {
-				dialer.Timeout = rem
-			}
-		}
+		dialer := newDialer(ctx)
 
 		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 			InsecureSkipVerify: true,
@@ -573,13 +533,7 @@ func (m *ProtocolModule) detectSessionResumption(ctx context.Context, addr strin
 	default:
 	}
 
-	dialer := &net.Dialer{Timeout: defaultProbeTimeout}
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining < defaultProbeTimeout {
-			dialer.Timeout = remaining
-		}
-	}
+	dialer := newDialer(ctx)
 
 	cache := tls.NewLRUClientSessionCache(1)
 
@@ -765,17 +719,10 @@ func (m *ProtocolModule) checkCRL(ctx context.Context, cert *x509.Certificate) s
 }
 
 // certAlgoName extracts the algorithm name from a certificate's public key.
+// It delegates to the shared certPublicKeyInfo helper.
 func certAlgoName(cert *x509.Certificate) string {
-	switch pub := cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		return fmt.Sprintf("RSA-%d", pub.N.BitLen())
-	case *ecdsa.PublicKey:
-		return fmt.Sprintf("ECDSA-P%d", pub.Curve.Params().BitSize)
-	case ed25519.PublicKey:
-		return "Ed25519"
-	default:
-		return cert.PublicKeyAlgorithm.String()
-	}
+	name, _ := certPublicKeyInfo(cert)
+	return name
 }
 
 // cipherSuiteAlgorithm extracts the primary symmetric algorithm from a TLS cipher suite.

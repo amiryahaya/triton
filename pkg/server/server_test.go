@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -964,4 +965,94 @@ func TestStartAndShutdown(t *testing.T) {
 	// Start should return http.ErrServerClosed
 	startErr := <-errCh
 	assert.ErrorIs(t, startErr, http.ErrServerClosed)
+}
+
+// --- ListScans validation ---
+
+func TestListScans_InvalidLimit(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Negative limit should return 400.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans?limit=-1", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Zero limit should return 400.
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest("GET", "/api/v1/scans?limit=0", nil)
+	srv.Router().ServeHTTP(w2, r2)
+	assert.Equal(t, http.StatusBadRequest, w2.Code)
+}
+
+func TestListScans_InvalidTimestamp(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Invalid after timestamp.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans?after=not-a-date", nil)
+	srv.Router().ServeHTTP(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Invalid before timestamp.
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest("GET", "/api/v1/scans?before=invalid", nil)
+	srv.Router().ServeHTTP(w2, r2)
+	assert.Equal(t, http.StatusBadRequest, w2.Code)
+}
+
+// --- Security headers ---
+
+func TestSecurityHeaders(t *testing.T) {
+	srv, _ := testServer(t)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/health", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
+	assert.NotEmpty(t, w.Header().Get("Content-Security-Policy"))
+	assert.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
+	assert.NotEmpty(t, w.Header().Get("Permissions-Policy"))
+}
+
+// --- latestByHostname unit test ---
+
+func TestLatestByHostname(t *testing.T) {
+	// Empty input.
+	assert.Empty(t, latestByHostname(nil))
+	assert.Empty(t, latestByHostname([]store.ScanSummary{}))
+
+	// Single entry.
+	single := []store.ScanSummary{{Hostname: "host1", ID: "a"}}
+	result := latestByHostname(single)
+	assert.Len(t, result, 1)
+	assert.Equal(t, "a", result[0].ID)
+
+	// Multiple scans same host — keep first (latest since ListScans is DESC).
+	multi := []store.ScanSummary{
+		{Hostname: "host1", ID: "a"},
+		{Hostname: "host1", ID: "b"},
+		{Hostname: "host2", ID: "c"},
+	}
+	result = latestByHostname(multi)
+	assert.Len(t, result, 2)
+	// First entry for host1 should be "a" (the newest).
+	ids := map[string]string{}
+	for _, r := range result {
+		ids[r.Hostname] = r.ID
+	}
+	assert.Equal(t, "a", ids["host1"])
+	assert.Equal(t, "c", ids["host2"])
+}
+
+// --- writeJSON error path ---
+
+func TestWriteJSON_MarshalError(t *testing.T) {
+	w := httptest.NewRecorder()
+	// math.NaN() causes json.Marshal to fail.
+	writeJSON(w, http.StatusOK, map[string]float64{"val": math.NaN()})
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

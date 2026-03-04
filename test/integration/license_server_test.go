@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -28,10 +27,7 @@ import (
 // requireLicenseStore creates a PostgresStore for the license server.
 func requireLicenseStore(t *testing.T) *licensestore.PostgresStore {
 	t.Helper()
-	dbURL := os.Getenv("TRITON_TEST_DB_URL")
-	if dbURL == "" {
-		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
-	}
+	dbURL := testDBURL()
 	ctx := context.Background()
 	s, err := licensestore.NewPostgresStore(ctx, dbURL)
 	if err != nil {
@@ -48,45 +44,13 @@ func requireLicenseStore(t *testing.T) *licensestore.PostgresStore {
 // requireLicenseServer creates a real TCP httptest.Server backed by PostgreSQL.
 func requireLicenseServer(t *testing.T) (string, *licensestore.PostgresStore, ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
-	store := requireLicenseStore(t)
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	cfg := &licenseserver.Config{
-		ListenAddr: ":0",
-		AdminKeys:  []string{"integration-test-key"},
-		SigningKey:  priv,
-		PublicKey:   pub,
-	}
-	srv := licenseserver.New(cfg, store)
-	ts := httptest.NewServer(srv.Router())
-	t.Cleanup(ts.Close)
-	return ts.URL, store, pub, priv
+	return requireLicenseServerWithKeys(t, []string{"integration-test-key"})
 }
 
-// licAdminReq makes an admin request to the license server.
+// licAdminReq makes an admin request to the license server using the default integration-test-key.
 func licAdminReq(t *testing.T, method, url string, body any) *http.Response {
 	t.Helper()
-	var bodyReader *bytes.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		require.NoError(t, err)
-		bodyReader = bytes.NewReader(b)
-	}
-	var req *http.Request
-	var err error
-	if bodyReader != nil {
-		req, err = http.NewRequest(method, url, bodyReader)
-	} else {
-		req, err = http.NewRequest(method, url, nil)
-	}
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", "integration-test-key")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	return resp
+	return licAdminReqWithKey(t, method, url, "integration-test-key", body)
 }
 
 // createTestOrgAndLicense creates an org and license via the admin API.
@@ -247,7 +211,7 @@ func TestLicenseServer_AdminCRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org map[string]any
-	json.NewDecoder(resp.Body).Decode(&org)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
 	resp.Body.Close()
 	orgID := org["id"].(string)
 
@@ -262,7 +226,7 @@ func TestLicenseServer_AdminCRUD(t *testing.T) {
 	resp = licAdminReq(t, "GET", serverURL+"/api/v1/admin/orgs", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var orgs []map[string]any
-	json.NewDecoder(resp.Body).Decode(&orgs)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgs))
 	resp.Body.Close()
 	assert.Len(t, orgs, 1)
 	assert.Equal(t, "CRUD-Org-Updated", orgs[0]["name"])
@@ -278,7 +242,7 @@ func TestLicenseServer_AdminCRUD(t *testing.T) {
 	resp = licAdminReq(t, "GET", serverURL+"/api/v1/admin/licenses?org="+orgID, nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var lics []map[string]any
-	json.NewDecoder(resp.Body).Decode(&lics)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&lics))
 	resp.Body.Close()
 	assert.Len(t, lics, 1)
 }
@@ -294,7 +258,7 @@ func TestLicenseServer_AuditTrail(t *testing.T) {
 	resp := licAdminReq(t, "GET", serverURL+"/api/v1/admin/audit?limit=20", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var entries []map[string]any
-	json.NewDecoder(resp.Body).Decode(&entries)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&entries))
 	resp.Body.Close()
 
 	events := make(map[string]bool)
@@ -318,7 +282,7 @@ func TestLicenseServer_GuardOnlineValidation(t *testing.T) {
 		"hostname":  "test-host",
 	})
 	var actResult map[string]any
-	json.NewDecoder(resp.Body).Decode(&actResult)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&actResult))
 	resp.Body.Close()
 	token := actResult["token"].(string)
 
@@ -387,7 +351,7 @@ func TestLicenseServer_ExpiredLicense(t *testing.T) {
 		"name": "ExpiredOrg",
 	})
 	var org map[string]any
-	json.NewDecoder(resp.Body).Decode(&org)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
 	resp.Body.Close()
 
 	now := time.Now().UTC()

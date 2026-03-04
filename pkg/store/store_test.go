@@ -13,6 +13,11 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
+// Compile-time interface satisfaction assertions.
+var _ Store = (*PostgresStore)(nil)
+var _ ScanStore = (*PostgresStore)(nil)
+var _ HashStore = (*PostgresStore)(nil)
+
 // testStore creates a PostgresStore for testing.
 // Requires PostgreSQL running (e.g., podman compose up -d).
 func testStore(t *testing.T) *PostgresStore {

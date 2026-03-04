@@ -96,7 +96,7 @@ func runAgentScan(ctx context.Context, client *agent.Client) error {
 		}
 	}
 
-	progressCh := make(chan scanner.Progress, 16)
+	progressCh := make(chan scanner.Progress, progressBufferSize)
 
 	go eng.Scan(ctx, progressCh)
 

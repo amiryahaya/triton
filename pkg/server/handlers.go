@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/diff"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
@@ -25,10 +27,20 @@ import (
 // maxRequestBody is the maximum allowed request body size (10 MB).
 const maxRequestBody = 10 << 20
 
+// maxListLimit is the maximum number of scans that can be requested in a single list call.
+const maxListLimit = 500
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("writeJSON marshal error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte("\n"))
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -66,19 +78,31 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			if n > maxListLimit {
+				n = maxListLimit
+			}
 			filter.Limit = n
+		} else if err == nil {
+			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
 		}
 	}
 	if v := r.URL.Query().Get("after"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			filter.After = &t
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid 'after' timestamp: use RFC3339 format")
+			return
 		}
+		filter.After = &t
 	}
 	if v := r.URL.Query().Get("before"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			filter.Before = &t
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid 'before' timestamp: use RFC3339 format")
+			return
 		}
+		filter.Before = &t
 	}
 
 	summaries, err := s.store.ListScans(r.Context(), filter)
@@ -211,10 +235,16 @@ func (s *Server) handleTrend(w http.ResponseWriter, r *http.Request) {
 	// Load full results in chronological order.
 	scans := make([]*model.ScanResult, 0, len(summaries))
 	for i := len(summaries) - 1; i >= 0; i-- {
-		scan, err := s.store.GetScan(r.Context(), summaries[i].ID)
-		if err == nil {
-			scans = append(scans, scan)
+		if r.Context().Err() != nil {
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
 		}
+		scan, err := s.store.GetScan(r.Context(), summaries[i].ID)
+		if err != nil {
+			log.Printf("trend: skipping scan %s: %v", summaries[i].ID, err)
+			continue
+		}
+		scans = append(scans, scan)
 	}
 
 	trend := diff.ComputeTrend(scans)
@@ -230,20 +260,8 @@ func (s *Server) handleListMachines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Deduplicate by hostname, keeping latest scan.
-	machines := make(map[string]store.ScanSummary)
-	for _, ss := range summaries {
-		if _, exists := machines[ss.Hostname]; !exists {
-			machines[ss.Hostname] = ss
-		}
-	}
-
-	list := make([]store.ScanSummary, 0, len(machines))
-	for _, m := range machines {
-		list = append(list, m)
-	}
-
-	writeJSON(w, http.StatusOK, list)
+	machines := latestByHostname(summaries)
+	writeJSON(w, http.StatusOK, machines)
 }
 
 // GET /api/v1/machines/{hostname}
@@ -351,30 +369,35 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 
 	// Group findings into systems.
 	if len(result.Systems) == 0 && len(result.Findings) > 0 {
-		result.Systems = report.GroupFindingsIntoSystems(result.Findings)
+		result.Systems = model.GroupFindingsIntoSystemsWithAgility(result.Findings, crypto.AssessAssetAgility)
 	}
 
-	// Use a fixed temp directory to prevent path traversal
-	dir := os.TempDir()
-	gen := report.New(dir)
-	ts := time.Now().Format("20060102-150405")
-
-	var filename string
+	// Validate format before doing any work.
+	var ext string
 	switch format {
 	case "sarif":
-		filename = fmt.Sprintf("triton-report-%s.sarif", ts)
+		ext = ".sarif"
 	case "html":
-		filename = fmt.Sprintf("triton-report-%s.html", ts)
+		ext = ".html"
 	case "json":
-		filename = fmt.Sprintf("triton-report-%s.json", ts)
+		ext = ".json"
 	case "cyclonedx":
-		filename = fmt.Sprintf("triton-report-%s.cdx.json", ts)
+		ext = ".cdx.json"
 	default:
 		writeError(w, http.StatusBadRequest, "unsupported format: "+format)
 		return
 	}
 
-	fullPath := filepath.Join(dir, filename)
+	// Use os.CreateTemp for unique filenames to avoid concurrent overwrite.
+	tmpFile, tmpErr := os.CreateTemp("", "triton-report-*"+ext)
+	if tmpErr != nil {
+		log.Printf("create temp file error: %v", tmpErr)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	fullPath := tmpFile.Name()
+	_ = tmpFile.Close() // report generator opens the file itself
+	gen := report.New(filepath.Dir(fullPath))
 
 	switch format {
 	case "sarif":
@@ -393,15 +416,17 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, readErr := os.ReadFile(fullPath)
-	if readErr != nil {
-		log.Printf("read report error: %v", readErr)
+	defer func() { _ = os.Remove(fullPath) }() // clean up temp file
+
+	f, openErr := os.Open(fullPath)
+	if openErr != nil {
+		log.Printf("read report error: %v", openErr)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	defer func() { _ = os.Remove(fullPath) }() // clean up temp file
+	defer func() { _ = f.Close() }()
 
-	// Set content type based on format
+	filename := filepath.Base(fullPath)
 	switch format {
 	case "html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -410,7 +435,7 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = io.Copy(w, f)
 }
 
 // GET /api/v1/aggregate
@@ -422,18 +447,10 @@ func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get latest scan per hostname.
-	latest := make(map[string]store.ScanSummary)
-	for _, ss := range summaries {
-		if _, exists := latest[ss.Hostname]; !exists {
-			latest[ss.Hostname] = ss
-		}
-	}
+	machines := latestByHostname(summaries)
 
 	totalSafe, totalTrans, totalDepr, totalUnsafe, totalFindings := 0, 0, 0, 0, 0
-	machines := make([]store.ScanSummary, 0, len(latest))
-	for _, ss := range latest {
-		machines = append(machines, ss)
+	for _, ss := range machines {
 		totalSafe += ss.Safe
 		totalTrans += ss.Transitional
 		totalDepr += ss.Deprecated
@@ -457,6 +474,20 @@ func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/health
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// latestByHostname deduplicates scan summaries by hostname, keeping the latest.
+// Summaries must be pre-sorted newest-first (as ListScans guarantees).
+func latestByHostname(summaries []store.ScanSummary) []store.ScanSummary {
+	seen := make(map[string]struct{}, len(summaries))
+	out := make([]store.ScanSummary, 0, len(summaries))
+	for _, ss := range summaries {
+		if _, exists := seen[ss.Hostname]; !exists {
+			seen[ss.Hostname] = struct{}{}
+			out = append(out, ss)
+		}
+	}
+	return out
 }
 
 // Helper functions

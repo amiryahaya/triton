@@ -27,8 +27,9 @@ var cryptoPackageKeywords = []string{
 }
 
 type PackageModule struct {
-	config *config.Config
-	once   sync.Once
+	config  *config.Config
+	mu      sync.Mutex
+	scanned bool
 }
 
 func NewPackageModule(cfg *config.Config) *PackageModule {
@@ -48,17 +49,26 @@ func (m *PackageModule) ScanTargetType() model.ScanTargetType {
 }
 
 func (m *PackageModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
-	// Package listing is global (not per-target), so only run once
-	// even though the engine calls Scan for each filesystem target.
+	m.mu.Lock()
+	if m.scanned {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
 	var scanErr error
-	m.once.Do(func() {
-		switch runtime.GOOS {
-		case "darwin":
-			scanErr = m.scanMacPackages(ctx, findings)
-		case "linux":
-			scanErr = m.scanLinuxPackages(ctx, findings)
-		}
-	})
+	switch runtime.GOOS {
+	case "darwin":
+		scanErr = m.scanMacPackages(ctx, findings)
+	case "linux":
+		scanErr = m.scanLinuxPackages(ctx, findings)
+	}
+
+	if scanErr == nil {
+		m.mu.Lock()
+		m.scanned = true
+		m.mu.Unlock()
+	}
 	return scanErr
 }
 

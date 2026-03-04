@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -25,7 +26,7 @@ func init() {
 }
 
 // errDoctorFailed is a sentinel error used to signal a non-zero exit code.
-var errDoctorFailed = fmt.Errorf("system readiness check found failures")
+var errDoctorFailed = errors.New("system readiness check found failures")
 
 func runDoctor(cmd *cobra.Command, args []string) error {
 	report := scanner.RunDoctorChecks(scanProfile)

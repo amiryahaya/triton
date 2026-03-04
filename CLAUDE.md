@@ -165,6 +165,13 @@ Run with `make test-e2e-license` (requires PostgreSQL running + Chromium install
 - **ci.yml** — 4 jobs: Lint → Unit Test → Integration Test → Build. Integration tests run with PostgreSQL 18 service container, `-tags integration -race`
 - **release.yml** — Triggered on `v*` tags. 3 jobs: Test (unit + integration with PostgreSQL) → Release (GoReleaser) + Container Image (multi-arch push to `ghcr.io/amiryahaya/triton`)
 
+## Code Quality Principles
+
+- Law of Demeter: avoid chaining method calls through intermediaries
+- Separation of Concerns: each package/file should have a single responsibility
+- Single Source of Truth: no duplicated business logic across packages
+- SOLID: prefer interfaces, dependency injection, single responsibility
+
 ## Go Version
 
 Requires Go 1.21+ (`go.mod`).

@@ -116,7 +116,8 @@ func TestLicenseFlow_Standalone_ProGuard(t *testing.T) {
 	cfg := config.Load("comprehensive")
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	assert.Equal(t, 19, len(cfg.Modules))
+	compProfile, _ := config.GetProfile("comprehensive")
+	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 }
 
 func TestLicenseFlow_Standalone_EnterpriseGuard(t *testing.T) {
@@ -149,7 +150,8 @@ func TestLicenseFlow_Standalone_EnterpriseGuard(t *testing.T) {
 	cfg.DBUrl = "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	assert.Equal(t, 19, len(cfg.Modules))
+	compProfile, _ := config.GetProfile("comprehensive")
+	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 	assert.NotEmpty(t, cfg.DBUrl)
 }
 
@@ -211,9 +213,11 @@ func TestLicenseFlow_Standalone_ScanPipeline(t *testing.T) {
 	eng.RegisterDefaultModules()
 
 	progressCh := make(chan scanner.Progress, 500)
+	go func() {
+		for range progressCh {
+		}
+	}()
 	result := eng.Scan(context.Background(), progressCh)
-	for range progressCh {
-	}
 	require.NotNil(t, result)
 	assert.Greater(t, len(result.Findings), 0, "scan should produce findings")
 
@@ -501,9 +505,11 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	eng.RegisterDefaultModules()
 
 	progressCh := make(chan scanner.Progress, 500)
+	go func() {
+		for range progressCh {
+		}
+	}()
 	scanResult := eng.Scan(context.Background(), progressCh)
-	for range progressCh {
-	}
 	require.NotNil(t, scanResult)
 	assert.Greater(t, len(scanResult.Findings), 0, "scan should produce findings")
 

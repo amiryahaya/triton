@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log"
 	"runtime"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -71,7 +70,6 @@ func GetProfile(name string) (ScanProfile, bool) {
 func Load(profile string) *Config {
 	p, ok := profiles[profile]
 	if !ok {
-		log.Printf("warning: unknown profile %q, falling back to standard", profile)
 		p = profiles["standard"]
 	}
 

@@ -448,3 +448,12 @@ func TestScanMetadataMetricsOmitEmpty(t *testing.T) {
 	assert.NotContains(t, string(data), "moduleMetrics")
 	assert.NotContains(t, string(data), "peakMemoryMB")
 }
+
+func TestPQCStatusConstants(t *testing.T) {
+	// Verify constant values match expected strings.
+	// ComputeSummary uses these constants in its switch statement.
+	assert.Equal(t, "SAFE", PQCStatusSafe)
+	assert.Equal(t, "TRANSITIONAL", PQCStatusTransitional)
+	assert.Equal(t, "DEPRECATED", PQCStatusDeprecated)
+	assert.Equal(t, "UNSAFE", PQCStatusUnsafe)
+}

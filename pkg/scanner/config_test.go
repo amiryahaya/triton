@@ -410,6 +410,19 @@ key_type = ecdsa
 	assert.Equal(t, "ECDSA-P256", findings[0].CryptoAsset.Algorithm)
 }
 
+func TestSSHAlgorithmMap_RSASignatureAlgorithms(t *testing.T) {
+	// ssh-rsa, rsa-sha2-256, rsa-sha2-512 are signature algorithms,
+	// not key types — they should map to "RSA" without a key size.
+	rsaSignatureAlgos := []string{"ssh-rsa", "rsa-sha2-256", "rsa-sha2-512"}
+	for _, algo := range rsaSignatureAlgos {
+		t.Run(algo, func(t *testing.T) {
+			mapped, ok := sshAlgorithmMap[algo]
+			require.True(t, ok, "algorithm %s should be in map", algo)
+			assert.Equal(t, "RSA", mapped, "signature algorithm %s should map to RSA without key size", algo)
+		})
+	}
+}
+
 func TestScanFixtureConfigs(t *testing.T) {
 	// Test against the actual fixture files
 	fixtureDir := filepath.Join("../../test/fixtures/configs")

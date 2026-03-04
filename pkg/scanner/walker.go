@@ -91,7 +91,7 @@ func walkTarget(wc walkerConfig) error {
 
 		// Incremental scanning: skip unchanged files
 		if wc.store != nil && wc.config != nil && wc.config.Incremental {
-			skip, newHash := checkFileChanged(wc.store, path)
+			skip, newHash := checkFileChanged(ctx, wc.store, path)
 			if skip {
 				if wc.filesSkipped != nil {
 					atomic.AddInt64(wc.filesSkipped, 1)
@@ -115,14 +115,13 @@ func walkTarget(wc walkerConfig) error {
 // checkFileChanged computes the SHA-256 hash of a file and compares it with
 // the stored hash. Returns (true, "") if unchanged (skip), or (false, newHash)
 // if the file needs processing.
-func checkFileChanged(s store.Store, path string) (skip bool, newHash string) {
+func checkFileChanged(ctx context.Context, s store.Store, path string) (skip bool, newHash string) {
 	hash, err := hashFile(path)
 	if err != nil {
 		return false, "" // Can't hash → process anyway
 	}
 
-	// Use a short-lived context for the store lookup; caller manages cancellation.
-	storedHash, _, err := s.GetFileHash(context.TODO(), path)
+	storedHash, _, err := s.GetFileHash(ctx, path)
 	if err == nil && storedHash == hash {
 		return true, "" // Unchanged
 	}

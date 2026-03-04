@@ -66,16 +66,15 @@ func runPolicyCheck(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
+	defer func() { _ = db.Close() }()
 
 	result, err := loadTargetScan(db, policyScan)
 	if err != nil {
-		_ = db.Close()
 		return err
 	}
 
 	// Evaluate policy.
 	eval := policy.Evaluate(pol, result)
-	_ = db.Close()
 
 	// Print results.
 	fmt.Printf("Policy: %s\n", eval.PolicyName)
@@ -129,7 +128,7 @@ func runPolicyList(_ *cobra.Command, _ []string) error {
 }
 
 // loadTargetScan loads a specific scan by ID, or the most recent scan if no ID is given.
-func loadTargetScan(db *store.PostgresStore, scanID string) (*model.ScanResult, error) {
+func loadTargetScan(db store.ScanStore, scanID string) (*model.ScanResult, error) {
 	ctx := context.Background()
 
 	if scanID != "" {

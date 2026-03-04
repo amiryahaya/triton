@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/version"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
 	"github.com/amiryahaya/triton/pkg/report"
@@ -31,6 +32,9 @@ import (
 // ErrPolicyFail is returned when a policy evaluation fails,
 // allowing the caller to set the appropriate exit code.
 var ErrPolicyFail = errors.New("policy evaluation failed")
+
+// progressBufferSize is the buffer capacity for the scan progress channel.
+const progressBufferSize = 16
 
 var (
 	cfgFile          string
@@ -46,7 +50,7 @@ var (
 	licenseKey       string
 	licenseServerURL string
 	licenseID        string
-	guard            *license.Guard
+	guard            = license.NewGuard("") // safe default, overwritten by PersistentPreRun
 
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
@@ -117,7 +121,6 @@ type scanModel struct {
 	done       bool
 	statusMsg  string
 	progressCh chan scanner.Progress
-	ctx        context.Context
 	cancel     context.CancelFunc
 }
 
@@ -207,7 +210,7 @@ func (m scanModel) View() string {
 
 func runScan(cmd *cobra.Command, args []string) error {
 	if !validFormats[format] {
-		return fmt.Errorf("invalid format %q: must be one of json, cdx, html, xlsx, all", format)
+		return fmt.Errorf("invalid format %q: must be one of json, cdx, html, xlsx, sarif, all", format)
 	}
 
 	fmt.Printf("Triton SBOM/CBOM Scanner v%s\n", version.Version)
@@ -294,7 +297,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return runScanHeadless(eng)
 	}
 
-	progressCh := make(chan scanner.Progress, 16)
+	progressCh := make(chan scanner.Progress, progressBufferSize)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -303,7 +306,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 	sm := scanModel{
 		progress:   progress.New(progress.WithDefaultGradient()),
 		progressCh: progressCh,
-		ctx:        ctx,
 		cancel:     cancel,
 	}
 
@@ -315,7 +317,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	final, ok := finalModel.(scanModel)
-	if !ok || final.result == nil {
+	if !ok {
+		return nil
+	}
+	if final.err != nil {
+		return final.err
+	}
+	if final.result == nil {
 		return nil
 	}
 
@@ -336,7 +344,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 }
 
 func runScanHeadless(eng *scanner.Engine) error {
-	progressCh := make(chan scanner.Progress, 16)
+	progressCh := make(chan scanner.Progress, progressBufferSize)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -373,63 +381,57 @@ func saveScanResult(eng *scanner.Engine, result *model.ScanResult) error {
 	return s.SaveScan(context.Background(), result)
 }
 
+// generateSingleReport generates one report file for the given format.
+func generateSingleReport(gen *report.Generator, result *model.ScanResult, fmtName, ts string) (string, error) {
+	var path string
+	var err error
+	switch fmtName {
+	case "json":
+		path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.json", ts))
+		err = gen.GenerateTritonJSON(result, path)
+	case "cdx":
+		path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.cdx.json", ts))
+		err = gen.GenerateCycloneDXBOM(result, path)
+	case "html":
+		path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.html", ts))
+		err = gen.GenerateHTML(result, path)
+	case "xlsx":
+		path = filepath.Join(outputDir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", ts))
+		err = gen.GenerateExcel(result, path)
+	case "sarif":
+		path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.sarif", ts))
+		err = gen.GenerateSARIF(result, path)
+	}
+	return path, err
+}
+
 func generateReports(result *model.ScanResult) error {
-	// Group findings into systems if not already populated
 	if len(result.Systems) == 0 && len(result.Findings) > 0 {
-		result.Systems = report.GroupFindingsIntoSystems(result.Findings)
+		result.Systems = model.GroupFindingsIntoSystemsWithAgility(result.Findings, crypto.AssessAssetAgility)
 		result.Summary.TotalSystems = len(result.Systems)
 	}
 
 	ts := time.Now().Format("20060102-150405")
 	gen := report.New(outputDir)
 
-	switch format {
-	case "json":
-		jsonFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.json", ts))
-		if err := gen.GenerateTritonJSON(result, jsonFile); err != nil {
-			return err
-		}
-		fmt.Printf("Report saved to: %s\n", jsonFile)
-
-	case "cdx":
-		cdxFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.cdx.json", ts))
-		if err := gen.GenerateCycloneDXBOM(result, cdxFile); err != nil {
-			return err
-		}
-		fmt.Printf("CycloneDX CBOM saved to: %s\n", cdxFile)
-
-	case "html":
-		htmlFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.html", ts))
-		if err := gen.GenerateHTML(result, htmlFile); err != nil {
-			return err
-		}
-		fmt.Printf("Report saved to: %s\n", htmlFile)
-
-	case "xlsx":
-		xlsxFile := filepath.Join(outputDir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", ts))
-		if err := gen.GenerateExcel(result, xlsxFile); err != nil {
-			return err
-		}
-		fmt.Printf("Report saved to: %s\n", xlsxFile)
-
-	case "sarif":
-		sarifFile := filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.sarif", ts))
-		if err := gen.GenerateSARIF(result, sarifFile); err != nil {
-			return err
-		}
-		fmt.Printf("SARIF report saved to: %s\n", sarifFile)
-
-	default: // "all"
-		files, err := generateAllowedReports(gen, result, ts)
+	if format != "all" {
+		path, err := generateSingleReport(gen, result, format, ts)
 		if err != nil {
 			return err
 		}
-		fmt.Println("Reports generated:")
-		for _, f := range files {
-			fmt.Printf("  - %s\n", f)
-		}
+		fmt.Printf("Report saved to: %s\n", path)
+		return nil
 	}
 
+	// "all" — generate all allowed formats
+	files, err := generateAllowedReports(gen, result, ts)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Reports generated:")
+	for _, f := range files {
+		fmt.Printf("  - %s\n", f)
+	}
 	return nil
 }
 
@@ -558,25 +560,7 @@ func generateAllowedReports(gen *report.Generator, result *model.ScanResult, ts 
 	allowed := license.AllowedFormats(guard.Tier())
 	var files []string
 	for _, fmtName := range allowed {
-		var path string
-		var err error
-		switch fmtName {
-		case "json":
-			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.json", ts))
-			err = gen.GenerateTritonJSON(result, path)
-		case "cdx":
-			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.cdx.json", ts))
-			err = gen.GenerateCycloneDXBOM(result, path)
-		case "html":
-			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.html", ts))
-			err = gen.GenerateHTML(result, path)
-		case "xlsx":
-			path = filepath.Join(outputDir, fmt.Sprintf("Triton_PQC_Report-%s.xlsx", ts))
-			err = gen.GenerateExcel(result, path)
-		case "sarif":
-			path = filepath.Join(outputDir, fmt.Sprintf("triton-report-%s.sarif", ts))
-			err = gen.GenerateSARIF(result, path)
-		}
+		path, err := generateSingleReport(gen, result, fmtName, ts)
 		if err != nil {
 			return files, err
 		}

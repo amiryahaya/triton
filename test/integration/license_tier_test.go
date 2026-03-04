@@ -96,7 +96,8 @@ func TestLicenseTier_ProTierFilterConfig(t *testing.T) {
 	assert.Equal(t, "comprehensive", cfg.Profile)
 
 	// Pro tier allows all modules (nil from AllowedModules = no filtering)
-	assert.Equal(t, 19, len(cfg.Modules), "pro tier should keep all 19 modules")
+	compProfile, _ := config.GetProfile("comprehensive")
+	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules), "pro tier should keep all modules")
 
 	// Pro tier blocks SARIF format
 	err := guard.EnforceFormat("sarif")
@@ -140,10 +141,11 @@ func TestLicenseTier_EnterpriseTierUnlocksEverything(t *testing.T) {
 		assert.True(t, guard.Allowed(f), "enterprise should allow feature: %s", f)
 	}
 
-	// All 19 modules preserved
+	// All modules preserved
 	cfg := config.Load("comprehensive")
 	guard.FilterConfig(cfg)
-	assert.Equal(t, 19, len(cfg.Modules))
+	compProfile, _ := config.GetProfile("comprehensive")
+	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 
 	// Seats and org correct
 	assert.Equal(t, 500, guard.Seats())
@@ -289,9 +291,11 @@ func TestLicenseTier_ProScanPipeline(t *testing.T) {
 	eng.RegisterDefaultModules()
 
 	progressCh := make(chan scanner.Progress, 500)
+	go func() {
+		for range progressCh {
+		}
+	}()
 	result := eng.Scan(context.Background(), progressCh)
-	for range progressCh {
-	}
 	require.NotNil(t, result)
 
 	// Generate allowed reports (JSON, CDX, HTML)
@@ -334,9 +338,11 @@ func TestLicenseTier_EnterpriseScanPipelineWithSARIF(t *testing.T) {
 	eng.RegisterDefaultModules()
 
 	progressCh := make(chan scanner.Progress, 500)
+	go func() {
+		for range progressCh {
+		}
+	}()
 	result := eng.Scan(context.Background(), progressCh)
-	for range progressCh {
-	}
 	require.NotNil(t, result)
 
 	// Enterprise allows SARIF
@@ -552,7 +558,8 @@ func TestLicenseTier_MachineMatchSucceedsPipeline(t *testing.T) {
 	guard.FilterConfig(cfg)
 
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	assert.Equal(t, 19, len(cfg.Modules))
+	compProfile, _ := config.GetProfile("comprehensive")
+	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 	assert.Equal(t, dbURL, cfg.DBUrl, "enterprise should keep DBUrl")
 
 	// All features available

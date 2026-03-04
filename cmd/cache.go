@@ -11,7 +11,7 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
-func openStore() (*store.PostgresStore, error) {
+func openStore() (store.Store, error) {
 	url := dbPath
 	if url == "" {
 		url = config.DefaultDBUrl()

@@ -1,5 +1,7 @@
 package crypto
 
+import "strconv"
+
 // OIDEntry maps an ASN.1 OID to its algorithm name, family, and PQC status.
 type OIDEntry struct {
 	OID       string
@@ -344,31 +346,5 @@ func decodeOID(data []byte) string {
 
 // appendInt appends an integer as decimal string to a byte slice.
 func appendInt(b []byte, v int) []byte {
-	if v == 0 {
-		return append(b, '0')
-	}
-	if v < 0 {
-		b = append(b, '-')
-		v = -v
-	}
-
-	// Calculate number of digits
-	tmp := v
-	digits := 0
-	for tmp > 0 {
-		digits++
-		tmp /= 10
-	}
-
-	start := len(b)
-	for i := 0; i < digits; i++ {
-		b = append(b, 0)
-	}
-
-	for i := digits - 1; i >= 0; i-- {
-		b[start+i] = byte('0' + v%10)
-		v /= 10
-	}
-
-	return b
+	return strconv.AppendInt(b, int64(v), 10)
 }

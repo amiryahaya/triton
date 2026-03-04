@@ -2,16 +2,12 @@ package scanner
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -153,31 +149,7 @@ func (m *CertStoreModule) parsePEMCerts(ctx context.Context, pemData []byte, fin
 }
 
 // certKeyInfo extracts the algorithm name and key size from a certificate.
+// It delegates to the shared certPublicKeyInfo helper.
 func certKeyInfo(cert *x509.Certificate) (algo string, size int) {
-	switch pub := cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		size := pub.N.BitLen()
-		return fmt.Sprintf("RSA-%d", size), size
-	case *ecdsa.PublicKey:
-		size := pub.Curve.Params().BitSize
-		name := fmt.Sprintf("ECDSA-P%d", size)
-		// Map common curve sizes
-		switch size {
-		case 256:
-			name = "ECDSA-P256"
-		case 384:
-			name = "ECDSA-P384"
-		case 521:
-			name = "ECDSA-P521"
-		}
-		return name, size
-	case ed25519.PublicKey:
-		return "Ed25519", 256
-	default:
-		algo := cert.PublicKeyAlgorithm.String()
-		if strings.Contains(algo, "RSA") {
-			return "RSA", 0
-		}
-		return algo, 0
-	}
+	return certPublicKeyInfo(cert)
 }

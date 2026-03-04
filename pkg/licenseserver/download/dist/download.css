@@ -170,6 +170,30 @@ body {
   color: #6c757d;
 }
 
+.docs-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 28px;
+  margin-top: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  text-align: center;
+}
+
+.docs-section h2 {
+  font-size: 1.2rem;
+  margin-bottom: 12px;
+  color: #1a1a2e;
+}
+
+.docs-section p {
+  margin-bottom: 8px;
+}
+
+.docs-hint {
+  color: #6c757d;
+  font-size: 0.85rem;
+}
+
 footer {
   text-align: center;
   color: #adb5bd;

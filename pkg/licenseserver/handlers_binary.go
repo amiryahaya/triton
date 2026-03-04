@@ -1,7 +1,6 @@
 package licenseserver
 
 import (
-	"golang.org/x/crypto/sha3"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/sha3"
 )
 
 // versionRE is a whitelist of allowed characters in version strings.

@@ -167,7 +167,7 @@ const (
 )
 
 // tooLong checks if a string exceeds the specified maximum length.
-func tooLong(s string, max int) bool { return len(s) > max }
+func tooLong(s string, limit int) bool { return len(s) > limit }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

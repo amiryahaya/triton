@@ -90,7 +90,7 @@ If your organization uses a Triton License Server, you can download the binary d
 
 1. Open the download page in your browser:
    ```
-   https://<your-license-server>/download
+   https://li/download
    ```
 2. Enter your **License ID** (a UUID provided by your administrator) and click **Continue**.
 3. The page auto-detects your operating system and architecture. Click **Download Triton** for the recommended platform, or choose another platform from the list.

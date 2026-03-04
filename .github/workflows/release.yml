@@ -121,8 +121,8 @@ jobs:
         run: |
           gh release download "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
-            --pattern "triton_*_*.tar.gz" \
-            --pattern "triton_*_*.zip" \
+            --pattern "triton-*-*.tar.gz" \
+            --pattern "triton-*-*.zip" \
             --dir ./release-assets
 
       - name: Upload binaries to license server
@@ -133,11 +133,11 @@ jobs:
         run: |
           cd release-assets
           for archive in *; do
-            # Extract os and arch from filename: triton_{version}_{os}_{arch}.tar.gz
+            # Extract os and arch from filename: triton-{version}-{os}-{arch}.tar.gz
             base="${archive%%.tar.gz}"
             base="${base%%.zip}"
-            os=$(echo "$base" | awk -F_ '{print $(NF-1)}')
-            arch=$(echo "$base" | awk -F_ '{print $NF}')
+            os=$(echo "$base" | awk -F- '{print $(NF-1)}')
+            arch=$(echo "$base" | awk -F- '{print $NF}')
 
             # Normalize os names (GoReleaser uses Darwin/Linux/Windows)
             os=$(echo "$os" | tr '[:upper:]' '[:lower:]')

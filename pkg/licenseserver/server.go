@@ -26,7 +26,24 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+		w.Header().Set("X-XSS-Protection", "0")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"font-src 'self'; img-src 'self' data:; "+
+				"connect-src 'self'; object-src 'none'; base-uri 'self'; "+
+				"form-action 'self'; frame-ancestors 'none'")
+		// HSTS: only set when request arrived via TLS.
+		if r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		}
+		// Propagate chi RequestID to response for client correlation.
+		if reqID := middleware.GetReqID(r.Context()); reqID != "" {
+			w.Header().Set("X-Request-ID", reqID)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -139,8 +156,22 @@ func (s *Server) Router() chi.Router {
 // maxRequestBody is the maximum allowed request body size (1 MB).
 const maxRequestBody = 1 << 20
 
+// Input length limits.
+const (
+	maxNameLen     = 255
+	maxContactLen  = 255
+	maxNotesLen    = 1000
+	maxHostnameLen = 255
+	maxVersionLen  = 50
+	maxReasonLen   = 500
+)
+
+// tooLong checks if a string exceeds the specified maximum length.
+func tooLong(s string, max int) bool { return len(s) > max }
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-//go:embed ui/dist/*
+//go:embed ui/dist
 var adminUIFS embed.FS
 
 // adminUIHandler returns an http.Handler that serves the embedded admin web UI.

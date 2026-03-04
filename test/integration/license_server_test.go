@@ -190,7 +190,7 @@ func TestLicenseServer_Revocation(t *testing.T) {
 	valResp, err := client.Validate(licID, "any-token")
 	require.NoError(t, err)
 	assert.False(t, valResp.Valid)
-	assert.Equal(t, "license revoked", valResp.Reason)
+	assert.Equal(t, "validation failed", valResp.Reason)
 }
 
 func TestLicenseServer_Reactivation(t *testing.T) {

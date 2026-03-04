@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
+var serverTestSeq atomic.Int64
+
 func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStore) {
 	t.Helper()
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
@@ -29,11 +32,11 @@ func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStor
 		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
 	}
 	ctx := context.Background()
-	store, err := licensestore.NewPostgresStore(ctx, dbURL)
+	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
+	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
-	require.NoError(t, store.TruncateAll(ctx))
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -50,7 +53,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStor
 
 	t.Cleanup(func() {
 		ts.Close()
-		_ = store.TruncateAll(ctx)
+		_ = store.DropSchema(ctx)
 		store.Close()
 	})
 	return ts, store
@@ -364,7 +367,7 @@ func TestValidate_AfterRevoke(t *testing.T) {
 	defer resp.Body.Close()
 	result := decodeJSON(t, resp)
 	assert.Equal(t, false, result["valid"])
-	assert.Equal(t, "license revoked", result["reason"])
+	assert.Equal(t, "validation failed", result["reason"])
 }
 
 func TestValidate_WrongToken(t *testing.T) {
@@ -381,7 +384,7 @@ func TestValidate_WrongToken(t *testing.T) {
 	defer resp.Body.Close()
 	result := decodeJSON(t, resp)
 	assert.Equal(t, false, result["valid"])
-	assert.Equal(t, "invalid token", result["reason"])
+	assert.Equal(t, "validation failed", result["reason"])
 }
 
 func TestValidate_MissingToken(t *testing.T) {
@@ -398,7 +401,7 @@ func TestValidate_MissingToken(t *testing.T) {
 	defer resp.Body.Close()
 	result := decodeJSON(t, resp)
 	assert.Equal(t, false, result["valid"])
-	assert.Equal(t, "invalid token", result["reason"])
+	assert.Equal(t, "validation failed", result["reason"])
 }
 
 // --- Audit ---
@@ -622,12 +625,15 @@ func TestAdminAuth_EmptyKeys(t *testing.T) {
 		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
 	}
 	ctx := context.Background()
-	store, err := licensestore.NewPostgresStore(ctx, dbURL)
+	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
+	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
-	defer store.Close()
-	require.NoError(t, store.TruncateAll(ctx))
+	defer func() {
+		_ = store.DropSchema(ctx)
+		store.Close()
+	}()
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -687,7 +693,7 @@ func TestUploadBinary(t *testing.T) {
 	assert.Equal(t, "1.0.0", result["version"])
 	assert.Equal(t, "linux", result["os"])
 	assert.Equal(t, "amd64", result["arch"])
-	assert.NotEmpty(t, result["sha256"])
+	assert.NotEmpty(t, result["sha3"])
 	assert.Equal(t, float64(len(content)), result["size"])
 }
 
@@ -796,7 +802,7 @@ func TestDownloadBinary_ValidLicense(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "application/octet-stream", resp.Header.Get("Content-Type"))
 	assert.Contains(t, resp.Header.Get("Content-Disposition"), "triton")
-	assert.NotEmpty(t, resp.Header.Get("X-Checksum-SHA256"))
+	assert.NotEmpty(t, resp.Header.Get("X-Checksum-SHA3-256"))
 	body, _ := io.ReadAll(resp.Body)
 	assert.Equal(t, binaryContent, body)
 }

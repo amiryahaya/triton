@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-//go:embed download/dist/*
+//go:embed download/dist
 var downloadPageFS embed.FS
 
 // downloadPageHandler returns an http.Handler that serves the embedded download page.

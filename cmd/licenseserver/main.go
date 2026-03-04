@@ -56,6 +56,18 @@ func run() error {
 	}
 
 	adminKeys := strings.Split(adminKey, ",")
+	// Filter out empty keys that result from trailing/consecutive commas.
+	filtered := adminKeys[:0]
+	for _, k := range adminKeys {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			filtered = append(filtered, k)
+		}
+	}
+	adminKeys = filtered
+	if len(adminKeys) == 0 {
+		return fmt.Errorf("TRITON_LICENSE_SERVER_ADMIN_KEY contains no valid keys after parsing")
+	}
 
 	ctx := context.Background()
 	store, err := licensestore.NewPostgresStore(ctx, dbURL)

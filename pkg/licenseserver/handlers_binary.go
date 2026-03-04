@@ -1,7 +1,7 @@
 package licenseserver
 
 import (
-	"crypto/sha256"
+	"golang.org/x/crypto/sha3"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
+
+// versionRE is a whitelist of allowed characters in version strings.
+var versionRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,49}$`)
 
 // maxBinaryUpload is the maximum allowed binary upload size (50 MB).
 const maxBinaryUpload = 50 << 20
@@ -31,7 +35,7 @@ type binaryMeta struct {
 	Version    string    `json:"version"`
 	OS         string    `json:"os"`
 	Arch       string    `json:"arch"`
-	SHA256     string    `json:"sha256"`
+	SHA3       string    `json:"sha3"`
 	Size       int64     `json:"size"`
 	Filename   string    `json:"filename"`
 	UploadedAt time.Time `json:"uploadedAt"`
@@ -117,6 +121,10 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid characters in version/os/arch")
 		return
 	}
+	if !versionRE.MatchString(version) {
+		writeError(w, http.StatusBadRequest, "version must be alphanumeric (max 50 chars)")
+		return
+	}
 
 	if !validOS[goos] {
 		writeError(w, http.StatusBadRequest, "os must be linux, darwin, or windows")
@@ -165,7 +173,7 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Hash while copying.
-	h := sha256.New()
+	h := sha3.New256()
 	size, err := io.Copy(io.MultiWriter(tmpFile, h), file)
 	if err != nil {
 		log.Printf("copy binary error: %v", err)
@@ -201,7 +209,7 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 		Version:    version,
 		OS:         goos,
 		Arch:       goarch,
-		SHA256:     checksum,
+		SHA3:       checksum,
 		Size:       size,
 		Filename:   filename,
 		UploadedAt: time.Now().UTC(),
@@ -219,7 +227,7 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.audit(r, "binary_upload", "", "", "", map[string]any{
-		"version": version, "os": goos, "arch": goarch, "sha256": checksum, "size": size,
+		"version": version, "os": goos, "arch": goarch, "sha3": checksum, "size": size,
 	})
 
 	writeJSON(w, http.StatusCreated, meta)
@@ -313,7 +321,7 @@ func (s *Server) handleLatestVersion(w http.ResponseWriter, r *http.Request) {
 
 	platforms := make([]map[string]string, 0, len(versions[latest]))
 	for _, b := range versions[latest] {
-		platforms = append(platforms, map[string]string{"os": b.OS, "arch": b.Arch})
+		platforms = append(platforms, map[string]string{"os": b.OS, "arch": b.Arch, "sha3": b.SHA3})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -392,9 +400,19 @@ func (s *Server) handleDownloadBinary(w http.ResponseWriter, r *http.Request) {
 		"version": version, "os": goos, "arch": goarch,
 	})
 
+	// Prevent license ID from leaking via Referer header.
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", safeFilename))
-	w.Header().Set("X-Checksum-SHA256", meta.SHA256)
+	w.Header().Set("X-Checksum-SHA3-256", meta.SHA3)
+
+	// Verify file size matches metadata to detect on-disk tampering.
+	if fi.Size() != meta.Size {
+		log.Printf("binary size mismatch: meta=%d actual=%d for %s/%s-%s", meta.Size, fi.Size(), version, goos, goarch)
+		writeError(w, http.StatusInternalServerError, "binary integrity check failed")
+		return
+	}
+
 	http.ServeContent(w, r, safeFilename, fi.ModTime(), f)
 }
 

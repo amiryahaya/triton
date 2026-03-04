@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
@@ -20,22 +21,31 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		OrgID:     r.URL.Query().Get("org"),
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			filter.Limit = n
-			if filter.Limit > 10000 {
-				filter.Limit = 10000
-			}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
 		}
+		if n > 10000 {
+			n = 10000
+		}
+		filter.Limit = n
 	}
 	if v := r.URL.Query().Get("after"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			filter.After = &t
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "after must be RFC3339 format")
+			return
 		}
+		filter.After = &t
 	}
 	if v := r.URL.Query().Get("before"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			filter.Before = &t
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "before must be RFC3339 format")
+			return
 		}
+		filter.Before = &t
 	}
 
 	entries, err := s.store.ListAudit(r.Context(), filter)
@@ -63,9 +73,21 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// auditActor determines whether the request comes from an admin or client route.
+func auditActor(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/admin/") {
+		return "admin"
+	}
+	return "client"
+}
+
 // audit writes an audit log entry in the background.
 func (s *Server) audit(r *http.Request, event, licenseID, orgID, machineID string, extra map[string]any) {
-	details, _ := json.Marshal(extra)
+	details, err := json.Marshal(extra)
+	if err != nil {
+		log.Printf("audit marshal error: %v", err)
+		details = json.RawMessage("{}")
+	}
 	if details == nil {
 		details = json.RawMessage("{}")
 	}
@@ -75,7 +97,7 @@ func (s *Server) audit(r *http.Request, event, licenseID, orgID, machineID strin
 		LicenseID: licenseID,
 		OrgID:     orgID,
 		MachineID: machineID,
-		Actor:     "api",
+		Actor:     auditActor(r),
 		Details:   details,
 		IPAddress: r.RemoteAddr,
 	}

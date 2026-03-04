@@ -22,11 +22,15 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		Notes   string `json:"notes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if tooLong(req.Name, maxNameLen) || tooLong(req.Contact, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
+		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
 		return
 	}
 
@@ -92,11 +96,15 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		Notes   string `json:"notes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if tooLong(req.Name, maxNameLen) || tooLong(req.Contact, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
+		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
 		return
 	}
 
@@ -122,6 +130,8 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+
+	s.audit(r, "org_update", "", id, "", nil)
 
 	// Fetch the full record to return complete data (including CreatedAt)
 	updated, err := s.store.GetOrg(r.Context(), id)

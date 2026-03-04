@@ -2,6 +2,7 @@ package licenseserver
 
 import (
 	"crypto/subtle"
+	"log"
 	"net/http"
 )
 
@@ -13,6 +14,7 @@ func AdminKeyAuth(validKeys []string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := r.Header.Get(adminKeyHeader)
 			if key == "" {
+				log.Printf("auth failure: missing admin key from %s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 				writeError(w, http.StatusUnauthorized, "missing admin key")
 				return
 			}
@@ -24,6 +26,7 @@ func AdminKeyAuth(validKeys []string) func(http.Handler) http.Handler {
 				}
 			}
 			if !valid {
+				log.Printf("auth failure: invalid admin key from %s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 				writeError(w, http.StatusForbidden, "invalid admin key")
 				return
 			}

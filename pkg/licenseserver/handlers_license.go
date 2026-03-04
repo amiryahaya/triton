@@ -25,7 +25,7 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		Notes     string `json:"notes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.OrgID == "" {
@@ -45,6 +45,10 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "seats must be >= 1")
 		return
 	}
+	if tooLong(req.Notes, maxNotesLen) {
+		writeError(w, http.StatusBadRequest, "notes exceeds maximum length")
+		return
+	}
 
 	// Verify org exists
 	if _, err := s.store.GetOrg(r.Context(), req.OrgID); err != nil {
@@ -57,6 +61,11 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.ExpiresAt != "" && req.Days != 0 {
+		writeError(w, http.StatusBadRequest, "specify either expiresAt or days, not both")
+		return
+	}
+
 	now := time.Now().UTC()
 	var expiresAt time.Time
 	switch {
@@ -64,7 +73,7 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		var err error
 		expiresAt, err = time.Parse(time.RFC3339, req.ExpiresAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid expiresAt: "+err.Error())
+			writeError(w, http.StatusBadRequest, "invalid expiresAt format, expected RFC3339")
 			return
 		}
 		if !expiresAt.After(now) {

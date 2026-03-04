@@ -3,7 +3,9 @@ package licensestore_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
+var storeTestSeq atomic.Int64
+
 func openTestStore(t *testing.T) *licensestore.PostgresStore {
 	t.Helper()
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
@@ -21,13 +25,13 @@ func openTestStore(t *testing.T) *licensestore.PostgresStore {
 		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
 	}
 	ctx := context.Background()
-	s, err := licensestore.NewPostgresStore(ctx, dbURL)
+	schema := fmt.Sprintf("test_store_%d", storeTestSeq.Add(1))
+	s, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
-	require.NoError(t, s.TruncateAll(ctx))
 	t.Cleanup(func() {
-		_ = s.TruncateAll(ctx)
+		_ = s.DropSchema(ctx)
 		s.Close()
 	})
 	return s

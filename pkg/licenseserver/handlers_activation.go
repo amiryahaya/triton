@@ -26,11 +26,15 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		Arch      string `json:"arch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.LicenseID == "" || req.MachineID == "" {
 		writeError(w, http.StatusBadRequest, "licenseID and machineID are required")
+		return
+	}
+	if tooLong(req.Hostname, maxHostnameLen) {
+		writeError(w, http.StatusBadRequest, "hostname exceeds maximum length")
 		return
 	}
 
@@ -80,7 +84,7 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Activate(r.Context(), act); err != nil {
 		var sf *licensestore.ErrSeatsFull
 		if errors.As(err, &sf) {
-			writeError(w, http.StatusConflict, sf.Error())
+			writeError(w, http.StatusConflict, "all seats are occupied")
 			return
 		}
 		var revoked *licensestore.ErrLicenseRevoked
@@ -135,7 +139,7 @@ func (s *Server) handleDeactivate(w http.ResponseWriter, r *http.Request) {
 		MachineID string `json:"machineID"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.LicenseID == "" || req.MachineID == "" {
@@ -166,7 +170,7 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		Token     string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.LicenseID == "" || req.MachineID == "" {
@@ -177,28 +181,28 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 	// Check license status
 	lic, err := s.store.GetLicense(r.Context(), req.LicenseID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "license not found"})
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "validation failed"})
 		return
 	}
 	if lic.Revoked {
-		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "license revoked"})
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "validation failed"})
 		return
 	}
 	if time.Now().After(lic.ExpiresAt) {
-		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "license expired"})
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "validation failed"})
 		return
 	}
 
 	// Check activation
 	act, err := s.store.GetActivationByMachine(r.Context(), req.LicenseID, req.MachineID)
 	if err != nil || !act.Active {
-		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "machine not activated"})
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "validation failed"})
 		return
 	}
 
 	// Verify submitted token matches the stored token
 	if req.Token == "" || subtle.ConstantTimeCompare([]byte(req.Token), []byte(act.Token)) != 1 {
-		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "invalid token"})
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "validation failed"})
 		return
 	}
 

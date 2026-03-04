@@ -5,6 +5,7 @@
   var licenseID = '';
   var latestVersion = '';
   var platforms = [];
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   var stepLicense = document.getElementById('step-license');
   var stepPlatform = document.getElementById('step-platform');
@@ -72,7 +73,13 @@
       licenseError.hidden = false;
       return;
     }
+    if (licenseID.length > 100 || !UUID_RE.test(licenseID)) {
+      licenseError.textContent = 'Invalid license ID format. Expected UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).';
+      licenseError.hidden = false;
+      return;
+    }
     licenseError.hidden = true;
+    btnContinue.disabled = true;
     fetchLatestVersion();
   };
 
@@ -82,7 +89,10 @@
 
   function fetchLatestVersion() {
     fetch('/api/v1/license/download/latest-version')
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) throw new Error('Server error');
+        return r.json().catch(function() { throw new Error('Invalid response'); });
+      })
       .then(function(data) {
         if (data.error) {
           licenseError.textContent = 'No binaries available for download.';
@@ -96,8 +106,14 @@
       .catch(function() {
         licenseError.textContent = 'Failed to connect to server.';
         licenseError.hidden = false;
+      })
+      .finally(function() {
+        btnContinue.disabled = false;
       });
   }
+
+  // Build a lookup for sha3 by os-arch key.
+  var sha3Map = {};
 
   function showPlatformStep() {
     stepPlatform.hidden = false;
@@ -106,6 +122,13 @@
       noPlatforms.hidden = false;
       platformsDiv.innerHTML = '';
       return;
+    }
+
+    // Build sha3 lookup.
+    for (var s = 0; s < platforms.length; s++) {
+      if (platforms[s].sha3) {
+        sha3Map[platforms[s].os + '-' + platforms[s].arch] = platforms[s].sha3;
+      }
     }
 
     var detected = detectPlatform();
@@ -166,16 +189,23 @@
     var lic = escapeHtml(licenseID);
     var html = '';
 
+    var checksum = sha3Map[os + '-' + arch] || '';
+
     if (os === 'windows') {
       html += '<div class="instructions-block">';
       html += '<h3>PowerShell Instructions (Run as Administrator)</h3>';
       html += '<div class="code-block">';
-      html += '<span class="comment"># 1. If SmartScreen blocks the file, click "More info" then "Run anyway"</span>\n\n';
-      html += '<span class="comment"># 2. Move to a directory in your PATH</span>\n';
+      if (checksum) {
+        html += '<span class="comment"># 1. Verify the download (SHA3-256)</span>\n';
+        html += 'openssl dgst -sha3-256 triton.exe\n';
+        html += '<span class="comment"># Expected: ' + escapeHtml(checksum) + '</span>\n\n';
+      }
+      html += '<span class="comment"># ' + (checksum ? '2' : '1') + '. If SmartScreen blocks the file, click "More info" then "Run anyway"</span>\n\n';
+      html += '<span class="comment"># ' + (checksum ? '3' : '2') + '. Move to a directory in your PATH</span>\n';
       html += 'Move-Item triton.exe C:\\Windows\\triton.exe\n\n';
-      html += '<span class="comment"># 3. Activate your license</span>\n';
+      html += '<span class="comment"># ' + (checksum ? '4' : '3') + '. Activate your license</span>\n';
       html += 'triton license activate --license-server ' + escapeHtml(serverURL) + ' --license-id ' + lic + '\n\n';
-      html += '<span class="comment"># 4. Verify installation</span>\n';
+      html += '<span class="comment"># ' + (checksum ? '5' : '4') + '. Verify installation</span>\n';
       html += 'triton --version\ntriton license show\n\n';
       html += '<span class="comment"># If Windows Defender blocks the binary, add an exclusion:</span>\n';
       html += '<span class="comment"># Add-MpPreference -ExclusionPath "C:\\Windows\\triton.exe"</span>';
@@ -184,15 +214,26 @@
       html += '<div class="instructions-block">';
       html += '<h3>macOS Instructions</h3>';
       html += '<div class="code-block">';
-      html += '<span class="comment"># 1. Make the binary executable</span>\n';
+      var step = 1;
+      if (checksum) {
+        html += '<span class="comment"># ' + step + '. Verify the download (SHA3-256)</span>\n';
+        html += 'openssl dgst -sha3-256 triton\n';
+        html += '<span class="comment"># Expected: ' + escapeHtml(checksum) + '</span>\n\n';
+        step++;
+      }
+      html += '<span class="comment"># ' + step + '. Make the binary executable</span>\n';
       html += 'chmod +x triton\n\n';
-      html += '<span class="comment"># 2. Move to a directory in your PATH</span>\n';
+      step++;
+      html += '<span class="comment"># ' + step + '. Move to a directory in your PATH</span>\n';
       html += 'sudo mv triton /usr/local/bin/triton\n\n';
-      html += '<span class="comment"># 3. Remove macOS quarantine (Gatekeeper)</span>\n';
+      step++;
+      html += '<span class="comment"># ' + step + '. Remove macOS quarantine (Gatekeeper)</span>\n';
       html += 'xattr -d com.apple.quarantine /usr/local/bin/triton\n\n';
-      html += '<span class="comment"># 4. Activate your license</span>\n';
+      step++;
+      html += '<span class="comment"># ' + step + '. Activate your license</span>\n';
       html += 'triton license activate --license-server ' + escapeHtml(serverURL) + ' --license-id ' + lic + '\n\n';
-      html += '<span class="comment"># 5. Verify installation</span>\n';
+      step++;
+      html += '<span class="comment"># ' + step + '. Verify installation</span>\n';
       html += 'triton --version\ntriton license show\n\n';
       html += '<span class="comment"># For comprehensive scans, grant Full Disk Access to your terminal:</span>\n';
       html += '<span class="comment"># System Settings > Privacy & Security > Full Disk Access</span>';
@@ -201,13 +242,23 @@
       html += '<div class="instructions-block">';
       html += '<h3>Linux Instructions</h3>';
       html += '<div class="code-block">';
-      html += '<span class="comment"># 1. Make the binary executable</span>\n';
+      var lstep = 1;
+      if (checksum) {
+        html += '<span class="comment"># ' + lstep + '. Verify the download (SHA3-256)</span>\n';
+        html += 'openssl dgst -sha3-256 triton\n';
+        html += '<span class="comment"># Expected: ' + escapeHtml(checksum) + '</span>\n\n';
+        lstep++;
+      }
+      html += '<span class="comment"># ' + lstep + '. Make the binary executable</span>\n';
       html += 'chmod +x triton\n\n';
-      html += '<span class="comment"># 2. Move to a directory in your PATH</span>\n';
+      lstep++;
+      html += '<span class="comment"># ' + lstep + '. Move to a directory in your PATH</span>\n';
       html += 'sudo mv triton /usr/local/bin/triton\n\n';
-      html += '<span class="comment"># 3. Activate your license</span>\n';
+      lstep++;
+      html += '<span class="comment"># ' + lstep + '. Activate your license</span>\n';
       html += 'triton license activate --license-server ' + escapeHtml(serverURL) + ' --license-id ' + lic + '\n\n';
-      html += '<span class="comment"># 4. Verify installation</span>\n';
+      lstep++;
+      html += '<span class="comment"># ' + lstep + '. Verify installation</span>\n';
       html += 'triton --version\ntriton license show\n\n';
       html += '<span class="comment"># For comprehensive scans, run with sudo:</span>\n';
       html += '<span class="comment"># sudo triton --profile comprehensive</span>';

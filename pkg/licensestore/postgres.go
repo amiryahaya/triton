@@ -14,7 +14,8 @@ import (
 
 // PostgresStore implements Store using PostgreSQL via pgx v5.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	schema string // non-empty when using an isolated test schema
 }
 
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
@@ -34,6 +35,50 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 	return s, nil
+}
+
+// NewPostgresStoreInSchema connects to PostgreSQL and creates an isolated schema
+// for test isolation. Each caller gets its own set of tables so parallel test
+// packages do not interfere with each other. Call DropSchema to clean up.
+func NewPostgresStoreInSchema(ctx context.Context, connStr, schema string) (*PostgresStore, error) {
+	// Connect with default search_path to create the schema.
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to postgresql: %w", err)
+	}
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("creating schema %s: %w", schema, err)
+	}
+	pool.Close()
+
+	// Reconnect with search_path set to the new schema.
+	cfg, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing connection string: %w", err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err = pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("connecting with schema %s: %w", schema, err)
+	}
+
+	s := &PostgresStore{pool: pool, schema: schema}
+	if err := s.migrate(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("running migrations in schema %s: %w", schema, err)
+	}
+	return s, nil
+}
+
+// DropSchema drops the isolated test schema and all its tables.
+// Only works when the store was created with NewPostgresStoreInSchema.
+func (s *PostgresStore) DropSchema(ctx context.Context) error {
+	if s.schema == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+s.schema+" CASCADE")
+	return err
 }
 
 // migrate applies any unapplied schema migrations.
@@ -111,7 +156,7 @@ func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, e
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, name, contact, notes, created_at, updated_at
-		 FROM organizations ORDER BY name`)
+		 FROM organizations ORDER BY name LIMIT 1000`)
 	if err != nil {
 		return nil, fmt.Errorf("listing organizations: %w", err)
 	}
@@ -234,7 +279,7 @@ func (s *PostgresStore) ListLicenses(ctx context.Context, filter LicenseFilter) 
 		query += " AND l.revoked = FALSE AND l.expires_at >= NOW()"
 	}
 
-	query += " ORDER BY l.created_at DESC"
+	query += " ORDER BY l.created_at DESC LIMIT 1000"
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -487,7 +532,7 @@ func (s *PostgresStore) ListActivations(ctx context.Context, filter ActivationFi
 		args = append(args, *filter.Active)
 	}
 
-	query += " ORDER BY activated_at DESC"
+	query += " ORDER BY activated_at DESC LIMIT 1000"
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -645,17 +690,8 @@ func (s *PostgresStore) DashboardStats(ctx context.Context) (*DashboardStats, er
 // --- Lifecycle ---
 
 func (s *PostgresStore) TruncateAll(ctx context.Context) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin truncate transaction: %w", err)
-	}
-	for _, table := range []string{"audit_log", "activations", "licenses", "organizations"} {
-		if _, err := tx.Exec(ctx, "DELETE FROM "+table); err != nil {
-			_ = tx.Rollback(ctx)
-			return err
-		}
-	}
-	return tx.Commit(ctx)
+	_, err := s.pool.Exec(ctx, "TRUNCATE organizations, licenses, activations, audit_log CASCADE")
+	return err
 }
 
 func (s *PostgresStore) Close() error {

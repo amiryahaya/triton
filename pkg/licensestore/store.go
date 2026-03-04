@@ -154,7 +154,7 @@ type ErrSeatsFull struct {
 }
 
 func (e *ErrSeatsFull) Error() string {
-	return fmt.Sprintf("all seats occupied for license %s (%d/%d)", e.LicenseID, e.Used, e.Seats)
+	return "all seats are occupied"
 }
 
 // ErrConflict is returned for constraint violations (e.g. org has licenses).

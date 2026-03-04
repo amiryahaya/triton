@@ -4,21 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Download Triton</title>
+<link rel="icon" href="logo.png" type="image/png">
 <link rel="stylesheet" href="download.css">
 </head>
 <body>
-<div class="container">
-  <div class="header">
+<div class="hero">
+  <div class="hero-content">
+    <img src="logo.png" alt="Triton" class="hero-logo">
     <h1>Triton</h1>
     <p class="subtitle">Enterprise SBOM/CBOM Scanner for PQC Compliance</p>
   </div>
+  <div class="hero-wave">
+    <svg viewBox="0 0 1440 40" preserveAspectRatio="none">
+      <path d="M0,20 C240,38 480,4 720,20 C960,36 1200,4 1440,20 L1440,40 L0,40Z"/>
+    </svg>
+  </div>
+</div>
+
+<div class="container main-content">
   <div id="app">
     <!-- Step 1: License -->
     <div id="step-license" class="step">
-      <h2>Step 1: Enter your License ID</h2>
+      <h2><span class="step-num">1</span> Enter your License ID</h2>
       <p>Your license ID was provided by your organization administrator.</p>
       <div class="input-group">
-        <input type="text" id="license-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off">
+        <label for="license-id" class="sr-only">License ID</label>
+        <input type="text" id="license-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off" maxlength="36">
         <button id="btn-continue" class="btn btn-primary">Continue</button>
       </div>
       <div id="license-error" class="error" hidden></div>
@@ -26,22 +37,24 @@
 
     <!-- Step 2: Platform -->
     <div id="step-platform" class="step" hidden>
-      <h2>Step 2: Choose your platform</h2>
-      <div id="platforms"></div>
+      <h2><span class="step-num">2</span> Choose your platform</h2>
+      <div id="platforms" aria-live="polite"></div>
       <p id="no-platforms" hidden>No binaries are available for download at this time.</p>
     </div>
 
     <!-- Step 3: Instructions -->
     <div id="step-instructions" class="step" hidden>
-      <h2>Step 3: Install & Activate</h2>
-      <div id="instructions"></div>
+      <h2><span class="step-num">3</span> Install &amp; Activate</h2>
+      <div id="instructions" aria-live="polite"></div>
     </div>
   </div>
+
   <div class="docs-section">
     <h2>Documentation</h2>
     <p><a href="USER_MANUAL.md" download class="btn btn-secondary">Download User Manual</a></p>
     <p class="docs-hint">Includes installation, permissions setup, scan profiles, report reading, licensing, and troubleshooting.</p>
   </div>
+
   <footer>
     <p>Need help? Contact your organization administrator.</p>
   </footer>

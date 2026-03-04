@@ -22,15 +22,18 @@ echo "[2/5] Setting up database..."
 # Generate a random DB password
 DB_PASS=$(openssl rand -hex 16)
 
-sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOSQL
+sudo -u postgres psql -v ON_ERROR_STOP=1 -v db_pass="$DB_PASS" <<'EOSQL'
 -- Create user if not exists
-DO \$\$
+DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'triton') THEN
-        CREATE ROLE triton WITH LOGIN PASSWORD '${DB_PASS}';
+        CREATE ROLE triton WITH LOGIN;
     END IF;
 END
-\$\$;
+$$;
+
+-- Set password using psql variable (avoids shell interpolation in SQL)
+ALTER ROLE triton WITH PASSWORD :'db_pass';
 
 -- Create database if not exists
 SELECT 'CREATE DATABASE triton_license OWNER triton'
@@ -87,8 +90,17 @@ fi
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Database password: ${DB_PASS}"
-echo "Database URL:      postgres://triton:${DB_PASS}@127.0.0.1:5432/triton_license?sslmode=disable"
+
+# Save credentials to a restricted file instead of printing to stdout.
+CREDS_FILE="/opt/triton/.db-credentials"
+cat > "$CREDS_FILE" <<EOF
+# Triton License Server Database Credentials
+# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+DB_PASS=${DB_PASS}
+DB_URL=postgres://triton:${DB_PASS}@127.0.0.1:5432/triton_license?sslmode=disable
+EOF
+chmod 600 "$CREDS_FILE"
+echo "Database credentials saved to ${CREDS_FILE} (mode 600)"
 echo ""
 echo "NEXT STEPS:"
 echo "  1. Edit /opt/triton/.env — set your ADMIN_KEY and SIGNING_KEY"
@@ -104,5 +116,3 @@ echo "     podman pull ghcr.io/amiryahaya/triton-license-server:latest"
 echo "     podman run -d --name triton-license-server --restart always \\"
 echo "       --env-file /opt/triton/.env -p 127.0.0.1:8081:8081 \\"
 echo "       ghcr.io/amiryahaya/triton-license-server:latest"
-echo ""
-echo "SAVE THIS — Database password will not be shown again: ${DB_PASS}"

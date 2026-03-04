@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -915,27 +916,35 @@ func TestUploadBinary_WindowsFilename(t *testing.T) {
 }
 
 func TestDownloadBinary_ExpiredLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	ctx := context.Background()
 
-	// Create org + license that expires immediately (use past expiresAt via short days).
+	// Create org via API.
 	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "ExpiredOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgResult["id"].(string)
 
-	// Use expiresAt in the past — API rejects this, so we use 1 day and rely on check.
-	// Actually we can't create an already-expired license via API. Instead, test the
-	// license-not-found path (which returns 401, same as expired from client perspective).
-	// The revoked test already covers the 403 path. Let's verify expired specifically
-	// by creating a license with days=1 — it won't be expired yet.
-	// For a true expired test, we'd need direct DB manipulation.
-	// Cover the general invalid license case instead.
-	_ = orgID
+	// Create an already-expired license directly via store (bypasses API validation).
+	expiredLic := &licensestore.LicenseRecord{
+		ID:        "expired-lic-id",
+		OrgID:     orgID,
+		Tier:      "pro",
+		Seats:     5,
+		IssuedAt:  time.Now().Add(-48 * time.Hour),
+		ExpiresAt: time.Now().Add(-24 * time.Hour), // expired yesterday
+		CreatedAt: time.Now().Add(-48 * time.Hour),
+	}
+	require.NoError(t, store.CreateLicense(ctx, expiredLic))
+
 	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
-	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=00000000-0000-0000-0000-000000000000", ts.URL))
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=expired-lic-id", ts.URL))
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, string(body), "license has expired")
 }
 
 func TestLatestVersion_SemverOrdering(t *testing.T) {

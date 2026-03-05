@@ -50,16 +50,8 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if lic.Revoked {
-		writeError(w, http.StatusForbidden, "license has been revoked")
-		return
-	}
-	if time.Now().After(lic.ExpiresAt) {
-		writeError(w, http.StatusForbidden, "license has expired")
-		return
-	}
-
-	// Sign a token for this machine
+	// Pre-sign a token for this machine.
+	// The store.Activate transaction is the authoritative check for revoked/expired/seats.
 	token, err := s.signToken(lic, req.MachineID)
 	if err != nil {
 		log.Printf("activate sign token error: %v", err)

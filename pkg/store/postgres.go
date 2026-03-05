@@ -47,16 +47,23 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		return fmt.Errorf("creating schema_version table: %w", err)
 	}
 
-	// Acquire advisory lock to prevent concurrent migrations.
-	if _, err := s.pool.Exec(ctx, "SELECT pg_advisory_lock(7355693421)"); err != nil {
+	// Acquire a dedicated connection for advisory lock to prevent concurrent migrations.
+	// Advisory locks are session-level — we must hold the same connection for lock + migrations.
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection for migration: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(7355693421)"); err != nil {
 		return fmt.Errorf("acquiring migration lock: %w", err)
 	}
 	defer func() {
-		_, _ = s.pool.Exec(ctx, "SELECT pg_advisory_unlock(7355693421)")
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock(7355693421)")
 	}()
 
 	var current int
-	err = s.pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&current)
+	err = conn.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&current)
 	if err != nil {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
@@ -64,7 +71,7 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 	for i := current; i < len(migrations); i++ {
 		version := i + 1
 
-		tx, err := s.pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin tx for migration %d: %w", version, err)
 		}

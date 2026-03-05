@@ -94,10 +94,15 @@ func TestError_ContextCancelMidScan(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	progressCh := make(chan scanner.Progress, 200)
 
-	// Cancel after a very short delay
+	// Cancel after the first progress event to ensure scan has started
 	go func() {
-		time.Sleep(5 * time.Millisecond)
+		select {
+		case <-progressCh:
+		case <-time.After(5 * time.Second):
+		}
 		cancel()
+		for range progressCh {
+		}
 	}()
 
 	result := eng.Scan(ctx, progressCh)

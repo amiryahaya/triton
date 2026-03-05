@@ -1,28 +1,42 @@
 .PHONY: build build-all build-licenseserver test test-integration test-all test-integration-race test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver
 
+# Variables (overridable)
+POSTGRES_USER       ?= triton
+POSTGRES_CONTAINER  ?= triton-db
+
 # Build for current platform
 build:
+	@mkdir -p bin
 	go build -o bin/triton main.go
 
 # Build license server binary
 build-licenseserver:
+	@mkdir -p bin
 	go build -o bin/triton-license-server cmd/licenseserver/main.go
 
 # Build for all platforms
 build-all:
+	@mkdir -p bin
 	GOOS=darwin GOARCH=amd64 go build -o bin/triton-darwin-amd64 main.go
 	GOOS=darwin GOARCH=arm64 go build -o bin/triton-darwin-arm64 main.go
 	GOOS=linux GOARCH=amd64 go build -o bin/triton-linux-amd64 main.go
 	GOOS=linux GOARCH=arm64 go build -o bin/triton-linux-arm64 main.go
 	GOOS=windows GOARCH=amd64 go build -o bin/triton-windows-amd64.exe main.go
+	# License server (server-only platforms)
+	GOOS=linux GOARCH=amd64 go build -o bin/triton-license-server-linux-amd64 cmd/licenseserver/main.go
+	GOOS=linux GOARCH=arm64 go build -o bin/triton-license-server-linux-arm64 cmd/licenseserver/main.go
 
 # Database lifecycle
 db-up:
 	podman compose up -d postgres
 	@echo "Waiting for PostgreSQL..."
-	@sleep 2
-	@podman exec triton-db psql -U triton -tc "SELECT 1 FROM pg_database WHERE datname='triton_test'" | grep -q 1 || \
-		podman exec triton-db psql -U triton -c "CREATE DATABASE triton_test"
+	@for i in $$(seq 1 30); do \
+		podman exec $(POSTGRES_CONTAINER) pg_isready -U $(POSTGRES_USER) -q 2>/dev/null && break; \
+		sleep 1; \
+	done
+	@podman exec $(POSTGRES_CONTAINER) psql -U $(POSTGRES_USER) -tc \
+		"SELECT 1 FROM pg_database WHERE datname='triton_test'" \
+		| grep -q 1 || podman exec $(POSTGRES_CONTAINER) psql -U $(POSTGRES_USER) -c "CREATE DATABASE triton_test"
 
 db-down:
 	podman compose down
@@ -31,8 +45,13 @@ db-reset:
 	podman compose down -v
 	podman compose up -d postgres
 	@echo "Waiting for PostgreSQL..."
-	@sleep 2
-	@podman exec triton-db psql -U triton -c "CREATE DATABASE triton_test"
+	@for i in $$(seq 1 30); do \
+		podman exec $(POSTGRES_CONTAINER) pg_isready -U $(POSTGRES_USER) -q 2>/dev/null && break; \
+		sleep 1; \
+	done
+	@podman exec $(POSTGRES_CONTAINER) psql -U $(POSTGRES_USER) -tc \
+		"SELECT 1 FROM pg_database WHERE datname='triton_test'" \
+		| grep -q 1 || podman exec $(POSTGRES_CONTAINER) psql -U $(POSTGRES_USER) -c "CREATE DATABASE triton_test"
 
 # Container lifecycle
 container-build:
@@ -54,13 +73,13 @@ container-run-licenseserver: container-build-licenseserver
 container-stop-licenseserver:
 	podman compose --profile license-server down
 
-# Run tests (requires PostgreSQL running; -p 1 serializes packages sharing DB)
-test: db-up
-	go test -v -p 1 ./...
+# Unit tests only — no database required
+test:
+	go test -v ./...
 
-# Integration tests (requires PostgreSQL)
+# Integration tests (requires PostgreSQL; -p 1 serializes packages sharing DB)
 test-integration: db-up
-	go test -v -tags integration -count=1 ./test/integration/...
+	go test -v -tags integration -count=1 -p 1 ./test/integration/...
 
 # Full suite: unit + integration (-p 1 serializes packages sharing DB)
 test-all: db-up
@@ -68,23 +87,25 @@ test-all: db-up
 
 # Integration with race detector
 test-integration-race: db-up
-	go test -v -tags integration -race -count=1 ./test/integration/...
+	go test -v -tags integration -race -count=1 -p 1 ./test/integration/...
 
 # Playwright E2E browser tests (requires PostgreSQL + Chromium)
-test-e2e: db-up
+test-e2e: db-up build
 	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test
 
 # Playwright E2E browser tests for license server admin UI
-test-e2e-license: db-up
+test-e2e-license: db-up build-licenseserver
 	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test --config=playwright.license.config.js
 
 # Clean build artifacts
 clean:
 	rm -rf bin/
+	rm -f coverage.out cover.out *.out
+	rm -rf test/e2e/test-results/
 
 # Install locally
 install:
-	go install
+	go install .
 
 # Run development version
 run:
@@ -100,7 +121,7 @@ lint:
 
 # Run benchmarks
 bench:
-	go test -bench=. -benchmem ./...
+	go test -bench=. -benchmem -run='^$$' ./...
 
 # Run go vet
 vet:

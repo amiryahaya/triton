@@ -1,3 +1,5 @@
+//go:build integration
+
 package licenseserver_test
 
 import (
@@ -630,10 +632,10 @@ func TestAdminAuth_EmptyKeys(t *testing.T) {
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		_ = store.DropSchema(ctx)
 		store.Close()
-	}()
+	})
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)

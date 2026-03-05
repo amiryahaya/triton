@@ -25,8 +25,8 @@ func main() {
 		priv,
 		license.TierEnterprise,
 		"Antrapolation",
-		10,  // seats
-		90,  // days
+		10,    // seats
+		90,    // days
 		false, // no machine binding
 	)
 	if err != nil {
@@ -42,7 +42,7 @@ func main() {
 	fmt.Println("║ Tier:           Enterprise                                 ║")
 	fmt.Println("║ Organization:   Antrapolation                              ║")
 	fmt.Println("║ Seats:          10                                         ║")
-	fmt.Printf( "║ Expires:        %-43s║\n", expiry.Format("2006-01-02"))
+	fmt.Printf("║ Expires:        %-43s║\n", expiry.Format("2006-01-02"))
 	fmt.Println("║ Machine Bound:  No (portable)                              ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
 	fmt.Println()

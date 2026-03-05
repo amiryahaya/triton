@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -81,7 +82,8 @@ func (m *NetworkModule) scanMacPorts(ctx context.Context, findings chan<- *model
 	cmd := exec.CommandContext(ctx, "lsof", "-i", "-P", "-n", "-sTCP:LISTEN")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil // Graceful degradation
+		log.Printf("warning: network scan degraded (lsof failed: %v) — results may be incomplete", err)
+		return nil
 	}
 	return m.parseLsofOutput(ctx, string(output), findings)
 }
@@ -101,6 +103,7 @@ func (m *NetworkModule) scanLinuxPorts(ctx context.Context, findings chan<- *mod
 		return m.parseLsofOutput(ctx, string(output), findings)
 	}
 
+	log.Printf("warning: network scan degraded (ss and lsof both failed) — results may be incomplete")
 	return nil
 }
 

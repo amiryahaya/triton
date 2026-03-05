@@ -183,10 +183,8 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	}
 
 	// Enhanced certificate chain validation (weak sig, expiry, SANs)
-	m.enhancedChainValidation(ctx, addr, state.PeerCertificates, findings)
-
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if err := m.enhancedChainValidation(ctx, addr, state.PeerCertificates, findings); err != nil {
+		return err
 	}
 
 	// Check revocation status via OCSP/CRL
@@ -326,7 +324,12 @@ func (m *ProtocolModule) probeVersionRange(ctx context.Context, addr string, fin
 		return
 	}
 
-	rangeStr := fmt.Sprintf("%s to %s", supported[0], supported[len(supported)-1])
+	var rangeStr string
+	if len(supported) == 1 {
+		rangeStr = supported[0]
+	} else {
+		rangeStr = fmt.Sprintf("%s to %s", supported[0], supported[len(supported)-1])
+	}
 	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
 		ID:        uuid.New().String(),
 		Function:  "TLS version range",
@@ -378,7 +381,7 @@ func (m *ProtocolModule) emitSupportedCipherFindings(ctx context.Context, addr s
 		algo := cipherSuiteAlgorithm(id)
 		kx, pfs := cipherSuiteKeyExchange(cipherName)
 
-		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 			ID:             uuid.New().String(),
 			Function:       "TLS supported cipher suite",
 			Algorithm:      algo,
@@ -386,7 +389,9 @@ func (m *ProtocolModule) emitSupportedCipherFindings(ctx context.Context, addr s
 			KeyExchange:    kx,
 			ForwardSecrecy: pfs,
 			Purpose:        fmt.Sprintf("Server supports %s", cipherName),
-		}, findings)
+		}, findings); err != nil {
+			return
+		}
 	}
 }
 
@@ -461,12 +466,12 @@ func (m *ProtocolModule) probeCipherPreference(ctx context.Context, addr string,
 
 // enhancedChainValidation inspects peer certificates for weak signatures,
 // upcoming expiry, and extracts SANs from the leaf certificate.
-func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr string, certs []*x509.Certificate, findings chan<- *model.Finding) {
+func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr string, certs []*x509.Certificate, findings chan<- *model.Finding) error {
 	chainLen := len(certs)
 	for i, cert := range certs {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		default:
 		}
 
@@ -474,7 +479,7 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 
 		// Weak signature algorithm detection
 		if isWeakSignatureAlgorithm(cert.SignatureAlgorithm) {
-			_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 				ID:            uuid.New().String(),
 				Function:      "Weak certificate signature algorithm",
 				Algorithm:     sigAlgoToPQCAlgorithm(cert.SignatureAlgorithm),
@@ -483,7 +488,9 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 				ChainPosition: position,
 				ChainDepth:    chainLen,
 				Purpose:       fmt.Sprintf("Certificate uses weak signature algorithm %s", cert.SignatureAlgorithm),
-			}, findings)
+			}, findings); err != nil {
+				return err
+			}
 		}
 
 		// Certificate expiry warning (within 30 days, but not yet expired)
@@ -491,7 +498,7 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 			daysRemaining := int(time.Until(cert.NotAfter).Hours() / 24)
 			if daysRemaining <= 30 {
 				notAfter := cert.NotAfter
-				_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+				if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 					ID:            uuid.New().String(),
 					Function:      "Certificate expiry warning",
 					Algorithm:     certAlgoName(cert),
@@ -500,7 +507,9 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 					ChainPosition: position,
 					ChainDepth:    chainLen,
 					Purpose:       fmt.Sprintf("Certificate expires in %d days", daysRemaining),
-				}, findings)
+				}, findings); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -511,7 +520,7 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 			for _, ip := range cert.IPAddresses {
 				sans = append(sans, ip.String())
 			}
-			_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
+			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 				ID:            uuid.New().String(),
 				Function:      "TLS certificate SANs",
 				Algorithm:     certAlgoName(cert),
@@ -520,9 +529,12 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 				ChainPosition: position,
 				ChainDepth:    chainLen,
 				Purpose:       fmt.Sprintf("Certificate has %d SANs", len(sans)),
-			}, findings)
+			}, findings); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // detectSessionResumption checks whether the server supports TLS session resumption.

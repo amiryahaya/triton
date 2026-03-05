@@ -1670,7 +1670,7 @@ func TestProbeVersionRange_TLS12Only(t *testing.T) {
 	for f := range findings {
 		if f.CryptoAsset != nil && f.CryptoAsset.Function == "TLS version range" {
 			hasVersionRange = true
-			assert.Equal(t, "TLS 1.2 to TLS 1.2", f.CryptoAsset.Library)
+			assert.Equal(t, "TLS 1.2", f.CryptoAsset.Library)
 			assert.Contains(t, f.CryptoAsset.Purpose, "TLS 1.2")
 			assert.NotContains(t, f.CryptoAsset.Purpose, "TLS 1.0")
 			assert.NotContains(t, f.CryptoAsset.Purpose, "TLS 1.1")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -99,7 +100,7 @@ func (s *Server) audit(r *http.Request, event, licenseID, orgID, machineID strin
 		MachineID: machineID,
 		Actor:     auditActor(r),
 		Details:   details,
-		IPAddress: r.RemoteAddr,
+		IPAddress: clientIP(r),
 	}
 	// Use context.WithoutCancel to prevent audit write from failing if the
 	// HTTP request context is cancelled (e.g., client disconnect or timeout).
@@ -107,6 +108,15 @@ func (s *Server) audit(r *http.Request, event, licenseID, orgID, machineID strin
 	if err := s.store.WriteAudit(auditCtx, entry); err != nil {
 		log.Printf("audit write error: %v", err)
 	}
+}
+
+// clientIP extracts the client IP address without port from the request.
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 // isNotFound checks if an error is a not-found error.

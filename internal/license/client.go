@@ -148,6 +148,7 @@ func (c *ServerClient) Validate(licenseID, token string) (*ValidateResponse, err
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("parsing response: %w", err)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body) // drain for connection reuse
 	return &result, nil
 }
 

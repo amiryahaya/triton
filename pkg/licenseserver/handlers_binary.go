@@ -2,6 +2,7 @@ package licenseserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -101,7 +102,8 @@ func (s *Server) handleUploadBinary(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBinaryUpload+1<<20) // extra 1MB for form fields
 
 	if err := r.ParseMultipartForm(maxBinaryUpload); err != nil {
-		if strings.Contains(err.Error(), "too large") {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds maximum upload size (50 MB)")
 			return
 		}

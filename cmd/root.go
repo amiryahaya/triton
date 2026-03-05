@@ -284,7 +284,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// Initialize store for incremental scanning and result persistence.
 	if cfg.DBUrl != "" {
-		db, err := store.NewPostgresStore(context.Background(), cfg.DBUrl)
+		dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer dbCancel()
+		db, err := store.NewPostgresStore(dbCtx, cfg.DBUrl)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to open database: %v\n", err)
 		} else {
@@ -302,6 +304,15 @@ func runScan(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	go eng.Scan(ctx, progressCh)
+
+	// Ensure the scan goroutine can always drain after cancel to prevent goroutine leak.
+	// The BubbleTea program stops reading on Ctrl+C, but the goroutine may still be
+	// sending to progressCh. Draining ensures it can exit.
+	defer func() {
+		cancel()
+		for range progressCh {
+		}
+	}()
 
 	sm := scanModel{
 		progress:   progress.New(progress.WithDefaultGradient()),

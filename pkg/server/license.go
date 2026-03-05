@@ -25,7 +25,7 @@ func LicenceGate(guard *license.Guard) func(http.Handler) http.Handler {
 
 			path := r.URL.Path
 			for prefix, feature := range featureGateMapping {
-				if strings.HasPrefix(path, prefix) {
+				if path == prefix || strings.HasPrefix(path, prefix+"/") {
 					if err := guard.EnforceFeature(feature); err != nil {
 						writeError(w, http.StatusForbidden, err.Error())
 						return

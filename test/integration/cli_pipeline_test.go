@@ -199,10 +199,15 @@ func TestCLI_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	progressCh := make(chan scanner.Progress, 100)
 
-	// Cancel almost immediately
+	// Cancel after the first progress event to ensure scan has started
 	go func() {
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-progressCh:
+		case <-time.After(5 * time.Second):
+		}
 		cancel()
+		for range progressCh {
+		}
 	}()
 
 	result := eng.Scan(ctx, progressCh)

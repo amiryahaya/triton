@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// validSchemaName validates that a schema name is safe for SQL use.
+var validSchemaName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // PostgresStore implements Store using PostgreSQL via pgx v5.
 type PostgresStore struct {
@@ -41,11 +45,16 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 // for test isolation. Each caller gets its own set of tables so parallel test
 // packages do not interfere with each other. Call DropSchema to clean up.
 func NewPostgresStoreInSchema(ctx context.Context, connStr, schema string) (*PostgresStore, error) {
+	if !validSchemaName.MatchString(schema) {
+		return nil, fmt.Errorf("invalid schema name: %q", schema)
+	}
+
 	// Connect with default search_path to create the schema.
 	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to postgresql: %w", err)
 	}
+	// Schema name is validated above against a strict alphanumeric pattern.
 	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("creating schema %s: %w", schema, err)
@@ -77,6 +86,10 @@ func (s *PostgresStore) DropSchema(ctx context.Context) error {
 	if s.schema == "" {
 		return nil
 	}
+	if !validSchemaName.MatchString(s.schema) {
+		return fmt.Errorf("invalid schema name: %q", s.schema)
+	}
+	// Schema name is validated above against a strict alphanumeric pattern.
 	_, err := s.pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+s.schema+" CASCADE")
 	return err
 }

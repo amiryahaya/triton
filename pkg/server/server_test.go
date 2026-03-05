@@ -1,3 +1,5 @@
+//go:build integration
+
 package server
 
 import (
@@ -954,12 +956,20 @@ func TestStartAndShutdown(t *testing.T) {
 		errCh <- srv.Start()
 	}()
 
-	// Give the server a moment to start
-	time.Sleep(50 * time.Millisecond)
+	// Poll the health endpoint to wait for server readiness instead of sleeping
+	var err error
+	for i := 0; i < 50; i++ {
+		time.Sleep(10 * time.Millisecond)
+		resp, httpErr := http.Get("http://" + srv.http.Addr + "/api/v1/health")
+		if httpErr == nil {
+			_ = resp.Body.Close()
+			break
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err := srv.Shutdown(ctx)
+	err = srv.Shutdown(ctx)
 	assert.NoError(t, err)
 
 	// Start should return http.ErrServerClosed

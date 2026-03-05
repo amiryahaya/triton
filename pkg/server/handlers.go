@@ -396,7 +396,8 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fullPath := tmpFile.Name()
-	_ = tmpFile.Close() // report generator opens the file itself
+	_ = tmpFile.Close()                        // report generator opens the file itself
+	defer func() { _ = os.Remove(fullPath) }() // clean up temp file on all paths
 	gen := report.New(filepath.Dir(fullPath))
 
 	switch format {
@@ -416,8 +417,6 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() { _ = os.Remove(fullPath) }() // clean up temp file
-
 	f, openErr := os.Open(fullPath)
 	if openErr != nil {
 		log.Printf("read report error: %v", openErr)
@@ -426,7 +425,7 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = f.Close() }()
 
-	filename := filepath.Base(fullPath)
+	filename := fmt.Sprintf("triton-report-%s%s", id, ext)
 	switch format {
 	case "html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

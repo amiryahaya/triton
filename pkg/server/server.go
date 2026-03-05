@@ -71,7 +71,8 @@ func New(cfg *Config, s store.Store) *Server {
 		srv.registerAPIRoutes(r)
 	})
 
-	// Health check (no auth).
+	// Health check — intentionally outside the auth group so it remains public.
+	// It returns no sensitive data (only {"status":"ok"}).
 	r.Get("/api/v1/health", srv.handleHealth)
 
 	// Serve embedded web UI.

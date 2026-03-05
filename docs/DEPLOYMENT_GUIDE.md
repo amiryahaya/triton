@@ -471,7 +471,7 @@ Server and agent modes require an **enterprise** licence. For full details on ge
 2. `TRITON_LICENSE_KEY` environment variable
 3. `~/.triton/license.key` file
 
-**Machine binding:** Tokens are bound to a machine fingerprint by default (`SHA-256(hostname|GOOS|GOARCH)`). A token used on a different machine degrades to free tier. Use `--no-bind` when issuing tokens to create portable (unbound) tokens.
+**Machine binding:** Tokens are bound to a machine fingerprint by default (`SHA-3-256(hostname|GOOS|GOARCH)`). A token used on a different machine degrades to free tier. Use `--no-bind` when issuing tokens to create portable (unbound) tokens.
 
 **Graceful degradation:** Invalid, expired, or machine-mismatched tokens never block Triton — they fall back to free tier. Free tier does not support server or agent modes.
 

@@ -11,7 +11,7 @@ Triton is an enterprise-grade Go CLI + server tool that scans systems for crypto
 ```bash
 make build                  # Build for current platform → bin/triton
 make build-all              # Cross-compile (macOS/Linux/Windows, amd64/arm64)
-make test                   # Run unit tests only (go test -v -p 1 ./...)
+make test                   # Run unit tests only (go test -v ./...)
 make test-integration       # Run integration tests (requires PostgreSQL)
 make test-all               # Run unit + integration tests
 make test-integration-race  # Integration tests with race detector
@@ -125,10 +125,11 @@ The project follows TDD (Red → Green → Refactor). Coverage target is >80%. S
 
 ### Integration tests
 
-Build-tagged with `//go:build integration` — 80 tests in `test/integration/` across 9 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, licence tier enforcement, and license server workflows. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
+Build-tagged with `//go:build integration` — 111 tests in `test/integration/` across 10 files covering CLI pipelines, server workflows, agent-server communication, cross-package interactions, concurrent stress, error paths, licence tier enforcement, license server workflows, and license flow lifecycle. Unit tests (`make test`) exclude integration tests; use `make test-integration` or `make test-all` to include them.
 
 - **`license_tier_test.go`** (19 tests) — Keygen→inject→validate→enforce flow for free/pro/enterprise tiers, expired/tampered/wrong-key degradation, real scan pipelines with report generation gated by licence tier, Pro tier allowed-formats validation, server middleware route blocking (diff/trend/report format), FilterConfig DB URL clearing, and machine-bound token degradation through full pipeline
-- **`license_server_test.go`** (13 tests) — Full lifecycle (activate→validate→deactivate), seat limits, revocation, reactivation, concurrent activation (race), admin CRUD, audit trail, Guard online validation, offline fallback (fresh/stale cache), backward compat (offline token), expired license, health check
+- **`license_server_test.go`** (33 tests) — Full lifecycle (activate→validate→deactivate), seat limits, revocation, reactivation, concurrent activation (race), admin CRUD, audit trail, Guard online validation, offline fallback (fresh/stale cache), backward compat (offline token), expired license, health check
+- **`license_flow_test.go`** (11 tests) — End-to-end license activation flows, server-client integration, token lifecycle management
 
 ### E2E browser tests
 
@@ -145,12 +146,12 @@ Run with `make test-e2e` (requires PostgreSQL running + Chromium installed via P
 
 #### License server admin UI E2E tests
 
-10 Playwright tests in `test/e2e/license-admin.spec.js` validate the license server admin web UI (`pkg/licenseserver/ui/dist/`) against a live PostgreSQL-backed license server.
+22 Playwright tests in `test/e2e/license-admin.spec.js` validate the license server admin web UI (`pkg/licenseserver/ui/dist/`) against a live PostgreSQL-backed license server.
 
 - **Test server:** `test/e2e/cmd/testlicenseserver/main.go` — Lightweight license server with ephemeral Ed25519 keypair, admin key `e2e-test-key`
 - **Global setup:** `test/e2e/license-global-setup.js` — Seeds 2 orgs, 2 licenses, 1 activation
 - **Config:** `test/e2e/playwright.license.config.js` — Separate Playwright config (baseURL `:8081`)
-- **`license-admin.spec.js`** (10 tests) — Auth prompt, dashboard stats, org CRUD, license listing, license detail, activations, audit log, navigation
+- **`license-admin.spec.js`** (22 tests) — Auth prompt, dashboard stats, org CRUD, license listing, license detail, activations, audit log, navigation
 
 Run with `make test-e2e-license` (requires PostgreSQL running + Chromium installed via Playwright).
 
@@ -174,4 +175,4 @@ Run with `make test-e2e-license` (requires PostgreSQL running + Chromium install
 
 ## Go Version
 
-Requires Go 1.21+ (`go.mod`).
+Requires Go 1.25+ (`go.mod`).

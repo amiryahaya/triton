@@ -673,12 +673,12 @@ Where:
 
 | Format | File | Description |
 |--------|------|-------------|
-| Jadual 1 CSV (SBOM) | `pkg/report/jadual.go` | Malaysian government system-level inventory |
-| Jadual 2 CSV (CBOM) | `pkg/report/jadual.go` | Malaysian government crypto-asset inventory |
+| Jadual 1 CSV (SBOM) | `pkg/report/excel.go` | Malaysian government system-level inventory |
+| Jadual 2 CSV (CBOM) | `pkg/report/excel.go` | Malaysian government crypto-asset inventory |
 | CycloneDX CBOM v1.7 | `pkg/report/cyclonedx.go` | Standard CBOM with crypto object modeling, NIST quantum levels |
 | HTML Dashboard | `pkg/report/generator.go` | PQC dashboard with CAMM scoring, per-system policy results |
 | SARIF | `pkg/report/sarif.go` | Static Analysis Results Interchange Format for CI/CD |
-| JSON | `pkg/report/json.go` | Triton native schema export |
+| JSON | `pkg/report/generator.go` | Triton native schema export |
 
 ### 8.1 Jadual 1 (SBOM) — System Level
 
@@ -1026,7 +1026,7 @@ triton/
 │   │   ├── oid.go                   # ASN.1 OID → algorithm mapping (ML-KEM, ML-DSA, SLH-DSA, FN-DSA)
 │   │   ├── camm.go                  # CAMM Level 0-3 auto-assessment
 │   │   ├── agility.go               # Crypto-agility assessment
-│   │   └── rules.go                 # Detection pattern registry
+│   │   └── library_version.go        # Library version tracking
 │   ├── policy/
 │   │   ├── policy.go                # Policy types (rules, conditions, thresholds)
 │   │   ├── engine.go                # Policy evaluation engine (per-system + aggregate)
@@ -1034,7 +1034,7 @@ triton/
 │   ├── diff/
 │   │   └── diff.go                  # Scan diff/trend analysis
 │   ├── store/
-│   │   ├── store.go                 # Store interface (8 methods)
+│   │   ├── store.go                 # Store interface (9 methods)
 │   │   └── postgres.go              # PostgreSQL implementation (pgx v5)
 │   ├── server/
 │   │   ├── server.go                # REST API server (go-chi/chi/v5)
@@ -1044,10 +1044,9 @@ triton/
 │   └── report/
 │       ├── generator.go             # HTML report with PQC dashboard + per-system policy
 │       ├── cyclonedx.go             # CycloneDX CBOM v1.7 with crypto objects
-│       ├── jadual.go                # Jadual 1 (SBOM) + Jadual 2 (CBOM) CSV
+│       ├── excel.go                 # Jadual 1 (SBOM) + Jadual 2 (CBOM) Excel
 │       ├── grouper.go               # Finding → System grouper
-│       ├── sarif.go                 # SARIF output for CI/CD
-│       └── json.go                  # Triton JSON schema export
+│       └── sarif.go                 # SARIF output for CI/CD
 ├── test/
 │   └── fixtures/                    # Test data (certs, keys, scripts, etc.)
 ├── docs/

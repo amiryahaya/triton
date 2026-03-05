@@ -4,7 +4,7 @@
 
 **Version:** 4.0
 **Methodology:** Test-Driven Development (TDD) + Code Review + QA Gates
-**Language:** Go 1.24+
+**Language:** Go 1.25+
 **Go Quick Reference:** See `docs/GO_QUICK_REFERENCE.md`
 
 ### Release Milestones
@@ -13,7 +13,7 @@
 |-----------|--------|---------|--------|---------|
 | **MVP** | 1-5 | v0.1.0 | **Released** | Technical demo, partner buy-in — all 9 scan categories, Jadual 1 & 2, CI/CD |
 | **NACSA-Ready** | 6-7 | v1.0 | **Released** | Official NACSA assessments — CycloneDX CBOM, CNSA 2.0, PQC detection, doctor |
-| **Enterprise** | 8-10 | v2.0 | **Released** | Client-server, PostgreSQL, policy engine, web UI, 18 scanner modules |
+| **Enterprise** | 8-10 | v2.0 | **Released** | Client-server, PostgreSQL, policy engine, web UI, 19 scanner modules |
 | **Standards** | 11 | v2.1 | **Released** | FN-DSA (FIPS 206), CAMM Level 3, per-system policy evaluation |
 | **Reachability** | 12 | v2.2 | **Released** | Dependency crypto reachability scanner, false positive reduction |
 | **Licensing** | 9.1 | v2.3 | **Released** | Ed25519-signed licence keys, 3-tier feature gating (free/pro/enterprise) |
@@ -56,7 +56,7 @@
 | Binary size | < 50MB |
 | False positive rate | < 5% |
 | Test coverage | > 80% |
-| Scanning categories | 9 of 9 (18 scanner modules) |
+| Scanning categories | 9 of 9 (19 scanner modules) |
 | Government format compliance | Jadual 1 + Jadual 2 exact match |
 
 ---
@@ -671,7 +671,7 @@ Key deadlines driving implementation priority:
 - [x] PostgreSQL storage with pgx/v5
 - [x] Policy engine with YAML rules and builtin policies
 - [x] Web UI dashboard with Chart.js
-- [x] 18 scanner modules across 6 target types
+- [x] 19 scanner modules across 6 target types
 - [x] HSM scanning, database encryption auditing
 - [x] LDAP scanning, code signing verification
 - [x] Scan diff/trend analysis

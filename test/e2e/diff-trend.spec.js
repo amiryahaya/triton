@@ -23,9 +23,13 @@ test.describe('Diff', () => {
     // Wait for diff result to load
     await page.waitForSelector('#diffResult .card-grid', { timeout: 10_000 });
 
-    // Should show Added/Removed/Changed cards
+    // Should show Added/Removed/Changed cards with numeric values
     const resultCards = page.locator('#diffResult .card');
     await expect(resultCards).toHaveCount(3);
+    for (let i = 0; i < 3; i++) {
+      const value = await resultCards.nth(i).locator('.value').textContent();
+      expect(parseInt(value)).toBeGreaterThanOrEqual(0);
+    }
   });
 
   test('empty scan IDs shows error', async ({ page }) => {

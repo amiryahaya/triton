@@ -45,5 +45,8 @@ test.describe('Navigation', () => {
     // Server returns 302 redirect to /ui/index.html; goto follows automatically
     await page.goto('/');
     await expect(page).toHaveURL(/\/ui\//);
+    // Verify the dashboard actually loads
+    await page.waitForSelector('.card-grid', { timeout: 10_000 });
+    await expect(page.locator('.card-grid')).toBeVisible();
   });
 });

@@ -42,6 +42,7 @@ test.describe('Dashboard', () => {
     const labels = page.locator('.stat-card .label');
     await expect(labels.nth(0)).toHaveText('Organizations');
     await expect(labels.nth(1)).toHaveText('Total Licenses');
+    await expect(labels.nth(2)).toHaveText('Active Licenses');
     await expect(labels.nth(3)).toHaveText('Active Seats');
   });
 
@@ -90,8 +91,8 @@ test.describe('Licenses', () => {
     expect(count).toBeGreaterThanOrEqual(2);
 
     // Verify tier badges (use .first() since later tests may create additional licenses)
-    await expect(page.locator('text=pro').first()).toBeVisible();
-    await expect(page.locator('text=enterprise').first()).toBeVisible();
+    await expect(page.locator('.tier-badge.tier-pro').first()).toBeVisible();
+    await expect(page.locator('.tier-badge.tier-enterprise').first()).toBeVisible();
   });
 
   test('license detail page shows activations', async ({ page }) => {
@@ -122,8 +123,8 @@ test.describe('Audit Log', () => {
     await page.waitForSelector('table', { timeout: 10_000 });
     const rows = page.locator('table tbody tr');
     const count = await rows.count();
-    // Global setup creates 2 orgs + 2 licenses + 1 activation = at least 5 audit entries
-    expect(count).toBeGreaterThanOrEqual(5);
+    // Global setup creates 3 orgs + 2 licenses + 1 activation = at least 6 audit entries
+    expect(count).toBeGreaterThanOrEqual(6);
 
     // Verify event types present (use .first() since multiple rows may match)
     await expect(page.locator('text=org_create').first()).toBeVisible();
@@ -194,12 +195,14 @@ test.describe('Organization Mutations', () => {
     });
 
     const acmeRow = page.locator('tr', { hasText: 'Acme Corp' });
+    // Set up response listener BEFORE clicking
+    const deleteResponse = page.waitForResponse(
+      (resp) => resp.url().includes('/api/v1/admin/orgs/') && resp.request().method() === 'DELETE',
+    );
     await acmeRow.locator('[data-delete-org]').click();
+    await deleteResponse;
 
-    // Wait for page to refresh after the delete attempt
-    await page.waitForTimeout(1_000);
-
-    // Acme Corp should still be visible (FK constraint prevents deletion)
+    // Acme Corp should still be visible
     await expect(page.locator('text=Acme Corp')).toBeVisible();
     const afterCount = await page.locator('table tbody tr').count();
     expect(afterCount).toBe(initialCount);

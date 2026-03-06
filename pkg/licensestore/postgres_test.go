@@ -515,3 +515,246 @@ func TestActivate_LicenseNotFound(t *testing.T) {
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
 }
+
+// --- User tests ---
+
+func makeUser(t *testing.T, orgID string) *licensestore.User {
+	t.Helper()
+	return &licensestore.User{
+		ID:       uuid.Must(uuid.NewV7()).String(),
+		OrgID:    orgID,
+		Email:    fmt.Sprintf("user-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8]),
+		Name:     "Test User",
+		Role:     "org_user",
+		Password: "$2a$10$fakebcrypthashfortesting000000000000000000000000000000",
+	}
+}
+
+func TestCreateUser(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	got, err := s.GetUser(ctx, user.ID)
+	require.NoError(t, err)
+	assert.Equal(t, user.Email, got.Email)
+	assert.Equal(t, user.Role, got.Role)
+	assert.Equal(t, org.ID, got.OrgID)
+	assert.Equal(t, org.Name, got.OrgName)
+}
+
+func TestGetUserByEmail(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	got, err := s.GetUserByEmail(ctx, user.Email)
+	require.NoError(t, err)
+	assert.Equal(t, user.ID, got.ID)
+	assert.Equal(t, org.ID, got.OrgID)
+}
+
+func TestCreateUserDuplicateEmail(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	email := fmt.Sprintf("dup-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	u1 := &licensestore.User{
+		ID: uuid.Must(uuid.NewV7()).String(), OrgID: org.ID,
+		Email: email, Name: "A", Role: "org_user", Password: "x",
+	}
+	require.NoError(t, s.CreateUser(ctx, u1))
+
+	u2 := &licensestore.User{
+		ID: uuid.Must(uuid.NewV7()).String(), OrgID: org.ID,
+		Email: email, Name: "B", Role: "org_user", Password: "y",
+	}
+	err := s.CreateUser(ctx, u2)
+	require.Error(t, err)
+	var conflict *licensestore.ErrConflict
+	assert.ErrorAs(t, err, &conflict)
+}
+
+func TestPlatformAdminNoOrg(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	user := &licensestore.User{
+		ID:       uuid.Must(uuid.NewV7()).String(),
+		Email:    fmt.Sprintf("admin-%s@platform.com", uuid.Must(uuid.NewV7()).String()[:8]),
+		Name:     "Platform Admin",
+		Role:     "platform_admin",
+		Password: "$2a$10$fakehash",
+	}
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	got, err := s.GetUser(ctx, user.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.OrgID)
+	assert.Equal(t, "platform_admin", got.Role)
+}
+
+func TestListUsersFilterByOrg(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org1 := makeOrg(t)
+	org2 := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org1))
+	require.NoError(t, s.CreateOrg(ctx, org2))
+
+	for i, orgID := range []string{org1.ID, org1.ID, org2.ID} {
+		u := &licensestore.User{
+			ID:       uuid.Must(uuid.NewV7()).String(),
+			OrgID:    orgID,
+			Email:    fmt.Sprintf("filter-%d-%s@test.com", i, uuid.Must(uuid.NewV7()).String()[:8]),
+			Name:     fmt.Sprintf("U%d", i),
+			Role:     "org_user",
+			Password: "x",
+		}
+		require.NoError(t, s.CreateUser(ctx, u))
+	}
+
+	users, err := s.ListUsers(ctx, licensestore.UserFilter{OrgID: org1.ID})
+	require.NoError(t, err)
+	assert.Len(t, users, 2)
+}
+
+func TestUpdateUser(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	user.Name = "Updated Name"
+	user.Role = "org_admin"
+	require.NoError(t, s.UpdateUser(ctx, user))
+
+	got, err := s.GetUser(ctx, user.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Name", got.Name)
+	assert.Equal(t, "org_admin", got.Role)
+}
+
+func TestDeleteUser(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+	require.NoError(t, s.DeleteUser(ctx, user.ID))
+
+	_, err := s.GetUser(ctx, user.ID)
+	var nf *licensestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf)
+}
+
+func TestCountUsers(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	count, err := s.CountUsers(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	require.NoError(t, s.CreateUser(ctx, makeUser(t, org.ID)))
+
+	count, err = s.CountUsers(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+}
+
+// --- Session tests ---
+
+func TestCreateAndGetSession(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	sess := &licensestore.Session{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		UserID:    user.ID,
+		TokenHash: "hash-" + uuid.Must(uuid.NewV7()).String(),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	got, err := s.GetSessionByHash(ctx, sess.TokenHash)
+	require.NoError(t, err)
+	assert.Equal(t, user.ID, got.UserID)
+	assert.Equal(t, sess.ID, got.ID)
+}
+
+func TestDeleteExpiredSessions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	expired := &licensestore.Session{
+		ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID,
+		TokenHash: "expired-" + uuid.Must(uuid.NewV7()).String(),
+		ExpiresAt: time.Now().Add(-1 * time.Hour),
+	}
+	active := &licensestore.Session{
+		ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID,
+		TokenHash: "active-" + uuid.Must(uuid.NewV7()).String(),
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+	require.NoError(t, s.CreateSession(ctx, expired))
+	require.NoError(t, s.CreateSession(ctx, active))
+
+	require.NoError(t, s.DeleteExpiredSessions(ctx))
+
+	_, err := s.GetSessionByHash(ctx, expired.TokenHash)
+	var nf *licensestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf)
+
+	got, err := s.GetSessionByHash(ctx, active.TokenHash)
+	require.NoError(t, err)
+	assert.Equal(t, user.ID, got.UserID)
+}
+
+func TestDeleteUserCascadesSessions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	sess := &licensestore.Session{
+		ID: uuid.Must(uuid.NewV7()).String(), UserID: user.ID,
+		TokenHash: "cascade-" + uuid.Must(uuid.NewV7()).String(),
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	// Delete user should cascade to sessions
+	require.NoError(t, s.DeleteUser(ctx, user.ID))
+
+	_, err := s.GetSessionByHash(ctx, sess.TokenHash)
+	var nf *licensestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf)
+}

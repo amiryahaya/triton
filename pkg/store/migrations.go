@@ -27,4 +27,8 @@ var migrations = []string{
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_file_hashes_scanned_at ON file_hashes(scanned_at);`,
+
+	// Version 2: Migrate scan ID from TEXT to native UUID (UUIDv7)
+	`TRUNCATE TABLE scans;
+	ALTER TABLE scans ALTER COLUMN id TYPE UUID USING id::uuid;`,
 }

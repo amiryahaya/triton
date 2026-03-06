@@ -110,7 +110,7 @@ func (m *CertStoreModule) parsePEMCerts(ctx context.Context, pemData []byte, fin
 		notAfter := cert.NotAfter
 
 		asset := &model.CryptoAsset{
-			ID:           uuid.New().String(),
+			ID:           uuid.Must(uuid.NewV7()).String(),
 			Function:     "OS certificate store",
 			Algorithm:    algoName,
 			KeySize:      keySize,
@@ -125,7 +125,7 @@ func (m *CertStoreModule) parsePEMCerts(ctx context.Context, pemData []byte, fin
 		crypto.ClassifyCryptoAsset(asset)
 
 		finding := &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 2, // Certificates
 			Source: model.FindingSource{
 				Type:            "file",

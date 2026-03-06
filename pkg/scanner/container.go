@@ -176,7 +176,7 @@ func (m *ContainerModule) processContainerFile(ctx context.Context, path string,
 			}
 
 			asset := &model.CryptoAsset{
-				ID:        uuid.New().String(),
+				ID:        uuid.Must(uuid.NewV7()).String(),
 				Function:  "Container configuration",
 				Algorithm: algo,
 				Purpose:   strings.TrimSpace(matches[0]),
@@ -184,7 +184,7 @@ func (m *ContainerModule) processContainerFile(ctx context.Context, path string,
 			crypto.ClassifyCryptoAsset(asset)
 
 			finding := &model.Finding{
-				ID:       uuid.New().String(),
+				ID:       uuid.Must(uuid.NewV7()).String(),
 				Category: 8, // Container/configuration
 				Source: model.FindingSource{
 					Type:            "file",

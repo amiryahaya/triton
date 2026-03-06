@@ -243,7 +243,7 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 		seen[algo] = true
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  wp.Function,
 			Algorithm: algo,
 			Purpose:   "Crypto usage in application source",
@@ -251,7 +251,7 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "file",

@@ -192,7 +192,7 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 	algoWithSize := m.buildCertAlgorithmName(cert, keySize)
 
 	asset := &model.CryptoAsset{
-		ID:           uuid.New().String(),
+		ID:           uuid.Must(uuid.NewV7()).String(),
 		Function:     "Certificate authentication",
 		Algorithm:    algoWithSize,
 		KeySize:      keySize,
@@ -213,7 +213,7 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 	crypto.ClassifyCryptoAsset(asset)
 
 	return &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5, // Certificate scanning
 		Source: model.FindingSource{
 			Type: "file",
@@ -230,7 +230,7 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 // where we detect the file type but can't parse the contents.
 func (m *CertificateModule) createContainerFinding(path, containerType string) *model.Finding {
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  containerType + " keystore",
 		Algorithm: "Unknown",
 		Purpose:   "Certificate/key container",
@@ -238,7 +238,7 @@ func (m *CertificateModule) createContainerFinding(path, containerType string) *
 	crypto.ClassifyCryptoAsset(asset)
 
 	return &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5,
 		Source: model.FindingSource{
 			Type: "file",

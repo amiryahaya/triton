@@ -116,7 +116,7 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 
 	hostname, _ := os.Hostname()
 	result := &model.ScanResult{
-		ID: uuid.New().String(),
+		ID: uuid.Must(uuid.NewV7()).String(),
 		Metadata: model.ScanMetadata{
 			Timestamp:   start,
 			Hostname:    hostname,

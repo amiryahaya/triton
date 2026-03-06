@@ -91,7 +91,7 @@ func (g *Generator) GenerateCycloneDXBOM(result *model.ScanResult, filename stri
 	bom := CDXBom{
 		BomFormat:    "CycloneDX",
 		SpecVersion:  "1.7",
-		SerialNumber: "urn:uuid:" + uuid.New().String(),
+		SerialNumber: "urn:uuid:" + uuid.Must(uuid.NewV7()).String(),
 		Version:      1,
 		Metadata: CDXMetadata{
 			Timestamp: time.Now().Format(time.RFC3339),

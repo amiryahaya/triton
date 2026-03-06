@@ -22,7 +22,7 @@ func IssueToken(privKey ed25519.PrivateKey, tier Tier, org string, seats, days i
 func IssueTokenWithOptions(privKey ed25519.PrivateKey, tier Tier, org string, seats, days int, bind bool) (string, error) {
 	now := time.Now()
 	lic := &License{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Tier:      tier,
 		Org:       org,
 		Seats:     seats,

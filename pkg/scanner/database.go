@@ -309,7 +309,7 @@ func (m *DatabaseModule) parsePostgresSettings(output, endpoint string) []*model
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  function,
 			Algorithm: algo,
 			Purpose:   fmt.Sprintf("PostgreSQL %s setting", name),
@@ -319,7 +319,7 @@ func (m *DatabaseModule) parsePostgresSettings(output, endpoint string) []*model
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -370,7 +370,7 @@ func (m *DatabaseModule) parsePostgresExtensions(output, endpoint string) []*mod
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  function,
 			Algorithm: algo,
 			Purpose:   "Database encryption extension",
@@ -380,7 +380,7 @@ func (m *DatabaseModule) parsePostgresExtensions(output, endpoint string) []*mod
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -425,7 +425,7 @@ func (m *DatabaseModule) parsePostgresSSLStatus(output, endpoint string) []*mode
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "Active TLS connection cipher",
 			Algorithm: cipher,
 			KeySize:   bits,
@@ -436,7 +436,7 @@ func (m *DatabaseModule) parsePostgresSSLStatus(output, endpoint string) []*mode
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -525,7 +525,7 @@ func (m *DatabaseModule) parseMySQLVariables(output, endpoint string) []*model.F
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  info.function,
 			Algorithm: algo,
 			Purpose:   fmt.Sprintf("MySQL %s", varName),
@@ -535,7 +535,7 @@ func (m *DatabaseModule) parseMySQLVariables(output, endpoint string) []*model.F
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -575,7 +575,7 @@ func (m *DatabaseModule) parseMySQLTablespaces(output, endpoint string) []*model
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "InnoDB tablespace encryption",
 			Algorithm: "AES",
 			Purpose:   fmt.Sprintf("Encrypted tablespace: %s", tablespace),
@@ -585,7 +585,7 @@ func (m *DatabaseModule) parseMySQLTablespaces(output, endpoint string) []*model
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -642,7 +642,7 @@ func (m *DatabaseModule) parseSQLServerTDE(output, endpoint string) []*model.Fin
 		algo := normalizeSQLServerAlgo(keyAlgo)
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "TDE encryption",
 			Algorithm: algo,
 			KeySize:   keyLength,
@@ -653,7 +653,7 @@ func (m *DatabaseModule) parseSQLServerTDE(output, endpoint string) []*model.Fin
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -716,7 +716,7 @@ func (m *DatabaseModule) parseOracleWallet(output, endpoint string) []*model.Fin
 		status := parts[1]
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "Oracle TDE wallet",
 			Algorithm: "AES",
 			Purpose:   fmt.Sprintf("TDE wallet at %s (status: %s)", walletPath, status),
@@ -726,7 +726,7 @@ func (m *DatabaseModule) parseOracleWallet(output, endpoint string) []*model.Fin
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -769,7 +769,7 @@ func (m *DatabaseModule) parseOracleEncryptedColumns(output, endpoint string) []
 		algo, keySize := parseOracleAlgo(encAlgo)
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "Column-level encryption",
 			Algorithm: algo,
 			KeySize:   keySize,
@@ -780,7 +780,7 @@ func (m *DatabaseModule) parseOracleEncryptedColumns(output, endpoint string) []
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -850,7 +850,7 @@ func (m *DatabaseModule) parsePostgresConfigFile(content, endpoint string) []*mo
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  function,
 			Algorithm: algo,
 			Purpose:   fmt.Sprintf("PostgreSQL config: %s = %s", name, value),
@@ -860,7 +860,7 @@ func (m *DatabaseModule) parsePostgresConfigFile(content, endpoint string) []*mo
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",
@@ -933,7 +933,7 @@ func (m *DatabaseModule) parseMySQLConfigFile(content, endpoint string) []*model
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  function,
 			Algorithm: algo,
 			Purpose:   fmt.Sprintf("MySQL config: %s = %s", name, value),
@@ -943,7 +943,7 @@ func (m *DatabaseModule) parseMySQLConfigFile(content, endpoint string) []*model
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 7,
 			Source: model.FindingSource{
 				Type:            "database",

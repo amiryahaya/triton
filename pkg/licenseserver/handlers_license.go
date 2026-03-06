@@ -90,7 +90,7 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lic := &licensestore.LicenseRecord{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		OrgID:     req.OrgID,
 		Tier:      req.Tier,
 		Seats:     req.Seats,

@@ -157,7 +157,7 @@ func (m *KeyModule) parseKeyFile(path string) (*model.Finding, error) {
 	}
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  keyType,
 		Algorithm: algorithm,
 		KeySize:   keySize,
@@ -165,7 +165,7 @@ func (m *KeyModule) parseKeyFile(path string) (*model.Finding, error) {
 	crypto.ClassifyCryptoAsset(asset)
 
 	return &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5,
 		Source: model.FindingSource{
 			Type: "file",

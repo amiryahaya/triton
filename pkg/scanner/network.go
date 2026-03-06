@@ -148,7 +148,7 @@ func (m *NetworkModule) parseLsofOutput(ctx context.Context, output string, find
 		endpoint := fmt.Sprintf(":%d/%s", port, strings.ToLower(protocol))
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  fmt.Sprintf("%s service on port %d", algo, port),
 			Algorithm: algo,
 			Purpose:   "Network service using cryptographic protocol",
@@ -157,7 +157,7 @@ func (m *NetworkModule) parseLsofOutput(ctx context.Context, output string, find
 
 		select {
 		case findings <- &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 8,
 			Source: model.FindingSource{
 				Type:     "network",
@@ -212,7 +212,7 @@ func (m *NetworkModule) parseSSOutput(ctx context.Context, output string, findin
 		endpoint := fmt.Sprintf(":%d/tcp", port)
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  fmt.Sprintf("%s service on port %d", algo, port),
 			Algorithm: algo,
 			Purpose:   "Network service using cryptographic protocol",
@@ -221,7 +221,7 @@ func (m *NetworkModule) parseSSOutput(ctx context.Context, output string, findin
 
 		select {
 		case findings <- &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 8,
 			Source: model.FindingSource{
 				Type:     "network",

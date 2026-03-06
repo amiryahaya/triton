@@ -152,7 +152,7 @@ func (m *LibraryModule) createLibraryFinding(path string) *model.Finding {
 	}
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "Cryptographic library",
 		Algorithm: algorithm,
 		Library:   libName,
@@ -169,7 +169,7 @@ func (m *LibraryModule) createLibraryFinding(path string) *model.Finding {
 	crypto.ClassifyLibraryAsset(asset, matchedPattern, version)
 
 	return &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 3,
 		Source: model.FindingSource{
 			Type: "file",

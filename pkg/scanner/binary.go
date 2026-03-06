@@ -309,7 +309,7 @@ func (m *BinaryModule) scanBinaryFile(path string) ([]*model.Finding, error) {
 		symbolAlgos[sm.algorithm] = true
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  sm.function,
 			Algorithm: sm.algorithm,
 			Purpose:   "Detected via imported symbol: " + sm.symbol,
@@ -326,7 +326,7 @@ func (m *BinaryModule) scanBinaryFile(path string) ([]*model.Finding, error) {
 		crypto.ClassifyCryptoAsset(asset)
 
 		found = append(found, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 2,
 			Source: model.FindingSource{
 				Type:            "file",
@@ -356,7 +356,7 @@ func (m *BinaryModule) scanBinaryFile(path string) ([]*model.Finding, error) {
 	libVersions := detectCryptoLibVersions(printable)
 	for _, lv := range libVersions {
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "Crypto library",
 			Algorithm: lv.library,
 			Library:   lv.library,
@@ -368,7 +368,7 @@ func (m *BinaryModule) scanBinaryFile(path string) ([]*model.Finding, error) {
 		crypto.ClassifyLibraryAsset(asset, lv.library, lv.version)
 
 		found = append(found, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 2,
 			Source: model.FindingSource{
 				Type:            "file",
@@ -766,7 +766,7 @@ func (m *BinaryModule) matchCryptoPatterns(path, content string, meta *binaryMet
 			algoName := buildAlgorithmName(cp.algorithm, match)
 
 			asset := &model.CryptoAsset{
-				ID:        uuid.New().String(),
+				ID:        uuid.Must(uuid.NewV7()).String(),
 				Function:  "Binary crypto reference",
 				Algorithm: algoName,
 				Purpose:   "Detected in executable binary",
@@ -787,7 +787,7 @@ func (m *BinaryModule) matchCryptoPatterns(path, content string, meta *binaryMet
 			}
 
 			findings = append(findings, &model.Finding{
-				ID:       uuid.New().String(),
+				ID:       uuid.Must(uuid.NewV7()).String(),
 				Category: 2,
 				Source: model.FindingSource{
 					Type:            "file",

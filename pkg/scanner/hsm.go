@@ -322,7 +322,7 @@ func (m *HSMModule) parseListMechanisms(output string) []hsmMechanism {
 
 func emitSlotFinding(ctx context.Context, findings chan<- *model.Finding, slot hsmSlot, modulePath string) {
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "HSM token",
 		Algorithm: "PKCS#11",
 		Purpose:   fmt.Sprintf("Token: %s (slot %s)", slot.tokenLabel, slot.slotID),
@@ -331,7 +331,7 @@ func emitSlotFinding(ctx context.Context, findings chan<- *model.Finding, slot h
 	// No classification for token metadata itself
 
 	finding := &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5,
 		Source: model.FindingSource{
 			Type:            "hsm",
@@ -353,7 +353,7 @@ func emitObjectFinding(ctx context.Context, findings chan<- *model.Finding, obj 
 	algo := normalizeHSMAlgorithm(obj.algorithm)
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  function,
 		Algorithm: algo,
 		KeySize:   obj.keySize,
@@ -363,7 +363,7 @@ func emitObjectFinding(ctx context.Context, findings chan<- *model.Finding, obj 
 	crypto.ClassifyCryptoAsset(asset)
 
 	finding := &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5,
 		Source: model.FindingSource{
 			Type:            "hsm",
@@ -390,7 +390,7 @@ func emitMechanismFinding(ctx context.Context, findings chan<- *model.Finding, m
 	}
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "HSM supported algorithm",
 		Algorithm: algo,
 		KeySize:   keySize,
@@ -400,7 +400,7 @@ func emitMechanismFinding(ctx context.Context, findings chan<- *model.Finding, m
 	crypto.ClassifyCryptoAsset(asset)
 
 	finding := &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5,
 		Source: model.FindingSource{
 			Type:            "hsm",

@@ -36,7 +36,7 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	org := &licensestore.Organization{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Name:      req.Name,
 		Contact:   req.Contact,
 		Notes:     req.Notes,

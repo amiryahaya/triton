@@ -208,7 +208,7 @@ func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
 		seen[algo] = true
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  sp.Function,
 			Algorithm: algo,
 			Purpose:   "Crypto usage in script",
@@ -216,7 +216,7 @@ func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 6,
 			Source: model.FindingSource{
 				Type:            "file",

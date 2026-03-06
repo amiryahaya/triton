@@ -212,7 +212,7 @@ func (m *ConfigModule) parseSSHConfig(path string) []*model.Finding {
 
 			info := crypto.ClassifyAlgorithm(registryName, 0)
 			asset := &model.CryptoAsset{
-				ID:        uuid.New().String(),
+				ID:        uuid.Must(uuid.NewV7()).String(),
 				Function:  function,
 				Algorithm: info.Name,
 				KeySize:   info.KeySize,
@@ -221,7 +221,7 @@ func (m *ConfigModule) parseSSHConfig(path string) []*model.Finding {
 			crypto.ClassifyCryptoAsset(asset)
 
 			findings = append(findings, &model.Finding{
-				ID:       uuid.New().String(),
+				ID:       uuid.Must(uuid.NewV7()).String(),
 				Category: 8, // Configuration scanning
 				Source: model.FindingSource{
 					Type:            "file",
@@ -273,7 +273,7 @@ func (m *ConfigModule) parseCryptoPolicies(path string) []*model.Finding {
 	}
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "System crypto policy",
 		Algorithm: "crypto-policies:" + policy,
 		Purpose:   purpose,
@@ -281,7 +281,7 @@ func (m *ConfigModule) parseCryptoPolicies(path string) []*model.Finding {
 	}
 
 	return []*model.Finding{{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 8,
 		Source: model.FindingSource{
 			Type:            "file",
@@ -411,7 +411,7 @@ func (m *ConfigModule) parseJavaSecurityProperty(path, key, value string) []*mod
 
 		info := crypto.ClassifyAlgorithm(algo, 0)
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  function,
 			Algorithm: info.Name,
 			KeySize:   info.KeySize,
@@ -420,7 +420,7 @@ func (m *ConfigModule) parseJavaSecurityProperty(path, key, value string) []*mod
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 8,
 			Source: model.FindingSource{
 				Type:            "file",
@@ -450,7 +450,7 @@ func (m *ConfigModule) parseCertbotConfig(path string) []*model.Finding {
 	}
 
 	asset := &model.CryptoAsset{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Function: "ACME certificate renewal",
 		Purpose:  "ACME certificate renewal",
 	}
@@ -501,7 +501,7 @@ func (m *ConfigModule) parseCertbotConfig(path string) []*model.Finding {
 	crypto.ClassifyCryptoAsset(asset)
 
 	return []*model.Finding{{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 8,
 		Source: model.FindingSource{
 			Type:            "file",

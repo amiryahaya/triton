@@ -206,7 +206,7 @@ func (m *KernelModule) scanKernelModuleFile(path string) ([]*model.Finding, erro
 	findings := make([]*model.Finding, 0, len(algos))
 	for _, algo := range algos {
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "Kernel crypto module",
 			Algorithm: algo,
 			Purpose:   "Kernel-level cryptographic implementation",
@@ -214,7 +214,7 @@ func (m *KernelModule) scanKernelModuleFile(path string) ([]*model.Finding, erro
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 4,
 			Source: model.FindingSource{
 				Type: "file",

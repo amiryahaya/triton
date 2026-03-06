@@ -124,7 +124,7 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 		sourcePath := manager + ":" + pkgName + "@" + pkgVersion
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Algorithm: pkgName,
 			Function:  "Installed package",
 			Library:   pkgName + " " + pkgVersion,
@@ -136,7 +136,7 @@ func (m *PackageModule) parsePackageOutput(ctx context.Context, output, manager 
 
 		select {
 		case findings <- &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 3, // crypto libraries category
 			Source: model.FindingSource{
 				Type: "file",

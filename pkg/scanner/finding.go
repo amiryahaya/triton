@@ -34,7 +34,7 @@ const (
 // newFinding creates a Finding with common fields pre-populated.
 func newFinding(module string, category int, source model.FindingSource, asset *model.CryptoAsset, confidence float64) *model.Finding {
 	return &model.Finding{
-		ID:          uuid.New().String(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		Category:    category,
 		Source:      source,
 		CryptoAsset: asset,

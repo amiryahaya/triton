@@ -93,7 +93,7 @@ func (m *ProcessModule) parseProcessOutput(ctx context.Context, output string, f
 		}
 
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  name,
 			Algorithm: algo,
 			Purpose:   "Running crypto process",
@@ -102,7 +102,7 @@ func (m *ProcessModule) parseProcessOutput(ctx context.Context, output string, f
 
 		select {
 		case findings <- &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 1,
 			Source: model.FindingSource{
 				Type: "process",

@@ -149,7 +149,7 @@ func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr er
 	// For unsigned binaries, emit an unsigned finding
 	if validity == "unsigned" {
 		asset := &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "Code signing",
 			Algorithm: "none",
 			Purpose:   fmt.Sprintf("Unsigned binary: %s", path),
@@ -157,7 +157,7 @@ func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr er
 		crypto.ClassifyCryptoAsset(asset)
 
 		findings = append(findings, &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 4,
 			Source: model.FindingSource{
 				Type:            "file",
@@ -191,7 +191,7 @@ func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr er
 	}
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "Code signing certificate",
 		Algorithm: sigAlgo,
 		Subject:   authority,
@@ -203,7 +203,7 @@ func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr er
 	crypto.ClassifyCryptoAsset(asset)
 
 	findings = append(findings, &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 4,
 		Source: model.FindingSource{
 			Type:            "file",
@@ -294,7 +294,7 @@ func (m *CodeSignModule) parseRPMVerify(path, output string, cmdErr error) []*mo
 	}
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "Package signing",
 		Algorithm: algo,
 		Purpose:   fmt.Sprintf("RPM package signature: %s for %s", validity, path),
@@ -302,7 +302,7 @@ func (m *CodeSignModule) parseRPMVerify(path, output string, cmdErr error) []*mo
 	crypto.ClassifyCryptoAsset(asset)
 
 	return []*model.Finding{{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 4,
 		Source: model.FindingSource{
 			Type:            "file",
@@ -346,7 +346,7 @@ func (m *CodeSignModule) parseDpkgSigVerify(path, output string, cmdErr error) [
 	algo := "GPG"
 
 	asset := &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "Package signing",
 		Algorithm: algo,
 		Purpose:   fmt.Sprintf("Debian package signature: %s for %s", validity, path),
@@ -354,7 +354,7 @@ func (m *CodeSignModule) parseDpkgSigVerify(path, output string, cmdErr error) [
 	crypto.ClassifyCryptoAsset(asset)
 
 	return []*model.Finding{{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 4,
 		Source: model.FindingSource{
 			Type:            "file",

@@ -43,8 +43,8 @@ func makeOrg(t *testing.T) *licensestore.Organization {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &licensestore.Organization{
-		ID:        uuid.New().String(),
-		Name:      "Test Org " + uuid.New().String()[:8],
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Name:      "Test Org " + uuid.Must(uuid.NewV7()).String()[:8],
 		Contact:   "admin@test.com",
 		Notes:     "test org",
 		CreatedAt: now,
@@ -56,7 +56,7 @@ func makeLicense(t *testing.T, orgID string) *licensestore.LicenseRecord {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &licensestore.LicenseRecord{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		OrgID:     orgID,
 		Tier:      "pro",
 		Seats:     5,
@@ -71,13 +71,13 @@ func makeActivation(t *testing.T, licenseID string) *licensestore.Activation {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &licensestore.Activation{
-		ID:          uuid.New().String(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		LicenseID:   licenseID,
-		MachineID:   uuid.New().String(),
+		MachineID:   uuid.Must(uuid.NewV7()).String(),
 		Hostname:    "test-host",
 		OS:          "linux",
 		Arch:        "amd64",
-		Token:       "test-token-" + uuid.New().String()[:8],
+		Token:       "test-token-" + uuid.Must(uuid.NewV7()).String()[:8],
 		ActivatedAt: now,
 		LastSeenAt:  now,
 		Active:      true,

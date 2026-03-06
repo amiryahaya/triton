@@ -61,7 +61,7 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	act := &licensestore.Activation{
-		ID:          uuid.New().String(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
 		LicenseID:   req.LicenseID,
 		MachineID:   req.MachineID,
 		Hostname:    req.Hostname,

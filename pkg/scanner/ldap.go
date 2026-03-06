@@ -146,7 +146,7 @@ func (m *LDAPModule) searchCerts(ctx context.Context, conn ldapConn, lt ldapTarg
 			notAfter := cert.NotAfter
 
 			asset := &model.CryptoAsset{
-				ID:           uuid.New().String(),
+				ID:           uuid.Must(uuid.NewV7()).String(),
 				Function:     function,
 				Algorithm:    algoName,
 				KeySize:      keySize,
@@ -161,7 +161,7 @@ func (m *LDAPModule) searchCerts(ctx context.Context, conn ldapConn, lt ldapTarg
 			crypto.ClassifyCryptoAsset(asset)
 
 			finding := &model.Finding{
-				ID:       uuid.New().String(),
+				ID:       uuid.Must(uuid.NewV7()).String(),
 				Category: 3,
 				Source: model.FindingSource{
 					Type:            "ldap",

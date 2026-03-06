@@ -81,7 +81,7 @@ func (m *ProtocolModule) emitFinding(ctx context.Context, addr string, asset *mo
 
 	select {
 	case findings <- &model.Finding{
-		ID:       uuid.New().String(),
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 9,
 		Source: model.FindingSource{
 			Type:     "network",
@@ -122,7 +122,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	kx, pfs := cipherSuiteKeyExchange(cipherName)
 
 	if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-		ID:             uuid.New().String(),
+		ID:             uuid.Must(uuid.NewV7()).String(),
 		Function:       "TLS cipher suite",
 		Algorithm:      cipherAlgo,
 		Library:        cipherName,
@@ -136,7 +136,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 	// Emit warning for deprecated TLS versions
 	if state.Version == tls.VersionTLS10 || state.Version == tls.VersionTLS11 {
 		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "TLS protocol version",
 			Algorithm: tlsVersion,
 			Purpose:   fmt.Sprintf("Deprecated TLS version negotiated by %s", addr),
@@ -162,7 +162,7 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 		}
 
 		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-			ID:            uuid.New().String(),
+			ID:            uuid.Must(uuid.NewV7()).String(),
 			Function:      function,
 			Algorithm:     algoName,
 			KeySize:       keySize,
@@ -271,7 +271,7 @@ func (m *ProtocolModule) validateCertChain(ctx context.Context, addr string, sta
 		algoName, _ := certPublicKeyInfo(leaf)
 
 		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
-			ID:        uuid.New().String(),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 			Function:  "TLS certificate chain validation",
 			Algorithm: algoName,
 			Purpose:   fmt.Sprintf("Certificate chain validation failed for %s: %v", addr, verifyErr),
@@ -331,7 +331,7 @@ func (m *ProtocolModule) probeVersionRange(ctx context.Context, addr string, fin
 		rangeStr = fmt.Sprintf("%s to %s", supported[0], supported[len(supported)-1])
 	}
 	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "TLS version range",
 		Algorithm: supported[len(supported)-1], // Highest supported version for PQC classification
 		Library:   rangeStr,
@@ -382,7 +382,7 @@ func (m *ProtocolModule) emitSupportedCipherFindings(ctx context.Context, addr s
 		kx, pfs := cipherSuiteKeyExchange(cipherName)
 
 		if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-			ID:             uuid.New().String(),
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			Function:       "TLS supported cipher suite",
 			Algorithm:      algo,
 			Library:        cipherName,
@@ -456,7 +456,7 @@ func (m *ProtocolModule) probeCipherPreference(ctx context.Context, addr string,
 	}
 
 	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "TLS cipher preference order",
 		Algorithm: topAlgo,
 		Library:   strings.Join(ordered, " > "),
@@ -480,7 +480,7 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 		// Weak signature algorithm detection
 		if isWeakSignatureAlgorithm(cert.SignatureAlgorithm) {
 			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-				ID:            uuid.New().String(),
+				ID:            uuid.Must(uuid.NewV7()).String(),
 				Function:      "Weak certificate signature algorithm",
 				Algorithm:     sigAlgoToPQCAlgorithm(cert.SignatureAlgorithm),
 				Subject:       cert.Subject.String(),
@@ -499,7 +499,7 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 			if daysRemaining <= 30 {
 				notAfter := cert.NotAfter
 				if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-					ID:            uuid.New().String(),
+					ID:            uuid.Must(uuid.NewV7()).String(),
 					Function:      "Certificate expiry warning",
 					Algorithm:     certAlgoName(cert),
 					Subject:       cert.Subject.String(),
@@ -521,7 +521,7 @@ func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr strin
 				sans = append(sans, ip.String())
 			}
 			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-				ID:            uuid.New().String(),
+				ID:            uuid.Must(uuid.NewV7()).String(),
 				Function:      "TLS certificate SANs",
 				Algorithm:     certAlgoName(cert),
 				Subject:       cert.Subject.String(),
@@ -578,7 +578,7 @@ func (m *ProtocolModule) detectSessionResumption(ctx context.Context, addr strin
 	}
 
 	_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
-		ID:        uuid.New().String(),
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		Function:  "TLS session resumption",
 		Algorithm: "TLS Session Resumption",
 		Purpose:   fmt.Sprintf("Session resumption %s for %s", mechanism, addr),
@@ -613,7 +613,7 @@ func (m *ProtocolModule) checkRevocation(ctx context.Context, addr string, certs
 		algoName := certAlgoName(cert)
 
 		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
-			ID:               uuid.New().String(),
+			ID:               uuid.Must(uuid.NewV7()).String(),
 			Function:         "Certificate revocation status",
 			Algorithm:        algoName,
 			Subject:          cert.Subject.String(),

@@ -125,7 +125,7 @@ type systemBuilder struct {
 
 func (b *systemBuilder) buildSystem(cbomCounter *int) System {
 	sys := System{
-		ID:    uuid.New().String(),
+		ID:    uuid.Must(uuid.NewV7()).String(),
 		Name:  b.name,
 		InUse: true,
 	}

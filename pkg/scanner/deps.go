@@ -211,7 +211,7 @@ func (m *DepsModule) analyzeGoModule(ctx context.Context, moduleRoot, goModPath 
 		}
 
 		asset := &model.CryptoAsset{
-			ID:             uuid.New().String(),
+			ID:             uuid.Must(uuid.NewV7()).String(),
 			Function:       "Dependency crypto import",
 			Algorithm:      cf.algorithm,
 			Language:       "Go",
@@ -226,7 +226,7 @@ func (m *DepsModule) analyzeGoModule(ctx context.Context, moduleRoot, goModPath 
 		}
 
 		finding := &model.Finding{
-			ID:       uuid.New().String(),
+			ID:       uuid.Must(uuid.NewV7()).String(),
 			Category: 6, // Source code analysis
 			Source: model.FindingSource{
 				Type:            "file",

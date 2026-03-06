@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
+const SCAN_IDS = require('./scan-ids');
 
 test.describe('Diff', () => {
   test('diff form renders', async ({ page }) => {
@@ -16,8 +17,8 @@ test.describe('Diff', () => {
     await page.goto('/ui/index.html#/diff');
     await page.waitForSelector('#diffBase', { timeout: 10_000 });
 
-    await page.fill('#diffBase', 'scan-e2e-001');
-    await page.fill('#diffCompare', 'scan-e2e-002');
+    await page.fill('#diffBase', SCAN_IDS.SCAN_001);
+    await page.fill('#diffCompare', SCAN_IDS.SCAN_002);
     await page.click('button:has-text("Compare")');
 
     // Wait for diff result to load

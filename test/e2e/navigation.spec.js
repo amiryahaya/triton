@@ -4,7 +4,7 @@ const { test, expect } = require('@playwright/test');
 test.describe('Navigation', () => {
   test('sidebar has 5 nav links', async ({ page }) => {
     await page.goto('/ui/index.html');
-    const navLinks = page.locator('.sidebar nav a');
+    const navLinks = page.locator('#sidebar .nav-link');
     await expect(navLinks).toHaveCount(5);
 
     const views = ['overview', 'machines', 'scans', 'diff', 'trend'];

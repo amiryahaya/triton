@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
+const SCAN_IDS = require('./scan-ids');
 
 test.describe('Scans', () => {
   test('scans list shows 4 seeded scans', async ({ page }) => {
@@ -20,7 +21,7 @@ test.describe('Scans', () => {
   });
 
   test('scan detail shows metadata cards and findings', async ({ page }) => {
-    await page.goto('/ui/index.html#/scans/scan-e2e-001');
+    await page.goto(`/ui/index.html#/scans/${SCAN_IDS.SCAN_001}`);
     await page.waitForSelector('.card-grid', { timeout: 10_000 });
 
     // Detail view has 7 cards: hostname, profile, total, safe, trans, depr, unsafe
@@ -35,7 +36,7 @@ test.describe('Scans', () => {
   });
 
   test('back button returns to scans list', async ({ page }) => {
-    await page.goto('/ui/index.html#/scans/scan-e2e-001');
+    await page.goto(`/ui/index.html#/scans/${SCAN_IDS.SCAN_001}`);
     await page.waitForSelector('.btn-outline', { timeout: 10_000 });
 
     await page.click('.btn-outline');

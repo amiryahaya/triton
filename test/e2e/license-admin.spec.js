@@ -7,14 +7,14 @@ const ADMIN_KEY = 'e2e-test-key';
 test.beforeEach(async ({ page }) => {
   await page.goto('/ui/index.html');
   await page.evaluate((key) => {
-    localStorage.setItem('triton_admin_key', key);
+    sessionStorage.setItem('triton_admin_key', key);
   }, ADMIN_KEY);
 });
 
 test.describe('Admin Authentication', () => {
   test('shows auth prompt without admin key', async ({ page }) => {
     // Clear the key we just set
-    await page.evaluate(() => localStorage.removeItem('triton_admin_key'));
+    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
     await page.goto('/ui/index.html#/');
     await expect(page.locator('#auth-prompt')).toBeVisible();
     await expect(page.locator('#key-input')).toBeVisible();
@@ -22,7 +22,7 @@ test.describe('Admin Authentication', () => {
   });
 
   test('login with valid admin key shows dashboard', async ({ page }) => {
-    await page.evaluate(() => localStorage.removeItem('triton_admin_key'));
+    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
     await page.goto('/ui/index.html#/');
     await page.fill('#key-input', ADMIN_KEY);
     await page.click('#key-submit');
@@ -317,7 +317,7 @@ test.describe('Auth Edge Cases', () => {
   test('invalid key triggers auth prompt', async ({ page }) => {
     // Set an invalid key
     await page.evaluate(() => {
-      localStorage.setItem('triton_admin_key', 'bad-key');
+      sessionStorage.setItem('triton_admin_key', 'bad-key');
     });
     await page.goto('/ui/index.html#/');
 
@@ -327,7 +327,7 @@ test.describe('Auth Edge Cases', () => {
 
   test('re-authentication persists across navigation', async ({ page }) => {
     // Clear key
-    await page.evaluate(() => localStorage.removeItem('triton_admin_key'));
+    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
     await page.goto('/ui/index.html#/');
 
     // Auth prompt should appear

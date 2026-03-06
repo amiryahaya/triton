@@ -1,5 +1,6 @@
 // global-setup.js — Seeds the test database with 4 scans for E2E tests.
 const { request } = require('@playwright/test');
+const SCAN_IDS = require('./scan-ids');
 
 const BASE_URL = 'http://localhost:8080';
 
@@ -65,10 +66,10 @@ async function globalSetup() {
 
   // Offset timestamps so ordering is deterministic (oldest first).
   const scans = [
-    makeScan('scan-e2e-001', 'web-server-01', 10, 5, 3, 2, 4), // 4 hours ago
-    makeScan('scan-e2e-002', 'web-server-01', 12, 6, 2, 1, 3), // 3 hours ago (newer)
-    makeScan('scan-e2e-003', 'db-server-01',  8, 4, 5, 3, 2),  // 2 hours ago
-    makeScan('scan-e2e-004', 'db-server-01', 10, 3, 4, 2, 1),  // 1 hour ago (newest)
+    makeScan(SCAN_IDS.SCAN_001, 'web-server-01', 10, 5, 3, 2, 4), // 4 hours ago
+    makeScan(SCAN_IDS.SCAN_002, 'web-server-01', 12, 6, 2, 1, 3), // 3 hours ago (newer)
+    makeScan(SCAN_IDS.SCAN_003, 'db-server-01',  8, 4, 5, 3, 2),  // 2 hours ago
+    makeScan(SCAN_IDS.SCAN_004, 'db-server-01', 10, 3, 4, 2, 1),  // 1 hour ago (newest)
   ];
 
   for (const scan of scans) {

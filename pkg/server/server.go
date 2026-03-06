@@ -67,6 +67,7 @@ func New(cfg *Config, s store.Store) *Server {
 		}
 		if cfg.Guard != nil {
 			r.Use(LicenceGate(cfg.Guard))
+			r.Use(TenantScope(cfg.Guard))
 		}
 		srv.registerAPIRoutes(r)
 	})

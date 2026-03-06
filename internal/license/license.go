@@ -14,9 +14,10 @@ const gracePeriod = 5 * time.Minute
 
 // License represents a signed licence token's claims.
 type License struct {
-	ID   string `json:"lid"`
-	Tier Tier   `json:"tier"`
-	Org  string `json:"org"`
+	ID    string `json:"lid"`
+	Tier  Tier   `json:"tier"`
+	OrgID string `json:"oid,omitempty"` // Organization UUID (tenant identifier)
+	Org   string `json:"org"`
 	// Seats represents the number of machine-bound tokens the org is entitled to.
 	// Enforcement is at keygen time; runtime binding is via MachineID.
 	Seats     int    `json:"seats"`

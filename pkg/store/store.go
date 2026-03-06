@@ -54,6 +54,7 @@ type ScanFilter struct {
 	Before   *time.Time
 	Profile  string
 	Limit    int
+	OrgID    string // Tenant isolation: if set, only return scans for this org.
 }
 
 // ScanSummary is a lightweight representation of a stored scan.

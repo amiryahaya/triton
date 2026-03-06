@@ -106,6 +106,22 @@ func (g *Guard) License() *License {
 	return g.license
 }
 
+// OrgID returns the organization ID from the licence, or empty string.
+func (g *Guard) OrgID() string {
+	if g.license == nil {
+		return ""
+	}
+	return g.license.OrgID
+}
+
+// OrgName returns the organization name from the licence, or empty string.
+func (g *Guard) OrgName() string {
+	if g.license == nil {
+		return ""
+	}
+	return g.license.Org
+}
+
 // EnforceProfile returns an error if the profile is not allowed.
 func (g *Guard) EnforceProfile(profile string) error {
 	f, ok := profileFeature[profile]

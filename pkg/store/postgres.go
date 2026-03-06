@@ -111,14 +111,20 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 		return fmt.Errorf("marshalling scan result: %w", err)
 	}
 
+	// Use nil for empty org_id to store SQL NULL.
+	var orgID *string
+	if result.OrgID != "" {
+		orgID = &result.OrgID
+	}
+
 	_, err = s.pool.Exec(ctx,
 		`INSERT INTO scans
-		 (id, hostname, timestamp, profile, total_findings, safe, transitional, deprecated, unsafe, result_json)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 (id, hostname, timestamp, profile, total_findings, safe, transitional, deprecated, unsafe, result_json, org_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hostname = $2, timestamp = $3, profile = $4,
 		   total_findings = $5, safe = $6, transitional = $7,
-		   deprecated = $8, unsafe = $9, result_json = $10`,
+		   deprecated = $8, unsafe = $9, result_json = $10, org_id = $11`,
 		result.ID,
 		result.Metadata.Hostname,
 		result.Metadata.Timestamp.UTC(),
@@ -129,6 +135,7 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 		result.Summary.Deprecated,
 		result.Summary.Unsafe,
 		blob,
+		orgID,
 	)
 	if err != nil {
 		return fmt.Errorf("saving scan: %w", err)
@@ -164,6 +171,11 @@ func (s *PostgresStore) ListScans(ctx context.Context, filter ScanFilter) ([]Sca
 	var args []any
 	paramIdx := 0
 
+	if filter.OrgID != "" {
+		paramIdx++
+		query += fmt.Sprintf(" AND org_id = $%d", paramIdx)
+		args = append(args, filter.OrgID)
+	}
 	if filter.Hostname != "" {
 		paramIdx++
 		query += fmt.Sprintf(" AND hostname = $%d", paramIdx)

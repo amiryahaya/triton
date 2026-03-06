@@ -73,6 +73,7 @@ type PolicyEvaluationResult struct {
 // ScanResult is the top-level container for all scan output.
 type ScanResult struct {
 	ID               string                  `json:"id"`
+	OrgID            string                  `json:"orgID,omitempty"` // Tenant org ID (set by server from token)
 	PreviousScanID   string                  `json:"previousScanID,omitempty"`
 	Metadata         ScanMetadata            `json:"metadata"`
 	Systems          []System                `json:"systems"`

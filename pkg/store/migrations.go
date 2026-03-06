@@ -31,4 +31,8 @@ var migrations = []string{
 	// Version 2: Migrate scan ID from TEXT to native UUID (UUIDv7)
 	`TRUNCATE TABLE scans;
 	ALTER TABLE scans ALTER COLUMN id TYPE UUID USING id::uuid;`,
+
+	// Version 3: Add org_id for multi-tenant isolation
+	`ALTER TABLE scans ADD COLUMN org_id UUID;
+	CREATE INDEX IF NOT EXISTS idx_scans_org_id ON scans(org_id);`,
 }

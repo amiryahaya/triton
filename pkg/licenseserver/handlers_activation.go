@@ -263,6 +263,7 @@ func (s *Server) signToken(lic *licensestore.LicenseRecord, machineID string) (s
 	l := &license.License{
 		ID:        lic.ID,
 		Tier:      license.Tier(lic.Tier),
+		OrgID:     lic.OrgID,
 		Org:       lic.OrgName,
 		Seats:     lic.Seats,
 		IssuedAt:  lic.IssuedAt.Unix(),

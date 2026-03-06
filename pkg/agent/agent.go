@@ -15,9 +15,10 @@ import (
 
 // Client submits scan results to a remote Triton server.
 type Client struct {
-	ServerURL  string
-	APIKey     string
-	HTTPClient *http.Client
+	ServerURL    string
+	APIKey       string
+	LicenseToken string // Ed25519-signed licence token for tenant identification
+	HTTPClient   *http.Client
 }
 
 // New creates a new agent Client.
@@ -58,6 +59,9 @@ func (c *Client) Submit(result *model.ScanResult) (*SubmitResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	if c.APIKey != "" {
 		req.Header.Set("X-Triton-API-Key", c.APIKey)
+	}
+	if c.LicenseToken != "" {
+		req.Header.Set("X-Triton-License-Token", c.LicenseToken)
 	}
 
 	resp, err := c.HTTPClient.Do(req)

@@ -1,0 +1,58 @@
+package server
+
+import (
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/amiryahaya/triton/internal/license"
+)
+
+type contextKey string
+
+const tenantOrgIDKey contextKey = "tenant_org_id"
+
+const licenseTokenHeader = "X-Triton-License-Token"
+
+// TenantFromContext returns the org ID set by the TenantScope middleware.
+// Returns empty string if no tenant is set (e.g. standalone mode).
+func TenantFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(tenantOrgIDKey).(string)
+	return v
+}
+
+// TenantScope is middleware that extracts the org_id for tenant-scoped queries.
+//
+// Resolution order:
+//  1. Per-request: X-Triton-License-Token header → verify Ed25519 signature → extract oid
+//  2. Fallback: server's own Guard org_id (single-tenant deployment)
+//
+// If neither yields an org_id, requests pass through without tenant scoping
+// (backward compatible with standalone mode).
+func TenantScope(guard *license.Guard) func(http.Handler) http.Handler {
+	pubKey := license.LoadPublicKeyBytes()
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Try per-request token first (multi-tenant mode).
+			if token := r.Header.Get(licenseTokenHeader); token != "" && pubKey != nil {
+				if lic, err := license.Parse(token, pubKey); err == nil && lic.OrgID != "" {
+					ctx := context.WithValue(r.Context(), tenantOrgIDKey, lic.OrgID)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				} else if err != nil {
+					log.Printf("tenant: invalid license token from %s: %v", r.RemoteAddr, err)
+				}
+			}
+
+			// Fallback to server's own guard (single-tenant mode).
+			if guard != nil && guard.OrgID() != "" {
+				ctx := context.WithValue(r.Context(), tenantOrgIDKey, guard.OrgID())
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}

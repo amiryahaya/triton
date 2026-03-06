@@ -61,6 +61,11 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stamp org_id from tenant context (overrides any client-provided value).
+	if orgID := TenantFromContext(r.Context()); orgID != "" {
+		result.OrgID = orgID
+	}
+
 	if err := s.store.SaveScan(r.Context(), &result); err != nil {
 		log.Printf("save scan error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -75,6 +80,7 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 	filter := store.ScanFilter{
 		Hostname: r.URL.Query().Get("hostname"),
 		Profile:  r.URL.Query().Get("profile"),
+		OrgID:    TenantFromContext(r.Context()),
 	}
 
 	if v := r.URL.Query().Get("limit"); v != "" {
@@ -225,6 +231,7 @@ func (s *Server) handleTrend(w http.ResponseWriter, r *http.Request) {
 	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{
 		Hostname: hostname,
 		Limit:    last,
+		OrgID:    TenantFromContext(r.Context()),
 	})
 	if err != nil {
 		log.Printf("trend error: %v", err)
@@ -253,7 +260,7 @@ func (s *Server) handleTrend(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/machines
 func (s *Server) handleListMachines(w http.ResponseWriter, r *http.Request) {
-	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Limit: 1000})
+	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Limit: 1000, OrgID: TenantFromContext(r.Context())})
 	if err != nil {
 		log.Printf("list machines error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -267,7 +274,7 @@ func (s *Server) handleListMachines(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/machines/{hostname}
 func (s *Server) handleMachineHistory(w http.ResponseWriter, r *http.Request) {
 	hostname := chi.URLParam(r, "hostname")
-	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Hostname: hostname})
+	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Hostname: hostname, OrgID: TenantFromContext(r.Context())})
 	if err != nil {
 		log.Printf("machine history error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -439,7 +446,7 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/aggregate
 func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
-	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Limit: 1000})
+	summaries, err := s.store.ListScans(r.Context(), store.ScanFilter{Limit: 1000, OrgID: TenantFromContext(r.Context())})
 	if err != nil {
 		log.Printf("aggregate error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")

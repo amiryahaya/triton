@@ -22,3 +22,24 @@ func loadPublicKey() ed25519.PublicKey {
 	}
 	return ed25519.PublicKey(key)
 }
+
+// LoadPublicKeyBytes returns the embedded Ed25519 public key for external use
+// (e.g. server-side token verification). Returns nil if the key is invalid.
+func LoadPublicKeyBytes() ed25519.PublicKey {
+	key, err := hex.DecodeString(publicKeyHex)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil
+	}
+	// Check if it's the zeroed placeholder key.
+	allZero := true
+	for _, b := range key {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return nil
+	}
+	return ed25519.PublicKey(key)
+}

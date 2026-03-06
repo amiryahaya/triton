@@ -13,13 +13,20 @@
     return resp.json();
   }
 
-  // Chart colors
+  // Dark theme chart colors matching CSS variables
   const COLORS = {
-    safe: '#2e7d32',
-    transitional: '#e65100',
-    deprecated: '#c62828',
-    unsafe: '#b71c1c',
-    info: '#1565c0'
+    safe: '#34d399',
+    transitional: '#fbbf24',
+    deprecated: '#fb923c',
+    unsafe: '#f87171',
+    info: '#22d3ee'
+  };
+
+  // Chart.js dark theme defaults
+  const CHART_DEFAULTS = {
+    color: '#94a3b8',
+    borderColor: 'rgba(148, 163, 184, 0.06)',
+    font: { family: "'Outfit', system-ui, sans-serif" }
   };
 
   function escapeHtml(s) {
@@ -34,8 +41,8 @@
     const view = parts[0] || '';
     const param = parts[1] || '';
 
-    // Update active nav
-    $$('.sidebar nav a').forEach(a => {
+    // Update active nav link
+    $$('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.view === (view || 'overview'));
     });
 
@@ -62,6 +69,38 @@
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   }
 
+  // Chart.js dark theme options
+  function darkChartOptions(extra) {
+    return Object.assign({
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: CHART_DEFAULTS.color,
+            font: CHART_DEFAULTS.font,
+            padding: 16
+          }
+        }
+      }
+    }, extra || {});
+  }
+
+  function darkScaleOptions(stacked) {
+    return {
+      x: {
+        stacked: !!stacked,
+        ticks: { color: CHART_DEFAULTS.color, font: CHART_DEFAULTS.font },
+        grid: { color: CHART_DEFAULTS.borderColor }
+      },
+      y: {
+        stacked: !!stacked,
+        ticks: { color: CHART_DEFAULTS.color, font: CHART_DEFAULTS.font },
+        grid: { color: CHART_DEFAULTS.borderColor }
+      }
+    };
+  }
+
   // Overview
   async function renderOverview() {
     content.innerHTML = '<div class="loading">Loading overview...</div>';
@@ -85,16 +124,17 @@
 
       // Machines table
       if (agg.machines && agg.machines.length > 0) {
-        html += `<h2>Machines</h2><table>
-          <tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr>`;
+        html += `<h3>Machines</h3><table>
+          <thead><tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
+          <tbody>`;
         for (const m of agg.machines) {
-          html += `<tr style="cursor:pointer" onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+          html += `<tr onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
             <td>${escapeHtml(m.hostname)}</td><td>${formatDate(m.timestamp)}</td>
             <td>${escapeHtml(m.totalFindings)}</td>
             <td>${escapeHtml(m.safe)}</td><td>${escapeHtml(m.transitional)}</td>
             <td>${escapeHtml(m.deprecated)}</td><td>${escapeHtml(m.unsafe)}</td></tr>`;
         }
-        html += `</table>`;
+        html += `</tbody></table>`;
       }
 
       content.innerHTML = html;
@@ -116,13 +156,12 @@
         labels: ['Safe', 'Transitional', 'Deprecated', 'Unsafe'],
         datasets: [{
           data: [agg.safe, agg.transitional, agg.deprecated, agg.unsafe],
-          backgroundColor: [COLORS.safe, COLORS.transitional, COLORS.deprecated, COLORS.unsafe]
+          backgroundColor: [COLORS.safe, COLORS.transitional, COLORS.deprecated, COLORS.unsafe],
+          borderColor: '#0a1628',
+          borderWidth: 2
         }]
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } }
-      }
+      options: darkChartOptions()
     });
   }
 
@@ -143,11 +182,7 @@
           { label: 'Safe', data: top.map(m => m.safe), backgroundColor: COLORS.safe }
         ]
       },
-      options: {
-        responsive: true,
-        scales: { x: { stacked: true }, y: { stacked: true } },
-        plugins: { legend: { position: 'bottom' } }
-      }
+      options: darkChartOptions({ scales: darkScaleOptions(true) })
     });
   }
 
@@ -157,13 +192,14 @@
     try {
       const machines = await api('/machines');
       let html = `<h2>Machines</h2><table>
-        <tr><th>Hostname</th><th>Latest Scan ID</th><th>Scan Time</th><th>Findings</th></tr>`;
+        <thead><tr><th>Hostname</th><th>Latest Scan ID</th><th>Scan Time</th><th>Findings</th></tr></thead>
+        <tbody>`;
       for (const m of machines) {
-        html += `<tr style="cursor:pointer" onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+        html += `<tr onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
           <td>${escapeHtml(m.hostname)}</td><td>${escapeHtml(m.id)}</td>
           <td>${formatDate(m.timestamp)}</td><td>${escapeHtml(m.totalFindings)}</td></tr>`;
       }
-      html += `</table>`;
+      html += `</tbody></table>`;
       content.innerHTML = html;
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
@@ -179,16 +215,17 @@
         <button class="btn btn-outline" onclick="location.hash='#/machines'">Back</button></div>`;
 
       html += `<table>
-        <tr><th>Scan ID</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr>`;
+        <thead><tr><th>Scan ID</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
+        <tbody>`;
       for (const s of scans) {
-        html += `<tr style="cursor:pointer" onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+        html += `<tr onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
           <td>${escapeHtml(s.id.slice(0,8))}...</td>
           <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
           <td>${escapeHtml(s.totalFindings)}</td>
           <td>${escapeHtml(s.safe)}</td><td>${escapeHtml(s.transitional)}</td>
           <td>${escapeHtml(s.deprecated)}</td><td>${escapeHtml(s.unsafe)}</td></tr>`;
       }
-      html += `</table>`;
+      html += `</tbody></table>`;
 
       // Trend chart
       if (scans.length >= 2) {
@@ -214,16 +251,13 @@
       data: {
         labels: reversed.map(s => new Date(s.timestamp).toLocaleDateString()),
         datasets: [
-          { label: 'Safe', data: reversed.map(s => s.safe), borderColor: COLORS.safe, fill: false },
-          { label: 'Transitional', data: reversed.map(s => s.transitional), borderColor: COLORS.transitional, fill: false },
-          { label: 'Deprecated', data: reversed.map(s => s.deprecated), borderColor: COLORS.deprecated, fill: false },
-          { label: 'Unsafe', data: reversed.map(s => s.unsafe), borderColor: COLORS.unsafe, fill: false }
+          { label: 'Safe', data: reversed.map(s => s.safe), borderColor: COLORS.safe, backgroundColor: 'rgba(52,211,153,0.08)', fill: true, tension: 0.3 },
+          { label: 'Transitional', data: reversed.map(s => s.transitional), borderColor: COLORS.transitional, fill: false, tension: 0.3 },
+          { label: 'Deprecated', data: reversed.map(s => s.deprecated), borderColor: COLORS.deprecated, fill: false, tension: 0.3 },
+          { label: 'Unsafe', data: reversed.map(s => s.unsafe), borderColor: COLORS.unsafe, fill: false, tension: 0.3 }
         ]
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } }
-      }
+      options: darkChartOptions({ scales: darkScaleOptions(false) })
     });
   }
 
@@ -233,14 +267,15 @@
     try {
       const scans = await api('/scans');
       let html = `<h2>All Scans</h2><table>
-        <tr><th>ID</th><th>Hostname</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Unsafe</th></tr>`;
+        <thead><tr><th>ID</th><th>Hostname</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Unsafe</th></tr></thead>
+        <tbody>`;
       for (const s of scans) {
-        html += `<tr style="cursor:pointer" onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+        html += `<tr onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
           <td>${escapeHtml(s.id.slice(0,8))}...</td><td>${escapeHtml(s.hostname)}</td>
           <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
           <td>${escapeHtml(s.totalFindings)}</td><td>${escapeHtml(s.safe)}</td><td>${escapeHtml(s.unsafe)}</td></tr>`;
       }
-      html += `</table>`;
+      html += `</tbody></table>`;
       content.innerHTML = html;
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
@@ -267,8 +302,9 @@
 
       // Findings table
       if (scan.findings && scan.findings.length > 0) {
-        html += `<h2>Findings</h2><table>
-          <tr><th>Module</th><th>Source</th><th>Algorithm</th><th>PQC Status</th><th>Key Size</th></tr>`;
+        html += `<h3>Findings</h3><table>
+          <thead><tr><th>Module</th><th>Source</th><th>Algorithm</th><th>PQC Status</th><th>Key Size</th></tr></thead>
+          <tbody>`;
         for (const f of scan.findings) {
           const algo = f.cryptoAsset ? f.cryptoAsset.algorithm : '-';
           const status = f.cryptoAsset ? f.cryptoAsset.pqcStatus : '-';
@@ -278,18 +314,19 @@
             <td>${escapeHtml(f.module)}</td><td>${escapeHtml(source)}</td>
             <td>${escapeHtml(algo)}</td><td>${badge(status)}</td><td>${escapeHtml(keySize)}</td></tr>`;
         }
-        html += `</table>`;
+        html += `</tbody></table>`;
       }
 
       // Systems table
       if (scan.systems && scan.systems.length > 0) {
-        html += `<h2>Systems</h2><table>
-          <tr><th>Name</th><th>Criticality</th><th>Crypto Assets</th></tr>`;
+        html += `<h3>Systems</h3><table>
+          <thead><tr><th>Name</th><th>Criticality</th><th>Crypto Assets</th></tr></thead>
+          <tbody>`;
         for (const sys of scan.systems) {
           html += `<tr><td>${escapeHtml(sys.name)}</td><td>${escapeHtml(sys.criticalityLevel || '-')}</td>
             <td>${(sys.cryptoAssets || []).length}</td></tr>`;
         }
-        html += `</table>`;
+        html += `</tbody></table>`;
       }
 
       content.innerHTML = html;
@@ -301,10 +338,10 @@
   // Diff view
   async function renderDiff() {
     content.innerHTML = `<h2>Scan Comparison</h2>
-      <div style="margin-bottom:20px">
-        <label>Base Scan ID: <input id="diffBase" type="text" placeholder="scan-id-1" style="padding:6px;border:1px solid var(--border);border-radius:4px"></label>
-        <label style="margin-left:12px">Compare Scan ID: <input id="diffCompare" type="text" placeholder="scan-id-2" style="padding:6px;border:1px solid var(--border);border-radius:4px"></label>
-        <button class="btn" style="margin-left:12px" onclick="runDiff()">Compare</button>
+      <div class="form-row">
+        <label>Base Scan ID <input id="diffBase" type="text" placeholder="scan-id-1"></label>
+        <label>Compare Scan ID <input id="diffCompare" type="text" placeholder="scan-id-2"></label>
+        <button class="btn" onclick="runDiff()">Compare</button>
       </div>
       <div id="diffResult"></div>`;
   }
@@ -326,22 +363,24 @@
 
       if (diff.added && diff.added.length > 0) {
         html += `<h3>Added Findings</h3><table class="diff-added">
-          <tr><th>Module</th><th>Algorithm</th><th>Status</th></tr>`;
+          <thead><tr><th>Module</th><th>Algorithm</th><th>Status</th></tr></thead>
+          <tbody>`;
         for (const f of diff.added) {
           html += `<tr><td>${escapeHtml(f.module)}</td><td>${escapeHtml(f.cryptoAsset ? f.cryptoAsset.algorithm : '-')}</td>
             <td>${badge(f.cryptoAsset ? f.cryptoAsset.pqcStatus : '')}</td></tr>`;
         }
-        html += `</table>`;
+        html += `</tbody></table>`;
       }
 
       if (diff.removed && diff.removed.length > 0) {
         html += `<h3>Removed Findings</h3><table class="diff-removed">
-          <tr><th>Module</th><th>Algorithm</th><th>Status</th></tr>`;
+          <thead><tr><th>Module</th><th>Algorithm</th><th>Status</th></tr></thead>
+          <tbody>`;
         for (const f of diff.removed) {
           html += `<tr><td>${escapeHtml(f.module)}</td><td>${escapeHtml(f.cryptoAsset ? f.cryptoAsset.algorithm : '-')}</td>
             <td>${badge(f.cryptoAsset ? f.cryptoAsset.pqcStatus : '')}</td></tr>`;
         }
-        html += `</table>`;
+        html += `</tbody></table>`;
       }
 
       el.innerHTML = html;
@@ -353,10 +392,10 @@
   // Trend view
   async function renderTrend() {
     content.innerHTML = `<h2>Migration Trend</h2>
-      <div style="margin-bottom:20px">
-        <label>Hostname: <input id="trendHost" type="text" placeholder="hostname" style="padding:6px;border:1px solid var(--border);border-radius:4px"></label>
-        <label style="margin-left:12px">Last N: <input id="trendLast" type="number" value="10" min="2" max="50" style="padding:6px;border:1px solid var(--border);border-radius:4px;width:60px"></label>
-        <button class="btn" style="margin-left:12px" onclick="runTrend()">Show Trend</button>
+      <div class="form-row">
+        <label>Hostname <input id="trendHost" type="text" placeholder="hostname"></label>
+        <label>Last N <input id="trendLast" type="number" value="10" min="2" max="50"></label>
+        <button class="btn" onclick="runTrend()">Show Trend</button>
       </div>
       <div id="trendResult"></div>`;
   }
@@ -376,10 +415,8 @@
       let html = '';
       if (trend.direction) {
         const dir = escapeHtml(trend.direction);
-        const cls = trend.direction === 'improving' ? 'safe' : trend.direction === 'declining' ? 'unsafe' : 'info';
-        html += `<div class="card ${cls}" style="display:inline-block;margin-bottom:16px">
-          <div class="value" style="font-size:1.2em;text-transform:capitalize">${dir}</div>
-          <div class="label">Overall Direction</div></div>`;
+        const cls = trend.direction === 'improving' ? 'improving' : trend.direction === 'declining' ? 'declining' : 'stable';
+        html += `<div class="direction-badge ${cls}">${dir}</div>`;
       }
 
       if (trend.points && trend.points.length > 0) {
@@ -395,16 +432,13 @@
           data: {
             labels: trend.points.map(p => new Date(p.timestamp).toLocaleDateString()),
             datasets: [
-              { label: 'Safe', data: trend.points.map(p => p.safe), borderColor: COLORS.safe, fill: false },
-              { label: 'Transitional', data: trend.points.map(p => p.transitional), borderColor: COLORS.transitional, fill: false },
-              { label: 'Deprecated', data: trend.points.map(p => p.deprecated), borderColor: COLORS.deprecated, fill: false },
-              { label: 'Unsafe', data: trend.points.map(p => p.unsafe), borderColor: COLORS.unsafe, fill: false }
+              { label: 'Safe', data: trend.points.map(p => p.safe), borderColor: COLORS.safe, backgroundColor: 'rgba(52,211,153,0.08)', fill: true, tension: 0.3 },
+              { label: 'Transitional', data: trend.points.map(p => p.transitional), borderColor: COLORS.transitional, fill: false, tension: 0.3 },
+              { label: 'Deprecated', data: trend.points.map(p => p.deprecated), borderColor: COLORS.deprecated, fill: false, tension: 0.3 },
+              { label: 'Unsafe', data: trend.points.map(p => p.unsafe), borderColor: COLORS.unsafe, fill: false, tension: 0.3 }
             ]
           },
-          options: {
-            responsive: true,
-            plugins: { legend: { position: 'bottom' } }
-          }
+          options: darkChartOptions({ scales: darkScaleOptions(false) })
         });
       }
     } catch(e) {

@@ -21,14 +21,18 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      args:
+        PUBLIC_KEY_HEX: "${TRITON_PUBLIC_KEY_HEX:-a158a5193e2443ddc7cc7c25745c407e47d6c68ff56d8baddf4e822ce43cff96}"
     container_name: triton-server
     profiles: [server]
     depends_on:
       postgres:
         condition: service_healthy
     environment:
+      HOME: /tmp
       TRITON_DB_URL: postgres://triton:triton@postgres:5432/triton?sslmode=disable
       TRITON_LISTEN: ":8080"
+      TRITON_LICENSE_KEY: "${TRITON_LICENSE_KEY:-eyJsaWQiOiIwMTljYzNmMS01NjE0LTc0NjUtYWY5NS02NmQ0N2E4NjBkZGEiLCJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9yZyI6ImNvbnRhaW5lci1kZXYiLCJzZWF0cyI6MTAwLCJpYXQiOjE3NzI4MTM4OTksImV4cCI6MjA4ODE3Mzg5OX0.NZTxYq5pRRK6FzxzrOJrxPxhTFC-f-7mwDOI_7rqtRpP-rO0Al5LYqzkyHEEU_eLPmc9uccguiRUp_AItR1jCg}"
     ports:
       - "8080:8080"
     command: ["server", "--listen", ":8080", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable"]
@@ -45,8 +49,9 @@ services:
     environment:
       TRITON_LICENSE_SERVER_DB_URL: postgres://triton:triton@postgres:5432/triton_license?sslmode=disable
       TRITON_LICENSE_SERVER_LISTEN: ":8081"
-      TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY}"
-      TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY}"
+      TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY:-dev-admin-key}"
+      TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY:-9c4c9d2c0a08d402d3980a358bc0bbe30b92b0462a14f9c277c3f1d961d744ebe19a10e284169be04604d1b028c25c40d3ebb8cbccaf9de0e53bade5c7cd0016}"
+      TRITON_LICENSE_SERVER_BINARIES_DIR: /tmp/binaries
     ports:
       - "8081:8081"
 

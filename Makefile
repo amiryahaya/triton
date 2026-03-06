@@ -55,7 +55,7 @@ db-reset:
 
 # Container lifecycle
 container-build:
-	podman build -t triton:local -f Containerfile .
+	podman compose --profile server build
 
 container-run: container-build
 	podman compose --profile server up -d
@@ -65,7 +65,7 @@ container-stop:
 
 # License server container lifecycle
 container-build-licenseserver:
-	podman build -t triton-license-server:local -f Containerfile.licenseserver .
+	podman compose --profile license-server build
 
 container-run-licenseserver: container-build-licenseserver
 	podman compose --profile license-server up -d

@@ -5,15 +5,25 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/pkg/model"
 )
+
+// testNS is a fixed namespace UUID for deterministic test ID generation.
+var testNS = uuid.MustParse("12345678-1234-1234-1234-123456789abc")
+
+// testUUID returns a deterministic UUID v5 for the given human-readable name.
+func testUUID(name string) string {
+	return uuid.NewSHA1(testNS, []byte(name)).String()
+}
 
 // Compile-time interface satisfaction assertions.
 var _ Store = (*PostgresStore)(nil)
@@ -131,12 +141,13 @@ func TestNewPostgresStore_IdempotentMigrations(t *testing.T) {
 func TestSaveScan_And_GetScan(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
-	result := testScanResult("scan-001", "host-a", "quick")
+	id := testUUID("scan-001")
+	result := testScanResult(id, "host-a", "quick")
 
 	err := s.SaveScan(ctx, result)
 	require.NoError(t, err)
 
-	got, err := s.GetScan(ctx, "scan-001", "")
+	got, err := s.GetScan(ctx, id, "")
 	require.NoError(t, err)
 	assert.Equal(t, result.ID, got.ID)
 	assert.Equal(t, result.Metadata.Hostname, got.Metadata.Hostname)
@@ -150,7 +161,7 @@ func TestGetScan_NotFound(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	_, err := s.GetScan(ctx, "nonexistent", "")
+	_, err := s.GetScan(ctx, testUUID("nonexistent"), "")
 	require.Error(t, err)
 
 	var nf *ErrNotFound
@@ -162,7 +173,8 @@ func TestSaveScan_Upsert(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	result := testScanResult("scan-upsert", "host-a", "quick")
+	id := testUUID("scan-upsert")
+	result := testScanResult(id, "host-a", "quick")
 	require.NoError(t, s.SaveScan(ctx, result))
 
 	// Update summary and save again.
@@ -170,7 +182,7 @@ func TestSaveScan_Upsert(t *testing.T) {
 	result.Summary.Unsafe = 5
 	require.NoError(t, s.SaveScan(ctx, result))
 
-	got, err := s.GetScan(ctx, "scan-upsert", "")
+	got, err := s.GetScan(ctx, id, "")
 	require.NoError(t, err)
 	assert.Equal(t, 10, got.Summary.Safe)
 	assert.Equal(t, 5, got.Summary.Unsafe)
@@ -180,13 +192,14 @@ func TestDeleteScan(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	result := testScanResult("scan-del", "host-a", "quick")
+	id := testUUID("scan-del")
+	result := testScanResult(id, "host-a", "quick")
 	require.NoError(t, s.SaveScan(ctx, result))
 
-	err := s.DeleteScan(ctx, "scan-del", "")
+	err := s.DeleteScan(ctx, id, "")
 	require.NoError(t, err)
 
-	_, err = s.GetScan(ctx, "scan-del", "")
+	_, err = s.GetScan(ctx, id, "")
 	var nf *ErrNotFound
 	assert.True(t, errors.As(err, &nf))
 }
@@ -195,7 +208,7 @@ func TestDeleteScan_NotFound(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	err := s.DeleteScan(ctx, "nonexistent", "")
+	err := s.DeleteScan(ctx, testUUID("nonexistent"), "")
 	var nf *ErrNotFound
 	assert.True(t, errors.As(err, &nf))
 }
@@ -206,8 +219,10 @@ func TestListScans_All(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
+	ids := make([]string, 3)
 	for i := 0; i < 3; i++ {
-		r := testScanResult("scan-list-"+string(rune('a'+i)), "host-a", "standard")
+		ids[i] = testUUID(fmt.Sprintf("scan-list-%c", 'a'+i))
+		r := testScanResult(ids[i], "host-a", "standard")
 		r.Metadata.Timestamp = time.Now().UTC().Add(time.Duration(i) * time.Hour).Truncate(time.Microsecond)
 		require.NoError(t, s.SaveScan(ctx, r))
 	}
@@ -217,18 +232,18 @@ func TestListScans_All(t *testing.T) {
 	assert.Len(t, summaries, 3)
 
 	// Should be ordered by timestamp DESC.
-	assert.Equal(t, "scan-list-c", summaries[0].ID)
-	assert.Equal(t, "scan-list-b", summaries[1].ID)
-	assert.Equal(t, "scan-list-a", summaries[2].ID)
+	assert.Equal(t, ids[2], summaries[0].ID)
+	assert.Equal(t, ids[1], summaries[1].ID)
+	assert.Equal(t, ids[0], summaries[2].ID)
 }
 
 func TestListScans_FilterHostname(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveScan(ctx, testScanResult("s1", "host-a", "quick")))
-	require.NoError(t, s.SaveScan(ctx, testScanResult("s2", "host-b", "quick")))
-	require.NoError(t, s.SaveScan(ctx, testScanResult("s3", "host-a", "standard")))
+	require.NoError(t, s.SaveScan(ctx, testScanResult(testUUID("fh-s1"), "host-a", "quick")))
+	require.NoError(t, s.SaveScan(ctx, testScanResult(testUUID("fh-s2"), "host-b", "quick")))
+	require.NoError(t, s.SaveScan(ctx, testScanResult(testUUID("fh-s3"), "host-a", "standard")))
 
 	summaries, err := s.ListScans(ctx, ScanFilter{Hostname: "host-a"})
 	require.NoError(t, err)
@@ -239,13 +254,14 @@ func TestListScans_FilterProfile(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveScan(ctx, testScanResult("s1", "host-a", "quick")))
-	require.NoError(t, s.SaveScan(ctx, testScanResult("s2", "host-a", "standard")))
+	id1 := testUUID("fp-s1")
+	require.NoError(t, s.SaveScan(ctx, testScanResult(id1, "host-a", "quick")))
+	require.NoError(t, s.SaveScan(ctx, testScanResult(testUUID("fp-s2"), "host-a", "standard")))
 
 	summaries, err := s.ListScans(ctx, ScanFilter{Profile: "quick"})
 	require.NoError(t, err)
 	assert.Len(t, summaries, 1)
-	assert.Equal(t, "s1", summaries[0].ID)
+	assert.Equal(t, id1, summaries[0].ID)
 }
 
 func TestListScans_FilterTimeRange(t *testing.T) {
@@ -254,7 +270,7 @@ func TestListScans_FilterTimeRange(t *testing.T) {
 
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		r := testScanResult("ts-"+string(rune('a'+i)), "host-a", "quick")
+		r := testScanResult(testUUID(fmt.Sprintf("ts-%c", 'a'+i)), "host-a", "quick")
 		r.Metadata.Timestamp = base.Add(time.Duration(i) * 24 * time.Hour)
 		require.NoError(t, s.SaveScan(ctx, r))
 	}
@@ -271,7 +287,7 @@ func TestListScans_Limit(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		r := testScanResult("lim-"+string(rune('a'+i)), "host-a", "quick")
+		r := testScanResult(testUUID(fmt.Sprintf("lim-%c", 'a'+i)), "host-a", "quick")
 		r.Metadata.Timestamp = time.Now().UTC().Add(time.Duration(i) * time.Hour).Truncate(time.Microsecond)
 		require.NoError(t, s.SaveScan(ctx, r))
 	}
@@ -359,7 +375,8 @@ func TestListScans_SummaryFieldsAccurate(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	result := testScanResult("fields-test", "fieldhost", "comprehensive")
+	id := testUUID("fields-test")
+	result := testScanResult(id, "fieldhost", "comprehensive")
 	result.Summary = model.Summary{
 		TotalFindings: 100,
 		Safe:          40,
@@ -374,7 +391,7 @@ func TestListScans_SummaryFieldsAccurate(t *testing.T) {
 	require.Len(t, summaries, 1)
 
 	ss := summaries[0]
-	assert.Equal(t, "fields-test", ss.ID)
+	assert.Equal(t, id, ss.ID)
 	assert.Equal(t, "fieldhost", ss.Hostname)
 	assert.Equal(t, "comprehensive", ss.Profile)
 	assert.Equal(t, 100, ss.TotalFindings)
@@ -429,7 +446,7 @@ func TestSaveScan_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result := testScanResult("cancelled", "host", "quick")
+	result := testScanResult(testUUID("cancelled"), "host", "quick")
 	err := s.SaveScan(ctx, result)
 	assert.Error(t, err)
 }
@@ -437,12 +454,13 @@ func TestSaveScan_CancelledContext(t *testing.T) {
 func TestGetScan_CancelledContext(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
-	require.NoError(t, s.SaveScan(ctx, testScanResult("ctx-get", "host-a", "quick")))
+	id := testUUID("ctx-get")
+	require.NoError(t, s.SaveScan(ctx, testScanResult(id, "host-a", "quick")))
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := s.GetScan(cancelCtx, "ctx-get", "")
+	_, err := s.GetScan(cancelCtx, id, "")
 	assert.Error(t, err)
 }
 
@@ -458,12 +476,13 @@ func TestListScans_CancelledContext(t *testing.T) {
 func TestDeleteScan_CancelledContext(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
-	require.NoError(t, s.SaveScan(ctx, testScanResult("ctx-del", "host-a", "quick")))
+	id := testUUID("ctx-del")
+	require.NoError(t, s.SaveScan(ctx, testScanResult(id, "host-a", "quick")))
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := s.DeleteScan(cancelCtx, "ctx-del", "")
+	err := s.DeleteScan(cancelCtx, id, "")
 	assert.Error(t, err)
 }
 
@@ -513,11 +532,12 @@ func TestListScans_CombinedFilters(t *testing.T) {
 	ctx := context.Background()
 
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	r1 := testScanResult("cf-1", "host-a", "quick")
+	id1 := testUUID("cf-1")
+	r1 := testScanResult(id1, "host-a", "quick")
 	r1.Metadata.Timestamp = base
-	r2 := testScanResult("cf-2", "host-a", "standard")
+	r2 := testScanResult(testUUID("cf-2"), "host-a", "standard")
 	r2.Metadata.Timestamp = base.Add(24 * time.Hour)
-	r3 := testScanResult("cf-3", "host-b", "quick")
+	r3 := testScanResult(testUUID("cf-3"), "host-b", "quick")
 	r3.Metadata.Timestamp = base.Add(48 * time.Hour)
 
 	require.NoError(t, s.SaveScan(ctx, r1))
@@ -528,7 +548,7 @@ func TestListScans_CombinedFilters(t *testing.T) {
 	summaries, err := s.ListScans(ctx, ScanFilter{Hostname: "host-a", Profile: "quick"})
 	require.NoError(t, err)
 	assert.Len(t, summaries, 1)
-	assert.Equal(t, "cf-1", summaries[0].ID)
+	assert.Equal(t, id1, summaries[0].ID)
 
 	// Filter by hostname + time range + limit
 	after := base

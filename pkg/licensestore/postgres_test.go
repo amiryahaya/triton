@@ -20,6 +20,9 @@ import (
 
 var storeTestSeq atomic.Int64
 
+// nonExistentUUID is a valid UUID that will never match real data, used for not-found tests.
+const nonExistentUUID = "00000000-0000-0000-0000-000000000000"
+
 func openTestStore(t *testing.T) *licensestore.PostgresStore {
 	t.Helper()
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
@@ -44,7 +47,7 @@ func makeOrg(t *testing.T) *licensestore.Organization {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &licensestore.Organization{
 		ID:        uuid.Must(uuid.NewV7()).String(),
-		Name:      "Test Org " + uuid.Must(uuid.NewV7()).String()[:8],
+		Name:      "Test Org " + uuid.Must(uuid.NewV7()).String(),
 		Contact:   "admin@test.com",
 		Notes:     "test org",
 		CreatedAt: now,
@@ -103,7 +106,7 @@ func TestGetOrg_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	_, err := s.GetOrg(ctx, "nonexistent")
+	_, err := s.GetOrg(ctx, nonExistentUUID)
 	require.Error(t, err)
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
@@ -188,7 +191,7 @@ func TestGetLicense_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	_, err := s.GetLicense(ctx, "nonexistent")
+	_, err := s.GetLicense(ctx, nonExistentUUID)
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
 }
@@ -378,7 +381,7 @@ func TestDeactivate_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	err := s.Deactivate(ctx, "no-license", "no-machine")
+	err := s.Deactivate(ctx, nonExistentUUID, "no-machine")
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
 }
@@ -431,7 +434,7 @@ func TestWriteAndListAudit(t *testing.T) {
 	entry := &licensestore.AuditEntry{
 		Timestamp: time.Now().UTC().Truncate(time.Microsecond),
 		EventType: "activate",
-		LicenseID: "lic-1",
+		LicenseID: nonExistentUUID,
 		MachineID: "machine-1",
 		Actor:     "system",
 		Details:   json.RawMessage(`{"test": true}`),
@@ -507,7 +510,7 @@ func TestActivate_LicenseNotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	act := makeActivation(t, "nonexistent")
+	act := makeActivation(t, nonExistentUUID)
 	err := s.Activate(ctx, act)
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)

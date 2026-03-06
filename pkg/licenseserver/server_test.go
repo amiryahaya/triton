@@ -509,7 +509,7 @@ func TestGetOrg(t *testing.T) {
 
 func TestGetOrg_NotFound(t *testing.T) {
 	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs/nonexistent-id", nil)
+	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs/00000000-0000-0000-0000-000000000000", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -614,7 +614,7 @@ func TestAdminDeactivate(t *testing.T) {
 
 func TestAdminDeactivate_NotFound(t *testing.T) {
 	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/activations/nonexistent/deactivate", nil)
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/activations/00000000-0000-0000-0000-000000000000/deactivate", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -823,7 +823,7 @@ func TestDownloadBinary_InvalidLicense(t *testing.T) {
 	ts, _ := setupTestServer(t)
 	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/license/download/1.0.0/linux/amd64?license_id=nonexistent")
+	resp, err := http.Get(ts.URL + "/api/v1/license/download/1.0.0/linux/amd64?license_id=00000000-0000-0000-0000-000000000000")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
@@ -934,8 +934,9 @@ func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 	orgID := orgResult["id"].(string)
 
 	// Create an already-expired license directly via store (bypasses API validation).
+	expiredLicID := "deadbeef-dead-beef-dead-beefdeadbeef"
 	expiredLic := &licensestore.LicenseRecord{
-		ID:        "expired-lic-id",
+		ID:        expiredLicID,
 		OrgID:     orgID,
 		Tier:      "pro",
 		Seats:     5,
@@ -946,7 +947,7 @@ func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 	require.NoError(t, store.CreateLicense(ctx, expiredLic))
 
 	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
-	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=expired-lic-id", ts.URL))
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=%s", ts.URL, expiredLicID))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)

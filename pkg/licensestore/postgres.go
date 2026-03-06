@@ -55,7 +55,12 @@ func NewPostgresStoreInSchema(ctx context.Context, connStr, schema string) (*Pos
 		return nil, fmt.Errorf("connecting to postgresql: %w", err)
 	}
 	// Schema name is validated above against a strict alphanumeric pattern.
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
+	// Drop first to ensure clean state (stale schemas from crashed test runs).
+	if _, err := pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE"); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("dropping stale schema %s: %w", schema, err)
+	}
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("creating schema %s: %w", schema, err)
 	}

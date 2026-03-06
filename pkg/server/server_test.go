@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,15 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
 )
+
+// testUUID returns a deterministic UUID string for use in tests.
+// e.g., testUUID(1) => "00000000-0000-0000-0000-000000000001"
+func testUUID(n int) string {
+	return fmt.Sprintf("00000000-0000-0000-0000-%012d", n)
+}
+
+// zeroUUID is a nil UUID for "not found" test cases.
+const zeroUUID = "00000000-0000-0000-0000-000000000000"
 
 func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	t.Helper()
@@ -155,7 +165,8 @@ func TestHealth_NoAuthRequired(t *testing.T) {
 
 func TestSubmitScan(t *testing.T) {
 	srv, _ := testServer(t)
-	scan := testScanResult("submit-1", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	body, _ := json.Marshal(scan)
 
 	w := httptest.NewRecorder()
@@ -163,7 +174,7 @@ func TestSubmitScan(t *testing.T) {
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	assert.Contains(t, w.Body.String(), "submit-1")
+	assert.Contains(t, w.Body.String(), id)
 }
 
 func TestSubmitScan_InvalidJSON(t *testing.T) {
@@ -189,24 +200,25 @@ func TestSubmitScan_MissingID(t *testing.T) {
 
 func TestGetScan(t *testing.T) {
 	srv, db := testServer(t)
-	scan := testScanResult("get-1", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/get-1", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+id, nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var got model.ScanResult
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
-	assert.Equal(t, "get-1", got.ID)
+	assert.Equal(t, id, got.ID)
 }
 
 func TestGetScan_NotFound(t *testing.T) {
 	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/nonexistent", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+zeroUUID, nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -214,8 +226,8 @@ func TestGetScan_NotFound(t *testing.T) {
 
 func TestListScans(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("list-1", "host-a")))
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("list-2", "host-b")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(1), "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(2), "host-b")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
@@ -230,8 +242,8 @@ func TestListScans(t *testing.T) {
 
 func TestListScans_FilterHostname(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("filt-1", "host-a")))
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("filt-2", "host-b")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(1), "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(2), "host-b")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/scans?hostname=host-a", nil)
@@ -244,17 +256,18 @@ func TestListScans_FilterHostname(t *testing.T) {
 
 func TestDeleteScan(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("del-1", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("DELETE", "/api/v1/scans/del-1", nil)
+	r := httptest.NewRequest("DELETE", "/api/v1/scans/"+id, nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Verify deleted
 	w2 := httptest.NewRecorder()
-	r2 := httptest.NewRequest("GET", "/api/v1/scans/del-1", nil)
+	r2 := httptest.NewRequest("GET", "/api/v1/scans/"+id, nil)
 	srv.Router().ServeHTTP(w2, r2)
 	assert.Equal(t, http.StatusNotFound, w2.Code)
 }
@@ -263,10 +276,11 @@ func TestDeleteScan(t *testing.T) {
 
 func TestGetFindings(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("find-1", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/find-1/findings", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+id+"/findings", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -278,7 +292,8 @@ func TestGetFindings(t *testing.T) {
 
 func TestGetFindings_FilterPQCStatus(t *testing.T) {
 	srv, db := testServer(t)
-	scan := testScanResult("fpqc-1", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	scan.Findings = append(scan.Findings, model.Finding{
 		ID:     "f2",
 		Source: model.FindingSource{Type: "file", Path: "/safe"},
@@ -291,7 +306,7 @@ func TestGetFindings_FilterPQCStatus(t *testing.T) {
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/fpqc-1/findings?pqc_status=SAFE", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+id+"/findings?pqc_status=SAFE", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	var findings []model.Finding
@@ -304,8 +319,10 @@ func TestGetFindings_FilterPQCStatus(t *testing.T) {
 
 func TestDiff(t *testing.T) {
 	srv, db := testServer(t)
-	s1 := testScanResult("diff-base", "host-a")
-	s2 := testScanResult("diff-compare", "host-a")
+	baseID := testUUID(1)
+	compareID := testUUID(2)
+	s1 := testScanResult(baseID, "host-a")
+	s2 := testScanResult(compareID, "host-a")
 	s2.Findings = append(s2.Findings, model.Finding{
 		ID:          "new-f",
 		Source:      model.FindingSource{Type: "file", Path: "/new"},
@@ -316,7 +333,7 @@ func TestDiff(t *testing.T) {
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/diff?base=diff-base&compare=diff-compare", nil)
+	r := httptest.NewRequest("GET", "/api/v1/diff?base="+baseID+"&compare="+compareID, nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -328,7 +345,7 @@ func TestDiff(t *testing.T) {
 func TestTrend(t *testing.T) {
 	srv, db := testServer(t)
 	for i := 0; i < 3; i++ {
-		s := testScanResult("trend-"+string(rune('a'+i)), "host-a")
+		s := testScanResult(testUUID(i+1), "host-a")
 		s.Metadata.Timestamp = time.Now().Add(time.Duration(i) * time.Hour)
 		require.NoError(t, db.SaveScan(context.Background(), s))
 	}
@@ -345,9 +362,9 @@ func TestTrend(t *testing.T) {
 
 func TestListMachines(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("m-1", "host-a")))
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("m-2", "host-b")))
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("m-3", "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(1), "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(2), "host-b")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(3), "host-a")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/machines", nil)
@@ -363,8 +380,8 @@ func TestListMachines(t *testing.T) {
 
 func TestAggregate(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("agg-1", "host-a")))
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("agg-2", "host-b")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(1), "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(2), "host-b")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/aggregate", nil)
@@ -381,12 +398,13 @@ func TestAggregate(t *testing.T) {
 
 func TestPolicyEvaluate_Builtin(t *testing.T) {
 	srv, db := testServer(t)
-	scan := testScanResult("pol-1", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	scan.Findings[0].CryptoAsset.PQCStatus = "UNSAFE"
 	scan.Summary.Unsafe = 1
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
-	body := `{"scanID":"pol-1","policyName":"nacsa-2030"}`
+	body := fmt.Sprintf(`{"scanID":"%s","policyName":"nacsa-2030"}`, id)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
 	srv.Router().ServeHTTP(w, r)
@@ -431,7 +449,7 @@ func TestUIServeCSS(t *testing.T) {
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "--primary")
+	assert.Contains(t, w.Body.String(), "--bg-primary")
 }
 
 func TestUIServeJS(t *testing.T) {
@@ -449,7 +467,7 @@ func TestUIServeJS(t *testing.T) {
 func TestDeleteScan_NotFound(t *testing.T) {
 	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("DELETE", "/api/v1/scans/nonexistent", nil)
+	r := httptest.NewRequest("DELETE", "/api/v1/scans/"+zeroUUID, nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -460,7 +478,7 @@ func TestDeleteScan_NotFound(t *testing.T) {
 func TestGetFindings_NotFound(t *testing.T) {
 	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/nonexistent/findings", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+zeroUUID+"/findings", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -468,7 +486,8 @@ func TestGetFindings_NotFound(t *testing.T) {
 
 func TestGetFindings_FilterByModule(t *testing.T) {
 	srv, db := testServer(t)
-	scan := testScanResult("fmod-1", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	scan.Findings = append(scan.Findings, model.Finding{
 		ID:     "f2",
 		Source: model.FindingSource{Type: "file", Path: "/lib"},
@@ -481,7 +500,7 @@ func TestGetFindings_FilterByModule(t *testing.T) {
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/fmod-1/findings?module=libraries", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+id+"/findings?module=libraries", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -493,7 +512,8 @@ func TestGetFindings_FilterByModule(t *testing.T) {
 
 func TestGetFindings_FilterBothPQCAndModule(t *testing.T) {
 	srv, db := testServer(t)
-	scan := testScanResult("fboth-1", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	scan.Findings = append(scan.Findings,
 		model.Finding{
 			ID:          "f2",
@@ -511,7 +531,7 @@ func TestGetFindings_FilterBothPQCAndModule(t *testing.T) {
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans/fboth-1/findings?pqc_status=SAFE&module=libraries", nil)
+	r := httptest.NewRequest("GET", "/api/v1/scans/"+id+"/findings?pqc_status=SAFE&module=libraries", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -534,13 +554,13 @@ func TestDiff_MissingParams(t *testing.T) {
 
 	// Only base
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest("GET", "/api/v1/diff?base=scan-1", nil)
+	r = httptest.NewRequest("GET", "/api/v1/diff?base="+testUUID(1), nil)
 	srv.Router().ServeHTTP(w, r)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// Only compare
 	w = httptest.NewRecorder()
-	r = httptest.NewRequest("GET", "/api/v1/diff?compare=scan-2", nil)
+	r = httptest.NewRequest("GET", "/api/v1/diff?compare="+testUUID(2), nil)
 	srv.Router().ServeHTTP(w, r)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -548,7 +568,7 @@ func TestDiff_MissingParams(t *testing.T) {
 func TestDiff_BaseNotFound(t *testing.T) {
 	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/diff?base=nonexistent&compare=also-missing", nil)
+	r := httptest.NewRequest("GET", "/api/v1/diff?base="+zeroUUID+"&compare="+testUUID(99), nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -557,10 +577,11 @@ func TestDiff_BaseNotFound(t *testing.T) {
 
 func TestDiff_CompareNotFound(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("diff-exist", "host-a")))
+	existID := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(existID, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/diff?base=diff-exist&compare=nonexistent", nil)
+	r := httptest.NewRequest("GET", "/api/v1/diff?base="+existID+"&compare="+zeroUUID, nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -572,7 +593,7 @@ func TestDiff_CompareNotFound(t *testing.T) {
 func TestListScans_WithLimit(t *testing.T) {
 	srv, db := testServer(t)
 	for i := 0; i < 5; i++ {
-		s := testScanResult("lim-"+string(rune('a'+i)), "host-a")
+		s := testScanResult(testUUID(i+1), "host-a")
 		s.Metadata.Timestamp = time.Now().Add(time.Duration(i) * time.Hour)
 		require.NoError(t, db.SaveScan(context.Background(), s))
 	}
@@ -589,15 +610,15 @@ func TestListScans_WithLimit(t *testing.T) {
 
 func TestListScans_WithTimeRange(t *testing.T) {
 	srv, db := testServer(t)
-	base := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	baseTime := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		s := testScanResult("tr-"+string(rune('a'+i)), "host-a")
-		s.Metadata.Timestamp = base.Add(time.Duration(i) * 24 * time.Hour)
+		s := testScanResult(testUUID(i+1), "host-a")
+		s.Metadata.Timestamp = baseTime.Add(time.Duration(i) * 24 * time.Hour)
 		require.NoError(t, db.SaveScan(context.Background(), s))
 	}
 
-	after := base.Add(24 * time.Hour).Format(time.RFC3339)
-	before := base.Add(3 * 24 * time.Hour).Format(time.RFC3339)
+	after := baseTime.Add(24 * time.Hour).Format(time.RFC3339)
+	before := baseTime.Add(3 * 24 * time.Hour).Format(time.RFC3339)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/scans?after="+after+"&before="+before, nil)
@@ -611,10 +632,10 @@ func TestListScans_WithTimeRange(t *testing.T) {
 
 func TestListScans_WithProfile(t *testing.T) {
 	srv, db := testServer(t)
-	s1 := testScanResult("prof-1", "host-a")
+	s1 := testScanResult(testUUID(1), "host-a")
 	s1.Metadata.ScanProfile = "comprehensive"
 	require.NoError(t, db.SaveScan(context.Background(), s1))
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("prof-2", "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(2), "host-a")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/scans?profile=comprehensive", nil)
@@ -642,12 +663,12 @@ func TestListScans_EmptyResult(t *testing.T) {
 func TestMachineHistory(t *testing.T) {
 	srv, db := testServer(t)
 	for i := 0; i < 3; i++ {
-		s := testScanResult("mh-"+string(rune('a'+i)), "target-host")
+		s := testScanResult(testUUID(i+1), "target-host")
 		s.Metadata.Timestamp = time.Now().Add(time.Duration(i) * time.Hour)
 		require.NoError(t, db.SaveScan(context.Background(), s))
 	}
 	// Different host — should not appear
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("mh-other", "other-host")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(10), "other-host")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/machines/target-host", nil)
@@ -677,7 +698,7 @@ func TestMachineHistory_Empty(t *testing.T) {
 func TestGenerateReport_ScanNotFound(t *testing.T) {
 	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/nonexistent/json", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+zeroUUID+"/json", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -685,10 +706,11 @@ func TestGenerateReport_ScanNotFound(t *testing.T) {
 
 func TestGenerateReport_UnsupportedFormat(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-1", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-1/xml", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/xml", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -697,10 +719,11 @@ func TestGenerateReport_UnsupportedFormat(t *testing.T) {
 
 func TestGenerateReport_JSON(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-json", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-json/json", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/json", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -709,10 +732,11 @@ func TestGenerateReport_JSON(t *testing.T) {
 
 func TestGenerateReport_SARIF(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-sarif", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-sarif/sarif", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/sarif", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -721,10 +745,11 @@ func TestGenerateReport_SARIF(t *testing.T) {
 
 func TestGenerateReport_HTML(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-html", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-html/html", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/html", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -733,10 +758,11 @@ func TestGenerateReport_HTML(t *testing.T) {
 
 func TestGenerateReport_CycloneDX(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-cdx", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-cdx/cyclonedx", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/cyclonedx", nil)
 	srv.Router().ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -767,7 +793,7 @@ func TestPolicyEvaluate_MissingScanID(t *testing.T) {
 
 func TestPolicyEvaluate_ScanNotFound(t *testing.T) {
 	srv, _ := testServer(t)
-	body := `{"scanID":"nonexistent","policyName":"nacsa-2030"}`
+	body := fmt.Sprintf(`{"scanID":"%s","policyName":"nacsa-2030"}`, zeroUUID)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
 	srv.Router().ServeHTTP(w, r)
@@ -777,9 +803,10 @@ func TestPolicyEvaluate_ScanNotFound(t *testing.T) {
 
 func TestPolicyEvaluate_NoPolicySpecified(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("pol-nop", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
-	body := `{"scanID":"pol-nop"}`
+	body := fmt.Sprintf(`{"scanID":"%s"}`, id)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
 	srv.Router().ServeHTTP(w, r)
@@ -790,9 +817,10 @@ func TestPolicyEvaluate_NoPolicySpecified(t *testing.T) {
 
 func TestPolicyEvaluate_InvalidPolicyName(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("pol-bad", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
-	body := `{"scanID":"pol-bad","policyName":"no-such-policy"}`
+	body := fmt.Sprintf(`{"scanID":"%s","policyName":"no-such-policy"}`, id)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/api/v1/policy/evaluate", bytes.NewReader([]byte(body)))
 	srv.Router().ServeHTTP(w, r)
@@ -803,7 +831,8 @@ func TestPolicyEvaluate_InvalidPolicyName(t *testing.T) {
 
 func TestPolicyEvaluate_CustomYAML(t *testing.T) {
 	srv, db := testServer(t)
-	scan := testScanResult("pol-yaml", "host-a")
+	id := testUUID(1)
+	scan := testScanResult(id, "host-a")
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
 	policyYAML := `name: test-policy
@@ -819,7 +848,7 @@ rules:
       value: UNSAFE`
 
 	reqBody := map[string]string{
-		"scanID":     "pol-yaml",
+		"scanID":     id,
 		"policyYAML": policyYAML,
 	}
 	body, _ := json.Marshal(reqBody)
@@ -834,7 +863,7 @@ rules:
 
 func TestTrend_DefaultLast(t *testing.T) {
 	srv, db := testServer(t)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("trend-def", "host-a")))
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(testUUID(1), "host-a")))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/trend", nil)
@@ -903,43 +932,48 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 func TestLicenceMiddleware_BlocksDiffForFreeTier(t *testing.T) {
 	srv, _ := testServerWithGuard(t, license.TierFree)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/diff?base=a&compare=b", nil)
+	r := httptest.NewRequest("GET", "/api/v1/diff?base="+testUUID(1)+"&compare="+testUUID(2), nil)
 	srv.Router().ServeHTTP(w, r)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 func TestLicenceMiddleware_AllowsDiffForEnterprise(t *testing.T) {
 	srv, db := testServerWithGuard(t, license.TierEnterprise)
-	s1 := testScanResult("diff-lic-1", "host-a")
-	s2 := testScanResult("diff-lic-2", "host-a")
+	id1 := testUUID(1)
+	id2 := testUUID(2)
+	s1 := testScanResult(id1, "host-a")
+	s2 := testScanResult(id2, "host-a")
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/diff?base=diff-lic-1&compare=diff-lic-2", nil)
+	r := httptest.NewRequest("GET", "/api/v1/diff?base="+id1+"&compare="+id2, nil)
 	srv.Router().ServeHTTP(w, r)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestLicenceMiddleware_NilGuardAllowsAll(t *testing.T) {
 	srv, db := testServer(t) // testServer has no Guard → nil
-	s1 := testScanResult("nilg-1", "host-a")
-	s2 := testScanResult("nilg-2", "host-a")
+	id1 := testUUID(1)
+	id2 := testUUID(2)
+	s1 := testScanResult(id1, "host-a")
+	s2 := testScanResult(id2, "host-a")
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/diff?base=nilg-1&compare=nilg-2", nil)
+	r := httptest.NewRequest("GET", "/api/v1/diff?base="+id1+"&compare="+id2, nil)
 	srv.Router().ServeHTTP(w, r)
 	assert.Equal(t, http.StatusOK, w.Code, "nil guard should allow all requests")
 }
 
 func TestLicenceMiddleware_BlocksSarifReportForPro(t *testing.T) {
 	srv, db := testServerWithGuard(t, license.TierPro)
-	require.NoError(t, db.SaveScan(context.Background(), testScanResult("rpt-lic", "host-a")))
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/reports/rpt-lic/sarif", nil)
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/sarif", nil)
 	srv.Router().ServeHTTP(w, r)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }

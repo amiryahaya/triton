@@ -65,4 +65,21 @@ var migrations = []string{
 	// Version 2: Add audit_log indexes for license_id and org_id
 	`CREATE INDEX IF NOT EXISTS idx_audit_log_license_id ON audit_log(license_id);
 	 CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);`,
+
+	// Version 3: Migrate ID columns from TEXT to native UUID (UUIDv7)
+	`TRUNCATE TABLE audit_log;
+	TRUNCATE TABLE activations;
+	TRUNCATE TABLE licenses;
+	TRUNCATE TABLE organizations;
+
+	ALTER TABLE organizations ALTER COLUMN id TYPE UUID USING id::uuid;
+
+	ALTER TABLE licenses ALTER COLUMN id TYPE UUID USING id::uuid;
+	ALTER TABLE licenses ALTER COLUMN org_id TYPE UUID USING org_id::uuid;
+
+	ALTER TABLE activations ALTER COLUMN id TYPE UUID USING id::uuid;
+	ALTER TABLE activations ALTER COLUMN license_id TYPE UUID USING license_id::uuid;
+
+	ALTER TABLE audit_log ALTER COLUMN license_id TYPE UUID USING license_id::uuid;
+	ALTER TABLE audit_log ALTER COLUMN org_id TYPE UUID USING org_id::uuid;`,
 }

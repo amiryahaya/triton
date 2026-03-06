@@ -22,16 +22,16 @@ import (
 func TestWorkflow_SubmitRetrieveDiff(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	s1 := makeScanResultWithPQC("wf-diff-base", "host-a", 3, 2, 1, 0)
+	s1 := makeScanResultWithPQC("", "host-a", 3, 2, 1, 0)
 	s1.Metadata.Timestamp = time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Microsecond)
 	submitScan(t, serverURL, "", s1)
 
 	// Add an extra finding in scan2
-	s2 := makeScanResultWithPQC("wf-diff-compare", "host-a", 4, 2, 1, 0)
+	s2 := makeScanResultWithPQC("", "host-a", 4, 2, 1, 0)
 	s2.Metadata.Timestamp = time.Now().UTC().Truncate(time.Microsecond)
 	submitScan(t, serverURL, "", s2)
 
-	resp, err := http.Get(serverURL + "/api/v1/diff?base=wf-diff-base&compare=wf-diff-compare")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -39,8 +39,8 @@ func TestWorkflow_SubmitRetrieveDiff(t *testing.T) {
 
 	var d diff.ScanDiff
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&d))
-	assert.Equal(t, "wf-diff-base", d.BaseID)
-	assert.Equal(t, "wf-diff-compare", d.CompareID)
+	assert.Equal(t, s1.ID, d.BaseID)
+	assert.Equal(t, s2.ID, d.CompareID)
 	// Scans have 6 vs 7 findings with different paths, so there should be differences
 	totalChanges := d.Summary.AddedCount + d.Summary.RemovedCount + d.Summary.ChangedCount
 	assert.True(t, totalChanges > 0, "diff should detect additions between scans with different finding counts")
@@ -77,10 +77,10 @@ func TestWorkflow_SubmitMultipleGetTrend(t *testing.T) {
 func TestWorkflow_SubmitThenPolicyEvaluate(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	s := makeScanResultWithPQC("wf-policy", "policy-host", 5, 3, 2, 1)
+	s := makeScanResultWithPQC("", "policy-host", 5, 3, 2, 1)
 	submitScan(t, serverURL, "", s)
 
-	body := `{"scanID":"wf-policy","policyName":"nacsa-2030"}`
+	body := fmt.Sprintf(`{"scanID":"%s","policyName":"nacsa-2030"}`, s.ID)
 	resp, err := http.Post(serverURL+"/api/v1/policy/evaluate", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -95,10 +95,10 @@ func TestWorkflow_SubmitThenPolicyEvaluate(t *testing.T) {
 func TestWorkflow_SubmitThenGenerateReport(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	s := makeScanResult("wf-report", "report-host", 10)
+	s := makeScanResult("", "report-host", 10)
 	submitScan(t, serverURL, "", s)
 
-	resp, err := http.Get(serverURL + "/api/v1/reports/wf-report/json")
+	resp, err := http.Get(serverURL + "/api/v1/reports/" + s.ID + "/json")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -112,16 +112,16 @@ func TestWorkflow_SubmitThenGenerateReport(t *testing.T) {
 func TestWorkflow_FullChain(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	s1 := makeScanResultWithPQC("wf-chain-1", "chain-host", 5, 3, 2, 1)
+	s1 := makeScanResultWithPQC("", "chain-host", 5, 3, 2, 1)
 	s1.Metadata.Timestamp = time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Microsecond)
 	submitScan(t, serverURL, "", s1)
 
-	s2 := makeScanResultWithPQC("wf-chain-2", "chain-host", 7, 2, 1, 0)
+	s2 := makeScanResultWithPQC("", "chain-host", 7, 2, 1, 0)
 	s2.Metadata.Timestamp = time.Now().UTC().Truncate(time.Microsecond)
 	submitScan(t, serverURL, "", s2)
 
 	// Diff
-	resp, err := http.Get(serverURL + "/api/v1/diff?base=wf-chain-1&compare=wf-chain-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -133,14 +133,14 @@ func TestWorkflow_FullChain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Policy
-	body := `{"scanID":"wf-chain-2","policyName":"nacsa-2030"}`
+	body := fmt.Sprintf(`{"scanID":"%s","policyName":"nacsa-2030"}`, s2.ID)
 	resp, err = http.Post(serverURL+"/api/v1/policy/evaluate", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Report
-	resp, err = http.Get(serverURL + "/api/v1/reports/wf-chain-2/json")
+	resp, err = http.Get(serverURL + "/api/v1/reports/" + s2.ID + "/json")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -179,10 +179,11 @@ func TestWorkflow_MachineAggregation(t *testing.T) {
 func TestWorkflow_DeleteAndVerify(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	submitScan(t, serverURL, "", makeScanResult("wf-delete", "del-host", 5))
+	s := makeScanResult("", "del-host", 5)
+	submitScan(t, serverURL, "", s)
 
 	// DELETE
-	req, err := http.NewRequest("DELETE", serverURL+"/api/v1/scans/wf-delete", nil)
+	req, err := http.NewRequest("DELETE", serverURL+"/api/v1/scans/"+s.ID, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -190,7 +191,7 @@ func TestWorkflow_DeleteAndVerify(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// GET should 404
-	resp, err = http.Get(serverURL + "/api/v1/scans/wf-delete")
+	resp, err = http.Get(serverURL + "/api/v1/scans/" + s.ID)
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -200,7 +201,7 @@ func TestWorkflow_DeleteAndVerify(t *testing.T) {
 func TestWorkflow_UpsertScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	s := makeScanResultWithPQC("wf-upsert", "upsert-host", 2, 1, 0, 0)
+	s := makeScanResultWithPQC("", "upsert-host", 2, 1, 0, 0)
 	submitScan(t, serverURL, "", s)
 
 	// Submit again with updated summary
@@ -208,7 +209,7 @@ func TestWorkflow_UpsertScan(t *testing.T) {
 	s.Summary.TotalFindings = 10
 	submitScan(t, serverURL, "", s)
 
-	got := getScan(t, serverURL, "wf-upsert")
+	got := getScan(t, serverURL, s.ID)
 	assert.Equal(t, 10, got.Summary.Safe, "should reflect updated data after upsert")
 }
 

@@ -15,12 +15,13 @@ import (
 
 // Config holds server configuration.
 type Config struct {
-	ListenAddr string
-	DBUrl      string
-	APIKeys    []string
-	TLSCert    string
-	TLSKey     string
-	Guard      *license.Guard // nil = no enforcement (backward compat for testserver)
+	ListenAddr   string
+	DBUrl        string
+	APIKeys      []string
+	TLSCert      string
+	TLSKey       string
+	Guard        *license.Guard // nil = no enforcement (backward compat for testserver)
+	TenantPubKey []byte         // optional: Ed25519 public key for tenant token verification (overrides embedded key)
 }
 
 // Server is the Triton REST API server.
@@ -67,7 +68,7 @@ func New(cfg *Config, s store.Store) *Server {
 		}
 		if cfg.Guard != nil {
 			r.Use(LicenceGate(cfg.Guard))
-			r.Use(TenantScope(cfg.Guard))
+			r.Use(TenantScope(cfg.Guard, cfg.TenantPubKey))
 		}
 		srv.registerAPIRoutes(r)
 	})

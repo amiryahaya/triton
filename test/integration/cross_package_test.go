@@ -84,7 +84,7 @@ func TestCross_ScanStoreTrend(t *testing.T) {
 	scans := make([]*model.ScanResult, 3)
 	for i := 0; i < 3; i++ {
 		s := makeScanResultWithPQC(
-			"cross-trend-"+string(rune('a'+i)), "trend-host",
+			"", "trend-host",
 			5+i*2, 3, 2, 1, // Improving: more safe over time
 		)
 		s.Metadata.Timestamp = base.Add(time.Duration(i) * time.Hour).Truncate(time.Microsecond)

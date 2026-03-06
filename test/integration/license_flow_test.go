@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -284,14 +285,16 @@ func TestLicenseFlow_Platform_ProRouteAccess(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 	platformURL, db := requireServerWithExternalGuard(t, guard)
 
-	// Seed 2 scans
-	s1 := makeScanResult("flow-pro-1", "flow-host", 5)
-	s2 := makeScanResult("flow-pro-2", "flow-host", 5)
+	// Seed 2 scans (set OrgID to match guard so tenant-scoped queries find them)
+	s1 := makeScanResult("", "flow-host", 5)
+	s1.OrgID = guard.OrgID()
+	s2 := makeScanResult("", "flow-host", 5)
+	s2.OrgID = guard.OrgID()
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	// Diff should succeed (pro allows)
-	resp, err := http.Get(platformURL + "/api/v1/diff?base=flow-pro-1&compare=flow-pro-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", platformURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access /diff")
@@ -303,13 +306,13 @@ func TestLicenseFlow_Platform_ProRouteAccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access /trend")
 
 	// JSON report should succeed
-	resp, err = http.Get(platformURL + "/api/v1/reports/flow-pro-1/json")
+	resp, err = http.Get(platformURL + "/api/v1/reports/" + s1.ID + "/json")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access JSON report")
 
 	// SARIF report should be blocked
-	resp, err = http.Get(platformURL + "/api/v1/reports/flow-pro-1/sarif")
+	resp, err = http.Get(platformURL + "/api/v1/reports/" + s1.ID + "/sarif")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "pro should be blocked from SARIF")
@@ -323,14 +326,16 @@ func TestLicenseFlow_Platform_FreeRouteBlocking(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 	platformURL, db := requireServerWithExternalGuard(t, guard)
 
-	// Seed 2 scans
-	s1 := makeScanResult("flow-free-1", "flow-host", 5)
-	s2 := makeScanResult("flow-free-2", "flow-host", 5)
+	// Seed 2 scans (set OrgID to match guard so tenant-scoped queries find them)
+	s1 := makeScanResult("", "flow-host", 5)
+	s1.OrgID = guard.OrgID()
+	s2 := makeScanResult("", "flow-host", 5)
+	s2.OrgID = guard.OrgID()
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	// Diff should be blocked
-	resp, err := http.Get(platformURL + "/api/v1/diff?base=flow-free-1&compare=flow-free-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", platformURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -358,14 +363,16 @@ func TestLicenseFlow_Platform_EnterpriseAllRoutes(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 	platformURL, db := requireServerWithExternalGuard(t, guard)
 
-	// Seed 2 scans with PQC findings
-	s1 := makeScanResultWithPQC("flow-ent-1", "flow-host", 2, 1, 1, 1)
-	s2 := makeScanResultWithPQC("flow-ent-2", "flow-host", 1, 2, 1, 1)
+	// Seed 2 scans with PQC findings (set OrgID to match guard)
+	s1 := makeScanResultWithPQC("", "flow-host", 2, 1, 1, 1)
+	s1.OrgID = guard.OrgID()
+	s2 := makeScanResultWithPQC("", "flow-host", 1, 2, 1, 1)
+	s2.OrgID = guard.OrgID()
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	// Diff should succeed
-	resp, err := http.Get(platformURL + "/api/v1/diff?base=flow-ent-1&compare=flow-ent-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", platformURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access /diff")
@@ -377,14 +384,14 @@ func TestLicenseFlow_Platform_EnterpriseAllRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access /trend")
 
 	// SARIF report should succeed
-	resp, err = http.Get(platformURL + "/api/v1/reports/flow-ent-1/sarif")
+	resp, err = http.Get(platformURL + "/api/v1/reports/" + s1.ID + "/sarif")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access SARIF report")
 
 	// Builtin policy should succeed
 	resp = postJSON(t, platformURL+"/api/v1/policy/evaluate", map[string]string{
-		"scanID": "flow-ent-1", "policyName": "nacsa-2030",
+		"scanID": s1.ID, "policyName": "nacsa-2030",
 	})
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access builtin policy")
@@ -400,7 +407,7 @@ rules:
     action: flag
 `
 	resp = postJSON(t, platformURL+"/api/v1/policy/evaluate", map[string]string{
-		"scanID": "flow-ent-1", "policyYAML": customPolicy,
+		"scanID": s1.ID, "policyYAML": customPolicy,
 	})
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access custom policy")
@@ -414,13 +421,14 @@ func TestLicenseFlow_Platform_ProBlocksCustomPolicy(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 	platformURL, db := requireServerWithExternalGuard(t, guard)
 
-	// Seed scan with PQC findings
-	s1 := makeScanResultWithPQC("flow-pro-pol-1", "flow-host", 2, 1, 1, 1)
+	// Seed scan with PQC findings (set OrgID to match guard)
+	s1 := makeScanResultWithPQC("", "flow-host", 2, 1, 1, 1)
+	s1.OrgID = guard.OrgID()
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 
 	// Builtin policy should succeed
 	resp := postJSON(t, platformURL+"/api/v1/policy/evaluate", map[string]string{
-		"scanID": "flow-pro-pol-1", "policyName": "nacsa-2030",
+		"scanID": s1.ID, "policyName": "nacsa-2030",
 	})
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access builtin policy")
@@ -436,7 +444,7 @@ rules:
     action: flag
 `
 	resp = postJSON(t, platformURL+"/api/v1/policy/evaluate", map[string]string{
-		"scanID": "flow-pro-pol-1", "policyYAML": customPolicy,
+		"scanID": s1.ID, "policyYAML": customPolicy,
 	})
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -459,14 +467,14 @@ func TestLicenseFlow_Platform_WrongPubKeyDegrades(t *testing.T) {
 
 	platformURL, db := requireServerWithExternalGuard(t, guard)
 
-	// Seed 2 scans
-	s1 := makeScanResult("flow-wrong-1", "flow-host", 5)
-	s2 := makeScanResult("flow-wrong-2", "flow-host", 5)
+	// Seed 2 scans (guard is free tier from wrong key — OrgID is empty, no tenant scoping)
+	s1 := makeScanResult("", "flow-host", 5)
+	s2 := makeScanResult("", "flow-host", 5)
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	// Diff should be blocked (degraded to free)
-	resp, err := http.Get(platformURL + "/api/v1/diff?base=flow-wrong-1&compare=flow-wrong-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", platformURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "wrong pub key should block /diff")
@@ -513,8 +521,7 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	require.NotNil(t, scanResult)
 	assert.Greater(t, len(scanResult.Findings), 0, "scan should produce findings")
 
-	// Assign a stable ID + hostname for storage
-	scanResult.ID = "flow-cross-scan-1"
+	// Assign a stable hostname for storage (ID is already a valid UUID from scanner)
 	scanResult.Metadata.Hostname = "flow-cross-host"
 
 	// Phase B: Platform server receives scan result
@@ -523,16 +530,17 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	// Submit scan result from Phase A
 	submitScan(t, platformURL, "", scanResult)
 
-	// Submit a second synthetic scan for diff/trend
-	s2 := makeScanResult("flow-cross-scan-2", "flow-cross-host", 5)
+	// Submit a second synthetic scan for diff/trend (set OrgID to match guard)
+	s2 := makeScanResult("", "flow-cross-host", 5)
+	s2.OrgID = guard.OrgID()
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	// Retrieve scan
-	got := getScan(t, platformURL, "flow-cross-scan-1")
+	got := getScan(t, platformURL, scanResult.ID)
 	assert.Equal(t, "flow-cross-host", got.Metadata.Hostname)
 
 	// Diff should succeed (pro allows)
-	resp, err := http.Get(platformURL + "/api/v1/diff?base=flow-cross-scan-1&compare=flow-cross-scan-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", platformURL, scanResult.ID, s2.ID))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access /diff")
@@ -544,13 +552,13 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access /trend")
 
 	// JSON report should succeed
-	resp, err = http.Get(platformURL + "/api/v1/reports/flow-cross-scan-1/json")
+	resp, err = http.Get(platformURL + "/api/v1/reports/" + scanResult.ID + "/json")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "pro should access JSON report")
 
 	// SARIF report should be blocked (pro blocks)
-	resp, err = http.Get(platformURL + "/api/v1/reports/flow-cross-scan-1/sarif")
+	resp, err = http.Get(platformURL + "/api/v1/reports/" + scanResult.ID + "/sarif")
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "pro should block SARIF report")

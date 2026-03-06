@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -355,8 +356,9 @@ func TestLicenseServer_ExpiredLicense(t *testing.T) {
 	resp.Body.Close()
 
 	now := time.Now().UTC()
+	expiredLicID := uuid.Must(uuid.NewV7()).String()
 	lic := &licensestore.LicenseRecord{
-		ID:        "expired-lic",
+		ID:        expiredLicID,
 		OrgID:     org["id"].(string),
 		Tier:      "pro",
 		Seats:     5,
@@ -367,7 +369,7 @@ func TestLicenseServer_ExpiredLicense(t *testing.T) {
 	require.NoError(t, store.CreateLicense(context.Background(), lic))
 
 	client := license.NewServerClient(serverURL)
-	_, err := client.Activate("expired-lic")
+	_, err := client.Activate(expiredLicID)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expired")
 }
@@ -591,7 +593,7 @@ func TestLicenseServer_LicenseFilter_ByStatus(t *testing.T) {
 	// Create an expired license directly via store
 	now := time.Now().UTC()
 	expLic := &licensestore.LicenseRecord{
-		ID:        "expired-filter-lic",
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		OrgID:     orgID,
 		Tier:      "enterprise",
 		Seats:     1,
@@ -617,7 +619,7 @@ func TestLicenseServer_LicenseFilter_ByStatus(t *testing.T) {
 	resp = licAdminReq(t, "GET", serverURL+"/api/v1/admin/licenses?status=expired", nil)
 	lics = decodeJSONArray(t, resp)
 	assert.Len(t, lics, 1)
-	assert.Equal(t, "expired-filter-lic", lics[0]["id"])
+	assert.Equal(t, expLic.ID, lics[0]["id"])
 }
 
 // --- Group C: Activation Filters ---
@@ -966,7 +968,7 @@ func TestLicenseServer_ClientLib_ActivateErrors(t *testing.T) {
 	client := license.NewServerClient(serverURL)
 
 	// Invalid license ID → not found
-	_, err := client.Activate("nonexistent-license")
+	_, err := client.Activate(uuid.Must(uuid.NewV7()).String())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 
@@ -1131,7 +1133,7 @@ func TestLicenseServer_StatsAccuracy(t *testing.T) {
 	// Create an expired license directly in store
 	now := time.Now().UTC()
 	expLic := &licensestore.LicenseRecord{
-		ID:        "stats-expired-lic",
+		ID:        uuid.Must(uuid.NewV7()).String(),
 		OrgID:     org2ID,
 		Tier:      "free",
 		Seats:     1,

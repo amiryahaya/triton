@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -390,12 +391,12 @@ func TestLicenseTier_ServerMiddlewareBlocksFreeDiff(t *testing.T) {
 	serverURL, db := requireServerWithGuard(t, license.TierFree)
 
 	// Seed two scans so diff has valid targets
-	s1 := makeScanResult("diff-free-1", "host-a", 5)
-	s2 := makeScanResult("diff-free-2", "host-a", 5)
+	s1 := makeScanResult("", "host-a", 5)
+	s2 := makeScanResult("", "host-a", 5)
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
-	resp, err := http.Get(serverURL + "/api/v1/diff?base=diff-free-1&compare=diff-free-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -422,13 +423,13 @@ func TestLicenseTier_ServerMiddlewareBlocksFreeTrend(t *testing.T) {
 func TestLicenseTier_ServerMiddlewareAllowsEnterprise(t *testing.T) {
 	serverURL, db := requireServerWithGuard(t, license.TierEnterprise)
 
-	s1 := makeScanResult("diff-ent-1", "host-a", 5)
-	s2 := makeScanResult("diff-ent-2", "host-a", 5)
+	s1 := makeScanResult("", "host-a", 5)
+	s2 := makeScanResult("", "host-a", 5)
 	require.NoError(t, db.SaveScan(context.Background(), s1))
 	require.NoError(t, db.SaveScan(context.Background(), s2))
 
 	// Diff should succeed
-	resp, err := http.Get(serverURL + "/api/v1/diff?base=diff-ent-1&compare=diff-ent-2")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s1.ID, s2.ID))
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "enterprise should access /diff")
@@ -445,17 +446,17 @@ func TestLicenseTier_ServerMiddlewareAllowsEnterprise(t *testing.T) {
 func TestLicenseTier_ServerBlocksSarifForPro(t *testing.T) {
 	serverURL, db := requireServerWithGuard(t, license.TierPro)
 
-	scan := makeScanResult("rpt-pro-sarif", "host-a", 3)
+	scan := makeScanResult("", "host-a", 3)
 	require.NoError(t, db.SaveScan(context.Background(), scan))
 
 	// SARIF should be blocked
-	resp, err := http.Get(serverURL + "/api/v1/reports/rpt-pro-sarif/sarif")
+	resp, err := http.Get(serverURL + "/api/v1/reports/" + scan.ID + "/sarif")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "pro tier should not get SARIF")
 
 	// JSON should be allowed
-	resp2, err := http.Get(serverURL + "/api/v1/reports/rpt-pro-sarif/json")
+	resp2, err := http.Get(serverURL + "/api/v1/reports/" + scan.ID + "/json")
 	require.NoError(t, err)
 	defer resp2.Body.Close()
 	assert.Equal(t, http.StatusOK, resp2.StatusCode, "pro tier should get JSON")

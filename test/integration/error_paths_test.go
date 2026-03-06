@@ -5,11 +5,13 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -115,9 +117,10 @@ func TestError_InvalidPolicyYAML(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
 	// First submit a scan so we have something to evaluate
-	submitScan(t, serverURL, "", makeScanResult("err-pol", "err-host", 5))
+	s := makeScanResult("", "err-host", 5)
+	submitScan(t, serverURL, "", s)
 
-	body := `{"scanID":"err-pol","policyYAML":"this is not : valid : yaml : ["}`
+	body := fmt.Sprintf(`{"scanID":"%s","policyYAML":"this is not : valid : yaml : ["}`, s.ID)
 	resp, err := http.Post(serverURL+"/api/v1/policy/evaluate", "application/json", strings.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -129,8 +132,9 @@ func TestError_InvalidPolicyYAML(t *testing.T) {
 func TestError_EmptyScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
+	scanID := uuid.Must(uuid.NewV7()).String()
 	emptyScan := &model.ScanResult{
-		ID: "err-empty",
+		ID: scanID,
 		Metadata: model.ScanMetadata{
 			Timestamp:   time.Now().UTC().Truncate(time.Microsecond),
 			Hostname:    "empty-host",
@@ -143,7 +147,7 @@ func TestError_EmptyScan(t *testing.T) {
 	submitScan(t, serverURL, "", emptyScan)
 
 	// Get findings
-	resp, err := http.Get(serverURL + "/api/v1/scans/err-empty/findings")
+	resp, err := http.Get(serverURL + "/api/v1/scans/" + scanID + "/findings")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -159,9 +163,10 @@ func TestError_EmptyScan(t *testing.T) {
 func TestError_DiffSameScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	submitScan(t, serverURL, "", makeScanResult("err-same-diff", "diff-host", 10))
+	s := makeScanResult("", "diff-host", 10)
+	submitScan(t, serverURL, "", s)
 
-	resp, err := http.Get(serverURL + "/api/v1/diff?base=err-same-diff&compare=err-same-diff")
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s.ID, s.ID))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -178,7 +183,9 @@ func TestError_DiffSameScan(t *testing.T) {
 func TestError_ScanNotFound(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	resp, err := http.Get(serverURL + "/api/v1/scans/nonexistent-scan-id")
+	// Use a valid UUID format that doesn't exist in the DB
+	fakeID := uuid.Must(uuid.NewV7()).String()
+	resp, err := http.Get(serverURL + "/api/v1/scans/" + fakeID)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -189,7 +196,8 @@ func TestError_ScanNotFound(t *testing.T) {
 func TestError_ReportNonexistentScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	resp, err := http.Get(serverURL + "/api/v1/reports/nonexistent-scan-id/json")
+	fakeID := uuid.Must(uuid.NewV7()).String()
+	resp, err := http.Get(serverURL + "/api/v1/reports/" + fakeID + "/json")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

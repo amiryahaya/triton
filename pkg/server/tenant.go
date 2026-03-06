@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
 	"log"
 	"net/http"
 
@@ -30,8 +31,11 @@ func TenantFromContext(ctx context.Context) string {
 // If a token is present but invalid, the request is rejected (401).
 // If neither yields an org_id, requests pass through without tenant scoping
 // (backward compatible with standalone mode).
-func TenantScope(guard *license.Guard) func(http.Handler) http.Handler {
-	pubKey := license.LoadPublicKeyBytes()
+func TenantScope(guard *license.Guard, pubKeyOverride ed25519.PublicKey) func(http.Handler) http.Handler {
+	pubKey := pubKeyOverride
+	if pubKey == nil {
+		pubKey = license.LoadPublicKeyBytes()
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

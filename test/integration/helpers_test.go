@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/config"
@@ -137,8 +138,12 @@ func fixturesDir() string {
 }
 
 // makeScanResult generates a synthetic ScanResult with nFindings findings.
+// If id is not a valid UUID, a new UUIDv7 is generated automatically.
 // PQC statuses are distributed: 40% SAFE, 30% TRANSITIONAL, 20% DEPRECATED, 10% UNSAFE.
 func makeScanResult(id, hostname string, nFindings int) *model.ScanResult {
+	if _, err := uuid.Parse(id); err != nil {
+		id = uuid.Must(uuid.NewV7()).String()
+	}
 	return makeScanResultWithPQC(id, hostname,
 		nFindings*40/100,
 		nFindings*30/100,
@@ -148,7 +153,11 @@ func makeScanResult(id, hostname string, nFindings int) *model.ScanResult {
 }
 
 // makeScanResultWithPQC generates a ScanResult with exact PQC breakdown counts.
+// If id is not a valid UUID, a new UUIDv7 is generated automatically.
 func makeScanResultWithPQC(id, hostname string, safe, trans, dep, unsafe int) *model.ScanResult {
+	if _, err := uuid.Parse(id); err != nil {
+		id = uuid.Must(uuid.NewV7()).String()
+	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	total := safe + trans + dep + unsafe
 

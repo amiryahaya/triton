@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/pkg/agent"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // C1: agent.Submit → GET /scans/{id} → findings match
@@ -90,14 +90,15 @@ func TestAgent_ParallelSubmissions(t *testing.T) {
 	const n = 5
 	var wg sync.WaitGroup
 	errs := make([]error, n)
+	scans := make([]*model.ScanResult, n)
 
 	for i := 0; i < n; i++ {
 		wg.Add(1)
+		scans[i] = makeScanResult("", "parallel-host", 10)
 		go func(idx int) {
 			defer wg.Done()
 			client := agent.New(serverURL, "")
-			scan := makeScanResult(fmt.Sprintf("agent-parallel-%d", idx), "parallel-host", 10)
-			_, errs[idx] = client.Submit(scan)
+			_, errs[idx] = client.Submit(scans[idx])
 		}(i)
 	}
 	wg.Wait()
@@ -108,7 +109,7 @@ func TestAgent_ParallelSubmissions(t *testing.T) {
 
 	// Verify all scans were saved
 	for i := 0; i < n; i++ {
-		got := getScan(t, serverURL, fmt.Sprintf("agent-parallel-%d", i))
+		got := getScan(t, serverURL, scans[i].ID)
 		assert.Equal(t, 10, len(got.Findings))
 	}
 }

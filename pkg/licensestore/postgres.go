@@ -612,7 +612,7 @@ func (s *PostgresStore) WriteAudit(ctx context.Context, entry *AuditEntry) error
 
 func (s *PostgresStore) ListAudit(ctx context.Context, filter AuditFilter) ([]AuditEntry, error) {
 	query := `SELECT id, timestamp, event_type,
-	                 COALESCE(license_id, ''), COALESCE(org_id, ''), COALESCE(machine_id, ''),
+	                 COALESCE(license_id::text, ''), COALESCE(org_id::text, ''), COALESCE(machine_id, ''),
 	                 actor, details, ip_address
 	          FROM audit_log WHERE 1=1`
 	var args []any

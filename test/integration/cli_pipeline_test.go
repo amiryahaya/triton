@@ -73,7 +73,7 @@ func TestCLI_ScanToStoreRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, db.SaveScan(ctx, result))
 
-	got, err := db.GetScan(ctx, result.ID)
+	got, err := db.GetScan(ctx, result.ID, "")
 	require.NoError(t, err)
 	assert.Equal(t, result.ID, got.ID)
 	assert.Equal(t, len(result.Findings), len(got.Findings))

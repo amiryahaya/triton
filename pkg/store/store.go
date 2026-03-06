@@ -13,13 +13,15 @@ type ScanStore interface {
 	SaveScan(ctx context.Context, result *model.ScanResult) error
 
 	// GetScan retrieves a scan result by ID.
-	GetScan(ctx context.Context, id string) (*model.ScanResult, error)
+	// If orgID is non-empty, the scan must belong to that org (tenant isolation).
+	GetScan(ctx context.Context, id, orgID string) (*model.ScanResult, error)
 
 	// ListScans returns scan summaries matching the given filter.
 	ListScans(ctx context.Context, filter ScanFilter) ([]ScanSummary, error)
 
 	// DeleteScan removes a scan result by ID.
-	DeleteScan(ctx context.Context, id string) error
+	// If orgID is non-empty, the scan must belong to that org (tenant isolation).
+	DeleteScan(ctx context.Context, id, orgID string) error
 }
 
 // HashStore is the file-hash caching interface for incremental scanning.

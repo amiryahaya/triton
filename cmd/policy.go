@@ -132,7 +132,7 @@ func loadTargetScan(db store.ScanStore, scanID string) (*model.ScanResult, error
 	ctx := context.Background()
 
 	if scanID != "" {
-		return db.GetScan(ctx, scanID)
+		return db.GetScan(ctx, scanID, "")
 	}
 
 	// Get the most recent scan.
@@ -144,5 +144,5 @@ func loadTargetScan(db store.ScanStore, scanID string) (*model.ScanResult, error
 		return nil, fmt.Errorf("no scans found in database — run a scan first")
 	}
 
-	return db.GetScan(ctx, summaries[0].ID)
+	return db.GetScan(ctx, summaries[0].ID, "")
 }

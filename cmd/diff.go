@@ -34,12 +34,12 @@ func runDiff(_ *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 
-	base, err := db.GetScan(ctx, args[0])
+	base, err := db.GetScan(ctx, args[0], "")
 	if err != nil {
 		return fmt.Errorf("loading base scan: %w", err)
 	}
 
-	compare, err := db.GetScan(ctx, args[1])
+	compare, err := db.GetScan(ctx, args[1], "")
 	if err != nil {
 		return fmt.Errorf("loading compare scan: %w", err)
 	}

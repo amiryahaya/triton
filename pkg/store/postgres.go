@@ -144,11 +144,17 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 }
 
 // GetScan retrieves a scan result by ID.
-func (s *PostgresStore) GetScan(ctx context.Context, id string) (*model.ScanResult, error) {
+// If orgID is non-empty, the scan must belong to that org (tenant isolation).
+func (s *PostgresStore) GetScan(ctx context.Context, id, orgID string) (*model.ScanResult, error) {
+	query := "SELECT result_json FROM scans WHERE id = $1"
+	args := []any{id}
+	if orgID != "" {
+		query += " AND org_id = $2"
+		args = append(args, orgID)
+	}
+
 	var blob []byte
-	err := s.pool.QueryRow(ctx,
-		"SELECT result_json FROM scans WHERE id = $1", id,
-	).Scan(&blob)
+	err := s.pool.QueryRow(ctx, query, args...).Scan(&blob)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "scan", ID: id}
 	}
@@ -225,8 +231,16 @@ func (s *PostgresStore) ListScans(ctx context.Context, filter ScanFilter) ([]Sca
 }
 
 // DeleteScan removes a scan by ID.
-func (s *PostgresStore) DeleteScan(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM scans WHERE id = $1", id)
+// If orgID is non-empty, the scan must belong to that org (tenant isolation).
+func (s *PostgresStore) DeleteScan(ctx context.Context, id, orgID string) error {
+	query := "DELETE FROM scans WHERE id = $1"
+	args := []any{id}
+	if orgID != "" {
+		query += " AND org_id = $2"
+		args = append(args, orgID)
+	}
+
+	tag, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("deleting scan: %w", err)
 	}

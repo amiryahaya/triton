@@ -126,7 +126,8 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/scans/{id}
 func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	result, err := s.store.GetScan(r.Context(), id)
+	orgID := TenantFromContext(r.Context())
+	result, err := s.store.GetScan(r.Context(), id, orgID)
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")
@@ -142,7 +143,8 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/v1/scans/{id}
 func (s *Server) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := s.store.DeleteScan(r.Context(), id); err != nil {
+	orgID := TenantFromContext(r.Context())
+	if err := s.store.DeleteScan(r.Context(), id, orgID); err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")
 			return
@@ -157,7 +159,8 @@ func (s *Server) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/scans/{id}/findings
 func (s *Server) handleGetFindings(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	result, err := s.store.GetScan(r.Context(), id)
+	orgID := TenantFromContext(r.Context())
+	result, err := s.store.GetScan(r.Context(), id, orgID)
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")
@@ -190,7 +193,8 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	base, err := s.store.GetScan(r.Context(), baseID)
+	orgID := TenantFromContext(r.Context())
+	base, err := s.store.GetScan(r.Context(), baseID, orgID)
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "base scan not found")
@@ -200,7 +204,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	compare, err := s.store.GetScan(r.Context(), compareID)
+	compare, err := s.store.GetScan(r.Context(), compareID, orgID)
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "compare scan not found")
@@ -246,7 +250,7 @@ func (s *Server) handleTrend(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
-		scan, err := s.store.GetScan(r.Context(), summaries[i].ID)
+		scan, err := s.store.GetScan(r.Context(), summaries[i].ID, TenantFromContext(r.Context()))
 		if err != nil {
 			log.Printf("trend: skipping scan %s: %v", summaries[i].ID, err)
 			continue
@@ -304,7 +308,8 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.store.GetScan(r.Context(), req.ScanID)
+	orgID := TenantFromContext(r.Context())
+	result, err := s.store.GetScan(r.Context(), req.ScanID, orgID)
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")
@@ -363,7 +368,8 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := s.store.GetScan(r.Context(), id)
+	orgID := TenantFromContext(r.Context())
+	result, err := s.store.GetScan(r.Context(), id, orgID)
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "scan not found")

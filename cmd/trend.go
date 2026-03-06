@@ -57,7 +57,7 @@ func runTrend(_ *cobra.Command, _ []string) error {
 	// Load full results (in reverse order so oldest first).
 	scans := make([]*model.ScanResult, 0, len(summaries))
 	for i := len(summaries) - 1; i >= 0; i-- {
-		s, err := db.GetScan(ctx, summaries[i].ID)
+		s, err := db.GetScan(ctx, summaries[i].ID, "")
 		if err != nil {
 			continue
 		}

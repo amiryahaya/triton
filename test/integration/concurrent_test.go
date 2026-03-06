@@ -102,7 +102,7 @@ func TestConcurrent_ParallelScanAndRead(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, readErrs[idx] = db.GetScan(ctx, fmt.Sprintf("parallel-rw-%d", idx))
+			_, readErrs[idx] = db.GetScan(ctx, fmt.Sprintf("parallel-rw-%d", idx), "")
 		}(i)
 	}
 
@@ -195,7 +195,7 @@ func TestConcurrent_StoreConcurrentWrites(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			got, err := db.GetScan(ctx, fmt.Sprintf("store-rw-seed-%d", idx))
+			got, err := db.GetScan(ctx, fmt.Sprintf("store-rw-seed-%d", idx), "")
 			readErrs[idx] = err
 			if err == nil {
 				assert.Equal(t, 5, len(got.Findings), "reader %d should get correct finding count", idx)

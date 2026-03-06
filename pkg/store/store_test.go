@@ -136,7 +136,7 @@ func TestSaveScan_And_GetScan(t *testing.T) {
 	err := s.SaveScan(ctx, result)
 	require.NoError(t, err)
 
-	got, err := s.GetScan(ctx, "scan-001")
+	got, err := s.GetScan(ctx, "scan-001", "")
 	require.NoError(t, err)
 	assert.Equal(t, result.ID, got.ID)
 	assert.Equal(t, result.Metadata.Hostname, got.Metadata.Hostname)
@@ -150,7 +150,7 @@ func TestGetScan_NotFound(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	_, err := s.GetScan(ctx, "nonexistent")
+	_, err := s.GetScan(ctx, "nonexistent", "")
 	require.Error(t, err)
 
 	var nf *ErrNotFound
@@ -170,7 +170,7 @@ func TestSaveScan_Upsert(t *testing.T) {
 	result.Summary.Unsafe = 5
 	require.NoError(t, s.SaveScan(ctx, result))
 
-	got, err := s.GetScan(ctx, "scan-upsert")
+	got, err := s.GetScan(ctx, "scan-upsert", "")
 	require.NoError(t, err)
 	assert.Equal(t, 10, got.Summary.Safe)
 	assert.Equal(t, 5, got.Summary.Unsafe)
@@ -183,10 +183,10 @@ func TestDeleteScan(t *testing.T) {
 	result := testScanResult("scan-del", "host-a", "quick")
 	require.NoError(t, s.SaveScan(ctx, result))
 
-	err := s.DeleteScan(ctx, "scan-del")
+	err := s.DeleteScan(ctx, "scan-del", "")
 	require.NoError(t, err)
 
-	_, err = s.GetScan(ctx, "scan-del")
+	_, err = s.GetScan(ctx, "scan-del", "")
 	var nf *ErrNotFound
 	assert.True(t, errors.As(err, &nf))
 }
@@ -195,7 +195,7 @@ func TestDeleteScan_NotFound(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	err := s.DeleteScan(ctx, "nonexistent")
+	err := s.DeleteScan(ctx, "nonexistent", "")
 	var nf *ErrNotFound
 	assert.True(t, errors.As(err, &nf))
 }
@@ -442,7 +442,7 @@ func TestGetScan_CancelledContext(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := s.GetScan(cancelCtx, "ctx-get")
+	_, err := s.GetScan(cancelCtx, "ctx-get", "")
 	assert.Error(t, err)
 }
 
@@ -463,7 +463,7 @@ func TestDeleteScan_CancelledContext(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := s.DeleteScan(cancelCtx, "ctx-del")
+	err := s.DeleteScan(cancelCtx, "ctx-del", "")
 	assert.Error(t, err)
 }
 

@@ -27,7 +27,7 @@ func TestCross_ScanStoreReport(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, db.SaveScan(ctx, result))
 
-	got, err := db.GetScan(ctx, result.ID)
+	got, err := db.GetScan(ctx, result.ID, "")
 	require.NoError(t, err)
 	assert.Equal(t, len(result.Findings), len(got.Findings))
 
@@ -59,9 +59,9 @@ func TestCross_ScanStoreDiff(t *testing.T) {
 	require.NoError(t, db.SaveScan(ctx, result2))
 
 	// Retrieve from store
-	base, err := db.GetScan(ctx, result1.ID)
+	base, err := db.GetScan(ctx, result1.ID, "")
 	require.NoError(t, err)
-	compare, err := db.GetScan(ctx, result2.ID)
+	compare, err := db.GetScan(ctx, result2.ID, "")
 	require.NoError(t, err)
 
 	d := diff.ComputeDiff(base, compare)
@@ -95,7 +95,7 @@ func TestCross_ScanStoreTrend(t *testing.T) {
 	// Retrieve all from store in chronological order
 	var retrieved []*model.ScanResult
 	for _, s := range scans {
-		got, err := db.GetScan(ctx, s.ID)
+		got, err := db.GetScan(ctx, s.ID, "")
 		require.NoError(t, err)
 		retrieved = append(retrieved, got)
 	}

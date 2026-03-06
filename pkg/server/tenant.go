@@ -27,6 +27,7 @@ func TenantFromContext(ctx context.Context) string {
 //  1. Per-request: X-Triton-License-Token header → verify Ed25519 signature → extract oid
 //  2. Fallback: server's own Guard org_id (single-tenant deployment)
 //
+// If a token is present but invalid, the request is rejected (401).
 // If neither yields an org_id, requests pass through without tenant scoping
 // (backward compatible with standalone mode).
 func TenantScope(guard *license.Guard) func(http.Handler) http.Handler {
@@ -36,12 +37,16 @@ func TenantScope(guard *license.Guard) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Try per-request token first (multi-tenant mode).
 			if token := r.Header.Get(licenseTokenHeader); token != "" && pubKey != nil {
-				if lic, err := license.Parse(token, pubKey); err == nil && lic.OrgID != "" {
+				lic, err := license.Parse(token, pubKey)
+				if err != nil {
+					log.Printf("tenant: invalid license token from %s: %v", r.RemoteAddr, err)
+					writeError(w, http.StatusUnauthorized, "invalid license token")
+					return
+				}
+				if lic.OrgID != "" {
 					ctx := context.WithValue(r.Context(), tenantOrgIDKey, lic.OrgID)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
-				} else if err != nil {
-					log.Printf("tenant: invalid license token from %s: %v", r.RemoteAddr, err)
 				}
 			}
 

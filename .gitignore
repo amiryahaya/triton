@@ -126,6 +126,7 @@ coverage/
 # *.html
 
 # Generated report artifacts
+reports/
 triton-report-*
 
 # Temporary scan results

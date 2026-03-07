@@ -75,6 +75,13 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.With(middleware.Timeout(300*time.Second)).Get("/download/{version}/{os}/{arch}", srv.handleDownloadBinary)
 	})
 
+	// Auth API (public, no admin key required).
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Post("/login", srv.handleLogin)
+		r.Post("/logout", srv.handleLogout)
+		r.Post("/refresh", srv.handleRefresh)
+	})
+
 	// Admin API (requires admin key — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(AdminKeyAuth(cfg.AdminKeys))

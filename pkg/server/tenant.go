@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
-	"fmt"
 	"log"
 	"net/http"
 
@@ -50,7 +49,7 @@ func TenantScope(guard *license.Guard, pubKeyOverride ed25519.PublicKey) func(ht
 				}
 				orgID, err := auth.OrgIDFromClaims(claims)
 				if err != nil {
-					http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+					writeError(w, http.StatusBadRequest, "ambiguous organization membership in token")
 					return
 				}
 				if orgID != "" {

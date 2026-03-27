@@ -81,8 +81,9 @@ func New(cfg *Config, s store.Store) *Server {
 		srv.registerAPIRoutes(r)
 	})
 
-	// Health check — intentionally outside the auth group so it remains public.
-	// It returns no sensitive data (only {"status":"ok"}).
+	// Health check is registered on the root router (not inside /api/v1 route group)
+	// so that it is always accessible without auth, licence, or tenant middleware.
+	// DO NOT move this inside r.Route("/api/v1", ...) — it must remain ungated.
 	r.Get("/api/v1/health", srv.handleHealth)
 
 	// Serve embedded web UI.

@@ -35,6 +35,8 @@ services:
       TRITON_LICENSE_KEY: "${TRITON_LICENSE_KEY:-eyJsaWQiOiIwMTljYzNmMS01NjE0LTc0NjUtYWY5NS02NmQ0N2E4NjBkZGEiLCJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9yZyI6ImNvbnRhaW5lci1kZXYiLCJzZWF0cyI6MTAwLCJpYXQiOjE3NzI4MTM4OTksImV4cCI6MjA4ODE3Mzg5OX0.NZTxYq5pRRK6FzxzrOJrxPxhTFC-f-7mwDOI_7rqtRpP-rO0Al5LYqzkyHEEU_eLPmc9uccguiRUp_AItR1jCg}"
     ports:
       - "8080:8080"
+    # NOTE: host.containers.internal is Podman-specific. Docker Linux users
+    # must set TRITON_KEYCLOAK_ISSUER explicitly (e.g., http://host.docker.internal:8080/realms/platform).
     command: ["server", "--listen", ":8080", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable", "--keycloak-issuer", "${TRITON_KEYCLOAK_ISSUER:-http://host.containers.internal:8080/realms/platform}", "--keycloak-client-id", "${TRITON_KEYCLOAK_CLIENT_ID:-triton}"]
 
   license-server:

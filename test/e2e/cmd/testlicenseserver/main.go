@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
@@ -57,14 +58,16 @@ func run() error {
 	}
 	defer func() { _ = os.RemoveAll(binDir) }()
 
+	// Use mock verifier for E2E tests (accepts any token as platform admin).
+	verifier := auth.NewMockVerifier(auth.PlatformAdminClaims())
+
 	cfg := &licenseserver.Config{
 		ListenAddr:  listen,
-		AdminKeys:   []string{"e2e-test-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: binDir,
 	}
-	srv := licenseserver.New(cfg, store)
+	srv := licenseserver.New(cfg, store, verifier)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start() }()

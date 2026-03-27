@@ -6,7 +6,6 @@ import "crypto/ed25519"
 type Config struct {
 	ListenAddr  string
 	DBUrl       string
-	AdminKeys   []string
 	TLSCert     string
 	TLSKey      string
 	SigningKey  ed25519.PrivateKey // Ed25519 private key for signing tokens

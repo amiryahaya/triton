@@ -1,31 +1,27 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
-const ADMIN_KEY = 'e2e-test-key';
+const E2E_TOKEN = 'e2e-test-token';
 
-// Helper: inject admin key into localStorage before each test.
+// Helper: inject Bearer token into sessionStorage before each test.
 test.beforeEach(async ({ page }) => {
   await page.goto('/ui/index.html');
-  await page.evaluate((key) => {
-    sessionStorage.setItem('triton_admin_key', key);
-  }, ADMIN_KEY);
+  await page.evaluate((token) => {
+    sessionStorage.setItem('triton_auth_token', token);
+  }, E2E_TOKEN);
 });
 
 test.describe('Admin Authentication', () => {
-  test('shows auth prompt without admin key', async ({ page }) => {
-    // Clear the key we just set
-    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
+  test('shows auth prompt without token', async ({ page }) => {
+    // Clear the token we just set
+    await page.evaluate(() => sessionStorage.removeItem('triton_auth_token'));
     await page.goto('/ui/index.html#/');
     await expect(page.locator('#auth-prompt')).toBeVisible();
-    await expect(page.locator('#key-input')).toBeVisible();
-    await expect(page.locator('#key-submit')).toBeVisible();
   });
 
-  test('login with valid admin key shows dashboard', async ({ page }) => {
-    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
+  test('login with valid token shows dashboard', async ({ page }) => {
+    // Token is already set by beforeEach
     await page.goto('/ui/index.html#/');
-    await page.fill('#key-input', ADMIN_KEY);
-    await page.click('#key-submit');
     await expect(page.locator('.stat-cards')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('h2')).toHaveText('Dashboard');
   });
@@ -236,18 +232,18 @@ test.describe('License Mutations', () => {
 
   test('revoke license', async ({ page }) => {
     // Create a fresh license via API to revoke
-    const licResp = await page.evaluate(async (key) => {
+    const licResp = await page.evaluate(async (token) => {
       const orgsResp = await fetch('/api/v1/admin/orgs', {
-        headers: { 'X-Triton-Admin-Key': key },
+        headers: { 'Authorization': 'Bearer ' + token },
       });
       const orgs = await orgsResp.json();
       const resp = await fetch('/api/v1/admin/licenses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Triton-Admin-Key': key },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ orgID: orgs[0].id, tier: 'free', seats: 1, days: 30 }),
       });
       return resp.json();
-    }, ADMIN_KEY);
+    }, E2E_TOKEN);
 
     await page.goto('/ui/index.html#/licenses');
     await page.waitForSelector('table', { timeout: 10_000 });
@@ -314,28 +310,20 @@ test.describe('Modal Behavior', () => {
 // --- New tests: Group D — Auth Edge Cases ---
 
 test.describe('Auth Edge Cases', () => {
-  test('invalid key triggers auth prompt', async ({ page }) => {
-    // Set an invalid key
+  test('missing token triggers auth prompt', async ({ page }) => {
+    // Clear the token
     await page.evaluate(() => {
-      sessionStorage.setItem('triton_admin_key', 'bad-key');
+      sessionStorage.removeItem('triton_auth_token');
     });
     await page.goto('/ui/index.html#/');
 
-    // The API call will return 403, which clears the key and shows auth prompt
+    // The API call will return 401, which shows auth prompt
     await expect(page.locator('#auth-prompt')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('re-authentication persists across navigation', async ({ page }) => {
-    // Clear key
-    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
+  test('authentication persists across navigation', async ({ page }) => {
+    // Token is set by beforeEach
     await page.goto('/ui/index.html#/');
-
-    // Auth prompt should appear
-    await expect(page.locator('#auth-prompt')).toBeVisible({ timeout: 10_000 });
-
-    // Authenticate
-    await page.fill('#key-input', ADMIN_KEY);
-    await page.click('#key-submit');
 
     // Dashboard should load
     await expect(page.locator('.stat-cards')).toBeVisible({ timeout: 10_000 });
@@ -344,7 +332,7 @@ test.describe('Auth Edge Cases', () => {
     await page.click('a[href="#/orgs"]');
     await expect(page.locator('h2')).toHaveText('Organizations');
 
-    // Org table should load (key persisted)
+    // Org table should load (token persisted)
     await page.waitForSelector('table', { timeout: 10_000 });
     await expect(page.locator('text=Acme Corp')).toBeVisible();
   });

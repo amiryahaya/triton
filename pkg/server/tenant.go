@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/auth"
 )
 
 type contextKey string
@@ -39,6 +40,21 @@ func TenantScope(guard *license.Guard, pubKeyOverride ed25519.PublicKey) func(ht
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check for org_id from Keycloak JWT first.
+			if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+				orgID := auth.OrgIDFromClaims(claims)
+				if orgID != "" {
+					ctx := context.WithValue(r.Context(), tenantOrgIDKey, orgID)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				// Platform admin with no org — allow access to all (no tenant filtering).
+				if auth.HasRealmRole(claims, "platform-admin") {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
 			// Try per-request token first (multi-tenant mode).
 			if token := r.Header.Get(licenseTokenHeader); token != "" && pubKey != nil {
 				lic, err := license.Parse(token, pubKey)

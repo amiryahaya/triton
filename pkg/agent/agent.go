@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -19,6 +21,16 @@ type Client struct {
 	APIKey       string
 	LicenseToken string // Ed25519-signed licence token for tenant identification
 	HTTPClient   *http.Client
+
+	// Keycloak client credentials (optional).
+	KeycloakTokenURL     string // e.g., http://keycloak:8080/realms/platform/protocol/openid-connect/token
+	KeycloakClientID     string
+	KeycloakClientSecret string
+
+	// cached OIDC token
+	oidcToken       string
+	oidcTokenExpiry time.Time
+	mu              sync.Mutex
 }
 
 // New creates a new agent Client.
@@ -35,6 +47,45 @@ func New(serverURL, apiKey string) *Client {
 			},
 		},
 	}
+}
+
+// ensureOIDCToken obtains or refreshes a client-credentials OIDC access token.
+func (c *Client) ensureOIDCToken() (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.oidcToken != "" && time.Now().Before(c.oidcTokenExpiry.Add(-30*time.Second)) {
+		return c.oidcToken, nil
+	}
+
+	data := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {c.KeycloakClientID},
+		"client_secret": {c.KeycloakClientSecret},
+	}
+
+	resp, err := c.HTTPClient.PostForm(c.KeycloakTokenURL, data)
+	if err != nil {
+		return "", fmt.Errorf("token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("token request returned %d: %s", resp.StatusCode, body)
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("parsing token response: %w", err)
+	}
+
+	c.oidcToken = tokenResp.AccessToken
+	c.oidcTokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	return c.oidcToken, nil
 }
 
 // SubmitResponse is the response from the server after submitting a scan.
@@ -57,9 +108,16 @@ func (c *Client) Submit(result *model.ScanResult) (*SubmitResponse, error) {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
+	if c.KeycloakTokenURL != "" {
+		token, err := c.ensureOIDCToken()
+		if err != nil {
+			return nil, fmt.Errorf("obtaining OIDC token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if c.APIKey != "" {
 		req.Header.Set("X-Triton-API-Key", c.APIKey)
 	}
+	// License token always set for tenant identification.
 	if c.LicenseToken != "" {
 		req.Header.Set("X-Triton-License-Token", c.LicenseToken)
 	}

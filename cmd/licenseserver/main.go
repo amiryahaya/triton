@@ -8,10 +8,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
@@ -25,20 +25,21 @@ func main() {
 func run() error {
 	listen := envOr("TRITON_LICENSE_SERVER_LISTEN", ":8081")
 	dbURL := envOr("TRITON_LICENSE_SERVER_DB_URL", "")
-	adminKey := envOr("TRITON_LICENSE_SERVER_ADMIN_KEY", "")
 	signingKeyHex := envOr("TRITON_LICENSE_SERVER_SIGNING_KEY", "")
 	tlsCert := envOr("TRITON_LICENSE_SERVER_TLS_CERT", "")
 	tlsKey := envOr("TRITON_LICENSE_SERVER_TLS_KEY", "")
 	binariesDir := envOr("TRITON_LICENSE_SERVER_BINARIES_DIR", "/opt/triton/binaries")
+	keycloakIssuer := envOr("TRITON_LICENSE_SERVER_KEYCLOAK_ISSUER", "")
+	keycloakClientID := envOr("TRITON_LICENSE_SERVER_KEYCLOAK_CLIENT_ID", "triton")
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_DB_URL is required")
 	}
-	if adminKey == "" {
-		return fmt.Errorf("TRITON_LICENSE_SERVER_ADMIN_KEY is required (protects admin API)")
-	}
 	if signingKeyHex == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_SIGNING_KEY is required (Ed25519 private key as hex)")
+	}
+	if keycloakIssuer == "" {
+		return fmt.Errorf("TRITON_LICENSE_SERVER_KEYCLOAK_ISSUER is required")
 	}
 
 	signingKeyBytes, err := hex.DecodeString(signingKeyHex)
@@ -55,21 +56,15 @@ func run() error {
 		return fmt.Errorf("creating binaries directory: %w", err)
 	}
 
-	adminKeys := strings.Split(adminKey, ",")
-	// Filter out empty keys that result from trailing/consecutive commas.
-	filtered := adminKeys[:0]
-	for _, k := range adminKeys {
-		k = strings.TrimSpace(k)
-		if k != "" {
-			filtered = append(filtered, k)
-		}
-	}
-	adminKeys = filtered
-	if len(adminKeys) == 0 {
-		return fmt.Errorf("TRITON_LICENSE_SERVER_ADMIN_KEY contains no valid keys after parsing")
-	}
-
 	ctx := context.Background()
+
+	verifier, err := auth.NewVerifier(ctx, auth.OIDCConfig{
+		IssuerURL: keycloakIssuer,
+		ClientID:  keycloakClientID,
+	})
+	if err != nil {
+		return fmt.Errorf("creating OIDC verifier: %w", err)
+	}
 	store, err := licensestore.NewPostgresStore(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
@@ -79,7 +74,6 @@ func run() error {
 	cfg := &licenseserver.Config{
 		ListenAddr:  listen,
 		DBUrl:       dbURL,
-		AdminKeys:   adminKeys,
 		TLSCert:     tlsCert,
 		TLSKey:      tlsKey,
 		SigningKey:  privKey,
@@ -87,7 +81,7 @@ func run() error {
 		BinariesDir: binariesDir,
 	}
 
-	srv := licenseserver.New(cfg, store)
+	srv := licenseserver.New(cfg, store, verifier)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

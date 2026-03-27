@@ -10,15 +10,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // Server is the License Server REST API.
 type Server struct {
-	config *Config
-	store  licensestore.Store
-	router chi.Router
-	http   *http.Server
+	config   *Config
+	store    licensestore.Store
+	verifier auth.TokenVerifier
+	router   chi.Router
+	http     *http.Server
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -49,10 +51,11 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 }
 
 // New creates a new license Server.
-func New(cfg *Config, s licensestore.Store) *Server {
+func New(cfg *Config, s licensestore.Store, verifier auth.TokenVerifier) *Server {
 	srv := &Server{
-		config: cfg,
-		store:  s,
+		config:   cfg,
+		store:    s,
+		verifier: verifier,
 	}
 
 	r := chi.NewRouter()
@@ -75,16 +78,10 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.With(middleware.Timeout(300*time.Second)).Get("/download/{version}/{os}/{arch}", srv.handleDownloadBinary)
 	})
 
-	// Auth API (public, no admin key required).
-	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Post("/login", srv.handleLogin)
-		r.Post("/logout", srv.handleLogout)
-		r.Post("/refresh", srv.handleRefresh)
-	})
-
-	// Admin API (requires admin key — always applies auth middleware).
+	// Admin API (requires Keycloak OIDC token with license-admin role).
 	r.Route("/api/v1/admin", func(r chi.Router) {
-		r.Use(AdminKeyAuth(cfg.AdminKeys))
+		r.Use(auth.OIDCAuth(verifier))
+		r.Use(auth.RequireRole("triton", "license-admin"))
 
 		// Organizations
 		r.Post("/orgs", srv.handleCreateOrg)

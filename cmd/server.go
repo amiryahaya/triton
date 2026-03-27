@@ -12,16 +12,19 @@ import (
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
 var (
-	serverListen  string
-	serverDB      string
-	serverAPIKeys []string
-	serverTLSCert string
-	serverTLSKey  string
+	serverListen         string
+	serverDB             string
+	serverAPIKeys        []string
+	serverTLSCert        string
+	serverTLSKey         string
+	serverKeycloakIssuer string
+	serverKeycloakClient string
 )
 
 var serverCmd = &cobra.Command{
@@ -39,6 +42,8 @@ func init() {
 	serverCmd.Flags().StringSliceVar(&serverAPIKeys, "api-key", nil, "Allowed API keys (can be specified multiple times)")
 	serverCmd.Flags().StringVar(&serverTLSCert, "tls-cert", "", "TLS certificate file")
 	serverCmd.Flags().StringVar(&serverTLSKey, "tls-key", "", "TLS key file")
+	serverCmd.Flags().StringVar(&serverKeycloakIssuer, "keycloak-issuer", "", "Keycloak issuer URL (enables OIDC auth)")
+	serverCmd.Flags().StringVar(&serverKeycloakClient, "keycloak-client-id", "triton", "Keycloak client ID")
 	rootCmd.AddCommand(serverCmd)
 }
 
@@ -56,12 +61,25 @@ func runServer(_ *cobra.Command, _ []string) error {
 	defer func() { _ = db.Close() }()
 
 	cfg := &server.Config{
-		ListenAddr: serverListen,
-		DBUrl:      dbUrlVal,
-		APIKeys:    serverAPIKeys,
-		TLSCert:    serverTLSCert,
-		TLSKey:     serverTLSKey,
-		Guard:      guard,
+		ListenAddr:        serverListen,
+		DBUrl:             dbUrlVal,
+		APIKeys:           serverAPIKeys,
+		TLSCert:           serverTLSCert,
+		TLSKey:            serverTLSKey,
+		Guard:             guard,
+		KeycloakIssuerURL: serverKeycloakIssuer,
+		KeycloakClientID:  serverKeycloakClient,
+	}
+
+	if serverKeycloakIssuer != "" {
+		verifier, err := auth.NewVerifier(ctx, auth.OIDCConfig{
+			IssuerURL: serverKeycloakIssuer,
+			ClientID:  serverKeycloakClient,
+		})
+		if err != nil {
+			return fmt.Errorf("creating OIDC verifier: %w", err)
+		}
+		cfg.OIDCVerifier = verifier
 	}
 
 	srv := server.New(cfg, db)

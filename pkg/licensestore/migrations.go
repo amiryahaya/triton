@@ -110,4 +110,7 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);`,
+
+	// Version 5: Drop users and sessions tables (auth moved to Keycloak OIDC).
+	`DROP TABLE IF EXISTS sessions; DROP TABLE IF EXISTS users;`,
 }

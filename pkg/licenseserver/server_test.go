@@ -18,11 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
@@ -47,12 +46,12 @@ func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStor
 
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
-		AdminKeys:   []string{"test-admin-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: t.TempDir(),
 	}
-	srv := licenseserver.New(cfg, store)
+	verifier := auth.NewMockVerifier(auth.PlatformAdminClaims())
+	srv := licenseserver.New(cfg, store, verifier)
 	ts := httptest.NewServer(srv.Router())
 
 	t.Cleanup(func() {
@@ -74,7 +73,7 @@ func adminReq(t *testing.T, method, url string, body any) *http.Response {
 	req, err := http.NewRequest(method, url, bodyReader)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", "test-admin-key")
+	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -116,7 +115,7 @@ func TestHealth(t *testing.T) {
 
 // --- Admin Auth ---
 
-func TestAdminAuth_MissingKey(t *testing.T) {
+func TestAdminAuth_MissingToken(t *testing.T) {
 	ts, _ := setupTestServer(t)
 	resp, err := http.Get(ts.URL + "/api/v1/admin/orgs")
 	require.NoError(t, err)
@@ -124,14 +123,43 @@ func TestAdminAuth_MissingKey(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func TestAdminAuth_InvalidKey(t *testing.T) {
-	ts, _ := setupTestServer(t)
+func TestAdminAuth_InvalidToken(t *testing.T) {
+	dbURL := os.Getenv("TRITON_TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
+	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DropSchema(ctx)
+		store.Close()
+	})
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// Verifier that always returns an error (simulates invalid token).
+	verifier := &auth.MockVerifier{Err: fmt.Errorf("token verification failed")}
+	cfg := &licenseserver.Config{
+		ListenAddr:  ":0",
+		SigningKey:  priv,
+		PublicKey:   pub,
+		BinariesDir: t.TempDir(),
+	}
+	srv := licenseserver.New(cfg, store, verifier)
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
 	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/admin/orgs", nil)
-	req.Header.Set("X-Triton-Admin-Key", "wrong-key")
+	req.Header.Set("Authorization", "Bearer invalid-token")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 // --- Org CRUD ---
@@ -621,47 +649,6 @@ func TestAdminDeactivate_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-// --- Auth edge case ---
-
-func TestAdminAuth_EmptyKeys(t *testing.T) {
-	dbURL := os.Getenv("TRITON_TEST_DB_URL")
-	if dbURL == "" {
-		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
-	}
-	ctx := context.Background()
-	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
-	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
-	if err != nil {
-		t.Skipf("PostgreSQL unavailable: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.DropSchema(ctx)
-		store.Close()
-	})
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	// Empty AdminKeys — should deny all admin requests
-	cfg := &licenseserver.Config{
-		ListenAddr:  ":0",
-		AdminKeys:   []string{},
-		SigningKey:  priv,
-		PublicKey:   pub,
-		BinariesDir: t.TempDir(),
-	}
-	srv := licenseserver.New(cfg, store)
-	ts := httptest.NewServer(srv.Router())
-	defer ts.Close()
-
-	// Even with a key header, should be denied when server has empty keys
-	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/admin/orgs", nil)
-	req.Header.Set("X-Triton-Admin-Key", "any-key")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-}
 
 // --- Binary Management ---
 
@@ -681,7 +668,7 @@ func uploadBinary(t *testing.T, tsURL, version, goos, goarch string, content []b
 	req, err := http.NewRequest("POST", tsURL+"/api/v1/admin/binaries", &buf)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("X-Triton-Admin-Key", "test-admin-key")
+	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -712,7 +699,7 @@ func TestUploadBinary_MissingFields(t *testing.T) {
 	req, err := http.NewRequest("POST", ts.URL+"/api/v1/admin/binaries", &buf)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("X-Triton-Admin-Key", "test-admin-key")
+	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -1018,136 +1005,3 @@ func TestDownloadPage_Redirect(t *testing.T) {
 	assert.Contains(t, resp.Header.Get("Location"), "/download/index.html")
 }
 
-// --- Auth tests ---
-
-func createTestUser(t *testing.T, ts *httptest.Server, store *licensestore.PostgresStore, email, password, role string) (*licensestore.Organization, *licensestore.User) {
-	t.Helper()
-	ctx := context.Background()
-
-	// Create org (unless platform_admin).
-	var org *licensestore.Organization
-	var orgID string
-	if role != "platform_admin" {
-		org = &licensestore.Organization{
-			ID:   uuid.Must(uuid.NewV7()).String(),
-			Name: "Auth Test Org " + uuid.Must(uuid.NewV7()).String()[:8],
-		}
-		require.NoError(t, store.CreateOrg(ctx, org))
-		orgID = org.ID
-	}
-
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	require.NoError(t, err)
-
-	user := &licensestore.User{
-		ID:       uuid.Must(uuid.NewV7()).String(),
-		OrgID:    orgID,
-		Email:    email,
-		Name:     "Test " + role,
-		Role:     role,
-		Password: string(hashed),
-	}
-	require.NoError(t, store.CreateUser(ctx, user))
-	return org, user
-}
-
-func TestLoginSuccess(t *testing.T) {
-	ts, store := setupTestServer(t)
-	email := fmt.Sprintf("login-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "secret123", "org_admin")
-
-	body, _ := json.Marshal(map[string]string{"email": email, "password": "secret123"})
-	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	var result map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	assert.NotEmpty(t, result["token"])
-	assert.NotEmpty(t, result["expiresAt"])
-}
-
-func TestLoginWrongPassword(t *testing.T) {
-	ts, store := setupTestServer(t)
-	email := fmt.Sprintf("wrongpw-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "correct", "org_user")
-
-	body, _ := json.Marshal(map[string]string{"email": email, "password": "wrong"})
-	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-}
-
-func TestLoginUnknownEmail(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	body, _ := json.Marshal(map[string]string{"email": "nobody@test.com", "password": "x"})
-	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-}
-
-func TestLogout(t *testing.T) {
-	ts, store := setupTestServer(t)
-	email := fmt.Sprintf("logout-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "pw123", "org_user")
-
-	// Login first.
-	body, _ := json.Marshal(map[string]string{"email": email, "password": "pw123"})
-	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var loginResp map[string]any
-	json.NewDecoder(resp.Body).Decode(&loginResp)
-	token := loginResp["token"].(string)
-
-	// Logout.
-	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/auth/logout", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	logoutResp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer logoutResp.Body.Close()
-	assert.Equal(t, http.StatusOK, logoutResp.StatusCode)
-}
-
-func TestRefresh(t *testing.T) {
-	ts, store := setupTestServer(t)
-	email := fmt.Sprintf("refresh-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "pw456", "org_admin")
-
-	// Login.
-	body, _ := json.Marshal(map[string]string{"email": email, "password": "pw456"})
-	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var loginResp map[string]any
-	json.NewDecoder(resp.Body).Decode(&loginResp)
-	oldToken := loginResp["token"].(string)
-
-	// Refresh.
-	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/auth/refresh", nil)
-	req.Header.Set("Authorization", "Bearer "+oldToken)
-	refreshResp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer refreshResp.Body.Close()
-	assert.Equal(t, http.StatusOK, refreshResp.StatusCode)
-
-	var refreshResult map[string]any
-	json.NewDecoder(refreshResp.Body).Decode(&refreshResult)
-	newToken := refreshResult["token"].(string)
-	assert.NotEmpty(t, newToken)
-	assert.NotEmpty(t, refreshResult["expiresAt"])
-}
-
-func TestLoginMissingFields(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	body, _ := json.Marshal(map[string]string{"email": "", "password": ""})
-	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-}

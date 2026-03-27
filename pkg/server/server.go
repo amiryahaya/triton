@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -20,8 +21,11 @@ type Config struct {
 	APIKeys      []string
 	TLSCert      string
 	TLSKey       string
-	Guard        *license.Guard // nil = no enforcement (backward compat for testserver)
-	TenantPubKey []byte         // optional: Ed25519 public key for tenant token verification (overrides embedded key)
+	Guard          *license.Guard     // nil = no enforcement (backward compat for testserver)
+	TenantPubKey   []byte             // optional: Ed25519 public key for tenant token verification (overrides embedded key)
+	KeycloakIssuerURL string          // optional: enables OIDC auth
+	KeycloakClientID  string          // Keycloak client ID (default: triton)
+	OIDCVerifier      auth.TokenVerifier // set at startup if Keycloak configured
 }
 
 // Server is the Triton REST API server.
@@ -63,7 +67,11 @@ func New(cfg *Config, s store.Store) *Server {
 
 	// API routes with optional auth.
 	r.Route("/api/v1", func(r chi.Router) {
-		if len(cfg.APIKeys) > 0 {
+		if cfg.OIDCVerifier != nil {
+			// Keycloak OIDC: optional auth (allows license token fallback for CLI)
+			r.Use(auth.OptionalOIDCAuth(cfg.OIDCVerifier))
+		} else if len(cfg.APIKeys) > 0 {
+			// Legacy API key auth (backward compat when Keycloak not configured)
 			r.Use(APIKeyAuth(cfg.APIKeys))
 		}
 		if cfg.Guard != nil {

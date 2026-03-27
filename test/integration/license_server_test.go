@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
@@ -45,13 +46,13 @@ func requireLicenseStore(t *testing.T) *licensestore.PostgresStore {
 // requireLicenseServer creates a real TCP httptest.Server backed by PostgreSQL.
 func requireLicenseServer(t *testing.T) (string, *licensestore.PostgresStore, ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
-	return requireLicenseServerWithKeys(t, []string{"integration-test-key"})
+	return requireLicenseServerWithVerifier(t, auth.NewMockVerifier(auth.PlatformAdminClaims()))
 }
 
-// licAdminReq makes an admin request to the license server using the default integration-test-key.
+// licAdminReq makes an admin request to the license server using a Bearer token.
 func licAdminReq(t *testing.T, method, url string, body any) *http.Response {
 	t.Helper()
-	return licAdminReqWithKey(t, method, url, "integration-test-key", body)
+	return licAdminReqWithToken(t, method, url, "test-token", body)
 }
 
 // createTestOrgAndLicense creates an org and license via the admin API.
@@ -382,8 +383,8 @@ func TestLicenseServer_Health(t *testing.T) {
 
 // --- New Helpers ---
 
-// requireLicenseServerWithKeys creates a license server with custom admin keys.
-func requireLicenseServerWithKeys(t *testing.T, keys []string) (string, *licensestore.PostgresStore, ed25519.PublicKey, ed25519.PrivateKey) {
+// requireLicenseServerWithVerifier creates a license server with an OIDC verifier.
+func requireLicenseServerWithVerifier(t *testing.T, verifier auth.TokenVerifier) (string, *licensestore.PostgresStore, ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
 	store := requireLicenseStore(t)
 
@@ -392,11 +393,10 @@ func requireLicenseServerWithKeys(t *testing.T, keys []string) (string, *license
 
 	cfg := &licenseserver.Config{
 		ListenAddr: ":0",
-		AdminKeys:  keys,
 		SigningKey:  priv,
 		PublicKey:   pub,
 	}
-	srv := licenseserver.New(cfg, store)
+	srv := licenseserver.New(cfg, store, verifier)
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 	return ts.URL, store, pub, priv
@@ -412,8 +412,8 @@ func decodeJSONArray(t *testing.T, resp *http.Response) []map[string]any {
 	return result
 }
 
-// licAdminReqWithKey makes an admin request with a specific key.
-func licAdminReqWithKey(t *testing.T, method, url, key string, body any) *http.Response {
+// licAdminReqWithToken makes an admin request with a specific Bearer token.
+func licAdminReqWithToken(t *testing.T, method, url, token string, body any) *http.Response {
 	t.Helper()
 	var bodyReader *bytes.Reader
 	if body != nil {
@@ -430,7 +430,7 @@ func licAdminReqWithKey(t *testing.T, method, url, key string, body any) *http.R
 	}
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", key)
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -1075,23 +1075,15 @@ func TestLicenseServer_GuardCacheMeta_SaveLoadRoundTrip(t *testing.T) {
 
 // --- Group I: Multi-Key Auth & Stats ---
 
-func TestLicenseServer_MultipleAdminKeys(t *testing.T) {
-	keys := []string{"key-alpha", "key-beta", "key-gamma"}
-	serverURL, _, _, _ := requireLicenseServerWithKeys(t, keys)
+func TestLicenseServer_OIDCAuth(t *testing.T) {
+	serverURL, _, _, _ := requireLicenseServer(t)
 
-	// Each key should succeed
-	for _, key := range keys {
-		resp := licAdminReqWithKey(t, "GET", serverURL+"/api/v1/admin/orgs", key, nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode, "key %s should succeed", key)
-		resp.Body.Close()
-	}
-
-	// Wrong key should fail
-	resp := licAdminReqWithKey(t, "GET", serverURL+"/api/v1/admin/orgs", "wrong-key", nil)
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	// Valid token should succeed (mock verifier returns platform admin claims).
+	resp := licAdminReqWithToken(t, "GET", serverURL+"/api/v1/admin/orgs", "valid-token", nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// Empty key should fail
+	// Missing token should fail.
 	req, _ := http.NewRequest("GET", serverURL+"/api/v1/admin/orgs", nil)
 	resp2, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

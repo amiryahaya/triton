@@ -2,13 +2,11 @@
 const { request } = require('@playwright/test');
 
 const BASE_URL = 'http://localhost:8081';
-const ADMIN_KEY = 'e2e-test-key';
-
 async function globalSetup() {
   const ctx = await request.newContext({
     baseURL: BASE_URL,
     extraHTTPHeaders: {
-      'X-Triton-Admin-Key': ADMIN_KEY,
+      'Authorization': 'Bearer e2e-test-token',
       'Content-Type': 'application/json',
     },
   });

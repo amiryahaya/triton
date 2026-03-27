@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -42,15 +43,19 @@ func TenantScope(guard *license.Guard, pubKeyOverride ed25519.PublicKey) func(ht
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check for org_id from Keycloak JWT first.
 			if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-				orgID := auth.OrgIDFromClaims(claims)
+				// Platform admins get global access (no tenant scoping).
+				if auth.HasRealmRole(claims, "platform-admin") {
+					next.ServeHTTP(w, r)
+					return
+				}
+				orgID, err := auth.OrgIDFromClaims(claims)
+				if err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+					return
+				}
 				if orgID != "" {
 					ctx := context.WithValue(r.Context(), tenantOrgIDKey, orgID)
 					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-				// Platform admin with no org — allow access to all (no tenant filtering).
-				if auth.HasRealmRole(claims, "platform-admin") {
-					next.ServeHTTP(w, r)
 					return
 				}
 			}

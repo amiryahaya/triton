@@ -1,6 +1,9 @@
 package auth
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type contextKey string
 
@@ -38,16 +41,19 @@ func ClaimsFromContext(ctx context.Context) *Claims {
 	return c
 }
 
-// OrgIDFromClaims returns the first organization ID from the claims.
-// Returns empty string for users not in any org (e.g., platform admins).
-func OrgIDFromClaims(claims *Claims) string {
+// OrgIDFromClaims returns the organization ID from the claims.
+// Returns an error if the user belongs to more than one organization.
+func OrgIDFromClaims(claims *Claims) (string, error) {
 	if claims == nil {
-		return ""
+		return "", nil
+	}
+	if len(claims.Organization) > 1 {
+		return "", fmt.Errorf("token contains %d organizations; expected at most 1", len(claims.Organization))
 	}
 	for id := range claims.Organization {
-		return id
+		return id, nil
 	}
-	return ""
+	return "", nil
 }
 
 // HasClientRole checks if claims contain a specific client role.

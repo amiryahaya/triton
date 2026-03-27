@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -67,7 +68,8 @@ func OIDCAuth(v TokenVerifier) func(http.Handler) http.Handler {
 			}
 			claims, err := v.Verify(r.Context(), parts[1])
 			if err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":"invalid token: %s"}`, err.Error()), http.StatusUnauthorized)
+				log.Printf("oidc: token verification failed: %v", err)
+				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
 			ctx := NewContext(r.Context(), claims)
@@ -119,7 +121,8 @@ func OptionalOIDCAuth(v TokenVerifier) func(http.Handler) http.Handler {
 			claims, err := v.Verify(r.Context(), parts[1])
 			if err != nil {
 				// Bearer token present but invalid — reject.
-				http.Error(w, fmt.Sprintf(`{"error":"invalid token: %s"}`, err.Error()), http.StatusUnauthorized)
+				log.Printf("oidc: token verification failed: %v", err)
+				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
 			ctx := NewContext(r.Context(), claims)

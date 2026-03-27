@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amiryahaya/triton/pkg/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
@@ -74,8 +76,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// auditActor determines whether the request comes from an admin or client route.
+// auditActor determines the identity of the request sender.
 func auditActor(r *http.Request) string {
+	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+		if claims.Email != "" {
+			return fmt.Sprintf("%s (%s)", claims.Sub, claims.Email)
+		}
+		return claims.Sub
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/admin/") {
 		return "admin"
 	}

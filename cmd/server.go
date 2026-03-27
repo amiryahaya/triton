@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -72,7 +73,9 @@ func runServer(_ *cobra.Command, _ []string) error {
 	}
 
 	if serverKeycloakIssuer != "" {
-		verifier, err := auth.NewVerifier(ctx, auth.OIDCConfig{
+		discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		verifier, err := auth.NewVerifier(discoveryCtx, auth.OIDCConfig{
 			IssuerURL: serverKeycloakIssuer,
 			ClientID:  serverKeycloakClient,
 		})
@@ -80,6 +83,10 @@ func runServer(_ *cobra.Command, _ []string) error {
 			return fmt.Errorf("creating OIDC verifier: %w", err)
 		}
 		cfg.OIDCVerifier = verifier
+	}
+
+	if serverKeycloakIssuer == "" && len(serverAPIKeys) == 0 {
+		log.Println("WARNING: server starting with no authentication — all API endpoints are publicly accessible")
 	}
 
 	srv := server.New(cfg, db)

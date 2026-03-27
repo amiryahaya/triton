@@ -84,7 +84,11 @@ func (c *Client) ensureOIDCToken() (string, error) {
 	}
 
 	c.oidcToken = tokenResp.AccessToken
-	c.oidcTokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	expiry := tokenResp.ExpiresIn
+	if expiry <= 0 {
+		expiry = 300 // default 5 min if not specified
+	}
+	c.oidcTokenExpiry = time.Now().Add(time.Duration(expiry) * time.Second)
 	return c.oidcToken, nil
 }
 

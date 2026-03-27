@@ -6,12 +6,14 @@ import (
 
 // MockVerifier is a test double for TokenVerifier.
 type MockVerifier struct {
-	Claims *Claims
-	Err    error
+	Claims         *Claims
+	Err            error
+	ReceivedTokens []string
 }
 
 // Verify returns the pre-configured claims or error.
-func (m *MockVerifier) Verify(_ context.Context, _ string) (*Claims, error) {
+func (m *MockVerifier) Verify(_ context.Context, rawToken string) (*Claims, error) {
+	m.ReceivedTokens = append(m.ReceivedTokens, rawToken)
 	if m.Err != nil {
 		return nil, m.Err
 	}

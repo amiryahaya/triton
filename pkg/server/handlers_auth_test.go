@@ -142,6 +142,23 @@ func TestLogout_MissingToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+// TestLogout_RejectsInvalidJWT verifies M3: logout must cryptographically
+// verify the JWT before doing the session-hash lookup. Without this, the
+// endpoint's implicit contract becomes "logout by token-hash knowledge"
+// rather than "logout by JWT possession" — an attacker who knows a
+// session's hash (or can craft a string hashing to one) could force-logout
+// a victim.
+func TestLogout_RejectsInvalidJWT(t *testing.T) {
+	srv, _ := testServerWithJWT(t)
+	// A syntactically valid 3-part JWT but signed with the wrong key.
+	// Without M3, the handler would still SHA-256 hash this and try the
+	// session lookup; with M3, it rejects with 401 before touching the DB.
+	bogusToken := "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJoYWNrZXIifQ.fake-signature-bytes"
+
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/logout", bogusToken, nil)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 // --- Refresh ---
 
 func TestRefresh_Success(t *testing.T) {

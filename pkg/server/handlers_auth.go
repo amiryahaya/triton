@@ -59,6 +59,31 @@ func extractBearerToken(r *http.Request) string {
 	return strings.TrimPrefix(authHeader, "Bearer ")
 }
 
+// extractAndVerifyBearer extracts the Bearer token from the request and
+// cryptographically verifies it against the report server's JWT public
+// key. Returns the raw token string + parsed claims on success, or
+// (empty, nil, errStatus) on failure.
+//
+// This is the shared prologue for handlers that don't run behind the
+// JWTAuth middleware (logout, refresh, change-password) — those routes
+// can't use middleware because some of them run in contexts where the
+// user state isn't yet known to be valid (e.g., refresh re-derives it
+// from the DB rather than trusting the token).
+//
+// Callers should map the returned errStatus to a generic "invalid or
+// expired token" message — never leak which specific check failed.
+func (s *Server) extractAndVerifyBearer(r *http.Request) (token string, claims *auth.UserClaims, errStatus int) {
+	token = extractBearerToken(r)
+	if token == "" {
+		return "", nil, http.StatusUnauthorized
+	}
+	claims, err := auth.VerifyJWT(token, s.config.JWTPublicKey)
+	if err != nil {
+		return "", nil, http.StatusUnauthorized
+	}
+	return token, claims, 0
+}
+
 // POST /api/v1/auth/login
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
@@ -106,9 +131,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/auth/logout
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	token := extractBearerToken(r)
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing authorization header")
+	// Verify the JWT cryptographically before doing anything else.
+	// Without this, an attacker who knows a session's token-hash (or
+	// can craft a string that hashes to one) could force-logout a
+	// victim. The JWT verification ensures only the legitimate token
+	// holder can reach the session lookup.
+	token, _, status := s.extractAndVerifyBearer(r)
+	if status != 0 {
+		writeError(w, status, "invalid or expired token")
 		return
 	}
 
@@ -117,7 +147,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.store.GetSessionByHash(r.Context(), tokenHash)
 	if err != nil {
-		// Session not found — already logged out or invalid token.
+		// Session not found — already logged out, or token is valid
+		// JWT-wise but its session was already invalidated. Either way,
+		// idempotent success.
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
@@ -133,15 +165,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/auth/refresh
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	token := extractBearerToken(r)
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing authorization header")
-		return
-	}
-
-	claims, err := auth.VerifyJWT(token, s.config.JWTPublicKey)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid or expired token")
+	token, claims, status := s.extractAndVerifyBearer(r)
+	if status != 0 {
+		writeError(w, status, "invalid or expired token")
 		return
 	}
 
@@ -186,18 +212,13 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 // access protected routes.
 //
 // This endpoint is the ONLY route that an authenticated user with
-// must_change_password=true is permitted to call (Phase 1.5e will add
-// the middleware that enforces this gate).
+// must_change_password=true is permitted to call. The Phase 1.5e
+// BlockUntilPasswordChanged middleware enforces this elsewhere; this
+// route is deliberately NOT behind that middleware.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
-	token := extractBearerToken(r)
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing authorization header")
-		return
-	}
-
-	claims, err := auth.VerifyJWT(token, s.config.JWTPublicKey)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid or expired token")
+	token, claims, status := s.extractAndVerifyBearer(r)
+	if status != 0 {
+		writeError(w, status, "invalid or expired token")
 		return
 	}
 

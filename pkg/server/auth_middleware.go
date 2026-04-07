@@ -92,7 +92,33 @@ func RequireOrgAdmin(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "org_admin role required")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(r.Context()))
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireAnyOrgRole enforces that the authenticated user has either
+// role=org_admin OR role=org_user. Both can read scan data, run policy
+// evaluations, and view their org's dashboard — they only diverge on
+// administrative actions like user CRUD.
+//
+// Phase 2 will use this for routes like GET /api/v1/scans where any
+// authenticated org user should have access. Today no production routes
+// use it, but it's exercised by tests as the missing piece called out
+// in the architecture review (Arch #5 partial).
+//
+// Must be chained AFTER JWTAuth.
+func RequireAnyOrgRole(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user == nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		if user.Role != "org_admin" && user.Role != "org_user" {
+			writeError(w, http.StatusForbidden, "org role required")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -126,9 +126,26 @@ Two architecture/API reviews were run after Phase 1 implementation closed (Tasks
 | **T5** | Test review | The hard-coded `LIMIT 1000` in `ListUsers` SQL is not exercised. A table with 1001+ users silently truncates. | Low priority | Population is expensive in integration tests; would need a store-level mock. Document the cap in handler godoc when it becomes a real concern. |
 | **T6** | Test review | `TestListSuperadmins` would break if `setupTestServer` ever started calling `SeedInitialSuperadmin`. | Tracking only | The fragility is a hypothetical; current code doesn't seed in test setup. |
 
+## Deferred items from Phase 1.5 reviews (2026-04-08)
+
+Phase 1.5 (report server identity layer — Tasks 1.5a–e) was reviewed by both `pensive:code-reviewer` and `pensive:architecture-reviewer` after implementation closed. The reviews returned 0 critical findings and confirmed that Phase 1 lessons were applied prophylactically. Tier 1 (correctness/security) and Tier 2 (architectural alignment) were fixed in-phase. The following Tier 3 items are explicitly deferred to specific later phases.
+
+### Tier 3 — deferred to target phase
+
+| ID | Source | What | Defer to | Rationale |
+|---|---|---|---|---|
+| **Arch #10 (1.5)** | Architecture | Unified `TenantContext` resolver. Today there are two separate context keys (`tenantOrgIDKey` for license-token paths, `userContextKey.OrgID` for JWT paths). Phase 2 routes that accept BOTH JWT users and license-token agents on the same URL will need a unified resolver and a single canonical context key. | Phase 2 prep (before any Phase 2 handler is wired) | The design depends on Phase 2's routing decisions. Doing it now would be speculative. |
+| **Arch #4 (1.5)** | Architecture | The `Jti` claim added in Phase 1.5c papers over the `sessions.token_hash UNIQUE` design choice. The cleaner long-term model is `sid` claim + sessions PK (drop the token_hash UNIQUE constraint, key sessions on a UUID stamped into the JWT as `sid`). | Phase 2.x cleanup | Substantial refactor across both servers. The current jti fix is correct and ships fine. |
+| **L5 (1.5)** | Code review | Concurrent change-password calls have no mutual exclusion — two simultaneous calls can both verify the same current password, both succeed, leaving two valid sessions. Self-inflicted, low-risk for Phase 1.5. | Phase 2.x | Requires DB-level advisory locks or a versioned `password_changed_at` column. |
+| **Invite expiry** | Architecture | A 7-day-old temp password is a leaked-credentials hazard. Add `invited_at` and have `handleLogin` reject login for users with `must_change_password = true AND invited_at < now() - 7 days`. | Phase 1.7 | The natural place is alongside email delivery (Phase 1.7 = Resend integration). |
+| **`minPasswordLen` consolidation** | Architecture | The `12` constant exists in three places: `minPasswordLen` (license server), `minUserPasswordLen` (report server), `minProvisionPasswordLen` (provisioning handler). If they're meant to be one global policy, hoist into `internal/auth` (or `internal/policy`). | When a third call site lands | Trivial when needed; speculative until then. |
+| **L4 (1.5)** | Code review | `CountUsersByOrg` is defined in the `UserStore` interface but not consumed in production code (the last-admin guard uses `ListUsers`). | Observation only | Test/future-use scaffolding; no action required. |
+
 ### Tier 1 + Tier 2 fixed in-phase (2026-04-08)
 
 All findings from the second-pass architecture and API/test reviews that warranted in-phase fixes are committed under fix(licenseserver) and fix(license)/fix(licensestore) commits. See git log for exact commit messages.
+
+Phase 1.5 review fixes are committed as a separate batch under `fix(server)` and `fix(store)` commits. See `git log feat/multi-tenant -- pkg/server/ pkg/store/` for the exact set.
 
 | Sev | ID | Status | Commit |
 |---|---|---|---|

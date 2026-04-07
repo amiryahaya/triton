@@ -3,6 +3,9 @@ package license
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,4 +70,43 @@ func TestJWTInvalidFormat(t *testing.T) {
 	_, err := VerifyJWT("not-a-jwt", pub)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid token format")
+}
+
+// TestSignJWTDoesNotMutateCallerClaims verifies that SignJWT is a pure
+// operation from the caller's perspective — the passed-in struct's Iat
+// and Exp fields must not be modified. Callers should be able to log or
+// compare their claims struct after signing without surprise.
+func TestSignJWTDoesNotMutateCallerClaims(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	claims := &UserClaims{Sub: "u1", Role: "platform_admin", Name: "Root"}
+	require.Equal(t, int64(0), claims.Iat)
+	require.Equal(t, int64(0), claims.Exp)
+
+	_, err := SignJWT(claims, priv, 1*time.Hour)
+	require.NoError(t, err)
+
+	// After signing, the caller's struct must be unchanged.
+	assert.Equal(t, int64(0), claims.Iat, "Iat must not be mutated on caller's struct")
+	assert.Equal(t, int64(0), claims.Exp, "Exp must not be mutated on caller's struct")
+}
+
+// TestJWTStandardFormat verifies the emitted token has three dot-separated
+// parts (header.payload.signature) matching the standard JWT format, so it
+// can be parsed by off-the-shelf JWT libraries and debugging tools.
+func TestJWTStandardFormat(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	claims := &UserClaims{Sub: "u1", Role: "platform_admin", Name: "Root"}
+	token, err := SignJWT(claims, priv, 1*time.Hour)
+	require.NoError(t, err)
+
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3, "standard JWT must have 3 dot-separated parts")
+
+	// Header must be base64url-decodable JSON with alg=EdDSA, typ=JWT.
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	require.NoError(t, err)
+	var header map[string]any
+	require.NoError(t, json.Unmarshal(headerBytes, &header))
+	assert.Equal(t, "EdDSA", header["alg"])
+	assert.Equal(t, "JWT", header["typ"])
 }

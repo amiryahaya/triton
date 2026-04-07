@@ -12,6 +12,14 @@
 
 ---
 
+## Status (2026-04-07)
+
+**Active path:** Self-managed auth (this plan, as written). Phase 1 Tasks 1.1–1.3 complete on `feat/multi-tenant` (commits `2c82ff9`, `827eb1a`, `4bca111`). Resuming at Task 1.4.
+
+**Parked work:** A Keycloak OIDC integration was prototyped and reviewed but shelved by management decision pending revisit. The full pivot — `pkg/auth/` (oidc, claims, mock), license server admin gating via `RequireRole`, agent client-credentials grant, and a PQC hybrid verifier (ML-DSA) WIP — lives on branch `feat/multi-tenant-keycloak` (commits `4019dfa`, `1cdccc2`, `1e9c460`, `f479cbc`). When Keycloak is greenlit again, rebase or cherry-pick from that branch. Note: reviving Keycloak makes Tasks 1.1, 1.3, 1.4, 1.5, 2.5, 3.1 obsolete.
+
+---
+
 ## Phase 1: License Server -- Users & Auth
 
 ### Task 1.1: Database Migration -- users and sessions tables

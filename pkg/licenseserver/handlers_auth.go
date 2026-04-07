@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -31,7 +32,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.store.GetUserByEmail(r.Context(), req.Email)
+	// Normalize email to match the storage format used by handleCreateSuperadmin.
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	user, err := s.store.GetUserByEmail(r.Context(), email)
 	if err != nil {
 		// Generic error to prevent user enumeration.
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
@@ -39,6 +43,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
+	// The license server is the superadmin identity authority — only
+	// platform_admin users may authenticate here. Org-level users (org_admin,
+	// org_user) live in the report server. Reject anything else with the
+	// same generic message used for bad passwords to prevent role enumeration.
+	if user.Role != "platform_admin" {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -91,7 +104,14 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = s.store.DeleteSession(r.Context(), sess.ID)
+	// Surface DB errors rather than silently leaking sessions. A "successful"
+	// logout that doesn't actually delete the session would be worse than
+	// reporting the failure.
+	if err := s.store.DeleteSession(r.Context(), sess.ID); err != nil {
+		log.Printf("logout: delete session %s failed: %v", sess.ID, err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -109,19 +129,41 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete old session.
+	// Re-fetch the user from the DB instead of trusting the role/name/org
+	// embedded in the old token. This ensures that:
+	//   - Deleted users cannot refresh (user lookup fails → 401)
+	//   - Role changes take effect on the next refresh (demotion is enforced)
+	//   - Name changes in the DB propagate into the new token
+	//   - Only platform_admin users can refresh (defense in depth against C1)
+	user, err := s.store.GetUser(r.Context(), claims.Sub)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid or expired token")
+		return
+	}
+	if user.Role != "platform_admin" {
+		writeError(w, http.StatusUnauthorized, "invalid or expired token")
+		return
+	}
+
+	// Delete old session. Any failure here is surfaced rather than swallowed —
+	// leaving the old session alive while issuing a new token would double
+	// the attack surface of a stolen token.
 	h := sha256.Sum256([]byte(token))
 	oldHash := hex.EncodeToString(h[:])
 	if sess, err := s.store.GetSessionByHash(r.Context(), oldHash); err == nil {
-		_ = s.store.DeleteSession(r.Context(), sess.ID)
+		if err := s.store.DeleteSession(r.Context(), sess.ID); err != nil {
+			log.Printf("refresh: delete old session %s failed: %v", sess.ID, err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
 	}
 
-	// Issue new token.
+	// Issue new token with freshly-fetched user state.
 	newClaims := &license.UserClaims{
-		Sub:  claims.Sub,
-		Org:  claims.Org,
-		Role: claims.Role,
-		Name: claims.Name,
+		Sub:  user.ID,
+		Org:  user.OrgID,
+		Role: user.Role,
+		Name: user.Name,
 	}
 	newToken, err := license.SignJWT(newClaims, s.config.SigningKey, jwtTTL)
 	if err != nil {
@@ -132,7 +174,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	nh := sha256.Sum256([]byte(newToken))
 	sess := &licensestore.Session{
 		ID:        uuid.Must(uuid.NewV7()).String(),
-		UserID:    claims.Sub,
+		UserID:    user.ID,
 		TokenHash: hex.EncodeToString(nh[:]),
 		ExpiresAt: time.Now().Add(jwtTTL),
 	}

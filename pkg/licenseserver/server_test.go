@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1080,7 +1081,7 @@ func createTestUser(t *testing.T, ts *httptest.Server, store *licensestore.Postg
 func TestLoginSuccess(t *testing.T) {
 	ts, store := setupTestServer(t)
 	email := fmt.Sprintf("login-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "secret123", "org_admin")
+	_, _ = createTestUser(t, ts, store, email, "secret123", "platform_admin")
 
 	body, _ := json.Marshal(map[string]string{"email": email, "password": "secret123"})
 	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
@@ -1097,7 +1098,7 @@ func TestLoginSuccess(t *testing.T) {
 func TestLoginWrongPassword(t *testing.T) {
 	ts, store := setupTestServer(t)
 	email := fmt.Sprintf("wrongpw-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "correct", "org_user")
+	_, _ = createTestUser(t, ts, store, email, "correct", "platform_admin")
 
 	body, _ := json.Marshal(map[string]string{"email": email, "password": "wrong"})
 	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
@@ -1118,7 +1119,7 @@ func TestLoginUnknownEmail(t *testing.T) {
 func TestLogout(t *testing.T) {
 	ts, store := setupTestServer(t)
 	email := fmt.Sprintf("logout-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "pw123", "org_user")
+	_, _ = createTestUser(t, ts, store, email, "pw123", "platform_admin")
 
 	// Login first.
 	body, _ := json.Marshal(map[string]string{"email": email, "password": "pw123"})
@@ -1142,7 +1143,7 @@ func TestLogout(t *testing.T) {
 func TestRefresh(t *testing.T) {
 	ts, store := setupTestServer(t)
 	email := fmt.Sprintf("refresh-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
-	_, _ = createTestUser(t, ts, store, email, "pw456", "org_admin")
+	_, _ = createTestUser(t, ts, store, email, "pw456", "platform_admin")
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": email, "password": "pw456"})
@@ -1176,4 +1177,75 @@ func TestLoginMissingFields(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestLoginRejectsNonPlatformAdmin verifies that users whose role is not
+// platform_admin cannot log in to the license server, even with valid
+// credentials. The license server is the superadmin identity authority
+// per the 2026-04-07 split-identity amendment.
+func TestLoginRejectsNonPlatformAdmin(t *testing.T) {
+	ts, store := setupTestServer(t)
+
+	// Create an org_admin user with a valid password.
+	email := fmt.Sprintf("orgadmin-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, _ = createTestUser(t, ts, store, email, "correct-horse-battery", "org_admin")
+
+	body, _ := json.Marshal(map[string]string{"email": email, "password": "correct-horse-battery"})
+	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Even with the right password, login must be rejected.
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// TestRefreshRejectsDemotedUser verifies that refresh re-checks the user's
+// current role in the DB rather than trusting the role embedded in the old
+// token. If an admin deletes a superadmin, their in-flight tokens must stop
+// refreshing — otherwise a compromised token grants indefinite access via
+// the refresh chain.
+func TestRefreshRejectsDemotedUser(t *testing.T) {
+	ts, store := setupTestServer(t)
+	email := fmt.Sprintf("demoted-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, user := createTestUser(t, ts, store, email, "correct-horse-battery", "platform_admin")
+
+	// Login successfully.
+	body, _ := json.Marshal(map[string]string{"email": email, "password": "correct-horse-battery"})
+	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var loginResp map[string]any
+	json.NewDecoder(resp.Body).Decode(&loginResp)
+	token := loginResp["token"].(string)
+
+	// Delete the user directly in the DB. Any future refresh must fail
+	// because the user no longer exists as a valid platform_admin.
+	require.NoError(t, store.DeleteUser(context.Background(), user.ID))
+
+	// Attempt to refresh — must be rejected.
+	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/auth/refresh", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	refreshResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer refreshResp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, refreshResp.StatusCode)
+}
+
+// TestLoginNormalizesEmail verifies that login lowercases and trims the email
+// before looking it up, matching the normalization done by handleCreateSuperadmin.
+func TestLoginNormalizesEmail(t *testing.T) {
+	ts, store := setupTestServer(t)
+
+	email := fmt.Sprintf("normalized-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, _ = createTestUser(t, ts, store, email, "correct-horse-battery", "platform_admin")
+
+	// Login with mixed-case email + leading whitespace.
+	uppercased := "  " + strings.ToUpper(email[:1]) + email[1:]
+	body, _ := json.Marshal(map[string]string{"email": uppercased, "password": "correct-horse-battery"})
+	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }

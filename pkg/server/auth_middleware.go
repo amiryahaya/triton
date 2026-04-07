@@ -95,3 +95,34 @@ func RequireOrgAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(r.Context()))
 	})
 }
+
+// BlockUntilPasswordChanged is middleware that refuses every request
+// from a user whose must_change_password flag is set, returning 403
+// with a clear instruction to call /api/v1/auth/change-password.
+//
+// This is the Phase 1.5e gate: invited users (created via the org
+// provisioning endpoint with must_change_password=true) can log in
+// and obtain a JWT, but they cannot exercise any protected route
+// until they've cleared the flag by calling change-password.
+//
+// Must be chained AFTER JWTAuth. The /auth/change-password endpoint
+// must NOT have this middleware applied — that's the exit ramp.
+//
+// Returns 403 (forbidden — you are who you say you are, but you may
+// not act yet) rather than 401 (unauthenticated). Clients can detect
+// this state via the {"error": "..."} body or by inspecting the
+// mustChangePassword field returned from /auth/login.
+func BlockUntilPasswordChanged(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user == nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		if user.MustChangePassword {
+			writeError(w, http.StatusForbidden, "must change password before accessing this endpoint")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

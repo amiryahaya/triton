@@ -110,11 +110,17 @@ func New(cfg *Config, s store.Store) *Server {
 			r.Post("/change-password", srv.handleChangePassword)
 		})
 
-		// Org-scoped user management — requires JWT auth + org_admin role.
-		// Tenant isolation is enforced inside the handlers (queries scoped
-		// to the requesting admin's org_id).
+		// Org-scoped user management — requires JWT auth + org_admin role
+		// + cleared password change requirement. Tenant isolation is
+		// enforced inside the handlers (queries scoped to the requesting
+		// admin's org_id).
+		//
+		// BlockUntilPasswordChanged ensures invited users (must_change_password
+		// =true on their initial JWT) cannot use the user-management API
+		// until they've called /auth/change-password to clear the flag.
 		r.Route("/api/v1/users", func(r chi.Router) {
 			r.Use(JWTAuth(cfg.JWTPublicKey, s))
+			r.Use(BlockUntilPasswordChanged)
 			r.Use(RequireOrgAdmin)
 			r.Post("/", srv.handleCreateUser)
 			r.Get("/", srv.handleListUsers)

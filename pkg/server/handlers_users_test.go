@@ -61,6 +61,55 @@ func TestUsersRoutes_RejectOrgUser(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+// TestUsersRoutes_BlockedWhenMustChangePassword verifies that an admin
+// who logs in with must_change_password=true (e.g., a freshly invited
+// admin) cannot access the user-management API until they call
+// /auth/change-password to clear the flag.
+func TestUsersRoutes_BlockedWhenMustChangePassword(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+
+	// Create an admin with must_change_password=true (the invited state).
+	_, user := createOrgUser(t, db, "org_admin", "temp-password-from-invite", true)
+	token := loginAndExtractToken(t, srv, user.Email, "temp-password-from-invite")
+
+	// Every protected endpoint must return 403.
+	for _, r := range [][2]string{
+		{http.MethodPost, "/api/v1/users"},
+		{http.MethodGet, "/api/v1/users"},
+		{http.MethodGet, "/api/v1/users/some-id"},
+		{http.MethodPut, "/api/v1/users/some-id"},
+		{http.MethodDelete, "/api/v1/users/some-id"},
+	} {
+		w := authReq(t, srv, r[0], r[1], token, validCreateUserBody("x@example.com"))
+		assert.Equal(t, http.StatusForbidden, w.Code, "method=%s path=%s", r[0], r[1])
+		assert.Contains(t, strings.ToLower(w.Body.String()), "change password")
+	}
+}
+
+// TestChangePasswordWorks_WhenMustChangePassword verifies that the
+// change-password endpoint itself is NOT blocked by the gate — it's
+// the only path out of the must-change-password state.
+func TestChangePasswordWorks_WhenMustChangePassword(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "temp-password", true)
+	token := loginAndExtractToken(t, srv, user.Email, "temp-password")
+
+	// change-password must succeed.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/change-password", token, map[string]string{
+		"current_password": "temp-password",
+		"new_password":     "brand-new-strong-password",
+	})
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+
+	// Now extract the new token and verify access to /users is unblocked.
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	newToken := resp["token"].(string)
+
+	wList := authReq(t, srv, http.MethodGet, "/api/v1/users", newToken, nil)
+	assert.Equal(t, http.StatusOK, wList.Code, "user-management API must be unblocked after password change")
+}
+
 // --- Create ---
 
 func TestCreateUser_Success(t *testing.T) {

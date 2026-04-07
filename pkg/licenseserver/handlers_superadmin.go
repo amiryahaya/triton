@@ -163,6 +163,13 @@ func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Reject no-op updates rather than silently touching the row and
+	// writing a meaningless audit entry.
+	if req.Name == "" && req.Password == "" {
+		writeError(w, http.StatusBadRequest, "at least one of name or password must be provided")
+		return
+	}
+
 	existing, status, msg := s.getSuperadminByID(r, id)
 	if status != 0 {
 		writeError(w, status, msg)
@@ -211,6 +218,20 @@ func (s *Server) handleDeleteSuperadmin(w http.ResponseWriter, r *http.Request) 
 
 	if _, status, msg := s.getSuperadminByID(r, id); status != 0 {
 		writeError(w, status, msg)
+		return
+	}
+
+	// Prevent lockout by refusing to delete the last platform_admin.
+	// Without this guard, an operator who deletes all admins would have
+	// no way to regain access short of directly editing the database.
+	admins, err := s.store.ListUsers(r.Context(), licensestore.UserFilter{Role: "platform_admin"})
+	if err != nil {
+		log.Printf("delete superadmin: list check error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if len(admins) <= 1 {
+		writeError(w, http.StatusConflict, "cannot delete the last superadmin")
 		return
 	}
 

@@ -122,10 +122,15 @@ func TestUpdateSuperadminPassword(t *testing.T) {
 
 func TestDeleteSuperadmin(t *testing.T) {
 	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("delete@example.com"))
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	created := decodeJSON(t, resp)
-	resp.Body.Close()
+	// Create two superadmins so deleting one doesn't trip the last-admin guard.
+	resp1 := createSuperadmin(t, ts.URL, validSuperadminBody("keeper@example.com"))
+	require.Equal(t, http.StatusCreated, resp1.StatusCode)
+	resp1.Body.Close()
+
+	resp2 := createSuperadmin(t, ts.URL, validSuperadminBody("delete@example.com"))
+	require.Equal(t, http.StatusCreated, resp2.StatusCode)
+	created := decodeJSON(t, resp2)
+	resp2.Body.Close()
 	id := created["id"].(string)
 
 	delResp := adminReq(t, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
@@ -135,6 +140,30 @@ func TestDeleteSuperadmin(t *testing.T) {
 	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer getResp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
+}
+
+// TestDeleteLastSuperadminRefused verifies that the final platform_admin
+// cannot be deleted, preventing permanent admin lockout of the license
+// server. Without this guard, an operator who deletes all but one admin
+// and then deletes the last would need to directly manipulate the DB to
+// recover.
+func TestDeleteLastSuperadminRefused(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	// Only one superadmin in the table.
+	resp := createSuperadmin(t, ts.URL, validSuperadminBody("only@example.com"))
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	created := decodeJSON(t, resp)
+	resp.Body.Close()
+	id := created["id"].(string)
+
+	delResp := adminReq(t, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	defer delResp.Body.Close()
+	assert.Equal(t, http.StatusConflict, delResp.StatusCode)
+
+	// And the user must still exist.
+	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	defer getResp.Body.Close()
+	assert.Equal(t, http.StatusOK, getResp.StatusCode)
 }
 
 // --- Validation edge cases ---
@@ -204,6 +233,22 @@ func TestCreateSuperadminIgnoresRole(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	body := decodeJSON(t, resp)
 	assert.Equal(t, "platform_admin", body["role"], "role from request body must be ignored")
+}
+
+// TestUpdateSuperadminEmptyBodyRejected verifies that a PUT with neither
+// name nor password fields returns 400, rather than silently touching the
+// row and polluting the audit log with a no-op event.
+func TestUpdateSuperadminEmptyBodyRejected(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	resp := createSuperadmin(t, ts.URL, validSuperadminBody("emptyput@example.com"))
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	created := decodeJSON(t, resp)
+	resp.Body.Close()
+	id := created["id"].(string)
+
+	updateResp := adminReq(t, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{})
+	defer updateResp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, updateResp.StatusCode)
 }
 
 func TestGetSuperadminNotFound(t *testing.T) {

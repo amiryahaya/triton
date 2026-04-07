@@ -97,6 +97,25 @@ func TestServerClient_Validate_Valid(t *testing.T) {
 	assert.Equal(t, "pro", resp.Tier)
 }
 
+func TestServerClient_Validate_ParsesOrgInfo(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"valid":   true,
+			"tier":    "pro",
+			"orgID":   "01234567-89ab-cdef-0123-456789abcdef",
+			"orgName": "Acme Corp",
+		})
+	}))
+	defer ts.Close()
+
+	client := NewServerClient(ts.URL)
+	resp, err := client.Validate("lic-123", "token")
+	require.NoError(t, err)
+	assert.True(t, resp.Valid)
+	assert.Equal(t, "01234567-89ab-cdef-0123-456789abcdef", resp.OrgID)
+	assert.Equal(t, "Acme Corp", resp.OrgName)
+}
+
 func TestServerClient_Validate_Invalid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

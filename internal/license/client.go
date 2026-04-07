@@ -42,6 +42,8 @@ type ValidateResponse struct {
 	Valid     bool   `json:"valid"`
 	Reason    string `json:"reason,omitempty"`
 	Tier      string `json:"tier,omitempty"`
+	OrgID     string `json:"orgID,omitempty"`
+	OrgName   string `json:"orgName,omitempty"`
 	Seats     int    `json:"seats,omitempty"`
 	SeatsUsed int    `json:"seatsUsed,omitempty"`
 	ExpiresAt string `json:"expiresAt,omitempty"`

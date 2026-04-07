@@ -408,6 +408,32 @@ func TestValidate_MissingToken(t *testing.T) {
 	assert.Equal(t, "validation failed", result["reason"])
 }
 
+// TestValidate_ReturnsOrgInfo verifies the validate response includes the
+// orgID and orgName fields that the report server's validation cache will
+// consume (Phase 2.1). Added under Task 1.6 amendment.
+func TestValidate_ReturnsOrgInfo(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	orgID, licID := createOrgAndLicense(t, ts.URL)
+
+	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
+		"licenseID": licID, "machineID": "m1",
+	})
+	defer actResp.Body.Close()
+	actResult := decodeJSON(t, actResp)
+	token := actResult["token"].(string)
+
+	resp := clientReq(t, "POST", ts.URL+"/api/v1/license/validate", map[string]string{
+		"licenseID": licID, "machineID": "m1", "token": token,
+	})
+	defer resp.Body.Close()
+	result := decodeJSON(t, resp)
+	assert.Equal(t, true, result["valid"])
+	assert.Equal(t, "pro", result["tier"])
+	assert.Equal(t, orgID, result["orgID"])
+	// Org name was set to "ActivOrg" + t.Name() in createOrgAndLicense
+	assert.Equal(t, "ActivOrg"+t.Name(), result["orgName"])
+}
+
 // --- Audit ---
 
 func TestAuditEntries(t *testing.T) {

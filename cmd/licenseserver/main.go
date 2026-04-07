@@ -76,6 +76,22 @@ func run() error {
 	}
 	defer func() { _ = store.Close() }()
 
+	// Seed an initial superadmin if the users table is empty (idempotent).
+	// On a fresh database, TRITON_LICENSE_SERVER_ADMIN_PASSWORD must be set;
+	// once seeded, subsequent boots no-op even without the env var.
+	bootstrapEmail := envOr("TRITON_LICENSE_SERVER_ADMIN_EMAIL", "admin@localhost")
+	bootstrapPassword := envOr("TRITON_LICENSE_SERVER_ADMIN_PASSWORD", "")
+	created, err := licenseserver.SeedInitialSuperadmin(ctx, store, bootstrapEmail, bootstrapPassword)
+	if err != nil {
+		if bootstrapPassword == "" {
+			return fmt.Errorf("license server has no users and no bootstrap password set; set TRITON_LICENSE_SERVER_ADMIN_PASSWORD (and optionally TRITON_LICENSE_SERVER_ADMIN_EMAIL) to seed an initial superadmin: %w", err)
+		}
+		return fmt.Errorf("seeding initial superadmin: %w", err)
+	}
+	if created {
+		log.Printf("seeded initial superadmin: %s", bootstrapEmail)
+	}
+
 	cfg := &licenseserver.Config{
 		ListenAddr:  listen,
 		DBUrl:       dbURL,

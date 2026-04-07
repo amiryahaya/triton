@@ -109,6 +109,43 @@ The new tasks above are listed at outline level only. Each will be expanded to f
 
 ---
 
+## Deferred items from Phase 1 reviews (2026-04-08)
+
+Two architecture/API reviews were run after Phase 1 implementation closed (Tasks 1.1–1.6 + their fix sweeps). All Tier 1 (correctness/security) and Tier 2 (architectural cleanup) findings have been fixed in-phase. The following Tier 3 items have been **explicitly deferred** to specific later phases with rationale, so they don't get lost.
+
+### Tier 3 — deferred to target phase
+
+| ID | Source | What | Defer to | Rationale |
+|---|---|---|---|---|
+| **Arch-2.2** | Architecture review | Move `internal/license/jwt.go` and `UserClaims` into a new `internal/auth/` package. The `internal/license` package is becoming a grab-bag of license-token, JWT, machine fingerprint, HTTP client, and offline cache. Splitting will let the report server import only what it needs. | Phase 1.5 or 2.3 | No second consumer exists yet. Premature extraction risks designing for hypothetical use. Revisit when Phase 1.5c (report server auth handlers) actually imports JWT signing. |
+| **Arch-3.1 / 8.4** | Architecture review | Do **not** reuse `licensestore.User` for the report server. Create a separate `User` type in `pkg/store` with non-null `OrgID`, role in `(org_admin, org_user)`, and `must_change_password`. | Phase 1.5a (when adding the report server users table) | Schemas will diverge by design. Sharing the type would force a discriminator on every caller. |
+| **Arch-7.2** | Architecture review | Add structured `reason` codes to `/validate` failure responses (`revoked`, `expired`, `inactive`, `token_mismatch`, `not_found`) gated on service-to-service auth. Currently all failures return generic "validation failed". | Phase 2.2 | Requires the `LICENSE_TO_REPORT_SHARED_KEY` infrastructure that Phase 1.5/2.2 will introduce. Adding now would be untested. |
+| **A4** | API review | `handleRevokeLicense` decodes `reason` from request body but only writes it to audit, never persists in licenses row. Either persist in a `revoke_reason` column or remove from request body. | When a real consumer needs it | No client currently reads the revoke reason; the persistence work is speculative. |
+| **T3** | Test review | The race-condition test (`TestSeedInitialSuperadmin_ConcurrentCallsAreRaceSafe`) is timing-dependent: 20 goroutines released by a sync.WaitGroup barrier, but DB-level concurrency depends on machine speed. Could pass on a slow runner without actually hitting the race. | Low priority | The test does verify the invariant; the timing concern is structural. Mitigated by `make test-integration-race`. |
+| **T4** | Test review | Boundary test for `maxNameLen` (255/256 chars) not present for create or update. | Low priority | The `tooLong` helper is shared and tested implicitly by the existing length-rejection paths. |
+| **T5** | Test review | The hard-coded `LIMIT 1000` in `ListUsers` SQL is not exercised. A table with 1001+ users silently truncates. | Low priority | Population is expensive in integration tests; would need a store-level mock. Document the cap in handler godoc when it becomes a real concern. |
+| **T6** | Test review | `TestListSuperadmins` would break if `setupTestServer` ever started calling `SeedInitialSuperadmin`. | Tracking only | The fragility is a hypothetical; current code doesn't seed in test setup. |
+
+### Tier 1 + Tier 2 fixed in-phase (2026-04-08)
+
+All findings from the second-pass architecture and API/test reviews that warranted in-phase fixes are committed under fix(licenseserver) and fix(license)/fix(licensestore) commits. See git log for exact commit messages.
+
+| Sev | ID | Status | Commit |
+|---|---|---|---|
+| Med | A1 (audit event naming) | ✅ | Tier 1 batch |
+| Med | A2 (DELETE response shape) | ✅ | Tier 1 batch |
+| Low | A5 (nil-guard list handlers) | ✅ | Tier 1 batch |
+| Med | T1 (password leak coverage) | ✅ | Tier 1 batch |
+| Med | T2 (validation error message assertions) | ✅ | Tier 1 batch |
+| Low | Arch-1.2 (CHECK migration TODO marker) | ✅ | Tier 1 batch |
+| Low | Arch-6.2 (JWT typ check) | ✅ | Tier 1 batch |
+| Med | Arch-4.1 (UserUpdate DTO) | ✅ | Separate commit |
+| Med | Arch-5.1 (loadPlatformAdmin helpers) | ✅ | Separate commit |
+| Med | Arch-7.1 (cacheTTL on validate response) | ✅ | Separate commit |
+| Recommendation | Mock-store helper for M6/M7 tests | ✅ | Separate commit |
+
+---
+
 ## Phase 1: License Server -- Users & Auth
 
 ### Task 1.1: Database Migration -- users and sessions tables

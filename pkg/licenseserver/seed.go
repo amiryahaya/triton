@@ -2,6 +2,7 @@ package licenseserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -54,6 +55,14 @@ func SeedInitialSuperadmin(ctx context.Context, store licensestore.Store, email,
 		UpdatedAt: now,
 	}
 	if err := store.CreateUser(ctx, user); err != nil {
+		// Concurrent seed: another license server instance passed the same
+		// CountUsers==0 check and won the race to CreateUser. The UNIQUE
+		// constraint on email rejected us. This is a successful no-op from
+		// the caller's perspective — the table is now seeded, just not by us.
+		var conflict *licensestore.ErrConflict
+		if errors.As(err, &conflict) {
+			return false, nil
+		}
 		return false, fmt.Errorf("creating initial superadmin: %w", err)
 	}
 	return true, nil

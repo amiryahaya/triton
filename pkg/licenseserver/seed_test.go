@@ -4,6 +4,7 @@ package licenseserver_test
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,6 +84,55 @@ func TestSeedInitialSuperadmin_InvalidEmail(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, created)
 	assert.Contains(t, strings.ToLower(err.Error()), "email")
+}
+
+// TestSeedInitialSuperadmin_ConcurrentCallsAreRaceSafe forces multiple
+// goroutines to race on Seed and verifies that exactly one wins, the others
+// no-op cleanly without error, and only one user lands in the table. Without
+// the ErrConflict handler in Seed, the losing goroutines would surface a
+// unique-constraint violation as a fatal error (and a multi-replica deploy
+// against an empty DB would crash one instance at startup).
+func TestSeedInitialSuperadmin_ConcurrentCallsAreRaceSafe(t *testing.T) {
+	store := setupTestStore(t)
+
+	const concurrency = 20
+	var startBarrier sync.WaitGroup
+	startBarrier.Add(1)
+
+	var wg sync.WaitGroup
+	results := make([]struct {
+		created bool
+		err     error
+	}, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			startBarrier.Wait() // release all goroutines simultaneously
+			results[idx].created, results[idx].err = licenseserver.SeedInitialSuperadmin(
+				t.Context(), store, "race@example.com", "correct-horse-battery-staple",
+			)
+		}(i)
+	}
+	startBarrier.Done()
+	wg.Wait()
+
+	// Exactly one goroutine should report created=true; all others created=false.
+	// None should return an error.
+	createdCount := 0
+	for _, r := range results {
+		require.NoError(t, r.err)
+		if r.created {
+			createdCount++
+		}
+	}
+	assert.Equal(t, 1, createdCount, "exactly one goroutine should create the user")
+
+	// And the table should contain exactly one user.
+	users, err := store.ListUsers(t.Context(), licensestore.UserFilter{})
+	require.NoError(t, err)
+	assert.Len(t, users, 1)
 }
 
 func TestSeedInitialSuperadmin_HashesPassword(t *testing.T) {

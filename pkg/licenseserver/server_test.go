@@ -435,6 +435,33 @@ func TestValidate_ReturnsOrgInfo(t *testing.T) {
 	assert.Equal(t, "ActivOrg"+t.Name(), result["orgName"])
 }
 
+// TestListOrgsEmptyReturnsArray verifies that the orgs list endpoint returns
+// a JSON array (`[]`) and not `null` when the table is empty. JS clients
+// commonly assume `Array.isArray(response)` and crash on `null`.
+func TestListOrgsEmptyReturnsArray(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs", nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", strings.TrimSpace(string(body)), "empty list must serialize as [] not null")
+}
+
+// TestListLicensesEmptyReturnsArray — same as TestListOrgsEmptyReturnsArray
+// but for the licenses list endpoint.
+func TestListLicensesEmptyReturnsArray(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/licenses", nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", strings.TrimSpace(string(body)), "empty list must serialize as [] not null")
+}
+
 // --- Audit ---
 
 func TestAuditEntries(t *testing.T) {

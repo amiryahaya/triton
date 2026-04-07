@@ -67,6 +67,9 @@ func (s *Server) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	if orgs == nil {
+		orgs = []licensestore.Organization{} // never return null
+	}
 	writeJSON(w, http.StatusOK, orgs)
 }
 

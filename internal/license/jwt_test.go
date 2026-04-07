@@ -90,6 +90,26 @@ func TestSignJWTDoesNotMutateCallerClaims(t *testing.T) {
 	assert.Equal(t, int64(0), claims.Exp, "Exp must not be mutated on caller's struct")
 }
 
+// TestJWTRejectsUnknownTyp verifies that VerifyJWT rejects tokens whose
+// header has a typ field that is not "JWT" (defense against alg/typ confusion).
+func TestJWTRejectsUnknownTyp(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	// Forge a header with typ=JWS (not JWT) and re-sign manually.
+	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWS"})
+	b64Header := base64.RawURLEncoding.EncodeToString(header)
+	claims := UserClaims{Sub: "u1", Role: "platform_admin", Exp: time.Now().Add(1 * time.Hour).Unix()}
+	payload, _ := json.Marshal(&claims)
+	b64Payload := base64.RawURLEncoding.EncodeToString(payload)
+	signingInput := b64Header + "." + b64Payload
+	sig := ed25519.Sign(priv, []byte(signingInput))
+	b64Sig := base64.RawURLEncoding.EncodeToString(sig)
+	token := signingInput + "." + b64Sig
+
+	_, err := VerifyJWT(token, pub)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "typ")
+}
+
 // TestJWTStandardFormat verifies the emitted token has three dot-separated
 // parts (header.payload.signature) matching the standard JWT format, so it
 // can be parsed by off-the-shelf JWT libraries and debugging tools.

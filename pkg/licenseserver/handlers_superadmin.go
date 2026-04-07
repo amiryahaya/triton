@@ -244,5 +244,5 @@ func (s *Server) handleDeleteSuperadmin(w http.ResponseWriter, r *http.Request) 
 	s.audit(r, "superadmin_delete", "", "", "", map[string]any{
 		"user_id": id,
 	})
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

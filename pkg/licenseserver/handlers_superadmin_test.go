@@ -5,6 +5,7 @@ package licenseserver_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -135,7 +136,9 @@ func TestDeleteSuperadmin(t *testing.T) {
 
 	delResp := adminReq(t, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer delResp.Body.Close()
-	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+	assert.Equal(t, http.StatusOK, delResp.StatusCode)
+	delBody := decodeJSON(t, delResp)
+	assert.Equal(t, "deleted", delBody["status"])
 
 	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer getResp.Body.Close()
@@ -168,6 +171,18 @@ func TestDeleteLastSuperadminRefused(t *testing.T) {
 
 // --- Validation edge cases ---
 
+// errorBody decodes a 4xx response and returns the "error" string from
+// the standard {"error": "..."} envelope. Used to assert WHY a validation
+// failed rather than just THAT it failed (preventing tests from passing
+// for the wrong reason — e.g., a body parse error returning 400 with a
+// message about JSON, rather than the field-specific message we expected).
+func errorBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	body := decodeJSON(t, resp)
+	msg, _ := body["error"].(string)
+	return msg
+}
+
 func TestCreateSuperadminMissingEmail(t *testing.T) {
 	ts, _ := setupTestServer(t)
 	resp := createSuperadmin(t, ts.URL, map[string]any{
@@ -175,7 +190,8 @@ func TestCreateSuperadminMissingEmail(t *testing.T) {
 		"password": "correct-horse-battery-staple",
 	})
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, strings.ToLower(errorBody(t, resp)), "email")
 }
 
 func TestCreateSuperadminMissingPassword(t *testing.T) {
@@ -185,7 +201,8 @@ func TestCreateSuperadminMissingPassword(t *testing.T) {
 		"name":  "No Password",
 	})
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, strings.ToLower(errorBody(t, resp)), "password")
 }
 
 func TestCreateSuperadminWeakPassword(t *testing.T) {
@@ -196,7 +213,8 @@ func TestCreateSuperadminWeakPassword(t *testing.T) {
 		"password": "short",
 	})
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, strings.ToLower(errorBody(t, resp)), "password")
 }
 
 func TestCreateSuperadminInvalidEmail(t *testing.T) {
@@ -207,7 +225,8 @@ func TestCreateSuperadminInvalidEmail(t *testing.T) {
 		"password": "correct-horse-battery-staple",
 	})
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, strings.ToLower(errorBody(t, resp)), "email")
 }
 
 func TestCreateSuperadminDuplicateEmail(t *testing.T) {
@@ -283,9 +302,31 @@ func TestPasswordNeverInResponse(t *testing.T) {
 	_, hasPwdCreate := created["password"]
 	assert.False(t, hasPwdCreate, "password must not appear in create response")
 
+	// GET single
 	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer getResp.Body.Close()
 	got := decodeJSON(t, getResp)
 	_, hasPwdGet := got["password"]
 	assert.False(t, hasPwdGet, "password must not appear in get response")
+
+	// LIST — must not leak password on any element
+	listResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins", nil)
+	defer listResp.Body.Close()
+	var listBody []map[string]any
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listBody))
+	require.NotEmpty(t, listBody)
+	for _, item := range listBody {
+		_, hasPwdList := item["password"]
+		assert.False(t, hasPwdList, "password must not appear in list response items")
+	}
+
+	// UPDATE — response is the updated user, must not leak password
+	updateResp := adminReq(t, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
+		"name": "Renamed",
+	})
+	defer updateResp.Body.Close()
+	require.Equal(t, http.StatusOK, updateResp.StatusCode)
+	updated := decodeJSON(t, updateResp)
+	_, hasPwdUpdate := updated["password"]
+	assert.False(t, hasPwdUpdate, "password must not appear in update response")
 }

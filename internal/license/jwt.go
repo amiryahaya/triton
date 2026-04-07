@@ -77,6 +77,10 @@ func VerifyJWT(token string, pubKey ed25519.PublicKey) (*UserClaims, error) {
 	if header.Alg != "EdDSA" {
 		return nil, fmt.Errorf("unexpected alg %q, want EdDSA", header.Alg)
 	}
+	// typ is optional per RFC 7519, but if present must be "JWT".
+	if header.Typ != "" && header.Typ != "JWT" {
+		return nil, fmt.Errorf("unexpected typ %q, want JWT", header.Typ)
+	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {

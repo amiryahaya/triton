@@ -88,6 +88,18 @@ var migrations = []string{
 	ALTER TABLE activations ADD CONSTRAINT activations_license_id_fkey FOREIGN KEY (license_id) REFERENCES licenses(id) ON DELETE RESTRICT;`,
 
 	// Version 4: Users and sessions for multi-tenant auth.
+	//
+	// TODO(phase-1-followup): Tighten the role CHECK constraint to
+	// `CHECK (role = 'platform_admin' AND org_id IS NULL)` once the
+	// 2026-04-07 split-identity amendment is fully realized. Until then,
+	// the application layer enforces the invariant via:
+	//   - handler-level role checks in handleLogin / handleRefresh
+	//   - getSuperadminByID defensive role check (handlers_superadmin.go)
+	//   - UpdateUser store method ignoring the Role field
+	// Removing the defensive checks is safe only after this constraint
+	// is tightened. Tracked under the plan's "Status of existing tasks"
+	// section in docs/plans/2026-03-07-multi-tenant-implementation.md
+	// (Task 1.1 amendment).
 	`CREATE TABLE IF NOT EXISTS users (
 		id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		org_id     UUID REFERENCES organizations(id) ON DELETE CASCADE,

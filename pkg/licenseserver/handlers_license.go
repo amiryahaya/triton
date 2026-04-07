@@ -125,6 +125,9 @@ func (s *Server) handleListLicenses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	if lics == nil {
+		lics = []licensestore.LicenseRecord{} // never return null
+	}
 	writeJSON(w, http.StatusOK, lics)
 }
 
@@ -185,6 +188,6 @@ func (s *Server) handleRevokeLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "revoke", id, "", "", map[string]any{"reason": req.Reason})
+	s.audit(r, "license_revoke", id, "", "", map[string]any{"reason": req.Reason})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }

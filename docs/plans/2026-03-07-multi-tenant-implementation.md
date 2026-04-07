@@ -744,65 +744,401 @@ Sessions stored as SHA-256 hashes. bcrypt password verification."
 
 ---
 
-### Task 1.4: User CRUD Handlers
+### Task 1.4: Superadmin CRUD Handlers
+
+**Amended 2026-04-07:** Originally specified user CRUD for all three roles (`platform_admin`, `org_admin`, `org_user`). Under the split-identity model, the license server only holds **superadmins** (`platform_admin`). Org users live in the report server (Task 1.5d). This task is now scoped to superadmin CRUD only — single role, no `?org=` filter, simpler validation.
+
+**Goal:** Expose admin-gated REST endpoints for managing the license server's superadmin population. Only platform_admin role is supported. The store layer (`CreateUser`, `GetUser`, `ListUsers`, `UpdateUser`, `DeleteUser`) was built in Task 1.1 and is reused as-is.
 
 **Files:**
-- Create: `pkg/licenseserver/handlers_user.go`
-- Create: `pkg/licenseserver/handlers_user_test.go`
-- Modify: `pkg/licenseserver/server.go` (register admin routes)
+- Create: `pkg/licenseserver/handlers_superadmin.go`
+- Create: `pkg/licenseserver/handlers_superadmin_test.go`
+- Modify: `pkg/licenseserver/server.go` (register `/admin/superadmins` route group)
+
+**API surface (all behind `X-Triton-Admin-Key`):**
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/admin/superadmins` | Create a new superadmin (email + name + password) |
+| GET | `/api/v1/admin/superadmins` | List all superadmins (no filter — superadmin pool is small) |
+| GET | `/api/v1/admin/superadmins/{id}` | Fetch one by UUID |
+| PUT | `/api/v1/admin/superadmins/{id}` | Update name and/or password |
+| DELETE | `/api/v1/admin/superadmins/{id}` | Delete (sessions cascade via FK) |
+
+**Validation rules:**
+- Email: required, must contain `@`, max 255 chars, lowercased before storage
+- Name: required, max 255 chars
+- Password: required on create, optional on update (omit to keep current); minimum 12 characters when supplied; bcrypt hashed before storage with `bcrypt.DefaultCost`
+- Role: forced to `platform_admin` server-side — never accepted from request body. Even if the client sends `role: "org_user"`, it is ignored.
+- OrgID: forced to empty string server-side. Superadmins are not org-scoped.
+- Duplicate email returns HTTP 409 (store layer returns `ErrConflict`, which the handler maps).
+
+**Response shape:**
+- Successful create/get returns the `User` struct (password field excluded via `json:"-"`).
+- List returns a JSON array (empty array `[]`, never null).
+- Delete returns HTTP 204 No Content.
+- Errors follow the existing `{error: "..."}` envelope from `writeError`.
+
+**Audit trail:**
+Each mutating handler (create, update, delete) calls `s.audit(r, "<event>", actorID, targetID, targetType, details)` to write to the audit log. Event names:
+- `superadmin_create`
+- `superadmin_update`
+- `superadmin_delete`
+
+(The actor is currently the admin key's identity — represented as `"admin-key"` until JWT-based actor tracking lands in a later task.)
+
+---
 
 **Step 1: Write failing tests**
 
-Test user CRUD via admin API (`X-Triton-Admin-Key`):
-- `TestCreateUser` -- create org_admin for an org
-- `TestCreateUserPlatformAdmin` -- create platform_admin (no org)
-- `TestListUsersFilterByOrg` -- list users scoped to org
-- `TestGetUser` -- fetch user by ID
-- `TestUpdateUser` -- change name/role
-- `TestDeleteUser` -- remove user
-- `TestCreateUserInvalidRole` -- 400 on bad role string
-- `TestCreateUserMissingEmail` -- 400 on empty email
-
-**Step 2: Run tests to verify they fail**
-
-Run: `go test -v -run "TestCreateUser|TestListUsers|TestGetUser|TestUpdateUser|TestDeleteUser" ./pkg/licenseserver/...`
-Expected: FAIL
-
-**Step 3: Implement handlers_user.go**
-
-Key details:
-- All user routes under admin API (require `X-Triton-Admin-Key`)
-- `handleCreateUser`: validate email/name/role/password, bcrypt hash password, call `store.CreateUser()`
-- `handleListUsers`: filter by `?org=` query param
-- `handleGetUser`: return user by ID (password field excluded via `json:"-"`)
-- `handleUpdateUser`: update name, role, optionally password (re-hash)
-- `handleDeleteUser`: delete user, cascading sessions
-
-**Step 4: Register routes in server.go**
-
-Add to admin group (~line 100):
+Create `pkg/licenseserver/handlers_superadmin_test.go` with the following 14 tests. Use the existing test setup from `server_test.go` (`newTestServer`, `adminReq` helpers — adapt or extend if needed). Tests use `httptest.NewRecorder` and call `srv.Router().ServeHTTP(...)` directly.
 
 ```go
-r.Route("/users", func(r chi.Router) {
-	r.Post("/", srv.handleCreateUser)
-	r.Get("/", srv.handleListUsers)
-	r.Get("/{id}", srv.handleGetUser)
-	r.Put("/{id}", srv.handleUpdateUser)
-	r.Delete("/{id}", srv.handleDeleteUser)
+// Smoke / happy paths
+TestCreateSuperadmin            // POST → 201, returns user with empty password field
+TestListSuperadmins             // POST 3, GET → 200, len=3
+TestGetSuperadmin               // POST then GET by ID → 200
+TestUpdateSuperadminName        // PUT with name only → 200, password unchanged
+TestUpdateSuperadminPassword    // PUT with new password → can log in with new pwd, not old
+TestDeleteSuperadmin            // POST then DELETE → 204, GET → 404
+
+// Validation edge cases
+TestCreateSuperadminMissingEmail        // POST {name,password} → 400
+TestCreateSuperadminMissingPassword     // POST {email,name} → 400
+TestCreateSuperadminWeakPassword        // POST with 8-char password → 400
+TestCreateSuperadminInvalidEmail        // POST with "notanemail" → 400
+TestCreateSuperadminDuplicateEmail      // POST same email twice → 409
+TestCreateSuperadminIgnoresRole         // POST with role="org_user" → 201, persisted role is platform_admin
+TestGetSuperadminNotFound               // GET random UUID → 404
+
+// Auth
+TestSuperadminRoutesRequireAdminKey     // POST without X-Triton-Admin-Key → 401
+
+// Security
+TestPasswordNeverInResponse             // POST then GET → response JSON has no "password" field
+```
+
+**Test helpers needed (add to `server_test.go` if not present):**
+
+```go
+// adminReq builds a request with the admin key header set.
+func adminReq(t *testing.T, method, path string, body any) *http.Request {
+    t.Helper()
+    var bodyReader io.Reader
+    if body != nil {
+        b, err := json.Marshal(body)
+        if err != nil {
+            t.Fatalf("marshal: %v", err)
+        }
+        bodyReader = bytes.NewReader(b)
+    }
+    req := httptest.NewRequest(method, path, bodyReader)
+    req.Header.Set("X-Triton-Admin-Key", testAdminKey)
+    if body != nil {
+        req.Header.Set("Content-Type", "application/json")
+    }
+    return req
+}
+```
+
+**Step 2: Run tests, verify they fail (RED)**
+
+```bash
+go test -v -run "TestCreateSuperadmin|TestListSuperadmins|TestGetSuperadmin|TestUpdateSuperadmin|TestDeleteSuperadmin|TestSuperadminRoutes|TestPasswordNeverInResponse" ./pkg/licenseserver/...
+```
+
+Expected: all 14 tests FAIL (handlers don't exist yet).
+
+**Step 3: Implement `handlers_superadmin.go` (GREEN)**
+
+Skeleton (match the existing style of `handlers_org.go`):
+
+```go
+package licenseserver
+
+import (
+    "encoding/json"
+    "errors"
+    "log"
+    "net/http"
+    "strings"
+    "time"
+
+    "github.com/go-chi/chi/v5"
+    "github.com/google/uuid"
+    "golang.org/x/crypto/bcrypt"
+
+    "github.com/amiryahaya/triton/pkg/licensestore"
+)
+
+const (
+    minPasswordLen = 12
+    maxEmailLen    = 255
+)
+
+type createSuperadminRequest struct {
+    Email    string `json:"email"`
+    Name     string `json:"name"`
+    Password string `json:"password"`
+}
+
+type updateSuperadminRequest struct {
+    Name     string `json:"name"`
+    Password string `json:"password,omitempty"` // omit to keep current
+}
+
+// POST /api/v1/admin/superadmins
+func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) {
+    r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+    var req createSuperadminRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeError(w, http.StatusBadRequest, "invalid request body")
+        return
+    }
+
+    email := strings.ToLower(strings.TrimSpace(req.Email))
+    if email == "" || !strings.Contains(email, "@") {
+        writeError(w, http.StatusBadRequest, "valid email is required")
+        return
+    }
+    if tooLong(email, maxEmailLen) {
+        writeError(w, http.StatusBadRequest, "email exceeds maximum length")
+        return
+    }
+    if req.Name == "" {
+        writeError(w, http.StatusBadRequest, "name is required")
+        return
+    }
+    if tooLong(req.Name, maxNameLen) {
+        writeError(w, http.StatusBadRequest, "name exceeds maximum length")
+        return
+    }
+    if len(req.Password) < minPasswordLen {
+        writeError(w, http.StatusBadRequest, "password must be at least 12 characters")
+        return
+    }
+
+    hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+    if err != nil {
+        log.Printf("bcrypt error: %v", err)
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+
+    now := time.Now().UTC()
+    user := &licensestore.User{
+        ID:        uuid.Must(uuid.NewV7()).String(),
+        Email:     email,
+        Name:      req.Name,
+        Role:      "platform_admin", // forced — request body role ignored
+        Password:  string(hashed),
+        CreatedAt: now,
+        UpdatedAt: now,
+    }
+
+    if err := s.store.CreateUser(r.Context(), user); err != nil {
+        var conflict *licensestore.ErrConflict
+        if errors.As(err, &conflict) {
+            writeError(w, http.StatusConflict, conflict.Message)
+            return
+        }
+        log.Printf("create superadmin error: %v", err)
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+
+    s.audit(r, "superadmin_create", "", user.ID, "user", nil)
+    writeJSON(w, http.StatusCreated, user)
+}
+
+// GET /api/v1/admin/superadmins
+func (s *Server) handleListSuperadmins(w http.ResponseWriter, r *http.Request) {
+    users, err := s.store.ListUsers(r.Context(), licensestore.UserFilter{Role: "platform_admin"})
+    if err != nil {
+        log.Printf("list superadmins error: %v", err)
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+    if users == nil {
+        users = []licensestore.User{} // never return null
+    }
+    writeJSON(w, http.StatusOK, users)
+}
+
+// GET /api/v1/admin/superadmins/{id}
+func (s *Server) handleGetSuperadmin(w http.ResponseWriter, r *http.Request) {
+    id := chi.URLParam(r, "id")
+    user, err := s.store.GetUser(r.Context(), id)
+    if err != nil {
+        var nf *licensestore.ErrNotFound
+        if errors.As(err, &nf) {
+            writeError(w, http.StatusNotFound, "superadmin not found")
+            return
+        }
+        log.Printf("get superadmin error: %v", err)
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+    if user.Role != "platform_admin" {
+        // Defensive: this endpoint only exposes superadmins. If somehow the
+        // table contains a non-platform_admin row, hide it.
+        writeError(w, http.StatusNotFound, "superadmin not found")
+        return
+    }
+    writeJSON(w, http.StatusOK, user)
+}
+
+// PUT /api/v1/admin/superadmins/{id}
+func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) {
+    id := chi.URLParam(r, "id")
+    r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+    var req updateSuperadminRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeError(w, http.StatusBadRequest, "invalid request body")
+        return
+    }
+
+    existing, err := s.store.GetUser(r.Context(), id)
+    if err != nil {
+        var nf *licensestore.ErrNotFound
+        if errors.As(err, &nf) {
+            writeError(w, http.StatusNotFound, "superadmin not found")
+            return
+        }
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+    if existing.Role != "platform_admin" {
+        writeError(w, http.StatusNotFound, "superadmin not found")
+        return
+    }
+
+    if req.Name != "" {
+        if tooLong(req.Name, maxNameLen) {
+            writeError(w, http.StatusBadRequest, "name exceeds maximum length")
+            return
+        }
+        existing.Name = req.Name
+    }
+    if req.Password != "" {
+        if len(req.Password) < minPasswordLen {
+            writeError(w, http.StatusBadRequest, "password must be at least 12 characters")
+            return
+        }
+        hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+        if err != nil {
+            writeError(w, http.StatusInternalServerError, "internal server error")
+            return
+        }
+        existing.Password = string(hashed)
+    }
+    // Role is never updated.
+
+    if err := s.store.UpdateUser(r.Context(), existing); err != nil {
+        log.Printf("update superadmin error: %v", err)
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+
+    s.audit(r, "superadmin_update", "", id, "user", nil)
+    writeJSON(w, http.StatusOK, existing)
+}
+
+// DELETE /api/v1/admin/superadmins/{id}
+func (s *Server) handleDeleteSuperadmin(w http.ResponseWriter, r *http.Request) {
+    id := chi.URLParam(r, "id")
+
+    // Verify the target is a superadmin before deleting (defensive against
+    // accidental deletion of org users that may exist in the table during
+    // the migration window).
+    existing, err := s.store.GetUser(r.Context(), id)
+    if err != nil {
+        var nf *licensestore.ErrNotFound
+        if errors.As(err, &nf) {
+            writeError(w, http.StatusNotFound, "superadmin not found")
+            return
+        }
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+    if existing.Role != "platform_admin" {
+        writeError(w, http.StatusNotFound, "superadmin not found")
+        return
+    }
+
+    if err := s.store.DeleteUser(r.Context(), id); err != nil {
+        log.Printf("delete superadmin error: %v", err)
+        writeError(w, http.StatusInternalServerError, "internal server error")
+        return
+    }
+
+    s.audit(r, "superadmin_delete", "", id, "user", nil)
+    w.WriteHeader(http.StatusNoContent)
+}
+```
+
+**Step 4: Register routes in `server.go`**
+
+Add inside the existing `r.Route("/api/v1/admin", ...)` block (around line 110, after the Audit/Stats routes):
+
+```go
+// Superadmins (platform admins for the license server itself)
+r.Route("/superadmins", func(r chi.Router) {
+    r.Post("/", srv.handleCreateSuperadmin)
+    r.Get("/", srv.handleListSuperadmins)
+    r.Get("/{id}", srv.handleGetSuperadmin)
+    r.Put("/{id}", srv.handleUpdateSuperadmin)
+    r.Delete("/{id}", srv.handleDeleteSuperadmin)
 })
 ```
 
-**Step 5: Run tests, verify pass**
-
-**Step 6: Commit**
+**Step 5: Run tests, verify pass (GREEN)**
 
 ```bash
-git add pkg/licenseserver/handlers_user.go pkg/licenseserver/handlers_user_test.go pkg/licenseserver/server.go
-git commit -m "feat(licenseserver): add user CRUD endpoints under admin API
-
-Admin can create/list/get/update/delete users. Passwords bcrypt-hashed.
-Roles: platform_admin (no org), org_admin, org_user."
+go test -v -run "TestCreateSuperadmin|TestListSuperadmins|TestGetSuperadmin|TestUpdateSuperadmin|TestDeleteSuperadmin|TestSuperadminRoutes|TestPasswordNeverInResponse" ./pkg/licenseserver/...
 ```
+
+Expected: all 14 tests PASS.
+
+**Step 6: Refactor**
+
+Look for:
+- Repeated `existing.Role != "platform_admin"` check across get/update/delete → consider extracting `s.getSuperadminByID(ctx, id)` helper that returns `(*User, error)` and folds the role check.
+- Validation of email/name/password is duplicated between create and update (partially) → consider a `validateSuperadminFields(email, name, password string, isCreate bool) error` helper.
+- The `users == nil` guard in `handleListSuperadmins` is a pattern that should also exist in any other list handler — leave alone for now if other handlers don't do it; raise it as a separate cleanup.
+
+Run tests again after each refactor. Refactor only if it improves clarity — don't speculate.
+
+**Step 7: Run full unit suite to confirm nothing broke**
+
+```bash
+go test ./pkg/licenseserver/...
+```
+
+**Step 8: Commit**
+
+```bash
+git add pkg/licenseserver/handlers_superadmin.go \
+        pkg/licenseserver/handlers_superadmin_test.go \
+        pkg/licenseserver/server.go
+git commit -m "feat(licenseserver): add superadmin CRUD endpoints under admin API
+
+Adds /api/v1/admin/superadmins (POST/GET/GET-id/PUT/DELETE) for managing
+platform admins of the license server. Single role enforced server-side
+(platform_admin); request-body role is ignored. Min 12-char passwords,
+bcrypt hashed. Reuses existing User store methods from Task 1.1.
+
+Superadmins are the only user population in the license server under
+the 2026-04-07 split-identity amendment. Org users live in the report
+server (Task 1.5d).
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+```
+
+**Out of scope for this task (deferred):**
+- Login flow for superadmins (Task 1.3 already provides `/api/v1/auth/login`; that handler must be updated to enforce `role = 'platform_admin'` if it doesn't already, but that's a Task 1.3 amendment, not a 1.4 deliverable).
+- The DB CHECK constraint tightening (`role = 'platform_admin' AND org_id IS NULL`) is a Task 1.1 follow-up migration, not part of 1.4. The handler enforces it at the application layer for now.
+- Audit actor identity beyond `"admin-key"` placeholder — improved when JWT-based actor tracking lands.
 
 ---
 

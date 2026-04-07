@@ -60,7 +60,7 @@ func run() error {
 
 	discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	verifier, err := auth.NewVerifier(discoveryCtx, auth.OIDCConfig{
+	verifier, err := auth.NewHybridVerifier(discoveryCtx, auth.OIDCConfig{
 		IssuerURL: keycloakIssuer,
 		ClientID:  keycloakClientID,
 	})

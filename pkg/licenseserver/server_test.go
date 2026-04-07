@@ -409,6 +409,32 @@ func TestValidate_MissingToken(t *testing.T) {
 	assert.Equal(t, "validation failed", result["reason"])
 }
 
+// TestValidate_IncludesCacheTTL verifies the validate response includes
+// a cacheTTL field (in seconds) that the report server's validation cache
+// will honor as the maximum cache age. Centralizes the trust window in
+// the license server rather than scattering it across clients.
+func TestValidate_IncludesCacheTTL(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	_, licID := createOrgAndLicense(t, ts.URL)
+
+	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
+		"licenseID": licID, "machineID": "m1",
+	})
+	defer actResp.Body.Close()
+	actResult := decodeJSON(t, actResp)
+	token := actResult["token"].(string)
+
+	resp := clientReq(t, "POST", ts.URL+"/api/v1/license/validate", map[string]string{
+		"licenseID": licID, "machineID": "m1", "token": token,
+	})
+	defer resp.Body.Close()
+	result := decodeJSON(t, resp)
+	require.Equal(t, true, result["valid"])
+	cacheTTL, ok := result["cacheTTL"].(float64) // JSON numbers decode to float64
+	require.True(t, ok, "cacheTTL must be present and numeric")
+	assert.Greater(t, cacheTTL, float64(0), "cacheTTL must be positive")
+}
+
 // TestValidate_ReturnsOrgInfo verifies the validate response includes the
 // orgID and orgName fields that the report server's validation cache will
 // consume (Phase 2.1). Added under Task 1.6 amendment.
@@ -1224,6 +1250,71 @@ func TestLoginRejectsNonPlatformAdmin(t *testing.T) {
 
 	// Even with the right password, login must be rejected.
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// TestLogoutSurfacesDeleteSessionError verifies that handleLogout returns
+// HTTP 500 (rather than silently 200) when the underlying DeleteSession
+// call fails. Without this guarantee, a "successful" logout could leave
+// the session row alive and the token still usable.
+func TestLogoutSurfacesDeleteSessionError(t *testing.T) {
+	_, realStore := setupTestServer(t)
+	wrap := newFailingStore(realStore)
+	failTs := setupTestServerWithStore(t, wrap)
+
+	// Create user directly via store, then login normally so a session row
+	// exists in the DB.
+	email := fmt.Sprintf("logoutfail-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, _ = createTestUser(t, failTs, realStore, email, "correct-horse-battery", "platform_admin")
+
+	body, _ := json.Marshal(map[string]string{"email": email, "password": "correct-horse-battery"})
+	resp, err := http.Post(failTs.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var loginResp map[string]any
+	json.NewDecoder(resp.Body).Decode(&loginResp)
+	token := loginResp["token"].(string)
+
+	// Now flip the toggle so DeleteSession fails on the next call.
+	wrap.deleteSessionFails.Store(true)
+
+	// Logout should surface the failure as 500, not silently succeed.
+	req, _ := http.NewRequest("POST", failTs.URL+"/api/v1/auth/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	logoutResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer logoutResp.Body.Close()
+	assert.Equal(t, http.StatusInternalServerError, logoutResp.StatusCode)
+}
+
+// TestRefreshSurfacesDeleteSessionError verifies that handleRefresh returns
+// HTTP 500 if the old session deletion fails — preventing a "successful"
+// refresh from leaving both the old and new tokens valid simultaneously.
+func TestRefreshSurfacesDeleteSessionError(t *testing.T) {
+	_, realStore := setupTestServer(t)
+	wrap := newFailingStore(realStore)
+	failTs := setupTestServerWithStore(t, wrap)
+
+	email := fmt.Sprintf("refreshfail-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, _ = createTestUser(t, failTs, realStore, email, "correct-horse-battery", "platform_admin")
+
+	body, _ := json.Marshal(map[string]string{"email": email, "password": "correct-horse-battery"})
+	resp, err := http.Post(failTs.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var loginResp map[string]any
+	json.NewDecoder(resp.Body).Decode(&loginResp)
+	token := loginResp["token"].(string)
+
+	wrap.deleteSessionFails.Store(true)
+
+	req, _ := http.NewRequest("POST", failTs.URL+"/api/v1/auth/refresh", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	refreshResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer refreshResp.Body.Close()
+	assert.Equal(t, http.StatusInternalServerError, refreshResp.StatusCode)
 }
 
 // TestRefreshRejectsDemotedUser verifies that refresh re-checks the user's

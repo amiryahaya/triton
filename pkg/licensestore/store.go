@@ -144,7 +144,7 @@ type User struct {
 type Session struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"userID"`
-	TokenHash string    `json:"-"`    // SHA-256 of session token, never serialized
+	TokenHash string    `json:"-"` // SHA-256 of session token, never serialized
 	ExpiresAt time.Time `json:"expiresAt"`
 	CreatedAt time.Time `json:"createdAt"`
 }

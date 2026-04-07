@@ -809,10 +809,15 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 	return users, rows.Err()
 }
 
+// UpdateUser updates the mutable fields of a user (name, password).
+// Role is intentionally NOT written here: the license server enforces
+// split-identity (superadmins only), and there is no legitimate use case
+// for mutating role via the CRUD path. The role field on the passed-in
+// User struct is ignored; to change a user's role, delete and recreate.
 func (s *PostgresStore) UpdateUser(ctx context.Context, user *User) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE users SET name = $2, role = $3, password = $4, updated_at = $5 WHERE id = $1`,
-		user.ID, user.Name, user.Role, user.Password, time.Now(),
+		`UPDATE users SET name = $2, password = $3, updated_at = $4 WHERE id = $1`,
+		user.ID, user.Name, user.Password, time.Now(),
 	)
 	if err != nil {
 		return fmt.Errorf("updating user: %w", err)
@@ -856,8 +861,12 @@ func (s *PostgresStore) CreateSession(ctx context.Context, session *Session) err
 
 func (s *PostgresStore) GetSessionByHash(ctx context.Context, tokenHash string) (*Session, error) {
 	var sess Session
+	// Filter expired rows here so callers can rely on a successful fetch
+	// meaning "the session is still valid right now". DeleteExpiredSessions
+	// is a separate cleanup pass for old rows.
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, token_hash, expires_at, created_at FROM sessions WHERE token_hash = $1`,
+		`SELECT id, user_id, token_hash, expires_at, created_at
+		 FROM sessions WHERE token_hash = $1 AND expires_at > now()`,
 		tokenHash,
 	).Scan(&sess.ID, &sess.UserID, &sess.TokenHash, &sess.ExpiresAt, &sess.CreatedAt)
 	if err != nil {

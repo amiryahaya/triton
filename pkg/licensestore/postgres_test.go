@@ -629,23 +629,29 @@ func TestListUsersFilterByOrg(t *testing.T) {
 	assert.Len(t, users, 2)
 }
 
+// TestUpdateUser verifies name and password can be updated, but role is
+// immutable via UpdateUser. Role changes require explicit handling outside
+// the CRUD path (there is no legitimate use case for role mutation in the
+// split-identity model — see the 2026-04-07 amendment).
 func TestUpdateUser(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	org := makeOrg(t)
 	require.NoError(t, s.CreateOrg(ctx, org))
 
-	user := makeUser(t, org.ID)
+	user := makeUser(t, org.ID) // makeUser creates with role "org_user"
+	originalRole := user.Role
 	require.NoError(t, s.CreateUser(ctx, user))
 
+	// Attempt to change role alongside a legitimate name update.
 	user.Name = "Updated Name"
-	user.Role = "org_admin"
+	user.Role = "platform_admin" // this should be silently ignored
 	require.NoError(t, s.UpdateUser(ctx, user))
 
 	got, err := s.GetUser(ctx, user.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", got.Name)
-	assert.Equal(t, "org_admin", got.Role)
+	assert.Equal(t, originalRole, got.Role, "role must not be modified by UpdateUser")
 }
 
 func TestDeleteUser(t *testing.T) {
@@ -702,6 +708,31 @@ func TestCreateAndGetSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, user.ID, got.UserID)
 	assert.Equal(t, sess.ID, got.ID)
+}
+
+// TestGetSessionByHash_ExpiredNotReturned verifies that expired sessions are
+// filtered out by GetSessionByHash itself, so callers can rely on a successful
+// fetch meaning "still valid". Without this filter, expired rows that haven't
+// been cleaned up by DeleteExpiredSessions would be returned as live sessions.
+func TestGetSessionByHash_ExpiredNotReturned(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	user := makeUser(t, org.ID)
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	expired := &licensestore.Session{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		UserID:    user.ID,
+		TokenHash: "expired-fetch-" + uuid.Must(uuid.NewV7()).String(),
+		ExpiresAt: time.Now().Add(-1 * time.Hour),
+	}
+	require.NoError(t, s.CreateSession(ctx, expired))
+
+	_, err := s.GetSessionByHash(ctx, expired.TokenHash)
+	var nf *licensestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf, "expired session should be hidden from GetSessionByHash")
 }
 
 func TestDeleteExpiredSessions(t *testing.T) {

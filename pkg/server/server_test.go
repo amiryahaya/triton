@@ -146,6 +146,31 @@ func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
 	return srv, db
 }
 
+// createTestUserInOrg adds a user to an EXISTING org. Use when a test
+// needs multiple users in the same org (e.g., peer-admin scenarios).
+// For a fresh-org-plus-user, use createOrgUser instead.
+func createTestUserInOrg(t *testing.T, db *store.PostgresStore, orgID, role, password string, mcp bool) (*store.Organization, *store.User) {
+	t.Helper()
+	ctx := context.Background()
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	user := &store.User{
+		ID:                 uuid.Must(uuid.NewV7()).String(),
+		OrgID:              orgID,
+		Email:              uuid.Must(uuid.NewV7()).String() + "@auth.test",
+		Name:               "Auth Test User",
+		Role:               role,
+		Password:           string(hashed),
+		MustChangePassword: mcp,
+		CreatedAt:          time.Now().UTC(),
+		UpdatedAt:          time.Now().UTC(),
+	}
+	require.NoError(t, db.CreateUser(ctx, user))
+	org, err := db.GetOrg(ctx, orgID)
+	require.NoError(t, err)
+	return org, user
+}
+
 // createOrgUser inserts a user directly into the store for auth tests.
 // Bypasses the provisioning endpoint to keep auth tests independent.
 func createOrgUser(t *testing.T, db *store.PostgresStore, role, password string, mcp bool) (*store.Organization, *store.User) {

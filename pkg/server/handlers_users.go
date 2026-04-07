@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -45,18 +46,19 @@ func validUserEmail(email string) error {
 }
 
 // loadOrgScopedUser fetches a user by ID and asserts they belong to the
-// requesting admin's org. Used by GET/PUT/DELETE handlers to enforce
-// tenant isolation. Returns (user, 0) on success, (nil, status) on failure.
+// given org. Used by GET/PUT/DELETE handlers to enforce tenant isolation.
+// Returns (user, 0) on success, (nil, status) on failure.
 //
-// Tenant isolation: an org_admin in org A who tries to act on a user in
-// org B gets the same 404 they'd get for a missing user — never leak
-// the existence of out-of-scope users.
-func (s *Server) loadOrgScopedUser(r *http.Request, id string) (target *store.User, errStatus int) {
-	requester := UserFromContext(r.Context())
-	if requester == nil {
-		return nil, http.StatusUnauthorized
-	}
-	target, err := s.store.GetUser(r.Context(), id)
+// Tenant isolation: caller passes the requesting admin's org_id. If the
+// target user is in a different org, the helper returns the same 404 it
+// returns for a missing user — never leak the existence of out-of-scope
+// users to a caller who shouldn't see them.
+//
+// Takes context.Context (not *http.Request) so it can be called from
+// non-HTTP code paths (background tasks, tests, future Phase 2
+// background workers). Matches the license server's Arch-5.1 pattern.
+func (s *Server) loadOrgScopedUser(ctx context.Context, id, requesterOrgID string) (target *store.User, errStatus int) {
+	target, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		var nf *store.ErrNotFound
 		if errors.As(err, &nf) {
@@ -65,7 +67,7 @@ func (s *Server) loadOrgScopedUser(r *http.Request, id string) (target *store.Us
 		log.Printf("loadOrgScopedUser: get error: %v", err)
 		return nil, http.StatusInternalServerError
 	}
-	if target.OrgID != requester.OrgID {
+	if target.OrgID != requesterOrgID {
 		return nil, http.StatusNotFound
 	}
 	return target, 0
@@ -162,8 +164,13 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/users/{id}
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	requester := UserFromContext(r.Context())
+	if requester == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id := chi.URLParam(r, "id")
-	user, status := s.loadOrgScopedUser(r, id)
+	user, status := s.loadOrgScopedUser(r.Context(), id, requester.OrgID)
 	if status != 0 {
 		writeError(w, status, "user not found")
 		return
@@ -173,6 +180,11 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/v1/users/{id}
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	requester := UserFromContext(r.Context())
+	if requester == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
@@ -186,7 +198,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, status := s.loadOrgScopedUser(r, id)
+	existing, status := s.loadOrgScopedUser(r.Context(), id, requester.OrgID)
 	if status != 0 {
 		writeError(w, status, "user not found")
 		return
@@ -223,7 +235,14 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, _ := s.loadOrgScopedUser(r, id)
+	// Re-fetch so the response reflects persisted state. If the row
+	// disappeared between UpdateUser and now (e.g., a concurrent delete),
+	// surface the failure rather than returning a 200 with a null body.
+	updated, refetchStatus := s.loadOrgScopedUser(r.Context(), id, requester.OrgID)
+	if refetchStatus != 0 {
+		writeError(w, refetchStatus, "user not found")
+		return
+	}
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -243,7 +262,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, status := s.loadOrgScopedUser(r, id)
+	target, status := s.loadOrgScopedUser(r.Context(), id, requester.OrgID)
 	if status != 0 {
 		writeError(w, status, "user not found")
 		return
@@ -251,12 +270,19 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 	// Block deletion of the last org_admin in this org. Mirrors the
 	// license server's last-superadmin-lockout guard (H3 lesson).
+	// A ListUsers failure must NOT silently disable the guard — surface
+	// it as 500 so a transient DB error can't enable a lockout.
 	if target.Role == "org_admin" {
-		users, err := s.store.ListUsers(r.Context(), store.UserFilter{
+		admins, err := s.store.ListUsers(r.Context(), store.UserFilter{
 			OrgID: requester.OrgID,
 			Role:  "org_admin",
 		})
-		if err == nil && len(users) <= 1 {
+		if err != nil {
+			log.Printf("delete user: count admins error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+		if len(admins) <= 1 {
 			writeError(w, http.StatusConflict, "cannot delete the last org_admin")
 			return
 		}

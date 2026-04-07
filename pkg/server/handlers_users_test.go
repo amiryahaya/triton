@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -59,6 +60,33 @@ func TestUsersRoutes_RejectOrgUser(t *testing.T) {
 	// org_user must not be able to access user-management endpoints.
 	w := authReq(t, srv, http.MethodGet, "/api/v1/users", token, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestDeleteUser_LastAdminGuardSurfacesListError verifies M1: if the
+// store's ListUsers call fails (e.g., transient DB error), the
+// last-admin guard must NOT silently fall through to DeleteUser.
+// Instead, the error must be surfaced as 500. Otherwise, a transient
+// DB error effectively disables the guard.
+func TestDeleteUser_LastAdminGuardSurfacesListError(t *testing.T) {
+	srv, real, wrap := setupServerWithFailingStore(t)
+
+	// Create two admins so the guard would not normally fire.
+	_, admin1 := createOrgUser(t, real, "org_admin", "correct-horse-battery", false)
+	_, admin2 := createTestUserInOrg(t, real, admin1.OrgID, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, admin1.Email, "correct-horse-battery")
+
+	// Toggle ListUsers failure AFTER login (login uses GetUserByEmail, not ListUsers).
+	wrap.listUsersFails.Store(true)
+
+	// Admin1 tries to delete admin2. The handler will call ListUsers
+	// to check the admin count → simulated failure → must return 500,
+	// NOT fall through to DeleteUser.
+	w := authReq(t, srv, http.MethodDelete, "/api/v1/users/"+admin2.ID, token, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code, "ListUsers error must be surfaced, not silently bypassed")
+
+	// Verify admin2 was NOT deleted (the guard prevented the fall-through).
+	_, err := real.GetUser(context.Background(), admin2.ID)
+	require.NoError(t, err, "admin2 must still exist — the guard must have aborted before DeleteUser")
 }
 
 // TestUsersRoutes_BlockedWhenMustChangePassword verifies that an admin
@@ -314,26 +342,28 @@ func TestDeleteUser_PeerAdminCanBeRemovedWhenMultipleExist(t *testing.T) {
 	srv, db := testServerWithJWT(t)
 
 	// Create the org and two admins directly via the store, both in the same org.
+	// Use generated UUIDs (not static literals) to avoid collision risk if
+	// tests are ever run in parallel.
 	ctx := context.Background()
 	org := &store.Organization{
-		ID:   "11111111-1111-1111-1111-111111111111",
+		ID:   uuid.Must(uuid.NewV7()).String(),
 		Name: "Multi Admin Org",
 	}
 	require.NoError(t, db.CreateOrg(ctx, org))
 
 	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct-horse-battery"), bcrypt.DefaultCost)
 	admin1 := &store.User{
-		ID:       "22222222-2222-2222-2222-222222222221",
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		OrgID:    org.ID,
-		Email:    "admin1@multi.test",
+		Email:    uuid.Must(uuid.NewV7()).String() + "@multi.test",
 		Name:     "Admin One",
 		Role:     "org_admin",
 		Password: string(hashed),
 	}
 	admin2 := &store.User{
-		ID:       "22222222-2222-2222-2222-222222222222",
+		ID:       uuid.Must(uuid.NewV7()).String(),
 		OrgID:    org.ID,
-		Email:    "admin2@multi.test",
+		Email:    uuid.Must(uuid.NewV7()).String() + "@multi.test",
 		Name:     "Admin Two",
 		Role:     "org_admin",
 		Password: string(hashed),

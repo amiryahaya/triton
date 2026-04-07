@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
@@ -50,13 +50,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := &license.UserClaims{
+	claims := &auth.UserClaims{
 		Sub:  user.ID,
 		Org:  user.OrgID,
 		Role: user.Role,
 		Name: user.Name,
 	}
-	token, err := license.SignJWT(claims, s.config.SigningKey, jwtTTL)
+	token, err := auth.SignJWT(claims, s.config.SigningKey, jwtTTL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to sign token")
 		return
@@ -117,7 +117,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify current JWT (allow within grace period).
-	claims, err := license.VerifyJWT(token, s.config.PublicKey)
+	claims, err := auth.VerifyJWT(token, s.config.PublicKey)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid or expired token")
 		return
@@ -152,13 +152,13 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Issue new token with freshly-fetched user state.
-	newClaims := &license.UserClaims{
+	newClaims := &auth.UserClaims{
 		Sub:  user.ID,
 		Org:  user.OrgID,
 		Role: user.Role,
 		Name: user.Name,
 	}
-	newToken, err := license.SignJWT(newClaims, s.config.SigningKey, jwtTTL)
+	newToken, err := auth.SignJWT(newClaims, s.config.SigningKey, jwtTTL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to sign token")
 		return

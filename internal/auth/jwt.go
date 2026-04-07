@@ -1,4 +1,13 @@
-package license
+// Package auth provides JWT signing and verification for human user
+// authentication. Used by both the license server (superadmin auth) and
+// the report server (org user auth). Each server uses its own Ed25519
+// signing key — they do not share keys.
+//
+// Extracted from internal/license/jwt.go in Phase 1.5c (per architecture
+// review finding Arch-2.2) so that the report server can import only the
+// JWT primitives without dragging along the license-token, machine
+// fingerprint, and offline cache code that lives in internal/license.
+package auth
 
 import (
 	"crypto/ed25519"
@@ -10,14 +19,18 @@ import (
 	"time"
 )
 
-// UserClaims represents JWT claims for human users.
+// UserClaims represents JWT claims for human users. The same struct is
+// used by both the license server (where Role is always "platform_admin"
+// and Org is empty) and the report server (where Role is "org_admin" or
+// "org_user" and Org is the org UUID).
 type UserClaims struct {
-	Sub  string `json:"sub"`           // user UUID
-	Org  string `json:"org,omitempty"` // org UUID (empty for platform admin)
-	Role string `json:"role"`          // platform_admin, org_admin, org_user
-	Name string `json:"name"`
-	Iat  int64  `json:"iat"`
-	Exp  int64  `json:"exp"`
+	Sub                string `json:"sub"`           // user UUID
+	Org                string `json:"org,omitempty"` // org UUID (empty for platform admin)
+	Role               string `json:"role"`          // platform_admin, org_admin, org_user
+	Name               string `json:"name"`
+	MustChangePassword bool   `json:"mcp,omitempty"` // true while user must change their temporary password
+	Iat                int64  `json:"iat"`
+	Exp                int64  `json:"exp"`
 }
 
 // jwtHeader is the fixed EdDSA/JWT header emitted by SignJWT.

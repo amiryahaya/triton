@@ -1,4 +1,4 @@
-package license
+package auth
 
 import (
 	"crypto/ed25519"
@@ -72,10 +72,6 @@ func TestJWTInvalidFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid token format")
 }
 
-// TestSignJWTDoesNotMutateCallerClaims verifies that SignJWT is a pure
-// operation from the caller's perspective — the passed-in struct's Iat
-// and Exp fields must not be modified. Callers should be able to log or
-// compare their claims struct after signing without surprise.
 func TestSignJWTDoesNotMutateCallerClaims(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	claims := &UserClaims{Sub: "u1", Role: "platform_admin", Name: "Root"}
@@ -85,16 +81,12 @@ func TestSignJWTDoesNotMutateCallerClaims(t *testing.T) {
 	_, err := SignJWT(claims, priv, 1*time.Hour)
 	require.NoError(t, err)
 
-	// After signing, the caller's struct must be unchanged.
 	assert.Equal(t, int64(0), claims.Iat, "Iat must not be mutated on caller's struct")
 	assert.Equal(t, int64(0), claims.Exp, "Exp must not be mutated on caller's struct")
 }
 
-// TestJWTRejectsUnknownTyp verifies that VerifyJWT rejects tokens whose
-// header has a typ field that is not "JWT" (defense against alg/typ confusion).
 func TestJWTRejectsUnknownTyp(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	// Forge a header with typ=JWS (not JWT) and re-sign manually.
 	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": "JWS"})
 	b64Header := base64.RawURLEncoding.EncodeToString(header)
 	claims := UserClaims{Sub: "u1", Role: "platform_admin", Exp: time.Now().Add(1 * time.Hour).Unix()}
@@ -110,9 +102,6 @@ func TestJWTRejectsUnknownTyp(t *testing.T) {
 	assert.Contains(t, err.Error(), "typ")
 }
 
-// TestJWTStandardFormat verifies the emitted token has three dot-separated
-// parts (header.payload.signature) matching the standard JWT format, so it
-// can be parsed by off-the-shelf JWT libraries and debugging tools.
 func TestJWTStandardFormat(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	claims := &UserClaims{Sub: "u1", Role: "platform_admin", Name: "Root"}
@@ -122,11 +111,35 @@ func TestJWTStandardFormat(t *testing.T) {
 	parts := strings.Split(token, ".")
 	require.Len(t, parts, 3, "standard JWT must have 3 dot-separated parts")
 
-	// Header must be base64url-decodable JSON with alg=EdDSA, typ=JWT.
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	require.NoError(t, err)
 	var header map[string]any
 	require.NoError(t, json.Unmarshal(headerBytes, &header))
 	assert.Equal(t, "EdDSA", header["alg"])
 	assert.Equal(t, "JWT", header["typ"])
+}
+
+// TestJWTMustChangePasswordClaim verifies the new MustChangePassword field
+// (Phase 1.5c) round-trips correctly through the JWT.
+func TestJWTMustChangePasswordClaim(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+
+	// Set true
+	mcpToken, err := SignJWT(&UserClaims{
+		Sub: "u1", Org: "o1", Role: "org_admin", Name: "Alice",
+		MustChangePassword: true,
+	}, priv, 1*time.Hour)
+	require.NoError(t, err)
+	mcpClaims, err := VerifyJWT(mcpToken, pub)
+	require.NoError(t, err)
+	assert.True(t, mcpClaims.MustChangePassword)
+
+	// Default false (omitempty)
+	defaultToken, err := SignJWT(&UserClaims{
+		Sub: "u2", Org: "o1", Role: "org_admin", Name: "Bob",
+	}, priv, 1*time.Hour)
+	require.NoError(t, err)
+	defaultClaims, err := VerifyJWT(defaultToken, pub)
+	require.NoError(t, err)
+	assert.False(t, defaultClaims.MustChangePassword)
 }

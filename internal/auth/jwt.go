@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // UserClaims represents JWT claims for human users. The same struct is
@@ -24,6 +26,7 @@ import (
 // and Org is empty) and the report server (where Role is "org_admin" or
 // "org_user" and Org is the org UUID).
 type UserClaims struct {
+	Jti                string `json:"jti"`           // RFC 7519 JWT ID — unique per token
 	Sub                string `json:"sub"`           // user UUID
 	Org                string `json:"org,omitempty"` // org UUID (empty for platform admin)
 	Role               string `json:"role"`          // platform_admin, org_admin, org_user
@@ -53,6 +56,13 @@ func SignJWT(claims *UserClaims, privKey ed25519.PrivateKey, ttl time.Duration) 
 	now := time.Now()
 	c.Iat = now.Unix()
 	c.Exp = now.Add(ttl).Unix()
+	// jti (JWT ID, RFC 7519): unique identifier per token. Without this,
+	// two SignJWT calls within the same second for the same user produce
+	// byte-identical tokens (since iat and exp have second precision),
+	// which collides with the sessions.token_hash UNIQUE constraint and
+	// breaks rapid login→refresh flows. Always overwrite — callers don't
+	// supply jti.
+	c.Jti = uuid.Must(uuid.NewV7()).String()
 
 	payload, err := json.Marshal(&c)
 	if err != nil {

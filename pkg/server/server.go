@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
 	"log"
 	"net/http"
 	"time"
@@ -26,6 +27,14 @@ type Config struct {
 	// to the report server's /api/v1/admin/* endpoints (e.g., org provisioning).
 	// If empty, the admin route group is not registered at all.
 	ServiceKey string
+	// JWTSigningKey is the report server's own Ed25519 private key for signing
+	// user JWTs (org_admin and org_user logins). Independent from the license
+	// server's signing key. If empty, the /api/v1/auth/* route group is not
+	// registered at all.
+	JWTSigningKey ed25519.PrivateKey
+	// JWTPublicKey is the corresponding public key used to verify report
+	// server JWTs. Derived from JWTSigningKey if not supplied.
+	JWTPublicKey ed25519.PublicKey
 }
 
 // Server is the Triton REST API server.
@@ -84,6 +93,21 @@ func New(cfg *Config, s store.Store) *Server {
 		r.Route("/api/v1/admin", func(r chi.Router) {
 			r.Use(ServiceKeyAuth(cfg.ServiceKey))
 			r.Post("/orgs", srv.handleProvisionOrg)
+		})
+	}
+
+	// User auth API (login, logout, refresh, change-password).
+	// Only registered if JWT signing is configured.
+	if cfg.JWTSigningKey != nil {
+		// Derive public key from signing key if not explicitly supplied.
+		if cfg.JWTPublicKey == nil {
+			cfg.JWTPublicKey = cfg.JWTSigningKey.Public().(ed25519.PublicKey)
+		}
+		r.Route("/api/v1/auth", func(r chi.Router) {
+			r.Post("/login", srv.handleLogin)
+			r.Post("/logout", srv.handleLogout)
+			r.Post("/refresh", srv.handleRefresh)
+			r.Post("/change-password", srv.handleChangePassword)
 		})
 	}
 

@@ -5,6 +5,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -14,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -109,6 +113,69 @@ func testServerWithServiceKey(t *testing.T) (*Server, *store.PostgresStore, stri
 	}
 	srv := New(cfg, db)
 	return srv, db, serviceKey
+}
+
+// testServerWithJWT builds a server configured for user JWT auth (login,
+// logout, refresh, change-password). Generates a fresh Ed25519 keypair
+// per test for isolation.
+func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
+	t.Helper()
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cfg := &Config{
+		ListenAddr:    ":0",
+		JWTSigningKey: priv,
+		JWTPublicKey:  pub,
+	}
+	srv := New(cfg, db)
+	return srv, db
+}
+
+// createOrgUser inserts a user directly into the store for auth tests.
+// Bypasses the provisioning endpoint to keep auth tests independent.
+func createOrgUser(t *testing.T, db *store.PostgresStore, role, password string, mcp bool) (*store.Organization, *store.User) {
+	t.Helper()
+	ctx := context.Background()
+
+	org := &store.Organization{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Name:      "Auth Test Org " + uuid.Must(uuid.NewV7()).String()[:8],
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, db.CreateOrg(ctx, org))
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	user := &store.User{
+		ID:                 uuid.Must(uuid.NewV7()).String(),
+		OrgID:              org.ID,
+		Email:              uuid.Must(uuid.NewV7()).String() + "@auth.test",
+		Name:               "Auth Test User",
+		Role:               role,
+		Password:           string(hashed),
+		MustChangePassword: mcp,
+		CreatedAt:          time.Now().UTC(),
+		UpdatedAt:          time.Now().UTC(),
+	}
+	require.NoError(t, db.CreateUser(ctx, user))
+	return org, user
 }
 
 func testScanResult(id, hostname string) *model.ScanResult {

@@ -119,6 +119,24 @@ func TestJWTStandardFormat(t *testing.T) {
 	assert.Equal(t, "JWT", header["typ"])
 }
 
+// TestJWTUniqueOnRapidReissuance verifies that two SignJWT calls in
+// quick succession for the same user produce different tokens. RFC 7519's
+// iat/exp claims have second precision, so without a unique jti, identical
+// claims and same-second timestamps would yield byte-identical tokens —
+// which then collide with the sessions.token_hash UNIQUE constraint and
+// break rapid login→refresh flows.
+func TestJWTUniqueOnRapidReissuance(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	claims := &UserClaims{Sub: "u1", Org: "o1", Role: "org_admin", Name: "Alice"}
+
+	t1, err := SignJWT(claims, priv, 1*time.Hour)
+	require.NoError(t, err)
+	t2, err := SignJWT(claims, priv, 1*time.Hour)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, t1, t2, "two SignJWT calls must produce different tokens (jti must vary)")
+}
+
 // TestJWTMustChangePasswordClaim verifies the new MustChangePassword field
 // (Phase 1.5c) round-trips correctly through the JWT.
 func TestJWTMustChangePasswordClaim(t *testing.T) {

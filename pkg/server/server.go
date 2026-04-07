@@ -22,6 +22,10 @@ type Config struct {
 	TLSKey       string
 	Guard        *license.Guard // nil = no enforcement (backward compat for testserver)
 	TenantPubKey []byte         // optional: Ed25519 public key for tenant token verification (overrides embedded key)
+	// ServiceKey is the shared secret used by the license server to authenticate
+	// to the report server's /api/v1/admin/* endpoints (e.g., org provisioning).
+	// If empty, the admin route group is not registered at all.
+	ServiceKey string
 }
 
 // Server is the Triton REST API server.
@@ -72,6 +76,16 @@ func New(cfg *Config, s store.Store) *Server {
 		}
 		srv.registerAPIRoutes(r)
 	})
+
+	// Admin API for service-to-service calls (license server → report server).
+	// Only registered if a ServiceKey is configured. Uses its own auth
+	// middleware (X-Triton-Service-Key) separate from the agent API key.
+	if cfg.ServiceKey != "" {
+		r.Route("/api/v1/admin", func(r chi.Router) {
+			r.Use(ServiceKeyAuth(cfg.ServiceKey))
+			r.Post("/orgs", srv.handleProvisionOrg)
+		})
+	}
 
 	// Health check — intentionally outside the auth group so it remains public.
 	// It returns no sensitive data (only {"status":"ok"}).

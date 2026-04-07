@@ -82,6 +82,35 @@ func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
 	return srv, db
 }
 
+// testServerWithServiceKey builds a server configured for service-to-service
+// auth (used by the license server → report server provisioning endpoint).
+// Returns the server, store, and the configured service key.
+func testServerWithServiceKey(t *testing.T) (*Server, *store.PostgresStore, string) {
+	t.Helper()
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	const serviceKey = "test-service-key-shared-secret"
+	cfg := &Config{
+		ListenAddr: ":0",
+		ServiceKey: serviceKey,
+	}
+	srv := New(cfg, db)
+	return srv, db, serviceKey
+}
+
 func testScanResult(id, hostname string) *model.ScanResult {
 	return &model.ScanResult{
 		ID: id,

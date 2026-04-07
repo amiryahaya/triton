@@ -35,23 +35,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Normalize email to match the storage format used by handleCreateSuperadmin.
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	user, err := s.store.GetUserByEmail(r.Context(), email)
-	if err != nil {
-		// Generic error to prevent user enumeration.
+	// loadPlatformAdminByEmail enforces the role check at the lookup
+	// boundary. Both "no such user" and "user is not a platform_admin"
+	// surface as a 404 from the helper, which we collapse into a 401
+	// here so the login endpoint never leaks user existence or role.
+	user, status, _ := s.loadPlatformAdminByEmail(r.Context(), email)
+	if status != 0 {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
-	}
-
-	// The license server is the superadmin identity authority — only
-	// platform_admin users may authenticate here. Org-level users (org_admin,
-	// org_user) live in the report server. Reject anything else with the
-	// same generic message used for bad passwords to prevent role enumeration.
-	if user.Role != "platform_admin" {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -129,18 +123,17 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-fetch the user from the DB instead of trusting the role/name/org
-	// embedded in the old token. This ensures that:
-	//   - Deleted users cannot refresh (user lookup fails → 401)
-	//   - Role changes take effect on the next refresh (demotion is enforced)
+	// Re-fetch the user via loadPlatformAdminByID so role enforcement
+	// runs at the lookup boundary. This ensures that:
+	//   - Deleted users cannot refresh (lookup fails)
+	//   - Role demotions take effect on the next refresh
 	//   - Name changes in the DB propagate into the new token
 	//   - Only platform_admin users can refresh (defense in depth against C1)
-	user, err := s.store.GetUser(r.Context(), claims.Sub)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid or expired token")
-		return
-	}
-	if user.Role != "platform_admin" {
+	// We collapse the helper's 404 into the generic "invalid or expired
+	// token" message — the refresh endpoint must not leak whether a user
+	// existed or had a different role.
+	user, status, _ := s.loadPlatformAdminByID(r.Context(), claims.Sub)
+	if status != 0 {
 		writeError(w, http.StatusUnauthorized, "invalid or expired token")
 		return
 	}

@@ -113,6 +113,15 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/binaries", srv.handleUploadBinary)
 		r.Get("/binaries", srv.handleListBinaries)
 		r.Delete("/binaries/{version}/{os}/{arch}", srv.handleDeleteBinary)
+
+		// Superadmins (platform admins for the license server itself)
+		r.Route("/superadmins", func(r chi.Router) {
+			r.Post("/", srv.handleCreateSuperadmin)
+			r.Get("/", srv.handleListSuperadmins)
+			r.Get("/{id}", srv.handleGetSuperadmin)
+			r.Put("/{id}", srv.handleUpdateSuperadmin)
+			r.Delete("/{id}", srv.handleDeleteSuperadmin)
+		})
 	})
 
 	// Serve embedded admin UI.

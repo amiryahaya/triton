@@ -109,6 +109,19 @@ func New(cfg *Config, s store.Store) *Server {
 			r.Post("/refresh", srv.handleRefresh)
 			r.Post("/change-password", srv.handleChangePassword)
 		})
+
+		// Org-scoped user management — requires JWT auth + org_admin role.
+		// Tenant isolation is enforced inside the handlers (queries scoped
+		// to the requesting admin's org_id).
+		r.Route("/api/v1/users", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s))
+			r.Use(RequireOrgAdmin)
+			r.Post("/", srv.handleCreateUser)
+			r.Get("/", srv.handleListUsers)
+			r.Get("/{id}", srv.handleGetUser)
+			r.Put("/{id}", srv.handleUpdateUser)
+			r.Delete("/{id}", srv.handleDeleteUser)
+		})
 	}
 
 	// Health check — intentionally outside the auth group so it remains public.

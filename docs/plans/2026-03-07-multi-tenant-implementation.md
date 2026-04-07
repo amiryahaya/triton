@@ -14,9 +14,98 @@
 
 ## Status (2026-04-07)
 
-**Active path:** Self-managed auth (this plan, as written). Phase 1 Tasks 1.1–1.3 complete on `feat/multi-tenant` (commits `2c82ff9`, `827eb1a`, `4bca111`). Resuming at Task 1.4.
+**Active path:** Self-managed auth (this plan, as written + amendments below). Phase 1 Tasks 1.1–1.3 complete on `feat/multi-tenant` (commits `2c82ff9`, `827eb1a`, `4bca111`). Resuming at Task 1.4.
 
 **Parked work:** A Keycloak OIDC integration was prototyped and reviewed but shelved by management decision pending revisit. The full pivot — `pkg/auth/` (oidc, claims, mock), license server admin gating via `RequireRole`, agent client-credentials grant, and a PQC hybrid verifier (ML-DSA) WIP — lives on branch `feat/multi-tenant-keycloak` (commits `4019dfa`, `1cdccc2`, `1e9c460`, `f479cbc`). When Keycloak is greenlit again, rebase or cherry-pick from that branch. Note: reviving Keycloak makes Tasks 1.1, 1.3, 1.4, 1.5, 2.5, 3.1 obsolete.
+
+---
+
+## Amendments (2026-04-07) — Reporting Server, Split Identity, Org Provisioning
+
+The original design assumed a single identity authority (license server) holding all users. Management direction has revised this. The new architecture is:
+
+### Architectural changes
+
+1. **Triton server is renamed "Report Server"** (user-facing only — Go package paths stay as `pkg/server`). Its purpose is now explicit: a central collection point where multiple agents in an organization submit scan reports for aggregation and analysis. Without it, customers would manually collect agent output one machine at a time.
+
+2. **Split identity stores.** The license server and report server now have **separate user populations**:
+   - **License server** — superadmins only (multiple allowed). Manages orgs, licenses, seats. No org-level users.
+   - **Report server** — org users (org_admin + org_user). Org-scoped data access. Each org has its own admin who can manage users within their org.
+   - This supersedes the design doc's "users live in license server" statement. Update the design doc accordingly when convenient.
+
+3. **Cross-server org provisioning (push model).** When a superadmin creates an org in the license server, the license server pushes the new org to the report server via a service-to-service API call. The provisioning payload includes a first-org-admin email; the report server creates the org row, creates the admin user with `must_change_password=true`, and returns an activation link. The license server then emails the link to the admin via Resend.
+
+4. **Agent flow changes.** Agents now take two flags relevant to the server side:
+   - `--license-key` — already exists; mandatory for comprehensive scans (already enforced by `Guard.FilterConfig`).
+   - `--report-server URL` — **new**, optional. If supplied, agent submits scan output to the report server after scanning. `--server` is deprecated as an alias for one release cycle.
+   - The report server validates the license token by calling the license server `/validate` endpoint (with the Phase 2.1 cache).
+
+5. **Transport security.** Agent → report server submissions use TLS in transit. Sensitive scan data is column-encrypted at rest in PostgreSQL. No end-to-end payload encryption (would defeat the report server's ability to aggregate).
+
+6. **Email delivery via Resend API.** New dependency, new env var (`RESEND_API_KEY`). Used for invite emails and (future) password reset emails.
+
+### Status of existing tasks under amendment
+
+| Task | Status | Note |
+|---|---|---|
+| 1.1 | ✅ Done — **needs follow-up migration v6** | License server users table now scoped to superadmins. Add CHECK constraint to enforce `role = 'platform_admin' AND org_id IS NULL`. Add `must_change_password BOOLEAN DEFAULT FALSE` column (used by report server users table; license server admins don't need it but column added for store-layer reuse). |
+| 1.2 | ✅ Done — no change | JWT signing remains generic. |
+| 1.3 | ✅ Done — needs amendment in 1.4 era | Login handler must check `must_change_password` and return a flag in the response so the UI can redirect to password change. |
+| 1.4 | **Next — scope reduced** | Only handles superadmin CRUD now. Drop org_admin/org_user creation paths. Simpler validation (single role). |
+| 1.5 | Amended | Seed initial superadmin (role = `platform_admin`). |
+| 1.6 | Amended | `/validate` returns `{org_id, org_name, tier}` — used by report server's validation cache (Task 2.1). Same shape as original plan. |
+| 2.1 | No change | Validation cache still needed. |
+| 2.2 | No change | Report server's HTTP client to the license server. |
+| 2.3 | Simplified | JWT auth on the report server now verifies the **report server's own JWT** (issued by report server, not license server). License token auth still validates against license server. |
+| 2.4 | Simplified | RBAC roles on the report server: `org_admin`, `org_user`, `agent`. No `platform_admin` (lives in license server). |
+| 2.5 | **Obsolete** | Auth proxy not needed — report server has its own auth handlers (new Task 1.5d). Mark as removed. |
+| 2.6 | No change | Update server tests for new auth. |
+| 3.1 | Renamed | "Report server login page" instead of "Triton server login page". |
+| 3.2 | Amended | License server admin UI: superadmin management page (CRUD on platform admins) + org create form with admin email field. |
+| 4.1 | No change | Remove API key auth. |
+| 4.2 | Amended | Docs must reflect new naming, two-server topology, Resend setup, env vars. |
+| 4.3 | No change | Update E2E tests. |
+| 4.4 | No change | Update integration tests. |
+
+### New tasks added by these amendments
+
+**Phase 1 additions (license server):**
+- **Task 1.7** — License server: org provisioning client (push to report server)
+- **Task 1.8** — License server: Resend email integration + invite email template
+- **Task 1.9** — License server: org create form accepts admin email, triggers provisioning + invite
+
+**Phase 1.5: Report Server Identity & Org Tables (NEW PHASE)**
+- **Task 1.5a** — Report server: add `organizations`, `users`, `sessions` tables (new migrations in `pkg/store/`)
+- **Task 1.5b** — Report server: org provisioning receiver endpoint (`POST /api/v1/admin/orgs`, service-to-service auth)
+- **Task 1.5c** — Report server: auth handlers (login, logout, refresh, change-password)
+- **Task 1.5d** — Report server: org-scoped user CRUD for org admins
+- **Task 1.5e** — Report server: first-login forced password change flow (block all routes except change-password until cleared)
+
+**Phase 2 additions:**
+- **Task 2.7** — TLS hardening + at-rest column encryption for `scan_data` JSONB
+
+**Phase 3 additions:**
+- **Task 3.3** — Report server UI: org admin user management page
+- **Task 3.4** — Report server UI: forced password change screen
+- **Task 3.5** — License server UI: org create form + superadmin management
+
+**Phase 4 additions:**
+- **Task 4.5** — Cross-cutting rename: "Triton Server" → "Report Server" (user-facing only — docs, CLI help, env var prefix `TRITON_SERVER_*` → `REPORT_SERVER_*`, container/binary names, deployment guide)
+- **Task 4.6** — Agent CLI: rename `--server` to `--report-server`, keep `--server` as deprecated alias
+
+### Cross-cutting infrastructure changes
+
+- **New shared secret**: `LICENSE_TO_REPORT_SHARED_KEY` — used by license server to authenticate to the report server's `/admin/orgs` endpoint, and validated by the report server's service-to-service middleware.
+- **New encryption key**: `REPORT_SERVER_DATA_ENCRYPTION_KEY` — 32-byte hex, used to column-encrypt `scan_data` at rest.
+- **Two JWT signing keys** (one per server): license server already has `TRITON_LICENSE_SERVER_SIGNING_KEY`. Report server gets `REPORT_SERVER_JWT_SIGNING_KEY` (Ed25519 hex).
+- **Resend API key**: `RESEND_API_KEY` — license server only.
+- **Sender identity**: `RESEND_FROM_EMAIL` and `RESEND_FROM_NAME` for invite emails.
+
+See `.env.example` at the repo root for the full env var list.
+
+### Detailed task specs
+
+The new tasks above are listed at outline level only. Each will be expanded to full TDD detail (red→green→refactor steps, file paths, code samples, commit messages) when it's about to be worked on, following the same structure as Tasks 1.1–1.6. This avoids upfront over-specification of work that may shift as earlier tasks reveal constraints.
 
 ---
 

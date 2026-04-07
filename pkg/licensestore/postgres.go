@@ -809,21 +809,34 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 	return users, rows.Err()
 }
 
-// UpdateUser updates the mutable fields of a user (name, password).
-// Role is intentionally NOT written here: the license server enforces
-// split-identity (superadmins only), and there is no legitimate use case
-// for mutating role via the CRUD path. The role field on the passed-in
-// User struct is ignored; to change a user's role, delete and recreate.
-func (s *PostgresStore) UpdateUser(ctx context.Context, user *User) error {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE users SET name = $2, password = $3, updated_at = $4 WHERE id = $1`,
-		user.ID, user.Name, user.Password, time.Now(),
+// UpdateUser updates the mutable fields of a user. The UserUpdate type has
+// no Role or OrgID field — the split-identity model enforces role and org
+// immutability at the type level so callers can't accidentally mutate them.
+//
+// If update.Password is empty, the password is left unchanged (a partial
+// update). Otherwise it is replaced verbatim — callers are expected to have
+// already bcrypt-hashed the value.
+func (s *PostgresStore) UpdateUser(ctx context.Context, update UserUpdate) error {
+	var (
+		tag pgconn.CommandTag
+		err error
 	)
+	if update.Password == "" {
+		tag, err = s.pool.Exec(ctx,
+			`UPDATE users SET name = $2, updated_at = $3 WHERE id = $1`,
+			update.ID, update.Name, time.Now(),
+		)
+	} else {
+		tag, err = s.pool.Exec(ctx,
+			`UPDATE users SET name = $2, password = $3, updated_at = $4 WHERE id = $1`,
+			update.ID, update.Name, update.Password, time.Now(),
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("updating user: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return &ErrNotFound{Resource: "user", ID: user.ID}
+		return &ErrNotFound{Resource: "user", ID: update.ID}
 	}
 	return nil
 }

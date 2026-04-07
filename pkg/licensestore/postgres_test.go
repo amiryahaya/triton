@@ -629,29 +629,56 @@ func TestListUsersFilterByOrg(t *testing.T) {
 	assert.Len(t, users, 2)
 }
 
-// TestUpdateUser verifies name and password can be updated, but role is
-// immutable via UpdateUser. Role changes require explicit handling outside
-// the CRUD path (there is no legitimate use case for role mutation in the
-// split-identity model — see the 2026-04-07 amendment).
+// TestUpdateUser verifies name and password can be updated via the
+// UserUpdate DTO. The DTO has no Role or OrgID field by design —
+// the type system itself prevents role/org mutation, replacing the
+// older "silent ignore" behavior.
 func TestUpdateUser(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	org := makeOrg(t)
 	require.NoError(t, s.CreateOrg(ctx, org))
 
-	user := makeUser(t, org.ID) // makeUser creates with role "org_user"
+	user := makeUser(t, org.ID)
 	originalRole := user.Role
+	originalOrgID := user.OrgID
 	require.NoError(t, s.CreateUser(ctx, user))
 
-	// Attempt to change role alongside a legitimate name update.
-	user.Name = "Updated Name"
-	user.Role = "platform_admin" // this should be silently ignored
-	require.NoError(t, s.UpdateUser(ctx, user))
+	require.NoError(t, s.UpdateUser(ctx, licensestore.UserUpdate{
+		ID:   user.ID,
+		Name: "Updated Name",
+	}))
 
 	got, err := s.GetUser(ctx, user.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", got.Name)
 	assert.Equal(t, originalRole, got.Role, "role must not be modified by UpdateUser")
+	assert.Equal(t, originalOrgID, got.OrgID, "orgID must not be modified by UpdateUser")
+}
+
+// TestUpdateUserPasswordOnly verifies that an update with empty Name and
+// non-empty Password preserves the existing name. This is the partial-update
+// path used by the API when a user changes only their password.
+func TestUpdateUserPasswordOnly(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	user := makeUser(t, org.ID)
+	originalName := user.Name
+	require.NoError(t, s.CreateUser(ctx, user))
+
+	require.NoError(t, s.UpdateUser(ctx, licensestore.UserUpdate{
+		ID:       user.ID,
+		Name:     originalName, // pass current name explicitly
+		Password: "new-hashed-value",
+	}))
+
+	got, err := s.GetUser(ctx, user.ID)
+	require.NoError(t, err)
+	assert.Equal(t, originalName, got.Name)
+	assert.Equal(t, "new-hashed-value", got.Password)
 }
 
 func TestDeleteUser(t *testing.T) {

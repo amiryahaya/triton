@@ -43,26 +43,11 @@ func validateEmail(email string) error {
 	return nil
 }
 
-// getSuperadminByID fetches a user and verifies they are a platform_admin.
-// On success, returns the user with errStatus == 0. On failure, returns
-// (nil, status, message) where status is the HTTP code to send. This is
-// defensive — until the Task 1.1 follow-up migration tightens the CHECK
-// constraint, the table could contain non-superadmin rows that this endpoint
-// must not expose.
+// getSuperadminByID is a thin adapter over loadPlatformAdminByID that
+// extracts the context from an *http.Request. Kept as a method on Server
+// so the existing handler call sites don't need to be reshuffled.
 func (s *Server) getSuperadminByID(r *http.Request, id string) (user *licensestore.User, errStatus int, errMsg string) {
-	user, err := s.store.GetUser(r.Context(), id)
-	if err != nil {
-		var nf *licensestore.ErrNotFound
-		if errors.As(err, &nf) {
-			return nil, http.StatusNotFound, "superadmin not found"
-		}
-		log.Printf("get superadmin error: %v", err)
-		return nil, http.StatusInternalServerError, "internal server error"
-	}
-	if user.Role != "platform_admin" {
-		return nil, http.StatusNotFound, "superadmin not found"
-	}
-	return user, 0, ""
+	return s.loadPlatformAdminByID(r.Context(), id)
 }
 
 // POST /api/v1/admin/superadmins
@@ -176,12 +161,19 @@ func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Build a UserUpdate. The struct has no Role/OrgID field by design —
+	// the type system enforces the immutability invariant.
+	update := licensestore.UserUpdate{
+		ID:   id,
+		Name: existing.Name, // default to current
+	}
+
 	if req.Name != "" {
 		if tooLong(req.Name, maxNameLen) {
 			writeError(w, http.StatusBadRequest, "name exceeds maximum length")
 			return
 		}
-		existing.Name = req.Name
+		update.Name = req.Name
 	}
 	if req.Password != "" {
 		if len(req.Password) < minPasswordLen {
@@ -194,22 +186,24 @@ func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
-		existing.Password = string(hashed)
+		update.Password = string(hashed)
 	}
-	// Role is never updated.
 
-	if err := s.store.UpdateUser(r.Context(), existing); err != nil {
+	if err := s.store.UpdateUser(r.Context(), update); err != nil {
 		log.Printf("update superadmin error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+
+	// Re-fetch so the response reflects the persisted state.
+	updated, _, _ := s.getSuperadminByID(r, id)
 
 	s.audit(r, "superadmin_update", "", "", "", map[string]any{
 		"user_id":          id,
 		"name_changed":     req.Name != "",
 		"password_changed": req.Password != "",
 	})
-	writeJSON(w, http.StatusOK, existing)
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // DELETE /api/v1/admin/superadmins/{id}

@@ -292,20 +292,21 @@ func (s *PostgresStore) PruneStaleHashes(ctx context.Context, before time.Time) 
 	return nil
 }
 
-// TruncateAll deletes all data from scans and file_hashes tables.
+// TruncateAll deletes all data from all tables.
 // Intended for test cleanup only.
 func (s *PostgresStore) TruncateAll(ctx context.Context) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin truncate transaction: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM scans"); err != nil {
-		_ = tx.Rollback(ctx)
-		return err
-	}
-	if _, err := tx.Exec(ctx, "DELETE FROM file_hashes"); err != nil {
-		_ = tx.Rollback(ctx)
-		return err
+	// Order matters for FK cascades. Sessions → users → organizations
+	// is the safest topological order even though CASCADE would handle it.
+	tables := []string{"sessions", "users", "organizations", "scans", "file_hashes"}
+	for _, t := range tables {
+		if _, err := tx.Exec(ctx, "DELETE FROM "+t); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

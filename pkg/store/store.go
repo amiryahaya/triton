@@ -39,11 +39,50 @@ type HashStore interface {
 	FileHashStats(ctx context.Context) (count int, oldest, newest time.Time, err error)
 }
 
+// OrgStore is the persistence interface for organizations on the report
+// server. The report server's organizations table mirrors the license
+// server's authoritative one — provisioning happens via Phase 1.5b's
+// receiver endpoint, not directly here.
+type OrgStore interface {
+	CreateOrg(ctx context.Context, org *Organization) error
+	GetOrg(ctx context.Context, id string) (*Organization, error)
+	ListOrgs(ctx context.Context) ([]Organization, error)
+	UpdateOrg(ctx context.Context, org *Organization) error
+	DeleteOrg(ctx context.Context, id string) error
+}
+
+// UserStore is the persistence interface for org users on the report
+// server. Roles are restricted to org_admin and org_user — platform
+// admins live in the license server (split-identity model, 2026-04-07
+// amendment). Every user belongs to exactly one org (org_id NOT NULL).
+type UserStore interface {
+	CreateUser(ctx context.Context, user *User) error
+	GetUser(ctx context.Context, id string) (*User, error)
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	ListUsers(ctx context.Context, filter UserFilter) ([]User, error)
+	UpdateUser(ctx context.Context, update UserUpdate) error
+	DeleteUser(ctx context.Context, id string) error
+	CountUsersByOrg(ctx context.Context, orgID string) (int, error)
+}
+
+// SessionStore is the persistence interface for user sessions on the
+// report server. Mirrors the license server's session shape but lives
+// in a different DB (split identity stores).
+type SessionStore interface {
+	CreateSession(ctx context.Context, session *Session) error
+	GetSessionByHash(ctx context.Context, tokenHash string) (*Session, error)
+	DeleteSession(ctx context.Context, id string) error
+	DeleteExpiredSessions(ctx context.Context) error
+}
+
 // Store composes all storage interfaces.
 // Implementations must be safe for concurrent use.
 type Store interface {
 	ScanStore
 	HashStore
+	OrgStore
+	UserStore
+	SessionStore
 
 	// Close releases any resources held by the store.
 	Close() error
@@ -80,4 +119,69 @@ type ErrNotFound struct {
 
 func (e *ErrNotFound) Error() string {
 	return e.Resource + " not found: " + e.ID
+}
+
+// ErrConflict is returned when a write fails due to a uniqueness constraint
+// (e.g., duplicate user email).
+type ErrConflict struct {
+	Message string
+}
+
+func (e *ErrConflict) Error() string {
+	return e.Message
+}
+
+// Organization is a report-server mirror of an organization defined in
+// the license server. Only ID, Name, and timestamps are stored — contact
+// info and license details remain in the license server.
+type Organization struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// User is a report-server org user. Distinct from licensestore.User by
+// design (split-identity model): org_id is required, role is restricted
+// to org_admin or org_user, and there's a must_change_password flag for
+// the invite-and-first-login flow.
+type User struct {
+	ID                 string    `json:"id"`
+	OrgID              string    `json:"orgID"`
+	Email              string    `json:"email"`
+	Name               string    `json:"name"`
+	Role               string    `json:"role"`
+	Password           string    `json:"-"` // bcrypt hash, never serialized
+	MustChangePassword bool      `json:"mustChangePassword"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
+// UserUpdate is a narrow DTO for updating a user. By design it has no
+// Role or OrgID field — those are immutable via the CRUD path. To change
+// a user's role or move them between orgs, delete and recreate.
+//
+// Password is optional (empty = unchanged). MustChangePassword is a
+// pointer so callers can distinguish "leave alone" (nil) from "set to
+// false" (clear the invite flag after first login).
+type UserUpdate struct {
+	ID                 string
+	Name               string
+	Password           string // empty = unchanged
+	MustChangePassword *bool  // nil = unchanged
+}
+
+// UserFilter controls user listing.
+type UserFilter struct {
+	OrgID string
+	Role  string
+}
+
+// Session is an active user session on the report server.
+type Session struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userID"`
+	TokenHash string    `json:"-"` // SHA-256 of session token, never serialized
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
 }

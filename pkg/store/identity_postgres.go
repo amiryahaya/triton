@@ -209,7 +209,9 @@ func (s *PostgresStore) UpdateUser(ctx context.Context, update UserUpdate) error
 	if update.MustChangePassword != nil {
 		setClauses = append(setClauses, fmt.Sprintf("must_change_password = $%d", idx))
 		args = append(args, *update.MustChangePassword)
+		idx++ //nolint:ineffassign // defensive: keep the invariant for any future field added below
 	}
+	_ = idx // silence unused-after-last-write linter
 
 	query := "UPDATE users SET " + joinSetClauses(setClauses) + " WHERE id = $1"
 	tag, err := s.pool.Exec(ctx, query, args...)

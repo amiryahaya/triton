@@ -105,6 +105,19 @@ func (s *Server) handleProvisionOrg(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: now,
 	}
 	if err := s.store.CreateOrg(ctx, org); err != nil {
+		// Race: two concurrent provisioning calls for the same org ID
+		// can both pass the GetOrg idempotency check above and reach
+		// CreateOrg. The PK collision lands here as ErrConflict. Treat
+		// it as the loser of the race rather than a 500 — the winner
+		// already created the org with the correct name (or a different
+		// name, in which case the user-creation step below would also
+		// fail with the email constraint, which is a real conflict
+		// either way).
+		var conflict *store.ErrConflict
+		if errors.As(err, &conflict) {
+			writeError(w, http.StatusConflict, "organization already exists")
+			return
+		}
 		log.Printf("provision: create org error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
@@ -127,7 +140,12 @@ func (s *Server) handleProvisionOrg(w http.ResponseWriter, r *http.Request) {
 		// wrap CreateOrg + CreateUser in a single tx and remove this.
 		// TODO(phase-1.5-followup): replace cleanup-on-failure with a
 		// real transactional CreateOrgWithAdmin store method.
-		_ = s.store.DeleteOrg(ctx, org.ID)
+		//
+		// Log (don't swallow) the rollback failure — an orphan org would
+		// need manual cleanup, and the only signal ops has is the log.
+		if delErr := s.store.DeleteOrg(ctx, org.ID); delErr != nil {
+			log.Printf("provision: ROLLBACK FAILED — orphan org %s: %v", org.ID, delErr)
+		}
 
 		var conflict *store.ErrConflict
 		if errors.As(err, &conflict) {

@@ -116,6 +116,25 @@ func TestServerClient_Validate_ParsesOrgInfo(t *testing.T) {
 	assert.Equal(t, "Acme Corp", resp.OrgName)
 }
 
+// TestServerClient_Validate_ParsesCacheTTL verifies that the client struct
+// surfaces the cacheTTL field from the validate response so the report
+// server's Phase 2.1 cache can honor the server-owned trust window.
+func TestServerClient_Validate_ParsesCacheTTL(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"valid":    true,
+			"tier":     "pro",
+			"cacheTTL": 300,
+		})
+	}))
+	defer ts.Close()
+
+	client := NewServerClient(ts.URL)
+	resp, err := client.Validate("lic-123", "token")
+	require.NoError(t, err)
+	assert.Equal(t, 300, resp.CacheTTL)
+}
+
 func TestServerClient_Validate_Invalid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

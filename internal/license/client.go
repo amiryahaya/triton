@@ -47,6 +47,10 @@ type ValidateResponse struct {
 	Seats     int    `json:"seats,omitempty"`
 	SeatsUsed int    `json:"seatsUsed,omitempty"`
 	ExpiresAt string `json:"expiresAt,omitempty"`
+	// CacheTTL is the maximum age in seconds the caller may treat this
+	// result as authoritative. Honored by the report server's Phase 2.1
+	// validation cache. Server-owned policy — do not override on the client.
+	CacheTTL int `json:"cacheTTL,omitempty"`
 }
 
 // Activate registers this machine with the license server.

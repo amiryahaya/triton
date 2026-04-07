@@ -222,8 +222,20 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		"seats":     lic.Seats,
 		"seatsUsed": lic.SeatsUsed,
 		"expiresAt": lic.ExpiresAt.Format(time.RFC3339),
+		// cacheTTL is the maximum age in seconds that a caller (typically
+		// the report server's validation cache, Phase 2.1) may treat this
+		// result as authoritative. Centralizing the trust window here lets
+		// the license server tune revocation propagation latency without
+		// changing client code. 300s = 5 minutes is the initial default;
+		// it can become a config field if ops needs to dial it.
+		"cacheTTL": validateCacheTTLSeconds,
 	})
 }
+
+// validateCacheTTLSeconds is the maximum number of seconds that callers
+// (the report server's validation cache) should treat a positive validate
+// response as authoritative before re-validating. See handleValidate.
+const validateCacheTTLSeconds = 300
 
 // GET /api/v1/admin/activations
 func (s *Server) handleListActivations(w http.ResponseWriter, r *http.Request) {

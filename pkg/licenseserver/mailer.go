@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // Mailer sends transactional emails from the license server. Currently
@@ -119,6 +121,11 @@ You'll be prompted to change your password on first sign-in.
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+m.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Forward the request ID so Resend dashboard correlations (and our
+	// own logs) can trace the email back to the originating HTTP request.
+	if reqID := middleware.GetReqID(ctx); reqID != "" {
+		httpReq.Header.Set("X-Request-ID", reqID)
+	}
 
 	resp, err := m.httpClient.Do(httpReq)
 	if err != nil {

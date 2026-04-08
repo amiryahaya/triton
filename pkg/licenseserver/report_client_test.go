@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,6 +131,35 @@ func TestReportAPIClient_ProvisionOrg_ServerUnreachable(t *testing.T) {
 	// Network error must wrap ErrReportServerUnreachable so callers can
 	// distinguish it from a 4xx/5xx response (D4 fix).
 	assert.ErrorIs(t, err, ErrReportServerUnreachable)
+}
+
+// TestReportAPIClient_ProvisionOrg_PropagatesRequestID verifies that the
+// X-Request-ID from the incoming context is forwarded to the report
+// server so distributed tracing works across the cross-server hop.
+// (Arch #10 from the Phase 1.7/1.8 review.)
+func TestReportAPIClient_ProvisionOrg_PropagatesRequestID(t *testing.T) {
+	var receivedReqID string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedReqID = r.Header.Get("X-Request-ID")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"org": map[string]any{"id": "x", "name": "y"}, "admin_user_id": "u",
+		})
+	}))
+	defer ts.Close()
+	client := NewReportAPIClient(ts.URL, "key")
+
+	// Stuff a request ID into the context using the same chi middleware
+	// key the server side uses. We can't easily import the unexported
+	// key, so use chi's exported helper pattern: set via a fake request
+	// that middleware.RequestID would populate.
+	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "test-req-id-42")
+
+	_, err := client.ProvisionOrg(ctx, ProvisionOrgRequest{
+		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "test-req-id-42", receivedReqID, "X-Request-ID must propagate across the cross-server hop")
 }
 
 func TestReportAPIClient_ProvisionOrg_BadJSONResponse(t *testing.T) {

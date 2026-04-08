@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // ReportAPIClient pushes provisioning calls from the license server to the
@@ -84,6 +86,14 @@ func (c *ReportAPIClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequ
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Triton-Service-Key", c.serviceKey)
+	// Propagate the incoming request ID across the cross-server hop so
+	// logs/traces can correlate the license-server request with the
+	// report-server request it triggered. Chi's RequestID middleware
+	// populates the context; this header is non-sensitive and safe to
+	// forward (it's already exposed on the original request's response).
+	if reqID := middleware.GetReqID(ctx); reqID != "" {
+		httpReq.Header.Set("X-Request-ID", reqID)
+	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

@@ -126,6 +126,16 @@ Two architecture/API reviews were run after Phase 1 implementation closed (Tasks
 | **T5** | Test review | The hard-coded `LIMIT 1000` in `ListUsers` SQL is not exercised. A table with 1001+ users silently truncates. | Low priority | Population is expensive in integration tests; would need a store-level mock. Document the cap in handler godoc when it becomes a real concern. |
 | **T6** | Test review | `TestListSuperadmins` would break if `setupTestServer` ever started calling `SeedInitialSuperadmin`. | Tracking only | The fragility is a hypothetical; current code doesn't seed in test setup. |
 
+## Deferred items from Phase 1.7/1.8 reviews (2026-04-08)
+
+Phase 1.7 (report server HTTP client) and Phase 1.8 (Resend mailer) were reviewed by both `pensive:code-reviewer` and `pensive:architecture-reviewer` after implementation closed. Tier 1 (correctness/security) and Tier 2 (architectural alignment) were fixed in-phase in 5 commits. Tier 3 items are deferred to specific future phases.
+
+| ID | Source | What | Defer to | Rationale |
+|---|---|---|---|---|
+| **Arch #4 (1.7/1.8)** | Architecture | Saga framework / orphan reconciliation. Both servers currently use best-effort rollback instead of real transactions across the cross-server boundary. The instant Phase 2 adds a second cross-server side effect (e.g., "create license too"), the ad-hoc compensating actions will become unreliable. | Phase 2.x | The trigger is the second cross-server write. Current approach (rollback + logged-orphan signal) is acceptable for one cross-server step. Add an orphan-reconciliation scheduled job before the second cross-server write lands. |
+| **Arch #5 (1.7/1.8)** | Architecture | Temp password delivery flag. Add `delivery: "email" \| "response" \| "both"` request flag. When `"email"`, response omits `admin_temp_password`. Reduces the plaintext surface area from 3 places (report server request body, license server response, email) to 1-2. | Phase 2 | Current flow is acceptable for v1 API; plaintext in response is necessary as a fallback when email delivery fails. The security improvement is real but not urgent. |
+| **Resend content retention** | Architecture observation | Verify Resend's data retention policy — email content may be stored in the Resend dashboard for ~30 days for delivery debugging. If so, turn off content storage via Resend config. | Ops check, not code | Config-only task for the operator deploying the license server. Not in the code's scope. |
+
 ## Deferred items from Phase 1.5 reviews (2026-04-08)
 
 Phase 1.5 (report server identity layer — Tasks 1.5a–e) was reviewed by both `pensive:code-reviewer` and `pensive:architecture-reviewer` after implementation closed. The reviews returned 0 critical findings and confirmed that Phase 1 lessons were applied prophylactically. Tier 1 (correctness/security) and Tier 2 (architectural alignment) were fixed in-phase. The following Tier 3 items are explicitly deferred to specific later phases.

@@ -17,11 +17,21 @@ type Config struct {
 	PublicKey   ed25519.PublicKey  // Corresponding public key
 	BinariesDir string             // Directory for uploaded binary files
 
-	// ReportServerURL is the base URL of the report server to push org
-	// provisioning events to (e.g., "https://reports.example.com").
-	// If empty, handleCreateOrg skips report server provisioning — the
-	// org will exist in the license server but not in the report server.
+	// ReportServerURL is the base URL the LICENSE SERVER uses to
+	// reach the report server from its own process. In a compose
+	// deployment this is usually the service-network hostname
+	// (e.g., "http://triton:8080") — NOT a URL a customer's agent
+	// can resolve. Used for cross-server provisioning calls only.
 	ReportServerURL string
+	// ReportServerPublicURL is the URL customer AGENTS use to
+	// reach the report server from the outside world (e.g.,
+	// "https://reports.example.com"). When empty, handlers that
+	// need to emit a customer-facing URL (the agent.yaml
+	// download, invite emails) fall back to ReportServerURL.
+	// Keep these separate because ReportServerURL may live on an
+	// internal network hostname that is meaningless to an
+	// end-user agent.
+	ReportServerPublicURL string
 	// ReportServerServiceKey is the shared secret used as the
 	// X-Triton-Service-Key header when calling the report server's
 	// admin API. Required alongside ReportServerURL.

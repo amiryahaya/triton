@@ -330,6 +330,10 @@
           '<tr><th>Expires</th><td>' + formatDate(data.expiresAt) + '</td></tr>' +
           '<tr><th>Status</th><td>' + statusBadge(data) + '</td></tr>' +
         '</table>' +
+        '<div class="actions" style="margin:1em 0;">' +
+          '<button class="btn btn-primary" id="download-agent-yaml-btn">Download agent.yaml</button>' +
+          '<span class="text-muted" style="margin-left:0.75em;">Generates a ready-to-ship agent.yaml with an embedded license token. Treat the file as a secret.</span>' +
+        '</div>' +
         '<h3>Activations</h3>' +
         '<table><thead><tr><th>Machine</th><th>Hostname</th><th>OS/Arch</th><th>Last Seen</th><th>Active</th></tr></thead><tbody>';
       for (const a of (data.activations || [])) {
@@ -343,6 +347,65 @@
       }
       html += '</tbody></table>';
       page.innerHTML = html;
+
+      // Wire the Download agent.yaml button. Uses fetch+blob (rather
+      // than a plain anchor) so we can attach the admin-key header
+      // and surface errors inline instead of navigating away.
+      const dlBtn = document.getElementById('download-agent-yaml-btn');
+      if (dlBtn) {
+        // Disable the button for revoked/expired licenses — the server
+        // rejects these anyway, so fail fast in the UI rather than
+        // round-tripping to learn that.
+        const isRevoked = !!data.revoked;
+        const isExpired = data.expiresAt && (new Date(data.expiresAt).getTime() < Date.now());
+        if (isRevoked || isExpired) {
+          dlBtn.disabled = true;
+          dlBtn.title = isRevoked ? 'Cannot download for a revoked license' : 'Cannot download for an expired license';
+        }
+        dlBtn.onclick = async function() {
+          dlBtn.disabled = true;
+          const originalText = dlBtn.textContent;
+          dlBtn.textContent = 'Generating...';
+          try {
+            const resp = await fetch('/api/v1/admin/licenses/' + encodeURIComponent(id) + '/agent-yaml', {
+              method: 'POST',
+              headers: {
+                'X-Triton-Admin-Key': adminKey,
+                'Content-Type': 'application/json'
+              },
+              body: '{}'
+            });
+            if (resp.status === 401 || resp.status === 403) {
+              sessionStorage.removeItem('triton_admin_key');
+              adminKey = '';
+              showAuthPrompt();
+              return;
+            }
+            if (!resp.ok) {
+              let msg = 'Download failed (HTTP ' + resp.status + ')';
+              try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+              alert(msg);
+              return;
+            }
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'agent.yaml';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Release the blob URL on the next tick so the download
+            // has a chance to start before the URL is revoked.
+            setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+          } catch(err) {
+            alert('Download failed. Please try again.');
+          } finally {
+            dlBtn.disabled = isRevoked || isExpired;
+            dlBtn.textContent = originalText;
+          }
+        };
+      }
     } catch(e) { if (e.message !== 'Unauthorized') page.innerHTML = '<h2>License Detail</h2><p class="text-danger">Error loading license</p>'; }
   }
 

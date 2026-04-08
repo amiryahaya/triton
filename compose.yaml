@@ -90,11 +90,13 @@ services:
       HOME: /tmp
       TRITON_DB_URL: postgres://triton:triton@postgres:5432/triton?sslmode=disable
       TRITON_LISTEN: ":8080"
-      # Enterprise licence token for the CLI guard — baked-in dev
-      # token signed by the production pubkey embedded in the
-      # report server binary. For real deployments, issue a fresh
-      # token via the license server.
-      TRITON_LICENSE_KEY: "${TRITON_LICENSE_KEY:-eyJsaWQiOiIwMTljYzNmMS01NjE0LTc0NjUtYWY5NS02NmQ0N2E4NjBkZGEiLCJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9yZyI6ImNvbnRhaW5lci1kZXYiLCJzZWF0cyI6MTAwLCJpYXQiOjE3NzI4MTM4OTksImV4cCI6MjA4ODE3Mzg5OX0.NZTxYq5pRRK6FzxzrOJrxPxhTFC-f-7mwDOI_7rqtRpP-rO0Al5LYqzkyHEEU_eLPmc9uccguiRUp_AItR1jCg}"
+      # Enterprise licence token for the CLI guard. This token is
+      # signed with the dev license server's SIGNING_KEY (the last
+      # 32 bytes of which are the TENANT_PUBKEY below). For real
+      # deployments, issue a fresh token via the license server
+      # admin UI → Licenses → your license → Download agent.yaml,
+      # then extract the license_key field.
+      TRITON_LICENSE_KEY: "${TRITON_LICENSE_KEY:-eyJsaWQiOiIwMTljYzQ0MC0zOWIzLTdjNmYtYWZiYy04N2M4YWUzYjMwZWYiLCJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9pZCI6IjAxOWNjNDNmLWZkYmQtNzIzNC1hNmRlLWVhNWQ1OWI3MDM2OCIsIm9yZyI6IkFudHJhcG9sYXRpb24gVGVjaG5vbG9neSIsInNlYXRzIjoxMCwiaWF0IjoxNzcyODE5MDY5LCJleHAiOjE4MDQzNTUwNjl9.JBgW_9DDWR6nCW9PwiP8VBzpeByXGDr5q4XUiOh-6UzdDMlSEKJPGWOUvdIIF8Al7W6IZVoQmhNtjWVggTFWCw}"
       # Phase 5 Sprint 3 env-var wiring for multi-tenant features.
       # See docs/DEPLOYMENT_GUIDE.md §5b.
       #
@@ -105,6 +107,15 @@ services:
       # Ed25519 seed (32 bytes, 64 hex chars) for signing org-user
       # JWTs. Dev-only — generate a fresh seed for production.
       REPORT_SERVER_JWT_SIGNING_KEY: "${REPORT_SERVER_JWT_SIGNING_KEY:-61627bd3a313381fed68d8fd5d9b10d9155225e1263fef9e05c706e559a507cd}"
+      # Ed25519 PUBLIC key used to verify incoming agent
+      # license tokens. Must correspond to the license server's
+      # TRITON_LICENSE_SERVER_SIGNING_KEY private key — i.e., it's
+      # the LAST 32 bytes of that 64-byte private key. When unset
+      # the report server uses the build-time embedded pubkey,
+      # which will reject any token the local license server
+      # mints. In production, set this to the public half of
+      # whatever keypair your licensing vendor controls.
+      REPORT_SERVER_TENANT_PUBKEY: "${REPORT_SERVER_TENANT_PUBKEY:-e19a10e284169be04604d1b028c25c40d3ebb8cbccaf9de0e53bade5c7cd0016}"
       # Link embedded in resend-invite emails — points at the
       # report server's own login page.
       REPORT_SERVER_INVITE_URL: "${REPORT_SERVER_INVITE_URL:-http://localhost:8090/ui/#/login}"
@@ -143,6 +154,12 @@ services:
       # compose-network hostname `triton` (service name) to reach
       # the report server, not `localhost`.
       TRITON_LICENSE_SERVER_REPORT_URL: "${TRITON_LICENSE_SERVER_REPORT_URL:-http://triton:8080}"
+      # Public URL is what customer agents use to reach the
+      # report server from outside the compose network. For
+      # local dev this points at the host port mapping (8090).
+      # In production, set to the public hostname (e.g.
+      # https://reports.example.com).
+      TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL: "${TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL:-http://localhost:8090}"
       TRITON_LICENSE_SERVER_REPORT_KEY: "${TRITON_LICENSE_SERVER_REPORT_KEY:-dev-service-key-888e5158e28d7e4c15088f1488f2d4b38b5d059f42043342a796505a9c53b2c1}"
       # Phase 5 Sprint 2 — Resend mailer for first-org-admin
       # invites. Pulled from .env (see RESEND_* block). When

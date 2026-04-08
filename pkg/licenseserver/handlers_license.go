@@ -3,8 +3,10 @@ package licenseserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -190,4 +192,258 @@ func (s *Server) handleRevokeLicense(w http.ResponseWriter, r *http.Request) {
 
 	s.audit(r, "license_revoke", id, "", "", map[string]any{"reason": req.Reason})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+// agentYAMLRequest is the optional POST body for the agent.yaml
+// download endpoint. Every field is optional; an empty body
+// produces a machine-unbound token with the license server's
+// configured report_server URL and a "quick" profile default.
+type agentYAMLRequest struct {
+	// ReportServer overrides the license server's configured
+	// ReportServerURL. Operators can leave it empty to use the
+	// server default, or set it explicitly to "" to force
+	// local-report mode even when the server is wired to a
+	// report URL.
+	ReportServer *string `json:"report_server,omitempty"`
+
+	// Profile sets the default scan profile in the generated
+	// agent.yaml. Valid values: "quick" | "standard" |
+	// "comprehensive". When empty, defaults to "quick" so a
+	// license-less drop-and-run still works.
+	Profile string `json:"profile,omitempty"`
+
+	// BindToMachine, when non-empty, makes the minted token
+	// machine-bound via the MachineID claim. The expected value
+	// is the target host's fingerprint string
+	// (SHA-3-256(hostname|GOOS|GOARCH) — compute via
+	// `triton license fingerprint` on the target machine). Leave
+	// empty for the fool-proof "any machine" default.
+	BindToMachine string `json:"bind_to_machine,omitempty"`
+}
+
+// POST /api/v1/admin/licenses/{id}/agent-yaml
+//
+// Generates a ready-to-ship agent.yaml file for a stored license.
+// The license server mints a fresh Ed25519-signed token from the
+// license's claims (same signing path as the activation flow) and
+// bakes it into a YAML template with a prominent security header
+// comment. The resulting file is streamed as an attachment so the
+// superadmin can download it and hand it to the customer.
+//
+// Security note: the default path produces a MACHINE-UNBOUND
+// token — any agent that drops the file in its exe directory can
+// use it. That's the fool-proof deployment trade-off. If a
+// customer wants per-machine scoping, the admin should either
+// (a) use the activation flow (triton license activate
+// --license-id <uuid>) on each target host, or (b) supply
+// bind_to_machine in this request body with the target host's
+// fingerprint.
+//
+// Tokens minted by this endpoint are NOT tracked in the
+// activations table because there's no Activation record until
+// the agent starts using it. Revocation is at the license level:
+// revoking the license invalidates every token it ever minted.
+func (s *Server) handleDownloadAgentYAML(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// Fetch the license. Reuses the same store call
+	// handleGetLicense uses so any consistency logic (e.g.,
+	// revoked-license filtering) stays in one place.
+	lic, err := s.store.GetLicense(r.Context(), id)
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "license not found")
+			return
+		}
+		log.Printf("agent-yaml: get license error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if lic.Revoked {
+		writeError(w, http.StatusBadRequest, "cannot generate agent.yaml for a revoked license")
+		return
+	}
+	if time.Now().After(lic.ExpiresAt) {
+		writeError(w, http.StatusBadRequest, "cannot generate agent.yaml for an expired license")
+		return
+	}
+
+	// Parse the optional request body. An empty body is valid
+	// (the endpoint supports GET-like usage with POST semantics
+	// so the admin UI can send `{}` from fetch without a
+	// content-type mismatch).
+	var req agentYAMLRequest
+	if r.ContentLength > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+	}
+
+	// Validate the profile if one was supplied. Empty string
+	// means "use the default 'quick'" and is fine.
+	profile := strings.TrimSpace(req.Profile)
+	if profile == "" {
+		profile = "quick"
+	}
+	if profile != "quick" && profile != "standard" && profile != "comprehensive" {
+		writeError(w, http.StatusBadRequest,
+			"invalid profile: must be quick, standard, or comprehensive")
+		return
+	}
+
+	// Determine the report_server to embed. Explicit body field
+	// wins (including "" which forces local-only mode). Otherwise
+	// prefer the PUBLIC URL over the internal provisioning URL
+	// because a customer-facing agent.yaml needs a hostname the
+	// agent can actually resolve from outside the server network.
+	// Falls back to the internal URL only when no public URL is
+	// configured, which is a misconfiguration but still better
+	// than silently writing an empty report_server when the
+	// operator intended one.
+	var reportServer string
+	switch {
+	case req.ReportServer != nil:
+		reportServer = *req.ReportServer
+	case s.config.ReportServerPublicURL != "":
+		reportServer = s.config.ReportServerPublicURL
+	default:
+		reportServer = s.config.ReportServerURL
+	}
+
+	// Mint the token. Same signing path as signToken() but with
+	// the machine ID driven by the request body rather than the
+	// per-activation fingerprint.
+	tok, err := s.signToken(lic, req.BindToMachine)
+	if err != nil {
+		log.Printf("agent-yaml: sign token error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	// Build the yaml body. A hand-written template (not
+	// encoding/yaml) because we want the header comment to
+	// survive round-tripping and yaml.Marshal strips comments.
+	body := buildAgentYAML(agentYAMLParams{
+		License:       lic,
+		Token:         tok,
+		ReportServer:  reportServer,
+		Profile:       profile,
+		BindToMachine: req.BindToMachine,
+	})
+
+	s.audit(r, "license_download_agent_yaml", id, "", "", map[string]any{
+		"profile":         profile,
+		"report_server":   reportServer,
+		"machine_bound":   req.BindToMachine != "",
+		"tier":            lic.Tier,
+		"license_expires": lic.ExpiresAt.Format(time.RFC3339),
+	})
+
+	// Stream as a download. application/x-yaml is the de-facto
+	// Content-Type; text/yaml is an alternative some browsers
+	// recognize. Either triggers the Save As dialog when paired
+	// with Content-Disposition: attachment.
+	w.Header().Set("Content-Type", "application/x-yaml; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="agent.yaml"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
+// agentYAMLParams is the set of substitutions buildAgentYAML
+// needs. Extracted as a struct so the formatter stays readable
+// as more fields are added.
+type agentYAMLParams struct {
+	License       *licensestore.LicenseRecord
+	Token         string
+	ReportServer  string
+	Profile       string
+	BindToMachine string
+}
+
+// buildAgentYAML returns a fully-populated agent.yaml file body
+// as a string. The template is kept inline (rather than embedded
+// via //go:embed) so the handler and the file-format comment
+// live in one place and drift between them is impossible.
+//
+// The header comment carries:
+//   - a clear "generated by the license server" marker
+//   - the license ID and org so an operator can trace the file
+//     back to its source in the admin UI
+//   - the expiry date so an operator isn't surprised when the
+//     token stops working
+//   - a security warning about treating the file as a secret
+func buildAgentYAML(p agentYAMLParams) string {
+	machineBindNote := "(not machine-bound — runs on any host)"
+	if p.BindToMachine != "" {
+		machineBindNote = fmt.Sprintf("(machine-bound to fingerprint %s)", p.BindToMachine)
+	}
+
+	reportServerLine := fmt.Sprintf("report_server: %q", p.ReportServer)
+	if p.ReportServer == "" {
+		reportServerLine = `report_server: ""`
+	}
+
+	return fmt.Sprintf(`# =============================================================================
+#  Triton Agent — generated by the License Server
+# =============================================================================
+#
+#  This file was generated by the Triton License Server admin API for
+#  license %s. Drop it next to the triton (or triton.exe) binary and
+#  run the binary — the agent will pick up these settings automatically.
+#
+#  License details:
+#    License ID:   %s
+#    Organization: %s
+#    Tier:         %s
+#    Seats:        %d
+#    Expires:      %s
+#    %s
+#
+#  SECURITY: the license_key below is ALSO the credential the agent
+#  uses to authenticate to a report server. Anyone with this file
+#  can submit scan data as the organization above and (when paired
+#  with a report_server URL) read back that org's results. Keep it
+#  on a trusted filesystem with owner-only read permissions:
+#
+#      chmod 600 agent.yaml          # macOS / Linux
+#      icacls agent.yaml /inheritance:r /grant:r "%%USERNAME%%:R"   # Windows
+#
+#  Rotate by regenerating a new agent.yaml from the license server
+#  admin UI and redistributing to the target host. The old token
+#  remains valid until the license itself is revoked.
+# =============================================================================
+
+license_key: %q
+
+%s
+
+profile: %q
+
+# Reports are written to this directory when report_server is empty.
+# Relative paths are resolved against the directory containing the
+# triton binary (NOT the shell cwd) so double-clicking the binary
+# from a file manager produces reports in a predictable place.
+output_dir: "reports"
+
+# Local-report formats. Leave empty or comment out to generate every
+# format your licence tier allows. Ignored when report_server is set.
+# formats:
+#   - json
+#   - html
+#   - xlsx
+`,
+		p.License.ID,
+		p.License.ID,
+		p.License.OrgName,
+		p.License.Tier,
+		p.License.Seats,
+		p.License.ExpiresAt.Format("2006-01-02"),
+		machineBindNote,
+		p.Token,
+		reportServerLine,
+		p.Profile,
+	)
 }

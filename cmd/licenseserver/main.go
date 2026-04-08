@@ -102,6 +102,14 @@ func run() error {
 	// each side owns its own variable, ops sets both to the same value.
 	reportServerURL := envOr("TRITON_LICENSE_SERVER_REPORT_URL", "")
 	reportServerKey := envOr("TRITON_LICENSE_SERVER_REPORT_KEY", "")
+	// Public URL is the hostname customer agents use to reach
+	// the report server. Distinct from REPORT_URL because the
+	// latter is typically an internal service-mesh name (e.g.,
+	// http://triton:8080) that only resolves inside the deploy
+	// network. The public URL is embedded in agent.yaml
+	// downloads and invite emails. When unset, handlers fall
+	// back to REPORT_URL with a log warning at first use.
+	reportServerPublicURL := envOr("TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL", "")
 	resendAPIKey := envOr("RESEND_API_KEY", "")
 	resendFromEmail := envOr("RESEND_FROM_EMAIL", "")
 	resendFromName := envOr("RESEND_FROM_NAME", "Triton Reports")
@@ -132,6 +140,7 @@ func run() error {
 		PublicKey:              pubKey,
 		BinariesDir:            binariesDir,
 		ReportServerURL:        reportServerURL,
+		ReportServerPublicURL:  reportServerPublicURL,
 		ReportServerServiceKey: reportServerKey,
 		Mailer:                 mailer,
 		ReportServerInviteURL:  reportInviteURL,

@@ -118,6 +118,10 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Get("/licenses", srv.handleListLicenses)
 		r.Get("/licenses/{id}", srv.handleGetLicense)
 		r.Post("/licenses/{id}/revoke", srv.handleRevokeLicense)
+		// agent.yaml download (closes the fool-proof loop —
+		// superadmin clicks one button and gets a ready-to-ship
+		// file with the license's Ed25519 token baked in).
+		r.Post("/licenses/{id}/agent-yaml", srv.handleDownloadAgentYAML)
 
 		// Activations
 		r.Get("/activations", srv.handleListActivations)

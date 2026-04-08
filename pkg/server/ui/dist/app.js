@@ -85,9 +85,16 @@
     font: { family: "'Outfit', system-ui, sans-serif" }
   };
 
+  // escapeHtml escapes the five XML-significant characters. Single quote
+  // MUST be escaped because we use double-quoted HTML attributes, but
+  // any interpolation inside an inline JS string literal (onclick="...('${x}')")
+  // would otherwise be broken out of by a single quote. The safer pattern
+  // is to avoid inline handlers entirely — see the delete-user button
+  // below, which uses data-* attrs + addEventListener.
   function escapeHtml(s) {
     if (s == null) return '';
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
   // Router
@@ -235,10 +242,16 @@
         body: JSON.stringify({current_password: current, new_password: newPw}),
       });
       // Server returns a fresh JWT with mcp=false. Store and continue.
+      // If the server fails to return a token, we refuse to keep the
+      // stale mcp=true JWT (which would re-trigger the forced-change
+      // gate on every page load). Clear local state and force re-login.
       if (data && data.token) {
         auth.setToken(data.token);
+        location.hash = '#/';
+      } else {
+        auth.clearToken();
+        location.hash = '#/login';
       }
-      location.hash = '#/';
     } catch (err) {
       errEl.textContent = err.message;
     }
@@ -258,6 +271,13 @@
 
   // ─── Users view (Phase 3.3 — org admins only) ───────────────────────
   async function renderUsers() {
+    // Defense-in-depth: the router's mcp gate should have redirected
+    // already, but re-check here in case renderUsers is invoked via a
+    // direct function call that bypasses route().
+    if (auth.mustChangePassword()) {
+      location.hash = '#/change-password';
+      return;
+    }
     if (!auth.isAdmin()) {
       content.innerHTML = '<div class="error">Access denied — org admin role required.</div>';
       return;
@@ -267,7 +287,7 @@
       const users = await api('/users');
       let html = `<div class="view-header">
         <h2>Users</h2>
-        <button class="btn btn-primary" onclick="tritonShowCreateUser()">Add user</button>
+        <button class="btn btn-primary" id="btnShowCreateUser">Add user</button>
       </div>`;
       html += `<div id="userFormContainer"></div>`;
       html += `<table>
@@ -275,12 +295,15 @@
         <tbody>`;
       if (users && users.length) {
         for (const u of users) {
+          // Delete button uses data-* attrs + a delegated click handler.
+          // This avoids inline onclick="...('${u.email}')" which is a
+          // stored-XSS vector when email contains a single quote.
           html += `<tr>
             <td>${escapeHtml(u.name)}</td>
             <td>${escapeHtml(u.email)}</td>
             <td><span class="badge">${escapeHtml(u.role)}</span></td>
             <td>${formatDate(u.createdAt)}</td>
-            <td><button class="btn btn-outline btn-sm" onclick="tritonDeleteUser('${escapeHtml(u.id)}', '${escapeHtml(u.email)}')">Delete</button></td>
+            <td><button class="btn btn-outline btn-sm js-delete-user" data-user-id="${escapeHtml(u.id)}" data-user-email="${escapeHtml(u.email)}">Delete</button></td>
           </tr>`;
         }
       } else {
@@ -288,16 +311,27 @@
       }
       html += `</tbody></table>`;
       content.innerHTML = html;
+
+      // Wire up event handlers after innerHTML is set.
+      const addBtn = $('#btnShowCreateUser');
+      if (addBtn) addBtn.addEventListener('click', showCreateUserForm);
+      $$('.js-delete-user').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          const id = ev.currentTarget.dataset.userId;
+          const email = ev.currentTarget.dataset.userEmail;
+          deleteUser(id, email);
+        });
+      });
     } catch (e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
   }
 
-  window.tritonShowCreateUser = function() {
+  function showCreateUserForm() {
     $('#userFormContainer').innerHTML = `
       <div class="auth-card">
         <h3>Add user</h3>
-        <form id="createUserForm" onsubmit="return tritonCreateUser(event)">
+        <form id="createUserForm">
           <label>Email <input type="email" id="newUserEmail" required></label>
           <label>Name <input type="text" id="newUserName" required></label>
           <label>Role
@@ -310,18 +344,18 @@
             <input type="password" id="newUserPassword" required minlength="12">
           </label>
           <button type="submit" class="btn btn-primary">Create</button>
-          <button type="button" class="btn btn-outline" onclick="tritonCancelCreateUser()">Cancel</button>
+          <button type="button" class="btn btn-outline" id="btnCancelCreateUser">Cancel</button>
           <div id="newUserError" class="form-error"></div>
         </form>
       </div>
     `;
-  };
+    $('#createUserForm').addEventListener('submit', createUserHandler);
+    $('#btnCancelCreateUser').addEventListener('click', () => {
+      $('#userFormContainer').innerHTML = '';
+    });
+  }
 
-  window.tritonCancelCreateUser = function() {
-    $('#userFormContainer').innerHTML = '';
-  };
-
-  window.tritonCreateUser = async function(e) {
+  async function createUserHandler(e) {
     e.preventDefault();
     const errEl = $('#newUserError');
     errEl.textContent = '';
@@ -340,9 +374,9 @@
       errEl.textContent = err.message;
     }
     return false;
-  };
+  }
 
-  window.tritonDeleteUser = async function(id, email) {
+  async function deleteUser(id, email) {
     if (!confirm('Delete user ' + email + '? This cannot be undone.')) return;
     try {
       await api('/users/' + encodeURIComponent(id), {method: 'DELETE'});
@@ -350,11 +384,15 @@
     } catch (err) {
       alert('Delete failed: ' + err.message);
     }
-  };
+  }
 
   // renderUserDetail is a stub for #/users/{id} — currently routes back
   // to the list. Reserved for a future per-user edit screen.
   function renderUserDetail(_id) {
+    if (auth.mustChangePassword()) {
+      location.hash = '#/change-password';
+      return;
+    }
     location.hash = '#/users';
   }
 

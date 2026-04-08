@@ -62,7 +62,10 @@ func runServer(_ *cobra.Command, _ []string) error {
 		DataEncryptionKeyHex: os.Getenv("REPORT_SERVER_DATA_ENCRYPTION_KEY"),
 	}
 
-	srv := server.New(cfg, db)
+	srv, err := server.New(cfg, db)
+	if err != nil {
+		return fmt.Errorf("initializing server: %w", err)
+	}
 
 	// Graceful shutdown.
 	errCh := make(chan error, 1)

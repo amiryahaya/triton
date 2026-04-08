@@ -169,18 +169,18 @@ func TestScans_RequireTenantBlocksUnauthenticated(t *testing.T) {
 
 // TestScans_SubmitIgnoresBodyOrgID is the regression test for the D2
 // finding: handleSubmitScan must NEVER trust the client-supplied orgID
-// in the request body. Phase 2 fix sets result.OrgID from
-// TenantFromContext (always — no conditional), so a body that lies
-// about its org gets corrected to the authenticated tenant's org or
-// to empty (single-tenant mode).
-func TestScans_SubmitIgnoresBodyOrgID(t *testing.T) {
+// in the request body. Phase 2 silently corrected the value; Phase 3+4
+// (F1 finding) upgrades this to an explicit 400 rejection so that a
+// mismatch cannot be masked as a successful write — callers that lie
+// about org_id are either buggy or malicious, and in either case the
+// correct response is a hard fail that the operator can see.
+func TestScans_SubmitRejectsCrossOrgBody(t *testing.T) {
 	srv, db := testServerWithJWT(t)
-	orgA, userA := createOrgUser(t, db, "org_user", "correct-horse-battery", false)
+	_, userA := createOrgUser(t, db, "org_user", "correct-horse-battery", false)
 	otherOrgID := "00000000-0000-0000-0000-0000000eeeee" // try to inject into
 
 	token := loginAndExtractToken(t, srv, userA.Email, "correct-horse-battery")
 
-	// Submit a scan with the body claiming a DIFFERENT org.
 	scan := testScanResult(uuid.Must(uuid.NewV7()).String(), "victim-host")
 	scan.OrgID = otherOrgID
 	body, _ := json.Marshal(scan)
@@ -189,13 +189,57 @@ func TestScans_SubmitIgnoresBodyOrgID(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code,
+		"cross-org body org_id must be rejected with 400, not silently overwritten")
+
+	// And the scan must NOT have been persisted.
+	_, err := db.GetScan(context.Background(), scan.ID, "")
+	require.Error(t, err, "scan must not be stored on rejection")
+}
+
+// TestScans_SubmitAcceptsMatchingBodyOrg verifies the happy path where the
+// body's org_id equals the tenant context (agent stamping its own org).
+func TestScans_SubmitAcceptsMatchingBodyOrg(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	orgA, userA := createOrgUser(t, db, "org_user", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, userA.Email, "correct-horse-battery")
+
+	scan := testScanResult(uuid.Must(uuid.NewV7()).String(), "matching-host")
+	scan.OrgID = orgA.ID // matches authenticated tenant
+	body, _ := json.Marshal(scan)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scans", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
 	require.Equal(t, http.StatusCreated, w.Code)
 
-	// Verify the scan was stored under userA's org, NOT the injected one.
 	got, err := db.GetScan(context.Background(), scan.ID, "")
 	require.NoError(t, err)
-	assert.Equal(t, orgA.ID, got.OrgID,
-		"scan must be stored under authenticated user's org, not the body-injected org (D2 regression!)")
+	assert.Equal(t, orgA.ID, got.OrgID)
+}
+
+// TestScans_SubmitAcceptsEmptyBodyOrg verifies agents that omit org_id
+// (the common case: the agent doesn't know its own org) still succeed
+// and have the tenant context stamped for them.
+func TestScans_SubmitAcceptsEmptyBodyOrg(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	orgA, userA := createOrgUser(t, db, "org_user", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, userA.Email, "correct-horse-battery")
+
+	scan := testScanResult(uuid.Must(uuid.NewV7()).String(), "empty-body-host")
+	scan.OrgID = "" // agent didn't know its org
+	body, _ := json.Marshal(scan)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scans", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	got, err := db.GetScan(context.Background(), scan.ID, "")
+	require.NoError(t, err)
+	assert.Equal(t, orgA.ID, got.OrgID, "empty body org_id must be stamped from tenant context")
 }
 
 // TestScans_JWTUserCanGetOwnOrgScan verifies point-lookup tenant

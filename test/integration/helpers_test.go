@@ -63,8 +63,23 @@ const testOrgID = "00000000-0000-0000-0000-000000000abc"
 
 // requireServer creates a real TCP httptest.NewServer backed by PostgreSQL.
 // Returns the server URL (no trailing slash) and the underlying store.
-// Configures a single-tenant Guard so data routes work without requiring
-// per-request authentication.
+//
+// IMPORTANT: this helper installs a single-tenant enterprise-tier Guard
+// bound to testOrgID. That has two side effects that call sites rely on:
+//
+//  1. The server's UnifiedAuth middleware falls back to the Guard's
+//     OrgID when no JWT or license-token header is present, which
+//     satisfies RequireTenant for unauthenticated requests. Tests can
+//     therefore call /api/v1/scans, /aggregate, etc. without setting
+//     any headers, as long as the scans they seed are stamped with
+//     testOrgID (makeScanResult and makeScanResultWithPQC do this).
+//
+//  2. The LicenceGate middleware permits enterprise-only features like
+//     /diff and /trend, because the Guard reports TierEnterprise.
+//
+// If a test needs to exercise the unauthenticated-without-guard path
+// (e.g., to verify RequireTenant blocks), build a server directly in
+// the test or use requireServerWithGuard with a different configuration.
 func requireServer(t *testing.T) (string, *store.PostgresStore) {
 	t.Helper()
 	db := requireDB(t)
@@ -88,7 +103,8 @@ func requireServer(t *testing.T) (string, *store.PostgresStore) {
 		ListenAddr: ":0",
 		Guard:      guard,
 	}
-	srv := server.New(cfg, db)
+	srv, err := server.New(cfg, db)
+	require.NoError(t, err)
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 	return ts.URL, db
@@ -127,7 +143,8 @@ func requireServerWithGuard(t *testing.T, tier license.Tier) (string, *store.Pos
 		ListenAddr: ":0",
 		Guard:      guard,
 	}
-	srv := server.New(cfg, db)
+	srv, err := server.New(cfg, db)
+	require.NoError(t, err)
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 	return ts.URL, db
@@ -244,10 +261,7 @@ func makeScanResultWithPQC(id, hostname string, safe, trans, dep, unsafe int) *m
 }
 
 // submitScan POSTs a scan to the server and asserts a 201 response. Returns the scan ID.
-// The second parameter (formerly apiKey) is now unused and kept for signature
-// compatibility with call sites that still pass "". Will be removed in a
-// follow-up cleanup.
-func submitScan(t *testing.T, serverURL, _ string, scan *model.ScanResult) string {
+func submitScan(t *testing.T, serverURL string, scan *model.ScanResult) string {
 	t.Helper()
 	body, err := json.Marshal(scan)
 	require.NoError(t, err)

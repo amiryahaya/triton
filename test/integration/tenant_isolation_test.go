@@ -167,7 +167,8 @@ func requireTenantServer(t *testing.T) (platformURL, tokenA, tokenB string) {
 		Guard:        guard,
 		TenantPubKey: pub,
 	}
-	srv := server.New(cfg, db)
+	srv, err := server.New(cfg, db)
+	require.NoError(t, err)
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 

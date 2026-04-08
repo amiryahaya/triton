@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -22,6 +25,16 @@ import (
 // single-tenant Guard identity for E2E tests. Matches the value used
 // by global-setup.js when seeding scans.
 const testOrgID = "00000000-0000-0000-0000-000000000abc"
+
+// Seed credentials for the auth-flow E2E tests (auth.spec.js). A fresh
+// admin user is created on every testserver startup so the password
+// change flow has a clean slate. These values are public test fixtures
+// — do NOT reuse outside the E2E harness.
+const (
+	seedAdminEmail    = "e2e-admin@triton.test"
+	seedAdminPassword = "e2e-initial-pw-12345"
+	seedAdminName     = "E2E Admin"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -77,12 +90,34 @@ func run() error {
 	}
 	guard := license.NewGuardFromToken(token, pub)
 
-	cfg := &server.Config{
-		ListenAddr: listen,
-		DBUrl:      dbURL,
-		Guard:      guard,
+	// Also generate a report-server JWT signing keypair so the auth
+	// endpoints (/api/v1/auth/login, change-password, /api/v1/users)
+	// are registered. Existing E2E tests never hit these routes; the
+	// auth.spec.js suite added in Phase 3+4 review follow-up does.
+	jwtPub, jwtPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generating JWT keypair: %w", err)
 	}
-	srv := server.New(cfg, db)
+
+	// Seed the initial org + admin user. The login E2E needs an
+	// account to sign in with, and we want the same credentials on
+	// every testserver start so the Playwright spec can hard-code
+	// them. Password is bcrypt-hashed to match server expectations.
+	if err := seedAuthFixtures(ctx, db); err != nil {
+		return fmt.Errorf("seeding auth fixtures: %w", err)
+	}
+
+	cfg := &server.Config{
+		ListenAddr:    listen,
+		DBUrl:         dbURL,
+		Guard:         guard,
+		JWTSigningKey: jwtPriv,
+		JWTPublicKey:  jwtPub,
+	}
+	srv, err := server.New(cfg, db)
+	if err != nil {
+		return fmt.Errorf("initializing test server: %w", err)
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start() }()
@@ -99,4 +134,35 @@ func run() error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// seedAuthFixtures creates testOrgID + a seed admin user with
+// must_change_password=true so the auth.spec.js flow can walk through
+// login → change-password → users CRUD on every testserver start.
+// Safe to call after TruncateAll.
+func seedAuthFixtures(ctx context.Context, db *store.PostgresStore) error {
+	org := &store.Organization{
+		ID:   testOrgID,
+		Name: "E2E Test Org",
+	}
+	if err := db.CreateOrg(ctx, org); err != nil {
+		return fmt.Errorf("create org: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(seedAdminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("bcrypt: %w", err)
+	}
+	user := &store.User{
+		ID:                 uuid.Must(uuid.NewV7()).String(),
+		OrgID:              testOrgID,
+		Email:              seedAdminEmail,
+		Name:               seedAdminName,
+		Role:               "org_admin",
+		Password:           string(hash),
+		MustChangePassword: true, // force change-pw flow on first login
+	}
+	if err := db.CreateUser(ctx, user); err != nil {
+		return fmt.Errorf("create user: %w", err)
+	}
+	return nil
 }

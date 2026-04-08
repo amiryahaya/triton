@@ -38,8 +38,16 @@ Triton server. Use --interval for continuous scanning.`,
 func init() {
 	// --report-server is the canonical Phase 4 name; --server is kept
 	// as an alias for one release cycle for backward compatibility.
+	// Cobra prints the MarkDeprecated message to stderr whenever the
+	// user passes --server, giving operators an audible migration cue.
 	agentCmd.Flags().StringVar(&agentServer, "report-server", "", "Report server URL (e.g., http://localhost:8080)")
 	agentCmd.Flags().StringVar(&agentServer, "server", "", "Alias for --report-server (deprecated, will be removed)")
+	if err := agentCmd.Flags().MarkDeprecated("server", "use --report-server instead"); err != nil {
+		// MarkDeprecated only fails if the flag doesn't exist, which
+		// would be a programmer error caught immediately by any CLI
+		// test. Panic is appropriate here (init-time invariant).
+		panic(fmt.Sprintf("agent cmd: MarkDeprecated(server): %v", err))
+	}
 	agentCmd.Flags().StringVar(&agentProfile, "profile", "quick", "Scan profile: quick, standard, comprehensive")
 	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h). If unset, runs once.")
 	rootCmd.AddCommand(agentCmd)

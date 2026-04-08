@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -61,23 +62,30 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// New creates a new Server with the given config and store.
-func New(cfg *Config, s store.Store) *Server {
-	// If at-rest encryption is configured, build the encryptor and
-	// install it on the store BEFORE the server begins handling
-	// requests. Doing this here (rather than in cmd/server.go) keeps
-	// the configuration surface in one place: callers set
-	// cfg.DataEncryptionKeyHex and don't need to know about
-	// store.SetEncryptor.
+// New creates a new Server with the given config and store. It returns
+// an error for any configuration that would silently downgrade security:
+// today that is a malformed DataEncryptionKeyHex, which used to fall
+// through to plaintext storage after a "FATAL" log line. Callers MUST
+// check the returned error and refuse to start the process on failure.
+func New(cfg *Config, s store.Store) (*Server, error) {
+	// Validate the at-rest encryption key first — independently of the
+	// store's concrete type. A malformed key is a fatal misconfiguration
+	// regardless of whether encryption would actually be wired up for
+	// this store, because an operator who set the env var clearly
+	// intended encryption. Silently continuing unencrypted would mask
+	// a config bug and violate the operator's expectation.
 	if cfg.DataEncryptionKeyHex != "" {
+		enc, err := store.NewEncryptor(cfg.DataEncryptionKeyHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DataEncryptionKeyHex: %w", err)
+		}
+		// Only *PostgresStore currently supports at-rest encryption.
+		// For other store types (e.g., future in-memory/testing stores)
+		// the validated key is simply ignored — we still validated it
+		// to preserve the fail-fast contract above.
 		if ps, ok := s.(*store.PostgresStore); ok {
-			enc, err := store.NewEncryptor(cfg.DataEncryptionKeyHex)
-			if err != nil {
-				log.Printf("FATAL: invalid DataEncryptionKeyHex: %v", err)
-			} else {
-				ps.SetEncryptor(enc)
-				log.Printf("at-rest scan data encryption enabled (AES-256-GCM)")
-			}
+			ps.SetEncryptor(enc)
+			log.Printf("at-rest scan data encryption enabled (AES-256-GCM)")
 		}
 	}
 
@@ -196,7 +204,7 @@ func New(cfg *Config, s store.Store) *Server {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	return srv
+	return srv, nil
 }
 
 func (s *Server) registerAPIRoutes(r chi.Router) {

@@ -45,6 +45,7 @@
 - Phase 1.5 — 2 rounds — 9 findings fixed
 - Phase 1.7/1.8 — 2 rounds — 9 findings fixed (incl. D1 rollback-cancel bug, D2 admin field validation)
 - Phase 2 — 2 rounds — 8 findings fixed (incl. CRITICAL D1: tenant isolation bypass from missing RequireTenant wire)
+- Phase 3+4 — 1 round (code-reviewer + architecture-reviewer) — Tier 1+2 fixed: C1 XSS (single-quote escape + data-attrs), H1 server.New returns error on bad enc key, H2 `--server` MarkDeprecated, F1 POST /scans rejects cross-org body, M1 clear stale JWT on change-pw, M2 mcp gate defence-in-depth, M3 drop dead submitScan param, M4 auth.spec.js E2E, F2 requireServer godoc.
 
 **Deferred to future phases (documented below):** saga/orphan reconciliation, ValidationCache wiring decision, encryption envelope → bytea migration, invite expiry, password constant consolidation, the DEPLOYMENT_GUIDE rewrite, and the Triton → Report Server user-facing rename.
 

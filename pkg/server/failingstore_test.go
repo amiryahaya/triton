@@ -57,7 +57,8 @@ func setupServerWithFailingStore(t *testing.T) (*Server, *store.PostgresStore, *
 		JWTSigningKey: priv,
 		JWTPublicKey:  pub,
 	}
-	srv := New(cfg, wrap)
+	srv, err := New(cfg, wrap)
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		ts := httptest.NewServer(srv.Router())
 		ts.Close()

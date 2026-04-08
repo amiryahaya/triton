@@ -61,13 +61,19 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Always stamp org_id from the tenant context. NEVER trust the
-	// client-supplied org_id in the request body — that would let an
-	// authenticated user or an unauthenticated single-tenant client
-	// inject scans into any org by lying in the body. This closes the
-	// D2 finding from the Phase 2 review: body-injection is prevented
-	// even on the unauthenticated path by clearing orgID before save.
-	result.OrgID = TenantFromContext(r.Context())
+	// Tenant org_id is stamped from the authenticated context — NEVER
+	// trusted from the body. A body that lies about org_id is either a
+	// bug or an attack. The Phase 2 fix silently corrected the value;
+	// the Phase 3+4 review (F1) upgraded this to a hard 400 rejection
+	// so operators can see and diagnose cross-org submissions. Legacy
+	// agents that don't set org_id (empty string) are still accepted.
+	tenantOrg := TenantFromContext(r.Context())
+	if result.OrgID != "" && tenantOrg != "" && result.OrgID != tenantOrg {
+		writeError(w, http.StatusBadRequest,
+			"scan org_id in body does not match authenticated tenant; omit org_id from the body or fix the agent config")
+		return
+	}
+	result.OrgID = tenantOrg
 
 	if err := s.store.SaveScan(r.Context(), &result); err != nil {
 		log.Printf("save scan error: %v", err)

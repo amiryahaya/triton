@@ -84,7 +84,8 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 		// the test server's tenant filter.
 		Guard: testGuardForOrg(t, testOrgID),
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db
 }
 
@@ -113,7 +114,8 @@ func testServerWithServiceKey(t *testing.T) (*Server, *store.PostgresStore, stri
 		ListenAddr: ":0",
 		ServiceKey: serviceKey,
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db, serviceKey
 }
 
@@ -144,7 +146,8 @@ func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
 		JWTSigningKey: priv,
 		JWTPublicKey:  pub,
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db
 }
 
@@ -1042,7 +1045,8 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 		ListenAddr: ":0",
 		Guard:      guard,
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db
 }
 

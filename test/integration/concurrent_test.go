@@ -128,7 +128,7 @@ func TestConcurrent_ServerUnderLoad(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		s := makeScanResult("", "load-host", 10)
 		seedIDs[i] = s.ID
-		submitScan(t, serverURL, "", s)
+		submitScan(t, serverURL, s)
 	}
 
 	const n = 50

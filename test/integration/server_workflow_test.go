@@ -24,12 +24,12 @@ func TestWorkflow_SubmitRetrieveDiff(t *testing.T) {
 
 	s1 := makeScanResultWithPQC("", "host-a", 3, 2, 1, 0)
 	s1.Metadata.Timestamp = time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s1)
+	submitScan(t, serverURL, s1)
 
 	// Add an extra finding in scan2
 	s2 := makeScanResultWithPQC("", "host-a", 4, 2, 1, 0)
 	s2.Metadata.Timestamp = time.Now().UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s2)
+	submitScan(t, serverURL, s2)
 
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s1.ID, s2.ID))
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestWorkflow_SubmitMultipleGetTrend(t *testing.T) {
 			10+i, 5, 3, 2-min(i, 2),
 		)
 		s.Metadata.Timestamp = base.Add(time.Duration(i) * time.Hour).Truncate(time.Microsecond)
-		submitScan(t, serverURL, "", s)
+		submitScan(t, serverURL, s)
 	}
 
 	resp, err := http.Get(serverURL + "/api/v1/trend?hostname=trend-host&last=10")
@@ -78,7 +78,7 @@ func TestWorkflow_SubmitThenPolicyEvaluate(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
 	s := makeScanResultWithPQC("", "policy-host", 5, 3, 2, 1)
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	body := fmt.Sprintf(`{"scanID":"%s","policyName":"nacsa-2030"}`, s.ID)
 	resp, err := http.Post(serverURL+"/api/v1/policy/evaluate", "application/json", strings.NewReader(body))
@@ -96,7 +96,7 @@ func TestWorkflow_SubmitThenGenerateReport(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
 	s := makeScanResult("", "report-host", 10)
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	resp, err := http.Get(serverURL + "/api/v1/reports/" + s.ID + "/json")
 	require.NoError(t, err)
@@ -114,11 +114,11 @@ func TestWorkflow_FullChain(t *testing.T) {
 
 	s1 := makeScanResultWithPQC("", "chain-host", 5, 3, 2, 1)
 	s1.Metadata.Timestamp = time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s1)
+	submitScan(t, serverURL, s1)
 
 	s2 := makeScanResultWithPQC("", "chain-host", 7, 2, 1, 0)
 	s2.Metadata.Timestamp = time.Now().UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s2)
+	submitScan(t, serverURL, s2)
 
 	// Diff
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s1.ID, s2.ID))
@@ -150,9 +150,9 @@ func TestWorkflow_FullChain(t *testing.T) {
 func TestWorkflow_MachineAggregation(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	submitScan(t, serverURL, "", makeScanResult("wf-machine-1", "host-alpha", 5))
-	submitScan(t, serverURL, "", makeScanResult("wf-machine-2", "host-alpha", 5))
-	submitScan(t, serverURL, "", makeScanResult("wf-machine-3", "host-beta", 5))
+	submitScan(t, serverURL, makeScanResult("wf-machine-1", "host-alpha", 5))
+	submitScan(t, serverURL, makeScanResult("wf-machine-2", "host-alpha", 5))
+	submitScan(t, serverURL, makeScanResult("wf-machine-3", "host-beta", 5))
 
 	// List machines
 	resp, err := http.Get(serverURL + "/api/v1/machines")
@@ -180,7 +180,7 @@ func TestWorkflow_DeleteAndVerify(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
 	s := makeScanResult("", "del-host", 5)
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	// DELETE
 	req, err := http.NewRequest("DELETE", serverURL+"/api/v1/scans/"+s.ID, nil)
@@ -202,12 +202,12 @@ func TestWorkflow_UpsertScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
 	s := makeScanResultWithPQC("", "upsert-host", 2, 1, 0, 0)
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	// Submit again with updated summary
 	s.Summary.Safe = 10
 	s.Summary.TotalFindings = 10
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	got := getScan(t, serverURL, s.ID)
 	assert.Equal(t, 10, got.Summary.Safe, "should reflect updated data after upsert")
@@ -220,22 +220,22 @@ func TestWorkflow_ListWithFilters(t *testing.T) {
 	s1 := makeScanResult("wf-filter-1", "filter-host-a", 5)
 	s1.Metadata.ScanProfile = "quick"
 	s1.Metadata.Timestamp = time.Now().Add(-4 * time.Hour).UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s1)
+	submitScan(t, serverURL, s1)
 
 	s2 := makeScanResult("wf-filter-2", "filter-host-a", 5)
 	s2.Metadata.ScanProfile = "standard"
 	s2.Metadata.Timestamp = time.Now().Add(-3 * time.Hour).UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s2)
+	submitScan(t, serverURL, s2)
 
 	s3 := makeScanResult("wf-filter-3", "filter-host-b", 5)
 	s3.Metadata.ScanProfile = "quick"
 	s3.Metadata.Timestamp = time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s3)
+	submitScan(t, serverURL, s3)
 
 	s4 := makeScanResult("wf-filter-4", "filter-host-b", 5)
 	s4.Metadata.ScanProfile = "comprehensive"
 	s4.Metadata.Timestamp = time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Microsecond)
-	submitScan(t, serverURL, "", s4)
+	submitScan(t, serverURL, s4)
 
 	// Filter by hostname
 	resp, err := http.Get(serverURL + "/api/v1/scans?hostname=filter-host-a")

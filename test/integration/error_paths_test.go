@@ -118,7 +118,7 @@ func TestError_InvalidPolicyYAML(t *testing.T) {
 
 	// First submit a scan so we have something to evaluate
 	s := makeScanResult("", "err-host", 5)
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	body := fmt.Sprintf(`{"scanID":"%s","policyYAML":"this is not : valid : yaml : ["}`, s.ID)
 	resp, err := http.Post(serverURL+"/api/v1/policy/evaluate", "application/json", strings.NewReader(body))
@@ -144,7 +144,7 @@ func TestError_EmptyScan(t *testing.T) {
 		Findings: []model.Finding{},
 		Summary:  model.Summary{TotalFindings: 0},
 	}
-	submitScan(t, serverURL, "", emptyScan)
+	submitScan(t, serverURL, emptyScan)
 
 	// Get findings
 	resp, err := http.Get(serverURL + "/api/v1/scans/" + scanID + "/findings")
@@ -164,7 +164,7 @@ func TestError_DiffSameScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
 	s := makeScanResult("", "diff-host", 10)
-	submitScan(t, serverURL, "", s)
+	submitScan(t, serverURL, s)
 
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/diff?base=%s&compare=%s", serverURL, s.ID, s.ID))
 	require.NoError(t, err)

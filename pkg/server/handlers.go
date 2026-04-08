@@ -367,17 +367,27 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/v1/reports/{id}/{format}
+//
+// Streams a generated report for a stored scan. Supported formats:
+//
+//	json       — Triton proprietary JSON
+//	html       — standalone HTML dashboard
+//	xlsx       — Malaysian government Jadual 1/2 Excel workbook
+//	cyclonedx  — CycloneDX 1.7 SBOM/CBOM (alias: cdx)
+//	sarif      — SARIF for IDE/CI integration (enterprise tier)
+//
+// Format gating is enforced through the licence guard. The scan is
+// fetched tenant-scoped so one org's admin cannot download another
+// org's report.
 func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	format := chi.URLParam(r, "format")
+	format := normalizeReportFormat(chi.URLParam(r, "format"))
 
-	// Enforce format-level licence gate
+	// Enforce format-level licence gate. Use the normalized
+	// canonical name so the guard's internal lookup doesn't care
+	// whether the caller used cdx or cyclonedx in the URL.
 	if s.guard != nil {
-		licFormat := format
-		if licFormat == "cyclonedx" {
-			licFormat = "cdx"
-		}
-		if err := s.guard.EnforceFormat(licFormat); err != nil {
+		if err := s.guard.EnforceFormat(format); err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
 			return
 		}
@@ -400,23 +410,20 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		result.Systems = model.GroupFindingsIntoSystemsWithAgility(result.Findings, crypto.AssessAssetAgility)
 	}
 
-	// Validate format before doing any work.
-	var ext string
-	switch format {
-	case "sarif":
-		ext = ".sarif"
-	case "html":
-		ext = ".html"
-	case "json":
-		ext = ".json"
-	case "cyclonedx":
-		ext = ".cdx.json"
-	default:
+	// Validate format before doing any work. Unknown formats
+	// return 400 rather than a later 500 during generation.
+	ext, contentType, ok := reportFormatMetadata(format)
+	if !ok {
 		writeError(w, http.StatusBadRequest, "unsupported format: "+format)
 		return
 	}
 
-	// Use os.CreateTemp for unique filenames to avoid concurrent overwrite.
+	// Use os.CreateTemp for a unique path that survives concurrent
+	// report generation. The file is closed immediately because
+	// each Generate* method reopens it internally: html/json/sarif/
+	// cdx write via os.WriteFile; xlsx first overwrites the temp
+	// with the embedded PQC template bytes (copyTemplate), then
+	// excelize opens it to populate sheets.
 	tmpFile, tmpErr := os.CreateTemp("", "triton-report-*"+ext)
 	if tmpErr != nil {
 		log.Printf("create temp file error: %v", tmpErr)
@@ -424,10 +431,10 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fullPath := tmpFile.Name()
-	_ = tmpFile.Close()                        // report generator opens the file itself
-	defer func() { _ = os.Remove(fullPath) }() // clean up temp file on all paths
-	gen := report.New(filepath.Dir(fullPath))
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(fullPath) }()
 
+	gen := report.New(filepath.Dir(fullPath))
 	switch format {
 	case "sarif":
 		err = gen.GenerateSARIF(result, fullPath)
@@ -435,8 +442,10 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		err = gen.GenerateHTML(result, fullPath)
 	case "json":
 		err = gen.GenerateTritonJSON(result, fullPath)
-	case "cyclonedx":
+	case "cdx":
 		err = gen.GenerateCycloneDXBOM(result, fullPath)
+	case "xlsx":
+		err = gen.GenerateExcel(result, fullPath)
 	}
 
 	if err != nil {
@@ -454,15 +463,45 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = f.Close() }()
 
 	filename := fmt.Sprintf("triton-report-%s%s", id, ext)
-	switch format {
-	case "html":
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	case "sarif", "json", "cyclonedx":
-		w.Header().Set("Content-Type", "application/json")
-	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, f)
+}
+
+// normalizeReportFormat canonicalizes URL-supplied format names so
+// the rest of the handler speaks a single vocabulary. Accepts both
+// "cdx" and "cyclonedx" for the CycloneDX format, and lower-cases
+// everything so clients don't have to match our spelling exactly.
+func normalizeReportFormat(format string) string {
+	format = strings.ToLower(format)
+	if format == "cyclonedx" {
+		return "cdx"
+	}
+	return format
+}
+
+// reportFormatMetadata returns the on-disk file extension and the
+// Content-Type header to use for a given canonical format name.
+// The returned ok flag is false for unknown formats so the caller
+// can return 400 before any work is done.
+func reportFormatMetadata(format string) (ext, contentType string, ok bool) {
+	switch format {
+	case "sarif":
+		return ".sarif", "application/json", true
+	case "html":
+		return ".html", "text/html; charset=utf-8", true
+	case "json":
+		return ".json", "application/json", true
+	case "cdx":
+		return ".cdx.json", "application/json", true
+	case "xlsx":
+		return ".xlsx",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			true
+	default:
+		return "", "", false
+	}
 }
 
 // GET /api/v1/aggregate

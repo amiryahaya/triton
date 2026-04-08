@@ -184,9 +184,9 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 // extractBearerToken extracts the token from "Authorization: Bearer <token>".
 func extractBearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
 		return ""
 	}
-	return strings.TrimPrefix(auth, "Bearer ")
+	return strings.TrimPrefix(header, "Bearer ")
 }

@@ -14,12 +14,28 @@ import (
 )
 
 // POST /api/v1/admin/orgs
+//
+// Creates an organization in the license server. If admin_email and
+// admin_name are supplied AND a report server is configured, also
+// provisions the org on the report server (creates the org row +
+// first admin user with a generated temporary password).
+//
+// The temporary password is returned in the response exactly once —
+// the license server admin (or Phase 1.8 Resend integration) must
+// deliver it to the invited admin out of band. It is never persisted
+// in the license server.
+//
+// If provisioning fails, the org is rolled back in the license server
+// to keep the two servers consistent. Idempotency on the report server
+// side means a retry with the same org ID + name is safe.
 func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
-		Name    string `json:"name"`
-		Contact string `json:"contact"`
-		Notes   string `json:"notes"`
+		Name       string `json:"name"`
+		Contact    string `json:"contact"`
+		Notes      string `json:"notes"`
+		AdminEmail string `json:"admin_email,omitempty"`
+		AdminName  string `json:"admin_name,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -32,6 +48,19 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 	if tooLong(req.Name, maxNameLen) || tooLong(req.Contact, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
 		return
+	}
+
+	// If the caller supplied admin invite fields, both must be present.
+	wantProvision := req.AdminEmail != "" || req.AdminName != ""
+	if wantProvision {
+		if req.AdminEmail == "" || req.AdminName == "" {
+			writeError(w, http.StatusBadRequest, "admin_email and admin_name must be supplied together")
+			return
+		}
+		if s.reportClient == nil {
+			writeError(w, http.StatusServiceUnavailable, "report server not configured; cannot provision admin")
+			return
+		}
 	}
 
 	now := time.Now().UTC()
@@ -55,7 +84,53 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Provision the admin on the report server if requested.
+	var tempPassword string
+	if wantProvision {
+		generated, err := GenerateTempPassword()
+		if err != nil {
+			log.Printf("create org: temp password generation failed: %v", err)
+			// Roll back the org since provisioning is a hard dependency here.
+			if delErr := s.store.DeleteOrg(r.Context(), org.ID); delErr != nil {
+				log.Printf("create org: ROLLBACK FAILED — orphan org %s: %v", org.ID, delErr)
+			}
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+		tempPassword = generated
+
+		_, err = s.reportClient.ProvisionOrg(r.Context(), ProvisionOrgRequest{
+			ID:                org.ID,
+			Name:              org.Name,
+			AdminEmail:        req.AdminEmail,
+			AdminName:         req.AdminName,
+			AdminTempPassword: tempPassword,
+		})
+		if err != nil {
+			log.Printf("create org: report server provisioning failed: %v", err)
+			// Roll back the org so the two servers stay consistent.
+			if delErr := s.store.DeleteOrg(r.Context(), org.ID); delErr != nil {
+				log.Printf("create org: ROLLBACK FAILED — orphan org %s: %v", org.ID, delErr)
+			}
+			writeError(w, http.StatusBadGateway, "report server provisioning failed")
+			return
+		}
+	}
+
 	s.audit(r, "org_create", "", org.ID, "", nil)
+
+	// If we provisioned an admin, return the temp password exactly once
+	// so the license server admin can deliver it. Phase 1.8 will replace
+	// this with Resend email delivery — the temp password will still be
+	// returned in the response for automation scenarios.
+	if wantProvision {
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"org":                 org,
+			"admin_email":         req.AdminEmail,
+			"admin_temp_password": tempPassword,
+		})
+		return
+	}
 	writeJSON(w, http.StatusCreated, org)
 }
 

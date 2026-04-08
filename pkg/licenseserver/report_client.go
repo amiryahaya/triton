@@ -1,0 +1,137 @@
+package licenseserver
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+)
+
+// ReportClient pushes provisioning calls from the license server to the
+// report server. It is the client-side counterpart to the report server's
+// POST /api/v1/admin/orgs endpoint (Phase 1.5b).
+//
+// Usage: create once at server startup via NewReportClient(url, serviceKey)
+// and reuse for all provisioning calls. Nil is a valid zero-value meaning
+// "no report server configured" — in that case, license server handlers
+// skip provisioning entirely.
+type ReportClient struct {
+	baseURL    string
+	serviceKey string
+	httpClient *http.Client
+}
+
+// NewReportClient constructs a client. If baseURL or serviceKey is empty,
+// returns nil — callers should check and skip provisioning if so.
+func NewReportClient(baseURL, serviceKey string) *ReportClient {
+	if baseURL == "" || serviceKey == "" {
+		return nil
+	}
+	return &ReportClient{
+		baseURL:    baseURL,
+		serviceKey: serviceKey,
+		httpClient: &http.Client{Timeout: 15 * time.Second},
+	}
+}
+
+// ProvisionOrgRequest mirrors the report server's provisionOrgRequest
+// (pkg/server/handlers_admin.go). Kept as a separate type on the client
+// side to avoid coupling the two packages.
+type ProvisionOrgRequest struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	AdminEmail        string `json:"admin_email"`
+	AdminName         string `json:"admin_name"`
+	AdminTempPassword string `json:"admin_temp_password"`
+}
+
+// ProvisionOrgResponse captures the fields the license server cares
+// about from the report server's response. Extra fields are ignored.
+type ProvisionOrgResponse struct {
+	Org struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"org"`
+	AdminUserID   string `json:"admin_user_id"`
+	AlreadyExists bool   `json:"already_exists"`
+}
+
+// ProvisionOrg calls the report server's provisioning endpoint.
+//
+// Idempotency: if the org already exists on the report server with the
+// same ID+name, the call succeeds with AlreadyExists=true (no new user
+// is created). This makes retry safe.
+//
+// Errors are returned for: network failure, non-2xx response, or a
+// response body that can't be parsed. Callers should decide whether
+// to surface the failure to the admin (hard dependency) or log and
+// continue (best effort) — this function does not decide.
+func (c *ReportClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequest) (*ProvisionOrgResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling provision request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/admin/orgs", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("building provision request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Triton-Service-Key", c.serviceKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("provision request: %w", err)
+	}
+	defer func() {
+		// Drain the body so the connection can be reused.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	// Cap response body to 64 KB — provisioning responses are small, and
+	// an unbounded Read would be a DoS vector if the report server is
+	// compromised.
+	limited := io.LimitReader(resp.Body, 64<<10)
+	respBody, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("reading provision response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("provision failed: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var out ProvisionOrgResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("parsing provision response: %w", err)
+	}
+	out.AlreadyExists = resp.StatusCode == http.StatusOK // 200 means idempotent retry
+	return &out, nil
+}
+
+// GenerateTempPassword returns a cryptographically random 24-character
+// base64url-encoded password suitable for a one-time invite. 18 random
+// bytes × 4/3 base64 expansion = 24 chars. Well above the 12-char minimum
+// enforced by the report server's provisioning handler.
+//
+// The license server generates the password (not the report server)
+// because it's the side that emails the admin via Resend in Phase 1.8.
+// The report server never sees it in plaintext after storage.
+func GenerateTempPassword() (string, error) {
+	raw := make([]byte, 18)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generating temp password: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// Error sentinel callers can check for when they want to distinguish
+// "report server unreachable" from other failures.
+var ErrReportServerUnreachable = errors.New("report server unreachable")

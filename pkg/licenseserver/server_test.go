@@ -32,6 +32,16 @@ var serverTestSeq atomic.Int64
 
 func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStore) {
 	t.Helper()
+	ts, store, _ := setupTestServerWithReport(t, nil)
+	return ts, store
+}
+
+// setupTestServerWithReport sets up a license server optionally wired to
+// a fake report server (for Phase 1.7 provisioning tests). Pass nil for
+// reportHandler to skip report server configuration (same as setupTestServer).
+// Returns (ts, store, reportTS) — reportTS is nil when reportHandler is nil.
+func setupTestServerWithReport(t *testing.T, reportHandler http.HandlerFunc) (*httptest.Server, *licensestore.PostgresStore, *httptest.Server) {
+	t.Helper()
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
 	if dbURL == "" {
 		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
@@ -53,15 +63,28 @@ func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStor
 		PublicKey:   pub,
 		BinariesDir: t.TempDir(),
 	}
+
+	// If a report handler was supplied, spin up a fake report server
+	// and wire it into the license server config.
+	var reportTS *httptest.Server
+	if reportHandler != nil {
+		reportTS = httptest.NewServer(reportHandler)
+		cfg.ReportServerURL = reportTS.URL
+		cfg.ReportServerServiceKey = "test-shared-secret"
+	}
+
 	srv := licenseserver.New(cfg, store)
 	ts := httptest.NewServer(srv.Router())
 
 	t.Cleanup(func() {
 		ts.Close()
+		if reportTS != nil {
+			reportTS.Close()
+		}
 		_ = store.DropSchema(ctx)
 		store.Close()
 	})
-	return ts, store
+	return ts, store, reportTS
 }
 
 func adminReq(t *testing.T, method, url string, body any) *http.Response {
@@ -154,6 +177,129 @@ func TestCreateOrg_MissingName(t *testing.T) {
 	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// --- Phase 1.7: org create with report server provisioning ---
+
+// TestCreateOrg_WithAdminProvisionsReportServer verifies that when the
+// license server admin supplies admin_email + admin_name, the report
+// server is called with a temp password, and the response surfaces the
+// temp password to the caller (Phase 1.8 will email it).
+func TestCreateOrg_WithAdminProvisionsReportServer(t *testing.T) {
+	var receivedBody map[string]any
+	var receivedKey string
+	reportHandler := func(w http.ResponseWriter, r *http.Request) {
+		receivedKey = r.Header.Get("X-Triton-Service-Key")
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"org":           map[string]any{"id": receivedBody["id"], "name": receivedBody["name"]},
+			"admin_user_id": "user-xyz",
+		})
+	}
+	ts, store, _ := setupTestServerWithReport(t, reportHandler)
+
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name":        "Acme Corp",
+		"admin_email": "alice@acme.com",
+		"admin_name":  "Alice Admin",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+
+	// Response contains temp password for out-of-band delivery.
+	tempPassword, ok := result["admin_temp_password"].(string)
+	require.True(t, ok, "response must include temp password")
+	assert.GreaterOrEqual(t, len(tempPassword), 12)
+	assert.Equal(t, "alice@acme.com", result["admin_email"])
+
+	// Report server received the correct request.
+	assert.Equal(t, "test-shared-secret", receivedKey)
+	assert.Equal(t, "Acme Corp", receivedBody["name"])
+	assert.Equal(t, "alice@acme.com", receivedBody["admin_email"])
+	assert.Equal(t, tempPassword, receivedBody["admin_temp_password"],
+		"report server must receive the same temp password the license server surfaces")
+
+	// License server org exists.
+	orgs, err := store.ListOrgs(t.Context())
+	require.NoError(t, err)
+	require.Len(t, orgs, 1)
+	assert.Equal(t, "Acme Corp", orgs[0].Name)
+}
+
+// TestCreateOrg_WithoutAdminSkipsProvisioning verifies backward compat:
+// omitting admin_email/admin_name keeps the legacy behavior where the
+// license server creates the org and does NOT touch the report server.
+func TestCreateOrg_WithoutAdminSkipsProvisioning(t *testing.T) {
+	called := false
+	reportHandler := func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusCreated)
+	}
+	ts, _, _ := setupTestServerWithReport(t, reportHandler)
+
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name": "Legacy Org",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.False(t, called, "report server must not be called when admin fields are omitted")
+}
+
+// TestCreateOrg_AdminEmailWithoutName verifies partial admin fields are
+// rejected — either both or neither must be supplied.
+func TestCreateOrg_AdminEmailWithoutName(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name":        "Partial Org",
+		"admin_email": "alice@acme.com",
+		// admin_name omitted
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestCreateOrg_ProvisioningWithoutReportServerConfigured verifies that
+// if the caller requests provisioning but no report server is configured,
+// the request is rejected with 503 (not a generic 500).
+func TestCreateOrg_ProvisioningWithoutReportServerConfigured(t *testing.T) {
+	ts, _ := setupTestServer(t) // no report server
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name":        "Acme",
+		"admin_email": "alice@acme.com",
+		"admin_name":  "Alice",
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// TestCreateOrg_RollsBackOnProvisioningFailure verifies that if the
+// report server rejects the provisioning call, the license server
+// deletes the org it just created so the two servers stay consistent.
+func TestCreateOrg_RollsBackOnProvisioningFailure(t *testing.T) {
+	reportHandler := func(w http.ResponseWriter, _ *http.Request) {
+		// Simulate report server failing to create (e.g., email already in use).
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"user with this email already exists"}`))
+	}
+	ts, store, _ := setupTestServerWithReport(t, reportHandler)
+
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name":        "Will Rollback",
+		"admin_email": "alice@acme.com",
+		"admin_name":  "Alice",
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
+	// License server should NOT have the org.
+	orgs, err := store.ListOrgs(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, orgs, "org must have been rolled back after provisioning failure")
 }
 
 func TestListOrgs(t *testing.T) {

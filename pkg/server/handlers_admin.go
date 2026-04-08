@@ -11,10 +11,14 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
-const minProvisionPasswordLen = 12
+// minProvisionPasswordLen aliases auth.MinPasswordLength so the org
+// provisioning endpoint stays in lockstep with the rest of the password
+// policy. Canonical value lives in internal/auth/password.go.
+const minProvisionPasswordLen = auth.MinPasswordLength
 
 type provisionOrgRequest struct {
 	ID                string `json:"id"`

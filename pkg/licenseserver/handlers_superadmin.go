@@ -12,12 +12,17 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // Superadmin handler constants.
 const (
-	minPasswordLen = 12
+	// minPasswordLen aliases auth.MinPasswordLength so the license
+	// server stays in lockstep with the report server's policy.
+	// Canonical value lives in internal/auth/password.go — raise it
+	// there to propagate to every auth endpoint.
+	minPasswordLen = auth.MinPasswordLength
 	maxEmailLen    = 255
 )
 

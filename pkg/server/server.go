@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -43,11 +44,12 @@ type Config struct {
 
 // Server is the Triton REST API server.
 type Server struct {
-	config *Config
-	store  store.Store
-	router chi.Router
-	http   *http.Server
-	guard  *license.Guard
+	config       *Config
+	store        store.Store
+	router       chi.Router
+	http         *http.Server
+	guard        *license.Guard
+	loginLimiter *auth.LoginRateLimiter
 }
 
 // securityHeaders adds security-related HTTP headers to all responses.
@@ -90,9 +92,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	}
 
 	srv := &Server{
-		config: cfg,
-		store:  s,
-		guard:  cfg.Guard,
+		config:       cfg,
+		store:        s,
+		guard:        cfg.Guard,
+		loginLimiter: auth.NewLoginRateLimiter(auth.DefaultLoginRateLimiterConfig),
 	}
 
 	r := chi.NewRouter()
@@ -181,6 +184,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			r.Get("/{id}", srv.handleGetUser)
 			r.Put("/{id}", srv.handleUpdateUser)
 			r.Delete("/{id}", srv.handleDeleteUser)
+			r.Post("/{id}/resend-invite", srv.handleResendInvite)
 		})
 	}
 

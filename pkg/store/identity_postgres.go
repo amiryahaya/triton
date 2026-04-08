@@ -103,11 +103,17 @@ func (s *PostgresStore) CreateUser(ctx context.Context, user *User) error {
 	if user.UpdatedAt.IsZero() {
 		user.UpdatedAt = now
 	}
+	if user.InvitedAt.IsZero() {
+		// Anchor the invite expiry window to the creation timestamp
+		// by default. Explicit caller values are preserved so tests
+		// can backdate invitations.
+		user.InvitedAt = now
+	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, invited_at, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		user.ID, user.OrgID, user.Email, user.Name, user.Role, user.Password,
-		user.MustChangePassword, user.CreatedAt, user.UpdatedAt,
+		user.MustChangePassword, user.InvitedAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -119,12 +125,12 @@ func (s *PostgresStore) CreateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-const userSelectColumns = `id, org_id, email, name, role, password, must_change_password, created_at, updated_at`
+const userSelectColumns = `id, org_id, email, name, role, password, must_change_password, invited_at, created_at, updated_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.OrgID, &u.Email, &u.Name, &u.Role, &u.Password,
-		&u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
+		&u.MustChangePassword, &u.InvitedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +249,36 @@ func (s *PostgresStore) DeleteUser(ctx context.Context, id string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return &ErrNotFound{Resource: "user", ID: id}
+	}
+	return nil
+}
+
+// ResendInvite rotates a pending invite: replaces the bcrypt password
+// hash with a new one (caller generates and hashes a fresh temp
+// password) AND sets invited_at to now so the invite-expiry gate
+// resets. The must_change_password flag is untouched — callers invoke
+// this only for users who still have mcp=true; the handler layer
+// enforces that precondition.
+//
+// Caller is responsible for returning the new temp password to the
+// admin out-of-band (UI modal, email). This store method never sees
+// the plaintext.
+func (s *PostgresStore) ResendInvite(ctx context.Context, userID, newPasswordHash string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users
+		   SET password = $2, invited_at = now(), updated_at = now()
+		 WHERE id = $1 AND must_change_password = TRUE`,
+		userID, newPasswordHash,
+	)
+	if err != nil {
+		return fmt.Errorf("resending invite: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Either the user doesn't exist OR their mcp flag is already
+		// false (i.e., they've completed the first-login flow, so
+		// resend is nonsensical). Collapse both to NotFound so the
+		// handler returns a non-leaking 404.
+		return &ErrNotFound{Resource: "user", ID: userID}
 	}
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -377,4 +378,112 @@ func TestDeleteUser_PeerAdminCanBeRemovedWhenMultipleExist(t *testing.T) {
 	// Admin1 deletes admin2 — should succeed (2 admins → 1).
 	w := authReq(t, srv, http.MethodDelete, "/api/v1/users/"+admin2.ID, token, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// --- Resend invite (Phase 5.2) ---
+
+// TestResendInvite_Success verifies the happy path: admin triggers
+// resend → store updates password + invited_at → endpoint returns the
+// new temp password once.
+func TestResendInvite_Success(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, _, token := loginAsRole(t, srv, db, "org_admin")
+
+	// Create an invited user via the API so they have mcp=true.
+	body := validCreateUserBody("newinvitee@example.com")
+	body["mustChangePassword"] = true // not supported by create, but we'll patch via store
+	wCreate := authReq(t, srv, http.MethodPost, "/api/v1/users", token, map[string]any{
+		"email":    "newinvitee@example.com",
+		"name":     "Invitee",
+		"role":     "org_user",
+		"password": "original-temp-pw-123",
+	})
+	require.Equal(t, http.StatusCreated, wCreate.Code)
+	var created map[string]any
+	require.NoError(t, json.NewDecoder(wCreate.Body).Decode(&created))
+	id := created["id"].(string)
+
+	// createUser doesn't set mcp=true; set it via direct store update.
+	mcpTrue := true
+	require.NoError(t, db.UpdateUser(context.Background(), store.UserUpdate{
+		ID:                 id,
+		Name:               "Invitee",
+		MustChangePassword: &mcpTrue,
+	}))
+
+	// Now resend invite.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/users/"+id+"/resend-invite", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	newPw, ok := resp["tempPassword"].(string)
+	require.True(t, ok, "response must include tempPassword")
+	assert.GreaterOrEqual(t, len(newPw), auth.MinPasswordLength,
+		"generated temp password must satisfy policy length")
+
+	// Verify the user can log in with the new temp password.
+	wLogin := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    "newinvitee@example.com",
+		"password": newPw,
+	})
+	assert.Equal(t, http.StatusOK, wLogin.Code,
+		"invited user must be able to log in with resent temp password")
+}
+
+// TestResendInvite_AlreadyCompleted_Rejects verifies that resending an
+// invite to a user who has already completed their first login
+// returns 409 — the store guard + handler check prevents silent
+// password resets on working accounts.
+func TestResendInvite_AlreadyCompleted_Rejects(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, _, token := loginAsRole(t, srv, db, "org_admin")
+
+	// Create a regular user (mcp=false from the start — the create
+	// handler never sets mcp=true).
+	wCreate := authReq(t, srv, http.MethodPost, "/api/v1/users", token, map[string]any{
+		"email":    "completed@example.com",
+		"name":     "Completed",
+		"role":     "org_user",
+		"password": "original-pw-12345",
+	})
+	require.Equal(t, http.StatusCreated, wCreate.Code)
+	var created map[string]any
+	require.NoError(t, json.NewDecoder(wCreate.Body).Decode(&created))
+	id := created["id"].(string)
+
+	w := authReq(t, srv, http.MethodPost, "/api/v1/users/"+id+"/resend-invite", token, nil)
+	assert.Equal(t, http.StatusConflict, w.Code,
+		"resend-invite on an already-completed user must be 409")
+}
+
+// TestResendInvite_TenantIsolation verifies that admin A cannot
+// resend-invite for a user in org B — the tenant scope check must
+// return 404 (not 403, to match the rest of the isolation contract).
+func TestResendInvite_TenantIsolation(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	ctx := context.Background()
+
+	// Org A + admin
+	_, _, tokenA := loginAsRole(t, srv, db, "org_admin")
+
+	// Org B + invited user
+	orgB := &store.Organization{ID: "00000000-0000-0000-0000-00000000b001", Name: "Org B"}
+	require.NoError(t, db.CreateOrg(ctx, orgB))
+	hashed, err := bcrypt.GenerateFromPassword([]byte("bob-temp-123"), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	bob := &store.User{
+		ID:                 "00000000-0000-0000-0000-00000000b002",
+		OrgID:              orgB.ID,
+		Email:              "bob-invitee@example.com",
+		Name:               "Bob",
+		Role:               "org_user",
+		Password:           string(hashed),
+		MustChangePassword: true,
+	}
+	require.NoError(t, db.CreateUser(ctx, bob))
+
+	// Admin A tries to resend bob's invite → 404.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/users/"+bob.ID+"/resend-invite", tokenA, nil)
+	assert.Equal(t, http.StatusNotFound, w.Code,
+		"cross-org resend-invite must return 404 to avoid leaking existence")
 }

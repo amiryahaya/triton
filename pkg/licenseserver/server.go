@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
@@ -20,6 +21,7 @@ type Server struct {
 	router          chi.Router
 	http            *http.Server
 	reportAPIClient *ReportAPIClient // nil when no report server configured
+	loginLimiter    *auth.LoginRateLimiter
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -51,10 +53,15 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 
 // New creates a new license Server.
 func New(cfg *Config, s licensestore.Store) *Server {
+	rateLimitCfg := auth.DefaultLoginRateLimiterConfig
+	if cfg.LoginRateLimiterConfig != nil {
+		rateLimitCfg = *cfg.LoginRateLimiterConfig
+	}
 	srv := &Server{
 		config:          cfg,
 		store:           s,
 		reportAPIClient: NewReportAPIClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
+		loginLimiter:    auth.NewLoginRateLimiter(rateLimitCfg),
 	}
 
 	r := chi.NewRouter()

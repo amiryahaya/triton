@@ -1,6 +1,10 @@
 package licenseserver
 
-import "crypto/ed25519"
+import (
+	"crypto/ed25519"
+
+	"github.com/amiryahaya/triton/internal/auth"
+)
 
 // Config holds license server configuration.
 type Config struct {
@@ -31,4 +35,10 @@ type Config struct {
 	// ReportServerInviteURL is included as the login link in invite
 	// emails. Typically "https://reports.example.com/login".
 	ReportServerInviteURL string
+
+	// LoginRateLimiterConfig tunes the per-email login rate limit. When
+	// zero, DefaultLoginRateLimiterConfig (5 attempts per 15min window,
+	// 15min lockout) applies. Tests inject a fast-cycle config here to
+	// exercise lockout behavior without 15-minute sleeps.
+	LoginRateLimiterConfig *auth.LoginRateLimiterConfig
 }

@@ -79,4 +79,20 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);`,
+
+	// Version 5: Invite expiry (Phase 5.2).
+	//
+	// Adds invited_at to users, timestamped on org creation or explicit
+	// resend-invite. handleLogin rejects invited users whose
+	// must_change_password=true AND invited_at + 7d < now with a 403
+	// "invite expired" response. Legitimate users who have already
+	// changed their password are unaffected: mcp=false short-circuits
+	// the expiry check.
+	//
+	// Backfill: existing users get invited_at = created_at. Most
+	// existing users have mcp=false already, so the backfill does not
+	// retroactively expire anyone; only users still holding a temp
+	// password will feel the gate.
+	`ALTER TABLE users ADD COLUMN invited_at TIMESTAMPTZ NOT NULL DEFAULT now();
+	UPDATE users SET invited_at = created_at WHERE invited_at > created_at;`,
 }

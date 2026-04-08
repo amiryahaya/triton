@@ -63,6 +63,7 @@ type UserStore interface {
 	UpdateUser(ctx context.Context, update UserUpdate) error
 	DeleteUser(ctx context.Context, id string) error
 	CountUsersByOrg(ctx context.Context, orgID string) (int, error)
+	ResendInvite(ctx context.Context, userID, newPasswordHash string) error
 }
 
 // SessionStore is the persistence interface for user sessions on the
@@ -145,6 +146,12 @@ type Organization struct {
 // design (split-identity model): org_id is required, role is restricted
 // to org_admin or org_user, and there's a must_change_password flag for
 // the invite-and-first-login flow.
+//
+// InvitedAt is the wall-clock anchor for the Phase 5.2 invite expiry
+// gate: if must_change_password is still true when invited_at + the
+// configured expiry window has elapsed, handleLogin rejects with 403.
+// Users who have completed the change-password flow ignore the field
+// entirely (mcp=false short-circuits the expiry check).
 type User struct {
 	ID                 string    `json:"id"`
 	OrgID              string    `json:"orgID"`
@@ -153,6 +160,7 @@ type User struct {
 	Role               string    `json:"role"`
 	Password           string    `json:"-"` // bcrypt hash, never serialized
 	MustChangePassword bool      `json:"mustChangePassword"`
+	InvitedAt          time.Time `json:"invitedAt"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
 }

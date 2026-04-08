@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -295,4 +296,67 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// POST /api/v1/users/{id}/resend-invite — Phase 5.2.
+//
+// Rotates a pending invite for a user whose must_change_password flag
+// is still set. The store layer generates a NotFound for users who
+// have already completed the first-login flow (mcp=false) so this
+// endpoint can't be abused to reset a working user's password. The
+// response carries the new temp password ONCE — the admin is expected
+// to surface it to the invitee out-of-band.
+func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	requester := UserFromContext(r.Context())
+	if requester == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	// Load the target to enforce tenant isolation before rotating any
+	// password material. A cross-org UUID guess must surface as 404.
+	target, status := s.loadOrgScopedUser(r.Context(), id, requester.OrgID)
+	if status != 0 {
+		writeError(w, status, "user not found")
+		return
+	}
+	if !target.MustChangePassword {
+		// Already completed their first login — resending an invite
+		// would silently reset a working password, which is exactly
+		// what the store-layer guard prevents but we also surface a
+		// clear 409 so the admin UI can show a helpful message.
+		writeError(w, http.StatusConflict, "user has already completed their first login")
+		return
+	}
+
+	// Generate a fresh temp password. 24 url-safe chars = ~144 bits.
+	newTempPassword, err := auth.GenerateTempPassword(24)
+	if err != nil {
+		log.Printf("resend invite: generate temp password error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newTempPassword), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("resend invite: bcrypt error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	if err := s.store.ResendInvite(r.Context(), id, string(hashed)); err != nil {
+		var nf *store.ErrNotFound
+		if errors.As(err, &nf) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		log.Printf("resend invite: store error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":       "invite resent",
+		"tempPassword": newTempPassword,
+	})
 }

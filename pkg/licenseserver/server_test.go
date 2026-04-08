@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
@@ -34,6 +35,50 @@ var serverTestSeq atomic.Int64
 func setupTestServer(t *testing.T) (*httptest.Server, *licensestore.PostgresStore) {
 	t.Helper()
 	ts, store, _ := setupTestServerWithReport(t, nil)
+	return ts, store
+}
+
+// setupTestServerWithFastLimiter returns a license server configured
+// with the production 5-attempt budget but a long-enough window and
+// lockout that a single test can burn the budget, verify the 429, and
+// complete without the limiter auto-unlocking. Tests that want to
+// exercise unlock behavior should build their own cfg with a short
+// LockoutDuration.
+func setupTestServerWithFastLimiter(t *testing.T) (*httptest.Server, *licensestore.PostgresStore) {
+	t.Helper()
+	dbURL := os.Getenv("TRITON_TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
+	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	rlCfg := auth.LoginRateLimiterConfig{
+		MaxAttempts:     5,
+		Window:          1 * time.Hour,
+		LockoutDuration: 1 * time.Hour,
+	}
+	cfg := &licenseserver.Config{
+		ListenAddr:             ":0",
+		AdminKeys:              []string{"test-admin-key"},
+		SigningKey:             priv,
+		PublicKey:              pub,
+		BinariesDir:            t.TempDir(),
+		LoginRateLimiterConfig: &rlCfg,
+	}
+	srv := licenseserver.New(cfg, store)
+	ts := httptest.NewServer(srv.Router())
+	t.Cleanup(func() {
+		ts.Close()
+		_ = store.DropSchema(ctx)
+		store.Close()
+	})
 	return ts, store
 }
 
@@ -1464,6 +1509,63 @@ func TestLoginUnknownEmail(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// TestLoginRateLimited_AfterRepeatedFailures verifies Phase 5.1 on the
+// license server: after 5 failed login attempts the next attempt (even
+// with the correct password) returns 429 with Retry-After.
+func TestLoginRateLimited_AfterRepeatedFailures(t *testing.T) {
+	ts, store := setupTestServerWithFastLimiter(t)
+	email := fmt.Sprintf("ratelimited-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, _ = createTestUser(t, ts, store, email, "correct-pw-123", "platform_admin")
+
+	// Burn through the 5-attempt budget with wrong passwords.
+	for i := 0; i < 5; i++ {
+		body, _ := json.Marshal(map[string]string{"email": email, "password": "wrong"})
+		resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode, "attempt %d", i+1)
+	}
+
+	// 6th attempt with the CORRECT password must return 429.
+	body, _ := json.Marshal(map[string]string{"email": email, "password": "correct-pw-123"})
+	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode,
+		"license server must rate-limit after 5 failures even with correct password")
+	assert.NotEmpty(t, resp.Header.Get("Retry-After"), "429 must include Retry-After")
+}
+
+// TestLoginRateLimit_ResetsOnSuccess verifies that a successful login
+// clears the counter on the license server.
+func TestLoginRateLimit_ResetsOnSuccess(t *testing.T) {
+	ts, store := setupTestServerWithFastLimiter(t)
+	email := fmt.Sprintf("rl-reset-%s@test.com", uuid.Must(uuid.NewV7()).String()[:8])
+	_, _ = createTestUser(t, ts, store, email, "correct-pw-123", "platform_admin")
+
+	for i := 0; i < 4; i++ {
+		body, _ := json.Marshal(map[string]string{"email": email, "password": "wrong"})
+		resp, _ := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+		resp.Body.Close()
+	}
+
+	// Successful login resets the counter.
+	body, _ := json.Marshal(map[string]string{"email": email, "password": "correct-pw-123"})
+	resp, err := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Now we get a fresh 5-attempt budget.
+	for i := 0; i < 5; i++ {
+		body, _ := json.Marshal(map[string]string{"email": email, "password": "wrong"})
+		resp, _ := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+		resp.Body.Close()
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+			"post-reset attempt %d should still be 401", i+1)
+	}
 }
 
 func TestLogout(t *testing.T) {

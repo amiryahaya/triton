@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +18,17 @@ import (
 )
 
 const (
-	userJWTTTL         = 24 * time.Hour
-	minUserPasswordLen = 12
+	userJWTTTL = 24 * time.Hour
+	// minUserPasswordLen aliases auth.MinPasswordLength so the existing
+	// call sites in pkg/server stay readable. The canonical value lives
+	// in internal/auth/password.go — raise it there.
+	minUserPasswordLen = auth.MinPasswordLength
+	// inviteExpiryWindow caps how long an unused invite (a user with
+	// must_change_password=true who has never completed the first-login
+	// flow) remains valid. Beyond this window handleLogin returns 403
+	// and the user must have an admin issue a fresh invite via the
+	// resend-invite flow. Phase 5.2.
+	inviteExpiryWindow = 7 * 24 * time.Hour
 )
 
 // signUserToken issues a JWT for the given user and creates a session row
@@ -101,15 +111,54 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	// Phase 5.1 — rate-limit the per-email failure counter BEFORE the
+	// bcrypt comparison so a locked account returns 429 without burning
+	// CPU on hash verification. The limiter is checked against the
+	// normalized email so casing attacks can't bypass it. The 429 path
+	// is reached for both unknown emails (they still share the bucket)
+	// and known emails — deliberately: we want to make it expensive to
+	// enumerate existence by hammering a single address.
+	if allowed, retryAfter := s.loginLimiter.Check(email); !allowed {
+		seconds := int(retryAfter.Seconds())
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		writeError(w, http.StatusTooManyRequests, "too many failed login attempts; try again later")
+		return
+	}
+
 	user, status := s.loadOrgUserByEmail(r.Context(), email)
 	if status != 0 {
 		// Generic 401 to prevent user enumeration. Don't surface the
-		// helper's 404 directly.
+		// helper's 404 directly. Still record the failure so attackers
+		// who guess non-existent emails also burn through the budget.
+		s.loginLimiter.RecordFailure(email)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		s.loginLimiter.RecordFailure(email)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
+	// Phase 5.2 — invite expiry. A user who is still holding an invite
+	// (mcp=true) whose temp-password credential was issued more than
+	// inviteExpiryWindow ago cannot complete the first-login flow. This
+	// check runs AFTER password verification so an attacker cannot
+	// distinguish "expired invite" from "wrong password" by response
+	// code alone — both require knowing the temp password to observe
+	// anything other than 401. Users who have already rotated their
+	// password (mcp=false) ignore invited_at entirely.
+	if user.MustChangePassword && !user.InvitedAt.IsZero() &&
+		time.Since(user.InvitedAt) > inviteExpiryWindow {
+		// Record as a failure so an attacker scanning for expired
+		// invites still burns through the rate-limit budget.
+		s.loginLimiter.RecordFailure(email)
+		writeError(w, http.StatusForbidden,
+			"invite has expired; contact your organization administrator for a new invite")
 		return
 	}
 
@@ -119,6 +168,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+
+	// Successful login — clear the failure counter so earlier mistypes
+	// don't accumulate against this user for the next session.
+	s.loginLimiter.RecordSuccess(email)
 
 	// Surface must_change_password in the response so the UI can route
 	// the user to the change-password screen on first login.

@@ -10,9 +10,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/amiryahaya/triton/internal/auth"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // authReq sends a JSON POST to the given path with optional Bearer token.
@@ -39,6 +44,18 @@ func authReq(t *testing.T, srv *Server, method, path, token string, body any) *h
 	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
 	return w
+}
+
+// newTestLoginLimiter returns a rate-limiter with a tight budget and
+// near-instant lockout duration so rate-limit tests finish in
+// milliseconds rather than the 15-minute production defaults. The
+// 5-attempt budget matches prod so the test wording remains accurate.
+func newTestLoginLimiter() *auth.LoginRateLimiter {
+	return auth.NewLoginRateLimiter(auth.LoginRateLimiterConfig{
+		MaxAttempts:     5,
+		Window:          1 * time.Hour,
+		LockoutDuration: 1 * time.Hour,
+	})
 }
 
 // loginAndExtractToken issues a login and returns the resulting JWT.
@@ -123,6 +140,186 @@ func TestLogin_MissingFields(t *testing.T) {
 	srv, _ := testServerWithJWT(t)
 	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestLogin_RateLimited_AfterRepeatedFailures verifies Phase 5.1: after
+// the configured number of failed login attempts on the same email, the
+// next attempt returns 429 with a Retry-After header and does NOT hit
+// the bcrypt comparison (measurable by returning even when the password
+// is actually correct — we don't test timing but we do verify the 429
+// is returned even for a RIGHT password).
+func TestLogin_RateLimited_AfterRepeatedFailures(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_user", "correct-password-123", false)
+
+	// Swap in a fast-cycle limiter so the test runs in milliseconds
+	// rather than the 15-minute production defaults.
+	srv.loginLimiter = newTestLoginLimiter()
+
+	// Burn through the budget with wrong passwords.
+	for i := 0; i < 5; i++ {
+		w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+			"email":    user.Email,
+			"password": "wrong-password",
+		})
+		require.Equal(t, http.StatusUnauthorized, w.Code,
+			"attempt %d should be 401 not 429 (still within budget)", i+1)
+	}
+
+	// 6th attempt — even with the CORRECT password — must be 429.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    user.Email,
+		"password": "correct-password-123",
+	})
+	require.Equal(t, http.StatusTooManyRequests, w.Code,
+		"after 5 failures the limiter must block even a correct password")
+	assert.NotEmpty(t, w.Header().Get("Retry-After"),
+		"429 response must include a Retry-After header")
+}
+
+// TestLogin_RateLimit_ResetsOnSuccess verifies that a successful login
+// clears the counter so a user who mistypes a few times then gets it
+// right doesn't carry the failure budget into a later session.
+func TestLogin_RateLimit_ResetsOnSuccess(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_user", "correct-password-123", false)
+	srv.loginLimiter = newTestLoginLimiter()
+
+	// 4 failures (one under the 5-attempt threshold).
+	for i := 0; i < 4; i++ {
+		authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+			"email":    user.Email,
+			"password": "wrong",
+		})
+	}
+
+	// Success — should reset the counter.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    user.Email,
+		"password": "correct-password-123",
+	})
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Now 5 more failures should be permitted before the 6th locks.
+	for i := 0; i < 5; i++ {
+		w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+			"email":    user.Email,
+			"password": "wrong",
+		})
+		require.Equal(t, http.StatusUnauthorized, w.Code,
+			"post-reset attempt %d should still be 401", i+1)
+	}
+}
+
+// TestLogin_InviteExpired_Rejects verifies Phase 5.2: a user with
+// mcp=true whose invited_at is older than the invite expiry window
+// gets 403, even with the correct temp password.
+func TestLogin_InviteExpired_Rejects(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+
+	// Create an org + user directly so we can backdate invited_at.
+	ctx := context.Background()
+	org := &store.Organization{
+		ID:   "00000000-0000-0000-0000-00000000f001",
+		Name: "Expired Invite Org",
+	}
+	require.NoError(t, db.CreateOrg(ctx, org))
+	hashed, err := bcrypt.GenerateFromPassword([]byte("temp-password-1234"), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	user := &store.User{
+		ID:                 "00000000-0000-0000-0000-00000000e001",
+		OrgID:              org.ID,
+		Email:              "expired-invite@auth.test",
+		Name:               "Expired Invitee",
+		Role:               "org_user",
+		Password:           string(hashed),
+		MustChangePassword: true,
+		InvitedAt:          time.Now().Add(-30 * 24 * time.Hour), // 30 days ago
+	}
+	require.NoError(t, db.CreateUser(ctx, user))
+
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    user.Email,
+		"password": "temp-password-1234",
+	})
+	assert.Equal(t, http.StatusForbidden, w.Code,
+		"expired invite (mcp=true, invited_at > 7d old) must return 403")
+}
+
+// TestLogin_InviteExpired_IgnoredForCompletedUsers verifies that a
+// user who has already rotated their password (mcp=false) is NOT
+// affected by an old invited_at — the gate only applies while the
+// must-change-password flag is still set.
+func TestLogin_InviteExpired_IgnoredForCompletedUsers(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	ctx := context.Background()
+	org := &store.Organization{
+		ID:   "00000000-0000-0000-0000-00000000f002",
+		Name: "Completed User Org",
+	}
+	require.NoError(t, db.CreateOrg(ctx, org))
+	hashed, err := bcrypt.GenerateFromPassword([]byte("rotated-password-1234"), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	user := &store.User{
+		ID:                 "00000000-0000-0000-0000-00000000e002",
+		OrgID:              org.ID,
+		Email:              "completed@auth.test",
+		Name:               "Completed User",
+		Role:               "org_user",
+		Password:           string(hashed),
+		MustChangePassword: false, // already rotated
+		InvitedAt:          time.Now().Add(-365 * 24 * time.Hour),
+	}
+	require.NoError(t, db.CreateUser(ctx, user))
+
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    user.Email,
+		"password": "rotated-password-1234",
+	})
+	assert.Equal(t, http.StatusOK, w.Code,
+		"user who already rotated their password must not be gated by invited_at")
+}
+
+// TestLogin_InviteFresh_Succeeds verifies the happy path: an invite
+// younger than the expiry window still allows first-login.
+func TestLogin_InviteFresh_Succeeds(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_user", "fresh-invite-1234", true)
+	// createOrgUser inserts with InvitedAt=zero; CreateUser defaults it
+	// to now, so this user's invite is fresh by construction.
+
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    user.Email,
+		"password": "fresh-invite-1234",
+	})
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, true, resp["mustChangePassword"])
+}
+
+// TestLogin_RateLimit_PerEmail verifies that a lockout on alice does
+// NOT affect bob.
+func TestLogin_RateLimit_PerEmail(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, alice := createOrgUser(t, db, "org_user", "alice-pw-1234567", false)
+	_, bob := createOrgUser(t, db, "org_user", "bob-pw-1234567", false)
+	srv.loginLimiter = newTestLoginLimiter()
+
+	// Lock alice.
+	for i := 0; i < 5; i++ {
+		authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+			"email":    alice.Email,
+			"password": "wrong",
+		})
+	}
+
+	// Bob should still be able to log in normally.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+		"email":    bob.Email,
+		"password": "bob-pw-1234567",
+	})
+	assert.Equal(t, http.StatusOK, w.Code, "bob must not be affected by alice's lockout")
 }
 
 // --- Logout ---

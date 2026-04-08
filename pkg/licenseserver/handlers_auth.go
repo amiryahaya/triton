@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,20 +36,40 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Normalize email to match the storage format used by handleCreateSuperadmin.
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
+	// Phase 5.1 — per-email rate limit BEFORE the bcrypt comparison.
+	// See pkg/server/handlers_auth.go::handleLogin for the rationale;
+	// the license server uses the exact same policy so the superadmin
+	// login endpoint has the same brute-force posture as the org user
+	// endpoint.
+	if allowed, retryAfter := s.loginLimiter.Check(email); !allowed {
+		seconds := int(retryAfter.Seconds())
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		writeError(w, http.StatusTooManyRequests, "too many failed login attempts; try again later")
+		return
+	}
+
 	// loadPlatformAdminByEmail enforces the role check at the lookup
 	// boundary. Both "no such user" and "user is not a platform_admin"
 	// surface as a 404 from the helper, which we collapse into a 401
 	// here so the login endpoint never leaks user existence or role.
 	user, status, _ := s.loadPlatformAdminByEmail(r.Context(), email)
 	if status != 0 {
+		s.loginLimiter.RecordFailure(email)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		s.loginLimiter.RecordFailure(email)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+
+	// Successful login — clear the failure counter.
+	s.loginLimiter.RecordSuccess(email)
 
 	claims := &auth.UserClaims{
 		Sub:  user.ID,

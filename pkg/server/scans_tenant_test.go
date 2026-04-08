@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -240,6 +241,46 @@ func TestScans_SubmitAcceptsEmptyBodyOrg(t *testing.T) {
 	got, err := db.GetScan(context.Background(), scan.ID, "")
 	require.NoError(t, err)
 	assert.Equal(t, orgA.ID, got.OrgID, "empty body org_id must be stamped from tenant context")
+}
+
+// TestScans_SubmitRejectsBodyOrgInSingleTenant verifies D2 from the
+// Phase 3+4 post-fix review: in single-tenant mode (no Guard, no JWT —
+// TenantFromContext returns ""), a non-empty body org_id is rejected
+// with 400 rather than silently discarded. Rationale: single-tenant
+// deployments have no concept of an org for the caller to legitimately
+// reference, so any value in that field is a client bug that should
+// surface loudly.
+func TestScans_SubmitRejectsBodyOrgInSingleTenant(t *testing.T) {
+	// testServer (without JWT/Guard/ServiceKey) is close but still
+	// installs a Guard. For this test we want NO tenant context at all,
+	// so build a bare server with Config{} only.
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	srv, err := New(&Config{ListenAddr: ":0"}, db)
+	require.NoError(t, err)
+
+	scan := testScanResult(uuid.Must(uuid.NewV7()).String(), "single-tenant-host")
+	scan.OrgID = "00000000-0000-0000-0000-0000000eeeee" // non-empty
+	body, _ := json.Marshal(scan)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scans", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code,
+		"single-tenant mode must reject a non-empty body org_id (D2)")
 }
 
 // TestScans_JWTUserCanGetOwnOrgScan verifies point-lookup tenant

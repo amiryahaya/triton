@@ -97,6 +97,23 @@
                     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
+  // wireClickableRows finds every element with class="clickable-row"
+  // and data-href="#/..." and attaches a click handler that sets
+  // location.hash. This replaces inline onclick="location.hash='...'"
+  // patterns that interpolated user-controlled strings (hostnames,
+  // scan IDs) and were XSS vectors the moment any one of them
+  // contained a quote or `</script>`. data-href values are HTML
+  // attribute-encoded by escapeHtml, so the browser parser sees them
+  // as opaque strings, not JavaScript.
+  function wireClickableRows() {
+    $$('.clickable-row').forEach(el => {
+      el.addEventListener('click', () => {
+        const href = el.dataset.href;
+        if (href) location.hash = href;
+      });
+    });
+  }
+
   // Router
   function route() {
     const hash = location.hash || '#/';
@@ -467,7 +484,7 @@
           <thead><tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
           <tbody>`;
         for (const m of agg.machines) {
-          html += `<tr onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+          html += `<tr class="clickable-row" data-href="#/machines/${escapeHtml(m.hostname)}">
             <td>${escapeHtml(m.hostname)}</td><td>${formatDate(m.timestamp)}</td>
             <td>${escapeHtml(m.totalFindings)}</td>
             <td>${escapeHtml(m.safe)}</td><td>${escapeHtml(m.transitional)}</td>
@@ -477,6 +494,7 @@
       }
 
       content.innerHTML = html;
+      wireClickableRows();
 
       // Charts
       renderDonutChart(agg);
@@ -534,12 +552,13 @@
         <thead><tr><th>Hostname</th><th>Latest Scan ID</th><th>Scan Time</th><th>Findings</th></tr></thead>
         <tbody>`;
       for (const m of machines) {
-        html += `<tr onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+        html += `<tr class="clickable-row" data-href="#/machines/${escapeHtml(m.hostname)}">
           <td>${escapeHtml(m.hostname)}</td><td>${escapeHtml(m.id)}</td>
           <td>${formatDate(m.timestamp)}</td><td>${escapeHtml(m.totalFindings)}</td></tr>`;
       }
       html += `</tbody></table>`;
       content.innerHTML = html;
+      wireClickableRows();
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
@@ -551,13 +570,13 @@
     try {
       const scans = await api(`/machines/${hostname}`);
       let html = `<div class="view-header"><h2>Machine: ${escapeHtml(hostname)}</h2>
-        <button class="btn btn-outline" onclick="location.hash='#/machines'">Back</button></div>`;
+        <button class="btn btn-outline js-back-machines">Back</button></div>`;
 
       html += `<table>
         <thead><tr><th>Scan ID</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
         <tbody>`;
       for (const s of scans) {
-        html += `<tr onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+        html += `<tr class="clickable-row" data-href="#/scans/${escapeHtml(s.id)}">
           <td>${escapeHtml(s.id.slice(0,8))}...</td>
           <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
           <td>${escapeHtml(s.totalFindings)}</td>
@@ -572,6 +591,9 @@
       }
 
       content.innerHTML = html;
+      wireClickableRows();
+      const backBtn = document.querySelector('.js-back-machines');
+      if (backBtn) backBtn.addEventListener('click', () => { location.hash = '#/machines'; });
 
       if (scans.length >= 2) {
         renderMachineTrend(scans);
@@ -609,13 +631,14 @@
         <thead><tr><th>ID</th><th>Hostname</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Unsafe</th></tr></thead>
         <tbody>`;
       for (const s of scans) {
-        html += `<tr onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+        html += `<tr class="clickable-row" data-href="#/scans/${escapeHtml(s.id)}">
           <td>${escapeHtml(s.id.slice(0,8))}...</td><td>${escapeHtml(s.hostname)}</td>
           <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
           <td>${escapeHtml(s.totalFindings)}</td><td>${escapeHtml(s.safe)}</td><td>${escapeHtml(s.unsafe)}</td></tr>`;
       }
       html += `</tbody></table>`;
       content.innerHTML = html;
+      wireClickableRows();
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }

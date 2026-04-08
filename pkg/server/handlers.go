@@ -65,10 +65,15 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 	// trusted from the body. A body that lies about org_id is either a
 	// bug or an attack. The Phase 2 fix silently corrected the value;
 	// the Phase 3+4 review (F1) upgraded this to a hard 400 rejection
-	// so operators can see and diagnose cross-org submissions. Legacy
-	// agents that don't set org_id (empty string) are still accepted.
+	// in the multi-tenant case. The follow-up review (D2) then tightened
+	// this further: even in single-tenant mode (no Guard, no JWT, so
+	// tenantOrg == ""), a non-empty body org_id is rejected — a
+	// single-tenant deployment has no concept of an "org" for the caller
+	// to legitimately reference, so any non-empty value is a client
+	// bug and should be surfaced rather than silently discarded.
+	// Legacy agents that don't set org_id (empty string) are still accepted.
 	tenantOrg := TenantFromContext(r.Context())
-	if result.OrgID != "" && tenantOrg != "" && result.OrgID != tenantOrg {
+	if result.OrgID != "" && result.OrgID != tenantOrg {
 		writeError(w, http.StatusBadRequest,
 			"scan org_id in body does not match authenticated tenant; omit org_id from the body or fix the agent config")
 		return

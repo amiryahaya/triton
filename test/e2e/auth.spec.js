@@ -3,7 +3,27 @@
 // Covers: login → forced change-password → users CRUD. Uses the seed
 // admin credentials installed by testserver on startup (see
 // test/e2e/cmd/testserver/main.go::seedAuthFixtures).
+//
+// IMPORTANT — not idempotent within a single testserver process.
+// The 'first login forces change-password' test rotates the seed
+// user's password one-way, and seedAuthFixtures only runs once at
+// testserver startup. Consequences:
+//
+//   1. Playwright retries MUST NOT be enabled for this describe
+//      block. A retry of the change-password test against the same
+//      testserver would fail because SEED_INITIAL_PW no longer
+//      matches. We pin retries: 0 via test.describe.configure.
+//
+//   2. CI invocations via `make test-e2e` spawn a fresh testserver
+//      each run (the webServer.command starts Go from scratch), so
+//      the seed is re-applied and the tests run clean. Local
+//      reuseExistingServer=true developers who rerun this spec
+//      against a long-lived testserver will see the change-password
+//      test fail on the second run — restart the testserver to
+//      reset the seed.
 const { test, expect } = require('@playwright/test');
+
+test.describe.configure({ retries: 0 });
 
 const SEED_EMAIL = 'e2e-admin@triton.test';
 const SEED_INITIAL_PW = 'e2e-initial-pw-12345';

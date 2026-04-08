@@ -305,8 +305,9 @@ All license-server options are environment variables. See `cmd/licenseserver/mai
 | `TRITON_LICENSE_SERVER_ADMIN_KEY` | Yes | Superadmin bootstrap key for the `X-Triton-Admin-Key` header; multiple comma-separated values allowed |
 | `TRITON_LICENSE_SERVER_SIGNING_KEY` | Yes | Hex-encoded Ed25519 private key used to sign license tokens AND user JWTs |
 | `TRITON_LICENSE_SERVER_BINARIES_DIR` | No | Local directory where uploaded client binaries are stored for `/license/download` |
-| `TRITON_LICENSE_SERVER_REPORT_URL` | No | If set, license server pushes provisioning calls to this report server |
-| `TRITON_LICENSE_SERVER_REPORT_SERVICE_KEY` | No | Paired with the above — the shared secret the report server expects in `X-Triton-Service-Key` |
+| `TRITON_LICENSE_SERVER_REPORT_URL` | No | Internal URL the license server itself uses to reach the report server (e.g. compose-network hostname `http://triton:8080`). Used for cross-server provisioning calls. |
+| `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | No | Customer-facing report server URL baked into generated `agent.yaml` downloads (e.g. `https://reports.example.com`). Falls back to `TRITON_LICENSE_SERVER_REPORT_URL` when unset. Keep it distinct because the internal URL is typically unresolvable from outside the service network. |
+| `TRITON_LICENSE_SERVER_REPORT_KEY` | No | Shared secret the report server expects in `X-Triton-Service-Key` for provisioning calls. Paired with `TRITON_LICENSE_SERVER_REPORT_URL`. |
 | `TRITON_LICENSE_SERVER_RESEND_API_KEY` | No | Resend API key for the invite mailer |
 | `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | No | From address for invite emails |
 | `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | No | From name for invite emails |
@@ -353,6 +354,55 @@ export TRITON_LICENSE_SERVER_REPORT_SERVICE_KEY="$(openssl rand -hex 32)"
 And the SAME service key must be configured on the report server via its `Config.ServiceKey` field (currently via a wrapper main — see the programmatic note in section 5b).
 
 If either variable is empty, the license server still creates orgs in its own database but does NOT push provisioning calls, and the report server does not register the `/api/v1/admin/*` route group. Use this mode if you're running the license server as a pure license registry without a live report-server integration.
+
+### 6f. Generating agent.yaml downloads
+
+For the fool-proof "email the customer a single file, they drop it next to the binary, done" deployment path (see §7e), the license server admin UI exposes a one-click download on the license detail page.
+
+**Flow:**
+
+1. Superadmin opens `http://<license-server>/ui/#/licenses/<license-id>`
+2. Clicks **Download agent.yaml**
+3. License server mints a fresh Ed25519-signed token from the license's stored claims, bakes it into a yaml template with a security header comment, and streams it back as `agent.yaml`
+4. Admin hands the file to the customer via their preferred trusted channel
+
+The generated file contains:
+
+- `license_key` — a fresh token for the license (NOT the same token as any existing activation row; activations are not tracked for this path)
+- `report_server` — the `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` value (the customer-facing URL), with fallback to `TRITON_LICENSE_SERVER_REPORT_URL` when the public URL is unset
+- `profile` — the default scan profile (`quick` unless overridden)
+- A verbose header comment with license ID, org name, tier, expiry, and a "treat as secret" warning with `chmod 600` / `icacls` snippets
+
+**Default token binding:** the minted token is NOT machine-bound by default. Any host that drops the file next to the binary can use it. This is the deliberate trade-off for drop-and-run usability — an operator who needs per-machine scoping should either use `triton license activate` on each target host (tracked in the activations table) or supply `bind_to_machine` in the request body with the target host's fingerprint (see `triton license fingerprint`).
+
+**API equivalent:** the same file can be generated programmatically from automation:
+
+```bash
+curl -X POST \
+  -H "X-Triton-Admin-Key: $TRITON_LICENSE_SERVER_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -o agent.yaml \
+  -d '{}' \
+  https://license.example.com/api/v1/admin/licenses/<license-id>/agent-yaml
+```
+
+Optional body fields:
+
+```json
+{
+  "report_server": "https://reports.example.com",
+  "profile": "standard",
+  "bind_to_machine": "a1b2c3d4..."
+}
+```
+
+- `report_server` — override the server-default URL; set to `""` to force local-report-only mode.
+- `profile` — one of `quick`, `standard`, `comprehensive`.
+- `bind_to_machine` — target host fingerprint; when set, mints a machine-bound token.
+
+**Refusal cases:** the endpoint returns `400 Bad Request` for revoked or expired licenses (the resulting token would be unusable anyway — failing at download time is clearer than failing at agent start time). Every download is recorded in the audit log as `license_download_agent_yaml` with profile, report_server, machine_bound flag, tier, and expiry for compliance trails.
+
+**Rotation:** to rotate a deployed agent.yaml, regenerate from the admin UI and redistribute. The old token remains valid until the license itself is revoked — there is no per-token invalidation for this path. Revoking the license invalidates every token it ever minted, including downloaded agent.yaml files.
 
 ---
 
@@ -432,6 +482,43 @@ triton license activate \
 ```
 
 The CLI saves the token + cache metadata to `~/.triton/license.key` and `~/.triton/license.meta`. Subsequent `triton agent` runs read the cached token. If the license server becomes unreachable, a 7-day offline grace period keeps the agent operational.
+
+### 7e. Fool-proof drop-and-run deployment (`agent.yaml`)
+
+For non-technical end-users who should not have to learn any licence commands, Triton supports a **single-file drop-and-run** deployment path:
+
+1. **Superadmin generates the file** — downloads `agent.yaml` from the license server admin UI (see §6f) or via the admin API.
+2. **Superadmin delivers it** — emails or hands the file to the customer via any trusted channel.
+3. **Customer deploys** — saves `agent.yaml` next to the `triton` (or `triton.exe`) binary and runs the binary. No flags, no env vars, no commands.
+
+**How the agent resolves config:** at startup the agent looks for `agent.yaml` in the same directory as its own executable (NOT the shell's working directory — this is deliberate so double-clicking from a file manager works). When found, it overlays the file's fields (`license_key`, `report_server`, `profile`, `output_dir`, `formats`) on top of whatever was passed via flags or environment variables. Flags still win for explicit overrides.
+
+**Dual-mode:**
+
+- **With `report_server` set** — the agent submits scan results to the report server using the embedded license_key as its auth token. No local report files are written.
+- **Without `report_server`** — the agent runs in local mode and writes reports into `output_dir` (default `reports/`), formatted according to its licence tier.
+
+**Security posture:** the `license_key` in `agent.yaml` IS the credential. Anyone with the file can submit scans as the organisation it was issued to and (if a report server is configured) read back that org's results. The generated file's header comment tells the operator to:
+
+```bash
+chmod 600 agent.yaml                                              # Linux / macOS
+icacls agent.yaml /inheritance:r /grant:r "%USERNAME%:R"          # Windows
+```
+
+Any handoff channel that leaves the file readable by other users on the host is a security bug.
+
+**When to use this path vs. `triton license activate`:**
+
+| Requirement | Use `agent.yaml` | Use `triton license activate` |
+|-------------|------------------|------------------------------|
+| Non-technical operator | ✓ | ✗ |
+| Per-machine visibility in activations table | ✗ (not tracked) | ✓ |
+| Need to revoke a single host | ✗ (only whole license) | ✓ |
+| Machine-bound token by default | ✗ (opt-in via `bind_to_machine`) | ✓ |
+| Single-file distribution | ✓ | ✗ |
+| Offline bootstrap with no network to licence server | ✓ | ✗ |
+
+For large fleets that need per-machine accounting, prefer the activation path. For one-off customer deployments or when the customer cannot run licence commands, use `agent.yaml`.
 
 ---
 
@@ -568,6 +655,7 @@ If you terminate TLS at a reverse proxy (nginx, Caddy, Envoy), **disable respons
 - [ ] TLS terminated at the license server or an upstream proxy
 - [ ] Resend API credentials configured so invite emails land reliably
 - [ ] Cross-server service key configured if wiring to a report server
+- [ ] `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` set to the customer-facing report server URL (distinct from the internal `_REPORT_URL`) so generated `agent.yaml` files embed a hostname customers can actually resolve
 
 ### Report server
 
@@ -582,7 +670,8 @@ If you terminate TLS at a reverse proxy (nginx, Caddy, Envoy), **disable respons
 
 ### Agents
 
-- [ ] Machine-bound license token installed via `triton license activate`
+- [ ] Machine-bound license token installed via `triton license activate`, OR `agent.yaml` dropped next to the binary with `chmod 600` (or Windows equivalent)
+- [ ] If using `agent.yaml`: file delivered via a trusted channel (not a chat system that retains attachments indefinitely)
 - [ ] Systemd timer or `--interval` schedule configured
 - [ ] Log aggregation: journalctl or container logs shipped to central collector
 - [ ] Agent user has least-privilege filesystem access for the modules it runs

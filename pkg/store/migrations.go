@@ -84,15 +84,22 @@ var migrations = []string{
 	//
 	// Adds invited_at to users, timestamped on org creation or explicit
 	// resend-invite. handleLogin rejects invited users whose
-	// must_change_password=true AND invited_at + 7d < now with a 403
-	// "invite expired" response. Legitimate users who have already
-	// changed their password are unaffected: mcp=false short-circuits
-	// the expiry check.
+	// must_change_password=true AND invited_at + the configured window
+	// has elapsed; the response is collapsed to 401 (not 403) so an
+	// attacker holding a stolen temp password cannot distinguish
+	// "expired invite" from "wrong password" — see the Phase 5.1/5.2
+	// review finding D4. Legitimate users who have already changed
+	// their password are unaffected: mcp=false short-circuits the
+	// expiry check entirely.
 	//
-	// Backfill: existing users get invited_at = created_at. Most
-	// existing users have mcp=false already, so the backfill does not
-	// retroactively expire anyone; only users still holding a temp
-	// password will feel the gate.
+	// Backfill: the ALTER stamps every existing row with invited_at =
+	// now() (the ALTER wall-clock time), which is always AFTER that
+	// row's created_at. We then overwrite those stamps with the row's
+	// own created_at so the anchor reflects when the user was actually
+	// created, not when the migration ran. The UPDATE is unconditional
+	// (no WHERE predicate on the timestamp comparison) so that future
+	// re-applications of the migration remain idempotent and a human
+	// reading the SQL sees the intent plainly.
 	`ALTER TABLE users ADD COLUMN invited_at TIMESTAMPTZ NOT NULL DEFAULT now();
-	UPDATE users SET invited_at = created_at WHERE invited_at > created_at;`,
+	UPDATE users SET invited_at = created_at;`,
 }

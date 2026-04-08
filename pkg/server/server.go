@@ -97,6 +97,14 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		guard:        cfg.Guard,
 		loginLimiter: auth.NewLoginRateLimiter(auth.DefaultLoginRateLimiterConfig),
 	}
+	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
+	// so a dictionary-style attack against unknown emails cannot leak
+	// memory over time. The janitor stops when ctx is canceled; for now
+	// we use context.Background() because Server has no lifecycle ctx,
+	// and the goroutine is cheap and exits on process shutdown. A future
+	// refactor that gives Server an explicit Shutdown-linked context
+	// should pass it here instead.
+	srv.loginLimiter.StartJanitor(context.Background(), auth.DefaultLoginRateLimiterConfig.LockoutDuration)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)

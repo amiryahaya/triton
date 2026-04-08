@@ -242,8 +242,14 @@ func TestLogin_InviteExpired_Rejects(t *testing.T) {
 		"email":    user.Email,
 		"password": "temp-password-1234",
 	})
-	assert.Equal(t, http.StatusForbidden, w.Code,
-		"expired invite (mcp=true, invited_at > 7d old) must return 403")
+	// Per D4 from the Phase 5.1/5.2 review: the response collapses to
+	// 401 "invalid credentials" rather than 403 "invite expired" so
+	// an attacker holding a stolen temp password cannot use the
+	// status-code difference to confirm the credential was historically
+	// valid. Recovery path for legitimate users is the resend-invite
+	// endpoint, not a distinct error code on login.
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"expired invite must return 401 (not 403) to avoid a credential oracle")
 }
 
 // TestLogin_InviteExpired_IgnoredForCompletedUsers verifies that a

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -146,6 +147,75 @@ func (l *LoginRateLimiter) RecordFailure(email string) {
 	if entry.failureCount >= l.cfg.MaxAttempts {
 		entry.lockedUntil = now.Add(l.cfg.LockoutDuration)
 	}
+}
+
+// sweepStale walks the entries map and deletes any whose window and
+// lockout have both expired. This is the memory-reclamation path: an
+// attacker enumerating unknown email addresses would otherwise leak
+// one entry per probe forever, because RecordSuccess (which deletes)
+// never fires for a nonexistent user. Called periodically by the
+// janitor goroutine when started, and called directly from tests.
+//
+// Acquires each entry's lock before inspecting it — safe to run
+// concurrently with Check/RecordFailure.
+func (l *LoginRateLimiter) sweepStale() {
+	now := time.Now()
+	l.entries.Range(func(key, value any) bool {
+		entry := value.(*rateLimitEntry)
+		entry.mu.Lock()
+		stale := isStale(entry, now, l.cfg.Window)
+		entry.mu.Unlock()
+		if stale {
+			l.entries.Delete(key)
+		}
+		return true
+	})
+}
+
+// isStale returns true when an entry carries no live state: no active
+// lockout AND either zero failures OR a failure window that has
+// already elapsed. Stale entries can be reclaimed without losing any
+// rate-limit decisions.
+func isStale(e *rateLimitEntry, now time.Time, window time.Duration) bool {
+	if !e.lockedUntil.IsZero() && now.Before(e.lockedUntil) {
+		return false // still locked
+	}
+	if e.failureCount == 0 {
+		return true
+	}
+	if !e.windowStart.IsZero() && now.Sub(e.windowStart) >= window {
+		return true
+	}
+	return false
+}
+
+// StartJanitor launches a background goroutine that periodically
+// sweeps stale entries from the limiter. Call once per process at
+// startup. The goroutine stops when ctx is canceled. Safe to call
+// multiple times — each invocation starts a new goroutine, but the
+// caller is responsible for only doing this once per server lifecycle.
+//
+// interval controls sweep frequency. A reasonable default is
+// cfg.LockoutDuration (so every sweep reclaims any entry whose
+// lockout has fully elapsed since the previous sweep). Passing
+// interval <= 0 starts no janitor — the caller takes responsibility
+// for memory bounds via sweepStale calls.
+func (l *LoginRateLimiter) StartJanitor(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				l.sweepStale()
+			}
+		}
+	}()
 }
 
 // RecordSuccess clears the failure state for email. Call this after a

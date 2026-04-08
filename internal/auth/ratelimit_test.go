@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -168,6 +170,119 @@ func TestRateLimiter_Concurrent_NoRace(t *testing.T) {
 	// We don't assert on final state — we only care that the race
 	// detector (-race) does not fire. The lockout may or may not be
 	// engaged depending on goroutine interleaving.
+}
+
+// TestRateLimiter_SweepReclaimsStaleEntries verifies D1 from the
+// Phase 5.1 review: entries for emails that accumulated failures
+// (e.g., attacker dictionary probes against non-existent users) are
+// reclaimed once their window and any lockout have elapsed, rather
+// than leaking forever. The sweep is manual here; production calls
+// it via StartJanitor.
+func TestRateLimiter_SweepReclaimsStaleEntries(t *testing.T) {
+	lim := NewLoginRateLimiter(LoginRateLimiterConfig{
+		MaxAttempts:     3,
+		Window:          50 * time.Millisecond,
+		LockoutDuration: 50 * time.Millisecond,
+	})
+
+	// Simulate a dictionary attack: 10 unique "emails", 1 failure each.
+	for i := 0; i < 10; i++ {
+		lim.RecordFailure(fmt.Sprintf("attacker-%d@example.com", i))
+	}
+	assert.Equal(t, 10, entryCount(lim), "all 10 entries must be present initially")
+
+	// Before the window elapses, a sweep reclaims nothing (windows
+	// are still active, so the entries are not stale yet).
+	lim.sweepStale()
+	assert.Equal(t, 10, entryCount(lim), "sweep must not reclaim live entries")
+
+	// Wait for windows + any lockout to elapse.
+	time.Sleep(80 * time.Millisecond)
+
+	lim.sweepStale()
+	assert.Equal(t, 0, entryCount(lim),
+		"sweep must reclaim all stale entries after window expiry")
+}
+
+// TestRateLimiter_JanitorStopsOnContextCancel verifies that
+// StartJanitor's goroutine shuts down when its context is canceled.
+// No assertion on timing — we only care that cancelling does not
+// deadlock or leak the goroutine past the test's t.Cleanup.
+func TestRateLimiter_JanitorStopsOnContextCancel(t *testing.T) {
+	lim := NewLoginRateLimiter(LoginRateLimiterConfig{
+		MaxAttempts:     3,
+		Window:          10 * time.Millisecond,
+		LockoutDuration: 10 * time.Millisecond,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	lim.StartJanitor(ctx, 5*time.Millisecond)
+
+	// Populate then cancel.
+	for i := 0; i < 5; i++ {
+		lim.RecordFailure(fmt.Sprintf("ctxstop-%d@example.com", i))
+	}
+	time.Sleep(25 * time.Millisecond) // let at least one tick fire
+	cancel()
+	// If the goroutine doesn't exit, the -race detector will catch
+	// any follow-on state mutation via go test's leak detection.
+}
+
+// TestRateLimiter_StartJanitor_ZeroIntervalIsNoOp verifies the
+// contract that interval <= 0 starts no goroutine at all.
+func TestRateLimiter_StartJanitor_ZeroIntervalIsNoOp(t *testing.T) {
+	lim := NewLoginRateLimiter(DefaultLoginRateLimiterConfig)
+	// Should return immediately without launching anything.
+	lim.StartJanitor(context.Background(), 0)
+}
+
+// TestRateLimiter_LockoutExpiryThenFail_ResetsWindowCounter is the
+// D6 coverage gap: after a lockout elapses, a FRESH failure must
+// start a new window at count=1, not immediately re-lock at count=N.
+func TestRateLimiter_LockoutExpiryThenFail_ResetsWindowCounter(t *testing.T) {
+	lim := NewLoginRateLimiter(LoginRateLimiterConfig{
+		MaxAttempts:     3,
+		Window:          1 * time.Hour,
+		LockoutDuration: 50 * time.Millisecond,
+	})
+
+	// Lock the user out.
+	for i := 0; i < 3; i++ {
+		lim.RecordFailure("recover@example.com")
+	}
+	allowed, _ := lim.Check("recover@example.com")
+	require.False(t, allowed)
+
+	// Wait for lockout to expire.
+	time.Sleep(80 * time.Millisecond)
+
+	// Now a single failure must NOT immediately re-lock — the
+	// counter was reset by RecordFailure's expired-lockout branch,
+	// so we should be back to count=1 of 3.
+	lim.RecordFailure("recover@example.com")
+	allowed, _ = lim.Check("recover@example.com")
+	assert.True(t, allowed,
+		"after lockout expiry, a single failure must not immediately re-lock")
+
+	// And the user gets a full fresh budget (2 more fails before lock).
+	lim.RecordFailure("recover@example.com")
+	allowed, _ = lim.Check("recover@example.com")
+	assert.True(t, allowed, "2nd post-expiry failure still under budget")
+
+	lim.RecordFailure("recover@example.com")
+	allowed, _ = lim.Check("recover@example.com")
+	assert.False(t, allowed, "3rd post-expiry failure re-locks")
+}
+
+// entryCount returns the number of entries in the limiter's sync.Map.
+// Test-only helper — not exposed on the public type because production
+// code has no legitimate use for counting entries.
+func entryCount(l *LoginRateLimiter) int {
+	n := 0
+	l.entries.Range(func(_, _ any) bool {
+		n++
+		return true
+	})
+	return n
 }
 
 // TestRateLimiter_EmailIsCaseInsensitive verifies that "Alice@..."

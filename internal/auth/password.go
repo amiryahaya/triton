@@ -19,26 +19,27 @@ import (
 const MinPasswordLength = 12
 
 // GenerateTempPassword returns a cryptographically random base64url
-// password of the given character length. 24 chars ≈ 144 bits of
-// entropy, well above the 12-char minimum. Used by the license
-// server's provisioning flow and by the report server's
+// password of approximately the given character length. Used by the
+// license server's provisioning flow and by the report server's
 // resend-invite endpoint.
+//
+// Implementation note: base64url encodes 3 input bytes to exactly 4
+// output characters (no padding in RawURLEncoding). We compute the
+// number of raw bytes as ceil(length*3/4); the encoder will then
+// produce exactly `length` rounded up to the nearest multiple of 4
+// characters. For common lengths like 24, the result is exact. For
+// other lengths the caller may observe up to 3 extra characters —
+// that's fine, more entropy is not a bug.
 //
 // length must be > 0; values <= 0 are clamped to 24.
 func GenerateTempPassword(length int) (string, error) {
 	if length <= 0 {
 		length = 24
 	}
-	// base64url expands 3 bytes to 4 chars, so we need ceil(length*3/4)
-	// raw bytes to produce at least `length` encoded chars.
 	rawBytes := (length*3 + 3) / 4
 	raw := make([]byte, rawBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generating temp password: %w", err)
 	}
-	encoded := base64.RawURLEncoding.EncodeToString(raw)
-	if len(encoded) > length {
-		encoded = encoded[:length]
-	}
-	return encoded, nil
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }

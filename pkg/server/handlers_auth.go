@@ -146,19 +146,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Phase 5.2 — invite expiry. A user who is still holding an invite
 	// (mcp=true) whose temp-password credential was issued more than
-	// inviteExpiryWindow ago cannot complete the first-login flow. This
-	// check runs AFTER password verification so an attacker cannot
-	// distinguish "expired invite" from "wrong password" by response
-	// code alone — both require knowing the temp password to observe
-	// anything other than 401. Users who have already rotated their
-	// password (mcp=false) ignore invited_at entirely.
+	// inviteExpiryWindow ago cannot complete the first-login flow.
+	//
+	// D4 from the post-fix review: the response MUST collapse to 401
+	// "invalid credentials" (not 403 "invite expired") so an attacker
+	// holding a stolen temp password cannot use the 403 as a confirmation
+	// that the credential was historically valid. The expiry event is
+	// logged server-side so operators can see stuck-invite patterns,
+	// and admins can recover legitimate users via the resend-invite
+	// flow which clears invited_at and issues a fresh temp password.
+	//
+	// Users who have already rotated their password (mcp=false) ignore
+	// invited_at entirely.
 	if user.MustChangePassword && !user.InvitedAt.IsZero() &&
 		time.Since(user.InvitedAt) > inviteExpiryWindow {
-		// Record as a failure so an attacker scanning for expired
-		// invites still burns through the rate-limit budget.
+		log.Printf("login: rejected expired invite for %s (invited_at=%s)",
+			email, user.InvitedAt.Format(time.RFC3339))
 		s.loginLimiter.RecordFailure(email)
-		writeError(w, http.StatusForbidden,
-			"invite has expired; contact your organization administrator for a new invite")
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 

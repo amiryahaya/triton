@@ -134,6 +134,40 @@ func runServer(_ *cobra.Command, _ []string) error {
 			rlCfg.MaxRequests, rlCfg.Window)
 	}
 
+	// Sprint 4 Arch #4 — JWT session cache. Enabled by default at
+	// 10,000 entries / 60 s TTL whenever JWT auth is configured,
+	// because without it the per-request DB round-trip caps p99 at
+	// around 500 req/s and the plan explicitly flags shipping
+	// without this cache as unacceptable for multi-tenant
+	// production. Operators can tune or disable via
+	// REPORT_SERVER_SESSION_CACHE_SIZE (0 disables) and
+	// REPORT_SERVER_SESSION_CACHE_TTL (Go duration).
+	if cfg.JWTSigningKey != nil {
+		cfg.SessionCacheSize = 10000
+		cfg.SessionCacheTTL = 60 * time.Second
+		if raw := os.Getenv("REPORT_SERVER_SESSION_CACHE_SIZE"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 0 {
+				log.Printf("REPORT_SERVER_SESSION_CACHE_SIZE=%q is not a non-negative integer, ignoring", raw)
+			} else {
+				cfg.SessionCacheSize = n
+			}
+		}
+		if raw := os.Getenv("REPORT_SERVER_SESSION_CACHE_TTL"); raw != "" {
+			d, err := time.ParseDuration(raw)
+			if err != nil || d <= 0 {
+				log.Printf("REPORT_SERVER_SESSION_CACHE_TTL=%q is not a positive duration, ignoring", raw)
+			} else {
+				cfg.SessionCacheTTL = d
+			}
+		}
+		if cfg.SessionCacheSize == 0 {
+			log.Printf("WARNING: JWT session cache is disabled — multi-tenant p99 is DB-bound; expect <500 req/s sustained")
+		} else {
+			log.Printf("JWT session cache enabled: size=%d ttl=%s", cfg.SessionCacheSize, cfg.SessionCacheTTL)
+		}
+	}
+
 	// Phase 5 Sprint 2 D3 — optional Resend mailer wiring for the
 	// resend-invite flow. When all three REPORT_SERVER_RESEND_*
 	// env vars are set, we build a mailer so handleResendInvite

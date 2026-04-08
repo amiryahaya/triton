@@ -229,6 +229,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	// Arch #4 — drop the cached session entry so logout is instant,
+	// not eventually-consistent within the cache TTL. Safe on nil.
+	s.sessionCache.Delete(tokenHash)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -258,6 +261,9 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Arch #4 — drop any cached copy of the old token so a refreshed
+	// client cannot keep using its old hash against a stale entry.
+	s.sessionCache.Delete(oldHash)
 
 	newToken, expiresAt, err := s.signUserToken(r, user)
 	if err != nil {
@@ -377,6 +383,9 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Arch #4 — drop any cached copy of the old token so the
+	// pre-change-password session can never be reused.
+	s.sessionCache.Delete(oldHash)
 
 	newToken, expiresAt, err := s.signUserToken(r, updated)
 	if err != nil {

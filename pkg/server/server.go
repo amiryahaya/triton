@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/amiryahaya/triton/internal/auth"
+	"github.com/amiryahaya/triton/internal/auth/sessioncache"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -70,6 +71,20 @@ type Config struct {
 	// "https://reports.example.com/ui/#/login"). Ignored when
 	// Mailer is nil.
 	InviteLoginURL string
+
+	// SessionCacheSize bounds the in-process JWT session cache
+	// (Arch #4). Zero disables the cache, leaving JWTAuth on its
+	// two-round-trip DB fast path (acceptable for dev/testing,
+	// but NOT for production multi-tenant deployments — the
+	// uncached p99 ceiling is around 500 req/s).
+	SessionCacheSize int
+
+	// SessionCacheTTL is the maximum time a cached session entry
+	// may be returned without re-validating against the sessions
+	// table. Defaults to 60 seconds; clamped to [5s, 5m] to keep
+	// revocation latency bounded. Ignored when SessionCacheSize
+	// is zero.
+	SessionCacheTTL time.Duration
 }
 
 // Server is the Triton REST API server.
@@ -99,6 +114,10 @@ type Server struct {
 	// semaphore; Sprint 3 full-review N6 — stop-gap before the
 	// Sprint 4 batched-writer refactor.
 	auditSem chan struct{}
+	// sessionCache is the Arch #4 short-TTL LRU cache placed
+	// in front of the JWTAuth session+user lookups. Nil when
+	// SessionCacheSize is zero; JWTAuth handles the nil receiver.
+	sessionCache *sessioncache.SessionCache
 }
 
 // auditSemDepth is the max number of concurrent writeAudit
@@ -155,6 +174,29 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		requestLimitCfg = *cfg.RequestRateLimiterConfig
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	// Arch #4 JWT session cache. Clamp TTL into a sane range so
+	// a misconfigured 24h TTL cannot silently cap revocation
+	// latency at a full day — 5 minutes is the hard upper bound
+	// because at 5 minutes the p99 improvement plateaus and the
+	// eventual-consistency window becomes uncomfortable for
+	// operators. Zero size means no cache (dev/testing only).
+	var sessCache *sessioncache.SessionCache
+	if cfg.SessionCacheSize > 0 {
+		ttl := cfg.SessionCacheTTL
+		if ttl <= 0 {
+			ttl = 60 * time.Second
+		}
+		if ttl < 5*time.Second {
+			ttl = 5 * time.Second
+		}
+		if ttl > 5*time.Minute {
+			ttl = 5 * time.Minute
+		}
+		sessCache = sessioncache.New(sessioncache.Config{
+			MaxEntries: cfg.SessionCacheSize,
+			TTL:        ttl,
+		})
+	}
 	srv := &Server{
 		config:         cfg,
 		store:          s,
@@ -164,6 +206,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		ctx:            ctx,
 		cancel:         cancel,
 		auditSem:       make(chan struct{}, auditSemDepth),
+		sessionCache:   sessCache,
 	}
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
@@ -243,6 +286,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		r.Route("/api/v1/admin", func(r chi.Router) {
 			r.Use(ServiceKeyAuth(cfg.ServiceKey))
 			r.Post("/orgs", srv.handleProvisionOrg)
+			// Arch #4 operator break-glass — flush the JWT session
+			// cache so a revoked token stops working inside the
+			// current TTL window.
+			r.Post("/sessions/flush", srv.handleFlushSessionCache)
 		})
 	}
 
@@ -281,7 +328,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		// =true on their initial JWT) cannot use the user-management API
 		// until they've called /auth/change-password to clear the flag.
 		r.Route("/api/v1/users", func(r chi.Router) {
-			r.Use(JWTAuth(cfg.JWTPublicKey, s))
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
 			r.Use(BlockUntilPasswordChanged)
 			r.Use(RequireOrgAdmin)
 			// Per-tenant rate limit — same policy as the data-plane
@@ -302,7 +349,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		// Audit log query — Phase 5 Sprint 3 B2. Org-scoped via the
 		// JWT's org claim; admin role required to read.
 		r.Route("/api/v1/audit", func(r chi.Router) {
-			r.Use(JWTAuth(cfg.JWTPublicKey, s))
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
 			r.Use(BlockUntilPasswordChanged)
 			r.Use(RequireOrgAdmin)
 			r.Use(RequestRateLimitByUser(srv.requestLimiter))

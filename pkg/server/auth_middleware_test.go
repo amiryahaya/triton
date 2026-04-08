@@ -26,7 +26,7 @@ func mountWithMiddleware(t *testing.T, srv *Server, middleware func(http.Handler
 	t.Helper()
 	r := chi.NewRouter()
 	r.Route("/test", func(r chi.Router) {
-		r.Use(JWTAuth(srv.config.JWTPublicKey, srv.store))
+		r.Use(JWTAuth(srv.config.JWTPublicKey, srv.store, srv.sessionCache))
 		r.Use(middleware)
 		r.Get("/", noopHandler)
 	})

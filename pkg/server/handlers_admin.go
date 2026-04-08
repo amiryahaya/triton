@@ -176,3 +176,31 @@ func (s *Server) handleProvisionOrg(w http.ResponseWriter, r *http.Request) {
 		"admin_user_id": user.ID,
 	})
 }
+
+// handleFlushSessionCache drops every entry from the in-process JWT
+// session cache (Arch #4). Used by operators for instant-kill
+// scenarios where a token must stop working immediately and they
+// cannot wait for the cache TTL to age it out.
+//
+// Running behind ServiceKeyAuth keeps this out of the public auth
+// surface — only the license server (or a trusted admin with the
+// service key) can trigger a flush. Per-org flushes are not
+// supported in v1; a full flush is cheap and operators who need
+// per-user revocation already get it by calling DeleteSession on
+// the sessions table (the resulting 401 is the next thing the
+// cached entry sees after its TTL expires, and in-band mutations
+// already call SessionCache.Delete directly).
+//
+// Returns the number of entries removed so operators can confirm
+// the cache was actually populated when they flushed it. The
+// response shape is intentionally minimal (no stats, no errors)
+// because this endpoint is a last-resort button, not a dashboard.
+func (s *Server) handleFlushSessionCache(w http.ResponseWriter, _ *http.Request) {
+	n := 0
+	if s.sessionCache != nil {
+		n = s.sessionCache.Flush()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"flushed": n,
+	})
+}

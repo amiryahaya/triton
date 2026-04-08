@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"time"
+
 	"github.com/amiryahaya/triton/internal/auth"
+	"github.com/amiryahaya/triton/internal/auth/sessioncache"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -135,7 +138,16 @@ func ClaimsFromContext(ctx context.Context) *auth.UserClaims {
 // Rejects with 401 for missing/invalid/expired tokens, revoked
 // sessions, or unknown users. The handler chain only sees
 // authenticated requests with a non-nil user in context.
-func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler) http.Handler {
+//
+// Arch #4: a non-nil cache short-circuits both PG calls on the
+// hot path. Cache is keyed by sha256(raw token); a hit rebuilds a
+// *store.User from the cached fields and skips GetSessionByHash +
+// GetUser entirely. Revocation via logout/refresh/change-password
+// explicitly deletes the cache entry; revocation via other paths
+// (admin DeleteSession, direct SQL) is eventually-consistent
+// within the cache TTL. Pass nil to disable caching (preserves
+// pre-Arch#4 behavior exactly).
+func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore, cache *sessioncache.SessionCache) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearerToken(r)
@@ -148,6 +160,25 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler)
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
+			h := sha256.Sum256([]byte(token))
+			tokenHash := hex.EncodeToString(h[:])
+
+			// Cache fast path. On hit we have everything the
+			// handler chain needs; on miss we fall through to
+			// the DB lookups below and Put the result.
+			if entry, ok := cache.Get(tokenHash); ok {
+				user := &store.User{
+					ID:                 entry.UserID,
+					OrgID:              entry.OrgID,
+					Role:               entry.Role,
+					MustChangePassword: entry.MustChangePassword,
+				}
+				ctx := context.WithValue(r.Context(), claimsContextKey, claims)
+				ctx = context.WithValue(ctx, userContextKey, user)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			// B1 session revocation check — compute the same SHA-256
 			// hash that handleLogin / handleRefresh wrote into the
 			// sessions table and refuse the request if the row is
@@ -161,8 +192,6 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler)
 			// hiccups. Return 503 for non-NotFound errors so the
 			// client knows to retry with the same token after a
 			// backoff.
-			h := sha256.Sum256([]byte(token))
-			tokenHash := hex.EncodeToString(h[:])
 			if _, err := jwtStore.GetSessionByHash(r.Context(), tokenHash); err != nil {
 				var nf *store.ErrNotFound
 				if errors.As(err, &nf) {
@@ -185,6 +214,16 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler)
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
+			// Populate cache after full validation succeeded. We
+			// stamp the entry's JWTExpiry from the claims so the
+			// cache never outlives the token itself.
+			cache.Put(tokenHash, sessioncache.Entry{
+				UserID:             user.ID,
+				OrgID:              user.OrgID,
+				Role:               user.Role,
+				MustChangePassword: user.MustChangePassword,
+				JWTExpiry:          time.Unix(claims.Exp, 0),
+			})
 			ctx := context.WithValue(r.Context(), claimsContextKey, claims)
 			ctx = context.WithValue(ctx, userContextKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))

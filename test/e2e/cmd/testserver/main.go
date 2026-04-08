@@ -5,15 +5,23 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
 )
+
+// testOrgID is the org_id stamped onto seed data and used as the
+// single-tenant Guard identity for E2E tests. Matches the value used
+// by global-setup.js when seeding scans.
+const testOrgID = "00000000-0000-0000-0000-000000000abc"
 
 func main() {
 	if err := run(); err != nil {
@@ -46,9 +54,33 @@ func run() error {
 		return fmt.Errorf("truncate: %w", err)
 	}
 
+	// Install a single-tenant Guard so Phase 2's RequireTenant middleware
+	// is satisfied without requiring login. The E2E suite tests dashboard
+	// rendering, not the auth flow — auth-flow tests should explicitly
+	// log in via the login page (Phase 3 test additions).
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generating test keypair: %w", err)
+	}
+	lic := &license.License{
+		ID:        "e2e-test-license",
+		Tier:      license.TierEnterprise,
+		OrgID:     testOrgID,
+		Org:       "E2E Test Org",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
+	if err != nil {
+		return fmt.Errorf("encoding test license: %w", err)
+	}
+	guard := license.NewGuardFromToken(token, pub)
+
 	cfg := &server.Config{
 		ListenAddr: listen,
 		DBUrl:      dbURL,
+		Guard:      guard,
 	}
 	srv := server.New(cfg, db)
 

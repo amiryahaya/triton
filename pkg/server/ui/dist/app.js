@@ -6,10 +6,66 @@
   const $$ = (sel) => document.querySelectorAll(sel);
   const content = $('#content');
 
-  // API helper
-  async function api(path) {
-    const resp = await fetch('/api/v1' + path);
-    if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+  // ─── Auth state ─────────────────────────────────────────────────────
+  // JWT lives in localStorage. We treat the token as opaque — the server
+  // is the only validator. We DO decode the payload (base64url, no
+  // signature check) to read role/name/org/mcp claims for client-side
+  // routing decisions only. NEVER trust these for authorization.
+  const STORAGE_KEY = 'tritonJWT';
+  const auth = {
+    getToken: () => localStorage.getItem(STORAGE_KEY) || '',
+    setToken: (t) => localStorage.setItem(STORAGE_KEY, t),
+    clearToken: () => localStorage.removeItem(STORAGE_KEY),
+    getClaims: () => {
+      const token = auth.getToken();
+      if (!token) return null;
+      try {
+        const payload = token.split('.')[1];
+        // Base64url → base64 → JSON
+        const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+        return JSON.parse(json);
+      } catch (e) { return null; }
+    },
+    isAdmin: () => {
+      const c = auth.getClaims();
+      return c && c.role === 'org_admin';
+    },
+    mustChangePassword: () => {
+      const c = auth.getClaims();
+      return !!(c && c.mcp);
+    },
+  };
+
+  // API helper. Injects Authorization header from stored JWT, handles
+  // 401 by clearing the token and showing the login screen.
+  // method/body are optional (defaults to GET).
+  async function api(path, opts) {
+    opts = opts || {};
+    const headers = Object.assign({}, opts.headers || {});
+    const token = auth.getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (opts.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const resp = await fetch('/api/v1' + path, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.body || undefined,
+    });
+    if (resp.status === 401) {
+      auth.clearToken();
+      location.hash = '#/login';
+      throw new Error('Authentication required');
+    }
+    if (!resp.ok) {
+      let msg = `API error: ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    if (resp.status === 204) return null;
     return resp.json();
   }
 
@@ -41,12 +97,34 @@
     const view = parts[0] || '';
     const param = parts[1] || '';
 
+    // Auth gate: if the user has a JWT and it says they must change
+    // their password, force them to the change-password screen first.
+    // No other view is reachable until the flag is cleared.
+    if (auth.mustChangePassword() && view !== 'change-password' && view !== 'login') {
+      location.hash = '#/change-password';
+      return;
+    }
+
     // Update active nav link
     $$('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.view === (view || 'overview'));
     });
 
+    // Show/hide the Users nav link based on role.
+    const usersLink = $('#nav-users');
+    if (usersLink) {
+      usersLink.style.display = auth.isAdmin() ? '' : 'none';
+    }
+    // Show/hide the logout button based on whether we have a token.
+    const logoutBtn = $('#nav-logout');
+    if (logoutBtn) {
+      logoutBtn.style.display = auth.getToken() ? '' : 'none';
+    }
+
     switch(view) {
+      case 'login': renderLogin(); break;
+      case 'change-password': renderChangePassword(); break;
+      case 'users': param ? renderUserDetail(param) : renderUsers(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;
@@ -55,6 +133,229 @@
       case 'trend': renderTrend(); break;
       default: content.innerHTML = '<div class="error">Page not found</div>';
     }
+  }
+
+  // ─── Login view (Phase 3.1) ─────────────────────────────────────────
+  function renderLogin() {
+    content.innerHTML = `
+      <div class="auth-card">
+        <h2>Sign in</h2>
+        <p class="muted">Sign in to view your organization's scan reports.</p>
+        <form id="loginForm" onsubmit="return tritonLogin(event)">
+          <label>Email
+            <input type="email" id="loginEmail" required autofocus>
+          </label>
+          <label>Password
+            <input type="password" id="loginPassword" required>
+          </label>
+          <button type="submit" class="btn btn-primary">Sign in</button>
+          <div id="loginError" class="form-error"></div>
+        </form>
+      </div>
+    `;
+  }
+
+  window.tritonLogin = async function(e) {
+    e.preventDefault();
+    const email = $('#loginEmail').value.trim();
+    const password = $('#loginPassword').value;
+    const errEl = $('#loginError');
+    errEl.textContent = '';
+    try {
+      const resp = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password}),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        errEl.textContent = err.error || `Sign in failed (${resp.status})`;
+        return false;
+      }
+      const data = await resp.json();
+      auth.setToken(data.token);
+      // If the response says the user must change their password, route
+      // them there. Otherwise drop them onto the overview.
+      if (data.mustChangePassword) {
+        location.hash = '#/change-password';
+      } else {
+        location.hash = '#/';
+      }
+    } catch (e) {
+      errEl.textContent = 'Network error: ' + e.message;
+    }
+    return false;
+  };
+
+  // ─── Change password view (Phase 3.4) ───────────────────────────────
+  function renderChangePassword() {
+    if (!auth.getToken()) {
+      location.hash = '#/login';
+      return;
+    }
+    const claims = auth.getClaims();
+    const reasonNote = (claims && claims.mcp)
+      ? '<p class="warn">Your account requires a password change before you can continue.</p>'
+      : '';
+    content.innerHTML = `
+      <div class="auth-card">
+        <h2>Change password</h2>
+        ${reasonNote}
+        <form id="changePwForm" onsubmit="return tritonChangePassword(event)">
+          <label>Current password
+            <input type="password" id="cpwCurrent" required autofocus>
+          </label>
+          <label>New password (min 12 characters)
+            <input type="password" id="cpwNew" required minlength="12">
+          </label>
+          <label>Confirm new password
+            <input type="password" id="cpwConfirm" required minlength="12">
+          </label>
+          <button type="submit" class="btn btn-primary">Change password</button>
+          <div id="cpwError" class="form-error"></div>
+        </form>
+      </div>
+    `;
+  }
+
+  window.tritonChangePassword = async function(e) {
+    e.preventDefault();
+    const current = $('#cpwCurrent').value;
+    const newPw = $('#cpwNew').value;
+    const confirm = $('#cpwConfirm').value;
+    const errEl = $('#cpwError');
+    errEl.textContent = '';
+    if (newPw !== confirm) {
+      errEl.textContent = "New passwords don't match.";
+      return false;
+    }
+    try {
+      const data = await api('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({current_password: current, new_password: newPw}),
+      });
+      // Server returns a fresh JWT with mcp=false. Store and continue.
+      if (data && data.token) {
+        auth.setToken(data.token);
+      }
+      location.hash = '#/';
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+    return false;
+  };
+
+  // ─── Logout ─────────────────────────────────────────────────────────
+  window.tritonLogout = async function() {
+    try {
+      await api('/auth/logout', {method: 'POST'});
+    } catch (_) {
+      // Best-effort — clear local state regardless
+    }
+    auth.clearToken();
+    location.hash = '#/login';
+  };
+
+  // ─── Users view (Phase 3.3 — org admins only) ───────────────────────
+  async function renderUsers() {
+    if (!auth.isAdmin()) {
+      content.innerHTML = '<div class="error">Access denied — org admin role required.</div>';
+      return;
+    }
+    content.innerHTML = '<div class="loading">Loading users...</div>';
+    try {
+      const users = await api('/users');
+      let html = `<div class="view-header">
+        <h2>Users</h2>
+        <button class="btn btn-primary" onclick="tritonShowCreateUser()">Add user</button>
+      </div>`;
+      html += `<div id="userFormContainer"></div>`;
+      html += `<table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th></th></tr></thead>
+        <tbody>`;
+      if (users && users.length) {
+        for (const u of users) {
+          html += `<tr>
+            <td>${escapeHtml(u.name)}</td>
+            <td>${escapeHtml(u.email)}</td>
+            <td><span class="badge">${escapeHtml(u.role)}</span></td>
+            <td>${formatDate(u.createdAt)}</td>
+            <td><button class="btn btn-outline btn-sm" onclick="tritonDeleteUser('${escapeHtml(u.id)}', '${escapeHtml(u.email)}')">Delete</button></td>
+          </tr>`;
+        }
+      } else {
+        html += `<tr><td colspan="5" class="muted">No users yet.</td></tr>`;
+      }
+      html += `</tbody></table>`;
+      content.innerHTML = html;
+    } catch (e) {
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  window.tritonShowCreateUser = function() {
+    $('#userFormContainer').innerHTML = `
+      <div class="auth-card">
+        <h3>Add user</h3>
+        <form id="createUserForm" onsubmit="return tritonCreateUser(event)">
+          <label>Email <input type="email" id="newUserEmail" required></label>
+          <label>Name <input type="text" id="newUserName" required></label>
+          <label>Role
+            <select id="newUserRole">
+              <option value="org_user">org_user (read-only)</option>
+              <option value="org_admin">org_admin (full access)</option>
+            </select>
+          </label>
+          <label>Password (min 12 characters)
+            <input type="password" id="newUserPassword" required minlength="12">
+          </label>
+          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="button" class="btn btn-outline" onclick="tritonCancelCreateUser()">Cancel</button>
+          <div id="newUserError" class="form-error"></div>
+        </form>
+      </div>
+    `;
+  };
+
+  window.tritonCancelCreateUser = function() {
+    $('#userFormContainer').innerHTML = '';
+  };
+
+  window.tritonCreateUser = async function(e) {
+    e.preventDefault();
+    const errEl = $('#newUserError');
+    errEl.textContent = '';
+    try {
+      await api('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: $('#newUserEmail').value.trim(),
+          name: $('#newUserName').value.trim(),
+          role: $('#newUserRole').value,
+          password: $('#newUserPassword').value,
+        }),
+      });
+      renderUsers();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+    return false;
+  };
+
+  window.tritonDeleteUser = async function(id, email) {
+    if (!confirm('Delete user ' + email + '? This cannot be undone.')) return;
+    try {
+      await api('/users/' + encodeURIComponent(id), {method: 'DELETE'});
+      renderUsers();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  };
+
+  // renderUserDetail is a stub for #/users/{id} — currently routes back
+  // to the list. Reserved for a future per-user edit screen.
+  function renderUserDetail(_id) {
+    location.hash = '#/users';
   }
 
   // Render helpers
@@ -447,6 +748,11 @@
   };
 
   // Init
+  // The renderOverview() initial call will hit the API. In single-tenant
+  // mode (Guard provides tenant context), it returns 200 and the UI
+  // renders normally — no login needed. In multi-tenant mode without
+  // a stored token, the API returns 401, the api() helper redirects
+  // to #/login, and the user signs in.
   window.addEventListener('hashchange', route);
   route();
 })();

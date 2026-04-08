@@ -105,6 +105,99 @@ func TestScans_AgentSubmitViaLicenseToken(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code, "unauthenticated single-tenant submit must still work")
 }
 
+// TestScans_DeleteRequiresOrgAdmin verifies the Arch #7 RBAC fix:
+// destructive operations (DELETE /scans/{id}) require org_admin role.
+// org_user can read but cannot delete.
+func TestScans_DeleteRequiresOrgAdmin(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+
+	// Create one org with both an admin and a user
+	_, admin := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	_, user := createTestUserInOrg(t, db, admin.OrgID, "org_user", "correct-horse-battery", false)
+
+	scanID := seedScanInOrg(t, db, admin.OrgID, "victim-host")
+
+	// org_user tries to delete → 403
+	userToken := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/scans/"+scanID, nil)
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code, "org_user must not be able to delete scans")
+
+	// Scan must still exist
+	_, err := db.GetScan(context.Background(), scanID, "")
+	require.NoError(t, err, "scan must still exist after rejected delete")
+
+	// org_admin succeeds
+	adminToken := loginAndExtractToken(t, srv, admin.Email, "correct-horse-battery")
+	req2 := httptest.NewRequest(http.MethodDelete, "/api/v1/scans/"+scanID, nil)
+	req2.Header.Set("Authorization", "Bearer "+adminToken)
+	w2 := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusOK, w2.Code, "org_admin must be able to delete")
+}
+
+// TestScans_RequireTenantBlocksUnauthenticated is the regression test for
+// the D1 finding from the Phase 2 review: before the fix, an unauthenticated
+// GET /api/v1/scans returned ALL rows from ALL orgs because TenantFromContext
+// returned an empty string and the store accepted empty org_id as "no
+// filter". After the fix, RequireTenant rejects the request with 401.
+//
+// This test uses testServerWithJWT which has NO Guard configured, so
+// UnifiedAuth has no fallback path → no TenantContext → RequireTenant
+// rejects.
+func TestScans_RequireTenantBlocksUnauthenticated(t *testing.T) {
+	srv, _ := testServerWithJWT(t)
+
+	// Unauthenticated read attempts must all be rejected with 401.
+	for _, path := range []string{
+		"/api/v1/scans",
+		"/api/v1/scans/00000000-0000-0000-0000-000000000001",
+		"/api/v1/diff?base=a&compare=b",
+		"/api/v1/trend",
+		"/api/v1/machines",
+		"/api/v1/aggregate",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		srv.Router().ServeHTTP(w, req)
+		assert.Equal(t, http.StatusUnauthorized, w.Code,
+			"unauthenticated %s must return 401, got %d (D1 regression!)", path, w.Code)
+	}
+}
+
+// TestScans_SubmitIgnoresBodyOrgID is the regression test for the D2
+// finding: handleSubmitScan must NEVER trust the client-supplied orgID
+// in the request body. Phase 2 fix sets result.OrgID from
+// TenantFromContext (always — no conditional), so a body that lies
+// about its org gets corrected to the authenticated tenant's org or
+// to empty (single-tenant mode).
+func TestScans_SubmitIgnoresBodyOrgID(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	orgA, userA := createOrgUser(t, db, "org_user", "correct-horse-battery", false)
+	otherOrgID := "00000000-0000-0000-0000-0000000eeeee" // try to inject into
+
+	token := loginAndExtractToken(t, srv, userA.Email, "correct-horse-battery")
+
+	// Submit a scan with the body claiming a DIFFERENT org.
+	scan := testScanResult(uuid.Must(uuid.NewV7()).String(), "victim-host")
+	scan.OrgID = otherOrgID
+	body, _ := json.Marshal(scan)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scans", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify the scan was stored under userA's org, NOT the injected one.
+	got, err := db.GetScan(context.Background(), scan.ID, "")
+	require.NoError(t, err)
+	assert.Equal(t, orgA.ID, got.OrgID,
+		"scan must be stored under authenticated user's org, not the body-injected org (D2 regression!)")
+}
+
 // TestScans_JWTUserCanGetOwnOrgScan verifies point-lookup tenant
 // isolation: fetching /scans/{id} for a scan in MY org succeeds,
 // and for a scan in ANOTHER org returns 404.

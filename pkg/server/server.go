@@ -35,6 +35,10 @@ type Config struct {
 	// JWTPublicKey is the corresponding public key used to verify report
 	// server JWTs. Derived from JWTSigningKey if not supplied.
 	JWTPublicKey ed25519.PublicKey
+	// DataEncryptionKeyHex enables at-rest AES-256-GCM encryption of
+	// scan_data. 64 hex characters = 32-byte key. Empty disables
+	// encryption (existing rows continue to read as plaintext).
+	DataEncryptionKeyHex string
 }
 
 // Server is the Triton REST API server.
@@ -60,6 +64,24 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // New creates a new Server with the given config and store.
 func New(cfg *Config, s store.Store) *Server {
+	// If at-rest encryption is configured, build the encryptor and
+	// install it on the store BEFORE the server begins handling
+	// requests. Doing this here (rather than in cmd/server.go) keeps
+	// the configuration surface in one place: callers set
+	// cfg.DataEncryptionKeyHex and don't need to know about
+	// store.SetEncryptor.
+	if cfg.DataEncryptionKeyHex != "" {
+		if ps, ok := s.(*store.PostgresStore); ok {
+			enc, err := store.NewEncryptor(cfg.DataEncryptionKeyHex)
+			if err != nil {
+				log.Printf("FATAL: invalid DataEncryptionKeyHex: %v", err)
+			} else {
+				ps.SetEncryptor(enc)
+				log.Printf("at-rest scan data encryption enabled (AES-256-GCM)")
+			}
+		}
+	}
+
 	srv := &Server{
 		config: cfg,
 		store:  s,
@@ -186,18 +208,40 @@ func New(cfg *Config, s store.Store) *Server {
 }
 
 func (s *Server) registerAPIRoutes(r chi.Router) {
+	// POST /scans is intentionally registered WITHOUT RequireTenant so
+	// single-tenant deployments (no Guard, no JWT) can still accept
+	// agent submissions. The handler sets result.OrgID from
+	// TenantFromContext only if non-empty, so authenticated submissions
+	// stamp the tenant's org and unauthenticated submissions retain
+	// whatever the body says. See handleSubmitScan for the body-injection
+	// guard that prevents cross-org writes when authenticated.
 	r.Post("/scans", s.handleSubmitScan)
-	r.Get("/scans", s.handleListScans)
-	r.Get("/scans/{id}", s.handleGetScan)
-	r.Delete("/scans/{id}", s.handleDeleteScan)
-	r.Get("/scans/{id}/findings", s.handleGetFindings)
-	r.Get("/diff", s.handleDiff)
-	r.Get("/trend", s.handleTrend)
-	r.Get("/machines", s.handleListMachines)
-	r.Get("/machines/{hostname}", s.handleMachineHistory)
-	r.Post("/policy/evaluate", s.handlePolicyEvaluate)
-	r.Get("/reports/{id}/{format}", s.handleGenerateReport)
-	r.Get("/aggregate", s.handleAggregate)
+
+	// All read/write routes require an authenticated tenant context.
+	// This closes the D1 finding from the Phase 2 review: without this
+	// gate, an unauthenticated GET /api/v1/scans returned rows from
+	// ALL orgs because TenantFromContext returned an empty string and
+	// the store accepted empty org_id as "no filter".
+	r.Group(func(r chi.Router) {
+		r.Use(RequireTenant)
+		r.Get("/scans", s.handleListScans)
+		r.Get("/scans/{id}", s.handleGetScan)
+		r.Get("/scans/{id}/findings", s.handleGetFindings)
+		r.Get("/diff", s.handleDiff)
+		r.Get("/trend", s.handleTrend)
+		r.Get("/machines", s.handleListMachines)
+		r.Get("/machines/{hostname}", s.handleMachineHistory)
+		r.Post("/policy/evaluate", s.handlePolicyEvaluate)
+		r.Get("/reports/{id}/{format}", s.handleGenerateReport)
+		r.Get("/aggregate", s.handleAggregate)
+
+		// Destructive operations require org_admin (Arch #7 from
+		// Phase 2 review). org_user can read but cannot delete scans.
+		r.Group(func(r chi.Router) {
+			r.Use(RequireScanAdmin)
+			r.Delete("/scans/{id}", s.handleDeleteScan)
+		})
+	})
 }
 
 // Start starts the HTTP server.

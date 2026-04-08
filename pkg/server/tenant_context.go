@@ -121,16 +121,24 @@ func UnifiedAuth(
 						writeError(w, http.StatusUnauthorized, "invalid license token")
 						return
 					}
-					if lic.OrgID != "" {
-						tc := &TenantContext{
-							OrgID:  lic.OrgID,
-							Source: AuthSourceLicenseToken,
-						}
-						ctx := context.WithValue(r.Context(), tenantContextKey, tc)
-						ctx = context.WithValue(ctx, tenantOrgIDKey, lic.OrgID)
-						next.ServeHTTP(w, r.WithContext(ctx))
+					// A cryptographically valid token with an empty OrgID is
+					// a misconfigured agent — reject rather than silently
+					// fall through to the guard path (D3 from Phase 2 review).
+					// Silently falling through would let the single-tenant
+					// guard mask what should be a configuration error.
+					if lic.OrgID == "" {
+						log.Printf("unified auth: license token from %s has empty org_id", r.RemoteAddr)
+						writeError(w, http.StatusUnauthorized, "license token missing org_id")
 						return
 					}
+					tc := &TenantContext{
+						OrgID:  lic.OrgID,
+						Source: AuthSourceLicenseToken,
+					}
+					ctx := context.WithValue(r.Context(), tenantContextKey, tc)
+					ctx = context.WithValue(ctx, tenantOrgIDKey, lic.OrgID)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
 				}
 			}
 
@@ -164,6 +172,44 @@ func RequireTenant(next http.Handler) http.Handler {
 		tc := TenantContextFromContext(r.Context())
 		if tc == nil || tc.OrgID == "" {
 			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireScanAdmin gates destructive scan operations to org_admin
+// users only. Org users (org_user role) can read and submit scans
+// but cannot delete them. Agents (license-token auth, no User in
+// context) are also blocked — destructive ops require a human with
+// admin privileges, not an agent.
+//
+// Phase 2 review Arch #7: a compromised or misbehaving org_user
+// account should not be able to destroy historical compliance audit
+// data. Compensating control even if the web UI hides the button.
+//
+// Must be chained AFTER UnifiedAuth + RequireTenant.
+func RequireScanAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tc := TenantContextFromContext(r.Context())
+		if tc == nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		// Guard fallback (single-tenant) allows admin actions — there
+		// are no users in single-tenant mode, so the request is
+		// implicitly trusted (the operator deployed the binary).
+		if tc.Source == AuthSourceGuard {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Agents (license-token) are never allowed destructive ops.
+		if tc.User == nil {
+			writeError(w, http.StatusForbidden, "destructive operations require a user account")
+			return
+		}
+		if tc.User.Role != "org_admin" {
+			writeError(w, http.StatusForbidden, "org_admin role required")
 			return
 		}
 		next.ServeHTTP(w, r)

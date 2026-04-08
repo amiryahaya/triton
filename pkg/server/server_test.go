@@ -35,6 +35,29 @@ func testUUID(n int) string {
 // zeroUUID is a nil UUID for "not found" test cases.
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
 
+// testGuardForOrg builds a *license.Guard backed by a freshly-issued
+// license token bound to the given orgID. Used by testServer to give
+// every test handler a non-empty TenantContext via the Guard fallback
+// path of UnifiedAuth, so RequireTenant doesn't reject unauthenticated
+// test requests.
+func testGuardForOrg(t *testing.T, orgID string) *license.Guard {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	lic := &license.License{
+		ID:        "test-license",
+		Tier:      license.TierEnterprise,
+		OrgID:     orgID,
+		Org:       "test-org",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+	return license.NewGuardFromToken(token, pub)
+}
+
 func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	t.Helper()
 	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
@@ -55,6 +78,11 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 
 	cfg := &Config{
 		ListenAddr: ":0",
+		// Install a test Guard with testOrgID so RequireTenant on /api/v1
+		// is satisfied via the Guard fallback path. testScanResult also
+		// stamps OrgID = testOrgID, so seeded scans are visible through
+		// the test server's tenant filter.
+		Guard: testGuardForOrg(t, testOrgID),
 	}
 	srv := New(cfg, db)
 	return srv, db
@@ -81,6 +109,9 @@ func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
 	cfg := &Config{
 		ListenAddr: ":0",
 		APIKeys:    []string{"test-key-123"},
+		// Need a Guard with OrgID so RequireTenant on /api/v1 routes
+		// is satisfied — API key auth is orthogonal to tenant identity.
+		Guard: testGuardForOrg(t, testOrgID),
 	}
 	srv := New(cfg, db)
 	return srv, db
@@ -203,9 +234,16 @@ func createOrgUser(t *testing.T, db *store.PostgresStore, role, password string,
 	return org, user
 }
 
+// testOrgID is the default tenant org ID stamped onto scans seeded
+// directly via the store and into the test server's Guard. Tests that
+// need a different org should override OrgID after calling
+// testScanResult and configure their own server.
+const testOrgID = "00000000-0000-0000-0000-000000000abc"
+
 func testScanResult(id, hostname string) *model.ScanResult {
 	return &model.ScanResult{
-		ID: id,
+		ID:    id,
+		OrgID: testOrgID,
 		Metadata: model.ScanMetadata{
 			Timestamp:   time.Now().UTC().Truncate(time.Microsecond),
 			Hostname:    hostname,
@@ -1035,10 +1073,21 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 		db.Close()
 	})
 
-	// Generate ephemeral keypair and token for the given tier
-	pub, priv, err := license.GenerateKeypair()
+	// Generate ephemeral keypair and a license with both tier AND
+	// orgID set, so the Guard satisfies both LicenceGate (tier check)
+	// and UnifiedAuth's guard fallback path (non-empty org_id).
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := license.IssueTokenWithOptions(priv, tier, "Test Org", 1, 365, false)
+	lic := &license.License{
+		ID:        "test-tier-license",
+		Tier:      tier,
+		OrgID:     testOrgID,
+		Org:       "Test Org",
+		Seats:     1,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(365 * 24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
 	require.NoError(t, err)
 	guard := license.NewGuardFromToken(token, pub)
 

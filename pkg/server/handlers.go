@@ -61,10 +61,13 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stamp org_id from tenant context (overrides any client-provided value).
-	if orgID := TenantFromContext(r.Context()); orgID != "" {
-		result.OrgID = orgID
-	}
+	// Always stamp org_id from the tenant context. NEVER trust the
+	// client-supplied org_id in the request body — that would let an
+	// authenticated user or an unauthenticated single-tenant client
+	// inject scans into any org by lying in the body. This closes the
+	// D2 finding from the Phase 2 review: body-injection is prevented
+	// even on the unauthenticated path by clearing orgID before save.
+	result.OrgID = TenantFromContext(r.Context())
 
 	if err := s.store.SaveScan(r.Context(), &result); err != nil {
 		log.Printf("save scan error: %v", err)

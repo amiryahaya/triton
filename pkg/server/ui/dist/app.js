@@ -129,6 +129,13 @@
       return;
     }
 
+    // Auth-mode chrome: hide the sidebar on full-screen auth pages
+    // (login, change-password) so the user isn't presented with nav
+    // links they can't meaningfully use. CSS uses body.auth-mode to
+    // collapse the sidebar and reset the content margin.
+    const authMode = view === 'login' || view === 'change-password';
+    document.body.classList.toggle('auth-mode', authMode);
+
     // Update active nav link
     $$('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.view === (view || 'overview'));

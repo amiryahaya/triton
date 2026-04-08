@@ -46,6 +46,10 @@
   }
 
   function showAuthPrompt() {
+    // Full-screen auth card: hide the sidebar and let the auth
+    // prompt span the viewport. CSS uses body.auth-mode to
+    // collapse #sidebar and reset #content's margin.
+    document.body.classList.add('auth-mode');
     page.innerHTML = `
       <div id="auth-prompt">
         <img src="logo.png" alt="Triton" class="auth-logo">
@@ -562,6 +566,9 @@
 
   function route() {
     if (!adminKey) { showAuthPrompt(); return; }
+    // Authenticated — drop the full-screen auth-mode class so the
+    // sidebar reappears and the content margin is restored.
+    document.body.classList.remove('auth-mode');
     const hash = location.hash || '#/';
     document.querySelectorAll('.nav-link').forEach(el => {
       el.classList.toggle('active', el.getAttribute('href') === hash || (hash.startsWith(el.getAttribute('href')) && el.getAttribute('href') !== '#/'));

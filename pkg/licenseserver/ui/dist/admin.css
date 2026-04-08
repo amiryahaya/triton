@@ -80,6 +80,20 @@ body {
   min-height: 100vh;
 }
 
+/* ── Auth mode (unauthenticated / key prompt) ─────────────────────────
+ * When the admin key hasn't been entered yet, the sidebar has no
+ * meaningful targets — hide it and let the auth prompt span the
+ * full viewport. admin.js toggles body.auth-mode in showAuthPrompt
+ * and clears it in route() once the key is accepted.
+ */
+body.auth-mode #sidebar { display: none; }
+body.auth-mode #content {
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ── Sidebar ───────────────────────────────────────────────────────── */
 
 #sidebar {

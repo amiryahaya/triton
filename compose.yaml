@@ -32,9 +32,32 @@ services:
       HOME: /tmp
       TRITON_DB_URL: postgres://triton:triton@postgres:5432/triton?sslmode=disable
       TRITON_LISTEN: ":8080"
+      # Enterprise licence token for the CLI guard — baked-in dev
+      # token signed by the production pubkey embedded in the
+      # report server binary. For real deployments, issue a fresh
+      # token via the license server.
       TRITON_LICENSE_KEY: "${TRITON_LICENSE_KEY:-eyJsaWQiOiIwMTljYzNmMS01NjE0LTc0NjUtYWY5NS02NmQ0N2E4NjBkZGEiLCJ0aWVyIjoiZW50ZXJwcmlzZSIsIm9yZyI6ImNvbnRhaW5lci1kZXYiLCJzZWF0cyI6MTAwLCJpYXQiOjE3NzI4MTM4OTksImV4cCI6MjA4ODE3Mzg5OX0.NZTxYq5pRRK6FzxzrOJrxPxhTFC-f-7mwDOI_7rqtRpP-rO0Al5LYqzkyHEEU_eLPmc9uccguiRUp_AItR1jCg}"
+      # Phase 5 Sprint 3 env-var wiring for multi-tenant features.
+      # See docs/DEPLOYMENT_GUIDE.md §5b.
+      #
+      # Shared secret for license-server → report-server
+      # provisioning; MUST match the license server's
+      # TRITON_LICENSE_SERVER_REPORT_KEY below.
+      REPORT_SERVER_SERVICE_KEY: "${REPORT_SERVER_SERVICE_KEY:-dev-service-key-888e5158e28d7e4c15088f1488f2d4b38b5d059f42043342a796505a9c53b2c1}"
+      # Ed25519 seed (32 bytes, 64 hex chars) for signing org-user
+      # JWTs. Dev-only — generate a fresh seed for production.
+      REPORT_SERVER_JWT_SIGNING_KEY: "${REPORT_SERVER_JWT_SIGNING_KEY:-61627bd3a313381fed68d8fd5d9b10d9155225e1263fef9e05c706e559a507cd}"
+      # Link embedded in resend-invite emails — points at the
+      # report server's own login page.
+      REPORT_SERVER_INVITE_URL: "${REPORT_SERVER_INVITE_URL:-http://localhost:8090/ui/#/login}"
+      # Phase 5 Sprint 2 — optional Resend mailer. When unset,
+      # handleResendInvite falls back to returning the temp
+      # password in the JSON body with Cache-Control: no-store.
+      REPORT_SERVER_RESEND_API_KEY: "${REPORT_SERVER_RESEND_API_KEY:-}"
+      REPORT_SERVER_RESEND_FROM_EMAIL: "${REPORT_SERVER_RESEND_FROM_EMAIL:-}"
+      REPORT_SERVER_RESEND_FROM_NAME: "${REPORT_SERVER_RESEND_FROM_NAME:-Triton Reports}"
     ports:
-      - "8080:8080"
+      - "8090:8080"
     command: ["server", "--listen", ":8080", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable"]
 
   license-server:
@@ -52,6 +75,25 @@ services:
       TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY:-dev-admin-key}"
       TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY:-9c4c9d2c0a08d402d3980a358bc0bbe30b92b0462a14f9c277c3f1d961d744ebe19a10e284169be04604d1b028c25c40d3ebb8cbccaf9de0e53bade5c7cd0016}"
       TRITON_LICENSE_SERVER_BINARIES_DIR: /tmp/binaries
+      # Bootstrap superadmin — seeds on first startup against an
+      # empty users table. Rotate the password immediately after
+      # first login in any non-dev environment.
+      TRITON_LICENSE_SERVER_ADMIN_EMAIL: "${TRITON_LICENSE_SERVER_ADMIN_EMAIL:-admin@triton.local}"
+      TRITON_LICENSE_SERVER_ADMIN_PASSWORD: "${TRITON_LICENSE_SERVER_ADMIN_PASSWORD:-dev-admin-password-change-me}"
+      # Cross-server provisioning wiring — MUST match the report
+      # server's REPORT_SERVER_SERVICE_KEY above. Uses the
+      # compose-network hostname `triton` (service name) to reach
+      # the report server, not `localhost`.
+      TRITON_LICENSE_SERVER_REPORT_URL: "${TRITON_LICENSE_SERVER_REPORT_URL:-http://triton:8080}"
+      TRITON_LICENSE_SERVER_REPORT_KEY: "${TRITON_LICENSE_SERVER_REPORT_KEY:-dev-service-key-888e5158e28d7e4c15088f1488f2d4b38b5d059f42043342a796505a9c53b2c1}"
+      # Phase 5 Sprint 2 — Resend mailer for first-org-admin
+      # invites. Pulled from .env (see RESEND_* block). When
+      # unset, provisioning returns the temp password in the API
+      # response body for manual delivery.
+      RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      RESEND_FROM_EMAIL: "${RESEND_FROM_EMAIL:-}"
+      RESEND_FROM_NAME: "${RESEND_FROM_NAME:-Triton Reports}"
+      REPORT_SERVER_INVITE_URL_BASE: "${REPORT_SERVER_INVITE_URL_BASE:-http://localhost:8090/ui/#/login}"
     ports:
       - "8081:8081"
 

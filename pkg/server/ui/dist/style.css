@@ -88,6 +88,19 @@ body {
   min-height: 100vh;
 }
 
+/* -- Auth mode (login / change-password) -----------------------------
+ * On auth screens there's no meaningful navigation — hide the sidebar
+ * and let the main content span the full width. app.js toggles
+ * body.auth-mode based on the current hash route.
+ */
+body.auth-mode #sidebar { display: none; }
+body.auth-mode #content {
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* -- Sidebar --------------------------------------------------------- */
 
 #sidebar {

@@ -161,6 +161,16 @@ func (s *Server) handleProvisionOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit the provisioning event. ActorID is empty here — the
+	// call arrived via ServiceKeyAuth, not a human JWT — so the
+	// event's actor field encodes "system" via a distinctive target
+	// and details.service_key=true marker for the compliance trail.
+	s.writeAudit(r, auditOrgProvision, org.ID, map[string]any{
+		"org_name":      org.Name,
+		"admin_email":   user.Email,
+		"admin_user_id": user.ID,
+		"service_key":   true,
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"org":           org,
 		"admin_user_id": user.ID,

@@ -3,11 +3,91 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/store"
 )
+
+// jwtAuthStore is the narrow interface JWTAuth needs: user lookup by
+// ID plus session lookup by token hash. Accepting an interface (not
+// the full store.Store) keeps the middleware testable with a minimal
+// fake and documents the actual dependency surface.
+type jwtAuthStore interface {
+	GetUser(ctx context.Context, id string) (*store.User, error)
+	GetSessionByHash(ctx context.Context, tokenHash string) (*store.Session, error)
+}
+
+// RequestRateLimitByUser is the JWTAuth-layer counterpart to
+// RequestRateLimit: routes protected by JWTAuth (users, audit) don't
+// set the tenant context key that UnifiedAuth writes, so we key
+// the limiter by the authenticated user's OrgID directly. Same
+// limiter instance as RequestRateLimit so one org's budget is
+// shared across both middleware surfaces.
+func RequestRateLimitByUser(limiter *auth.RequestRateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := ""
+			if u := UserFromContext(r.Context()); u != nil {
+				key = u.OrgID
+			}
+			if key == "" {
+				key = "ip:" + r.RemoteAddr
+			}
+			allowed, retryAfter := limiter.Allow(key)
+			if !allowed {
+				seconds := int(retryAfter.Seconds())
+				if seconds < 1 {
+					seconds = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(seconds))
+				writeError(w, http.StatusTooManyRequests, "request rate limit exceeded; try again later")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequestRateLimit returns middleware that enforces a per-tenant
+// request rate limit on non-login data endpoints. Keys requests by
+// the tenant context (set by UnifiedAuth), falling back to a
+// fingerprint of RemoteAddr when there's no tenant yet. Requests
+// exceeding the budget return 429 with a Retry-After header.
+//
+// Phase 5 Sprint 3 B3 — prevents an authenticated-but-malicious
+// org user from hammering /scans and exhausting the DB connection
+// pool. The default 600/min budget is generous enough for a busy
+// agent fleet while still catching accidental infinite loops.
+func RequestRateLimit(limiter *auth.RequestRateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := TenantFromContext(r.Context())
+			if key == "" {
+				// Fall back to the client IP for unauthenticated
+				// requests. This is the minority path — POST /scans
+				// in single-tenant mode — but we still want DoS
+				// protection there.
+				key = "ip:" + r.RemoteAddr
+			}
+			allowed, retryAfter := limiter.Allow(key)
+			if !allowed {
+				seconds := int(retryAfter.Seconds())
+				if seconds < 1 {
+					seconds = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(seconds))
+				writeError(w, http.StatusTooManyRequests, "request rate limit exceeded; try again later")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 const (
 	userContextKey   contextKey = "auth_user"
@@ -28,20 +108,28 @@ func ClaimsFromContext(ctx context.Context) *auth.UserClaims {
 	return v
 }
 
-// JWTAuth verifies the Bearer JWT, loads the user from the store, and
-// attaches both to the request context. Subsequent middleware/handlers
-// can call UserFromContext / ClaimsFromContext to access them.
+// JWTAuth verifies the Bearer JWT, looks up the associated session
+// row, loads the user from the store, and attaches both to the
+// request context. Subsequent middleware/handlers can call
+// UserFromContext / ClaimsFromContext to access them.
 //
-// Re-fetching the user on every request (rather than trusting the JWT
-// claims) is the H2 lesson from the license server review: deletions
-// and role changes must take immediate effect even on in-flight tokens.
-// Phase 2.1 will introduce a TTL-bounded cache to soften the per-request
-// DB cost; for now we eat the lookup.
+// Session verification (Phase 5 Sprint 3 B1): the middleware
+// computes SHA-256 of the raw token and looks it up in the
+// sessions table. If the row is absent (logged out, revoked,
+// deleted by admin) or expired, the request is rejected as 401
+// regardless of the JWT's signature validity. This closes the
+// "logout is a lie" gap where a logged-out JWT remained usable
+// until natural expiry.
 //
-// Rejects with 401 for missing/invalid/expired tokens or unknown users.
-// The handler chain only sees authenticated requests with a non-nil
-// user in context.
-func JWTAuth(pubKey ed25519.PublicKey, userStore store.UserStore) func(http.Handler) http.Handler {
+// Re-fetching the user on every request is the H2 lesson from the
+// license server review: deletions and role changes must take
+// immediate effect even on in-flight tokens. The session check
+// above is cheaper than a user lookup, so we do it first.
+//
+// Rejects with 401 for missing/invalid/expired tokens, revoked
+// sessions, or unknown users. The handler chain only sees
+// authenticated requests with a non-nil user in context.
+func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearerToken(r)
@@ -54,7 +142,23 @@ func JWTAuth(pubKey ed25519.PublicKey, userStore store.UserStore) func(http.Hand
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
-			user, err := userStore.GetUser(r.Context(), claims.Sub)
+			// B1 session revocation check — compute the same SHA-256
+			// hash that handleLogin / handleRefresh wrote into the
+			// sessions table and refuse the request if the row is
+			// missing or expired. GetSessionByHash already filters
+			// expires_at > now at the SQL level.
+			h := sha256.Sum256([]byte(token))
+			tokenHash := hex.EncodeToString(h[:])
+			if _, err := jwtStore.GetSessionByHash(r.Context(), tokenHash); err != nil {
+				var nf *store.ErrNotFound
+				if errors.As(err, &nf) {
+					writeError(w, http.StatusUnauthorized, "session revoked or expired")
+					return
+				}
+				writeError(w, http.StatusUnauthorized, "invalid or expired token")
+				return
+			}
+			user, err := jwtStore.GetUser(r.Context(), claims.Sub)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return

@@ -362,6 +362,31 @@ func TestLogout_RejectsInvalidJWT(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+// TestLogout_InvalidatesSubsequentRequests verifies Phase 5 Sprint 3
+// B1: after logout, the JWT must not grant access to protected
+// routes even though its signature is still cryptographically
+// valid. Previously logout only deleted the session row but the
+// JWTAuth middleware never checked for the session, so a leaked
+// token remained usable until natural expiry.
+func TestLogout_InvalidatesSubsequentRequests(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "pw1234567890", false)
+	token := loginAndExtractToken(t, srv, user.Email, "pw1234567890")
+
+	// Sanity check: the token works on a protected route before logout.
+	wBefore := authReq(t, srv, http.MethodGet, "/api/v1/users", token, nil)
+	require.Equal(t, http.StatusOK, wBefore.Code, "token must work before logout")
+
+	// Logout.
+	wLogout := authReq(t, srv, http.MethodPost, "/api/v1/auth/logout", token, nil)
+	require.Equal(t, http.StatusOK, wLogout.Code)
+
+	// The same token must NOT work on the same protected route anymore.
+	wAfter := authReq(t, srv, http.MethodGet, "/api/v1/users", token, nil)
+	assert.Equal(t, http.StatusUnauthorized, wAfter.Code,
+		"logged-out token must be rejected on subsequent requests (B1)")
+}
+
 // --- Refresh ---
 
 func TestRefresh_Success(t *testing.T) {

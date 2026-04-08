@@ -370,6 +370,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeAudit(r, auditAuthChangePW, updated.ID, nil)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":              newToken,
 		"expiresAt":          expiresAt.Format(time.RFC3339),

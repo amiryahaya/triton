@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -48,6 +49,7 @@ var (
 	incremental      bool
 	scanPolicyArg    string
 	licenseKey       string
+	licenseFile      string // --license-file path override (Phase 5 Sprint 3)
 	licenseServerURL string
 	licenseID        string
 	guard            = license.NewGuard("") // safe default, overwritten by PersistentPreRun
@@ -64,10 +66,41 @@ and Cryptographic Bill of Materials (CBOM) for Post-Quantum Cryptography complia
 Target: Malaysian government critical sectors for 2030 PQC readiness.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			if licenseServerURL != "" {
+				// Online validation path. License-file flag is
+				// honored for the initial token load but the
+				// server's authoritative answer wins afterwards.
+				if licenseKey == "" && licenseFile != "" {
+					// Pre-resolve the file so NewGuardWithServer
+					// receives the loaded token directly.
+					if token := license.LoadTokenFromFile(licenseFile); token != "" {
+						licenseKey = token
+					}
+				}
 				guard = license.NewGuardWithServer(licenseKey, licenseServerURL, licenseID)
-			} else {
-				guard = license.NewGuard(licenseKey)
+				return
 			}
+			// Offline validation path with full
+			// flag → env → file precedence including the
+			// --license-file override (Phase 5 Sprint 3).
+			//
+			// When REPORT_SERVER_TENANT_PUBKEY is set, use it as
+			// the override pubkey for token verification so
+			// multi-tenant deployments can mint licences with
+			// a customer-specific key without rebuilding the
+			// binary. The report server's UnifiedAuth path honors
+			// the same env var (see cmd/server.go).
+			if pubHex := os.Getenv("REPORT_SERVER_TENANT_PUBKEY"); pubHex != "" {
+				if pubBytes, err := hex.DecodeString(pubHex); err == nil && len(pubBytes) == 32 {
+					filePath := license.ResolveLicenseFilePath(licenseFile)
+					token := license.LoadTokenFromFile(filePath)
+					if licenseKey != "" {
+						token = licenseKey
+					}
+					guard = license.NewGuardFromToken(token, pubBytes)
+					return
+				}
+			}
+			guard = license.NewGuardFromFlags(licenseKey, licenseFile)
 		},
 		RunE: runScan,
 	}
@@ -86,7 +119,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
 	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
 	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
-	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token")
+	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token (literal)")
+	rootCmd.PersistentFlags().StringVar(&licenseFile, "license-file", "", "Path to a file containing the licence token (overrides the default ~/.triton/license.key)")
 	rootCmd.PersistentFlags().StringVar(&licenseServerURL, "license-server", "", "License server URL for online validation")
 	rootCmd.PersistentFlags().StringVar(&licenseID, "license-id", "", "License ID for server activation")
 

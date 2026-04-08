@@ -344,7 +344,8 @@ func (s *PostgresStore) TruncateAll(ctx context.Context) error {
 	}
 	// Order matters for FK cascades. Sessions → users → organizations
 	// is the safest topological order even though CASCADE would handle it.
-	tables := []string{"sessions", "users", "organizations", "scans", "file_hashes"}
+	// audit_events has no FK dependencies; list it first for clarity.
+	tables := []string{"audit_events", "sessions", "users", "organizations", "scans", "file_hashes"}
 	for _, t := range tables {
 		if _, err := tx.Exec(ctx, "DELETE FROM "+t); err != nil {
 			_ = tx.Rollback(ctx)

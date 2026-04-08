@@ -76,6 +76,14 @@ type SessionStore interface {
 	DeleteExpiredSessions(ctx context.Context) error
 }
 
+// AuditStore is the persistence interface for report-server audit
+// events. Writes are fire-and-forget from handlers; reads are
+// exposed via a future admin endpoint for compliance review.
+type AuditStore interface {
+	WriteAudit(ctx context.Context, entry *AuditEvent) error
+	ListAudit(ctx context.Context, filter AuditFilter) ([]AuditEvent, error)
+}
+
 // Store composes all storage interfaces.
 // Implementations must be safe for concurrent use.
 type Store interface {
@@ -84,9 +92,36 @@ type Store interface {
 	OrgStore
 	UserStore
 	SessionStore
+	AuditStore
 
 	// Close releases any resources held by the store.
 	Close() error
+}
+
+// AuditEvent is a single record in the audit log. Fire-and-forget:
+// failed writes log a warning but never block the triggering action,
+// because audit failure should not cause a user-visible request
+// failure.
+type AuditEvent struct {
+	ID        int64          `json:"id,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	EventType string         `json:"eventType"`
+	OrgID     string         `json:"orgID,omitempty"`
+	ActorID   string         `json:"actorID,omitempty"`
+	TargetID  string         `json:"targetID,omitempty"`
+	Details   map[string]any `json:"details,omitempty"`
+	IPAddress string         `json:"ipAddress,omitempty"`
+}
+
+// AuditFilter specifies criteria for ListAudit. Empty fields are
+// wildcards; Limit defaults to 100, max 10000.
+type AuditFilter struct {
+	OrgID     string
+	EventType string
+	ActorID   string
+	Since     *time.Time
+	Until     *time.Time
+	Limit     int
 }
 
 // ScanFilter specifies criteria for listing scans.

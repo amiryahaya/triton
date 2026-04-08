@@ -167,6 +167,7 @@ func (s *Server) handleDeleteScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	s.writeAudit(r, auditScanDelete, id, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

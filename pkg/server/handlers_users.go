@@ -141,6 +141,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeAudit(r, auditUserCreate, user.ID, map[string]any{
+		"email": user.Email,
+		"role":  user.Role,
+	})
 	writeJSON(w, http.StatusCreated, user)
 }
 
@@ -245,6 +249,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, refetchStatus, "user not found")
 		return
 	}
+	s.writeAudit(r, auditUserUpdate, id, map[string]any{
+		"name_changed":     req.Name != "",
+		"password_changed": req.Password != "",
+	})
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -296,6 +304,10 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeAudit(r, auditUserDelete, id, map[string]any{
+		"email": target.Email,
+		"role":  target.Role,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -414,6 +426,10 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 				"invite password rotated but email delivery failed; contact the invitee out-of-band or retry")
 			return
 		}
+		s.writeAudit(r, auditUserResendInvite, id, map[string]any{
+			"email":           target.Email,
+			"email_delivered": true,
+		})
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status":         "invite resent",
 			"emailDelivered": "true",
@@ -425,6 +441,10 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 	// password in the JSON body so the admin can surface it to the
 	// invitee manually. The no-store header above plus the one-time
 	// nature (next call rotates it again) is our only defense here.
+	s.writeAudit(r, auditUserResendInvite, id, map[string]any{
+		"email":           target.Email,
+		"email_delivered": false,
+	})
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":       "invite resent",
 		"tempPassword": newTempPassword,

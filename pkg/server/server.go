@@ -49,6 +49,13 @@ type Config struct {
 	// can be tuned symmetrically — see Sprint 1 review finding M1.
 	LoginRateLimiterConfig *auth.LoginRateLimiterConfig
 
+	// RequestRateLimiterConfig tunes the per-tenant data-endpoint
+	// rate limit. When nil, auth.DefaultRequestRateLimiterConfig
+	// applies (600 requests / minute). Phase 5 Sprint 3 B3 — covers
+	// non-login endpoints that were previously only throttled by
+	// the global middleware.Throttle(100) concurrency cap.
+	RequestRateLimiterConfig *auth.RequestRateLimiterConfig
+
 	// Mailer, if non-nil, is used by the resend-invite flow to push
 	// the rotated temp password directly to the invitee via email,
 	// so the temp password does NOT appear in the API response body.
@@ -66,12 +73,13 @@ type Config struct {
 
 // Server is the Triton REST API server.
 type Server struct {
-	config       *Config
-	store        store.Store
-	router       chi.Router
-	http         *http.Server
-	guard        *license.Guard
-	loginLimiter *auth.LoginRateLimiter
+	config         *Config
+	store          store.Store
+	router         chi.Router
+	http           *http.Server
+	guard          *license.Guard
+	loginLimiter   *auth.LoginRateLimiter
+	requestLimiter *auth.RequestRateLimiter
 	// ctx is canceled in Shutdown so background workers (rate-limit
 	// janitor, and any future ticker-driven helpers) stop promptly
 	// instead of running until the process exits. Wired in Phase 5
@@ -123,14 +131,19 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	if cfg.LoginRateLimiterConfig != nil {
 		rateLimitCfg = *cfg.LoginRateLimiterConfig
 	}
+	requestLimitCfg := auth.DefaultRequestRateLimiterConfig
+	if cfg.RequestRateLimiterConfig != nil {
+		requestLimitCfg = *cfg.RequestRateLimiterConfig
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := &Server{
-		config:       cfg,
-		store:        s,
-		guard:        cfg.Guard,
-		loginLimiter: auth.NewLoginRateLimiter(rateLimitCfg),
-		ctx:          ctx,
-		cancel:       cancel,
+		config:         cfg,
+		store:          s,
+		guard:          cfg.Guard,
+		loginLimiter:   auth.NewLoginRateLimiter(rateLimitCfg),
+		requestLimiter: auth.NewRequestRateLimiter(requestLimitCfg),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
@@ -143,6 +156,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	// shutdown, thread it through Server struct state and drain it
 	// inside Shutdown.
 	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
+	// Request rate limiter janitor — sweep interval equal to the
+	// rolling window so stale entries from bursty one-off clients
+	// are reclaimed promptly.
+	_ = srv.requestLimiter.StartJanitor(ctx, requestLimitCfg.Window)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -190,6 +207,12 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		// handlers that read TenantFromContext will see an empty
 		// org_id (backward compat with public-ish routes).
 		r.Use(UnifiedAuth(jwtPubKey, s, licensePubKey, cfg.Guard))
+		// Phase 5 Sprint 3 B3 — per-tenant request rate limit on
+		// the data-plane route group. Runs AFTER UnifiedAuth so
+		// the limiter keys by the resolved tenant org_id rather
+		// than by IP. Unauthenticated requests fall back to
+		// IP-based keying to still get DoS protection.
+		r.Use(RequestRateLimit(srv.requestLimiter))
 		srv.registerAPIRoutes(r)
 	})
 
@@ -225,6 +248,13 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			r.Use(JWTAuth(cfg.JWTPublicKey, s))
 			r.Use(BlockUntilPasswordChanged)
 			r.Use(RequireOrgAdmin)
+			// Per-tenant rate limit — same policy as the data-plane
+			// /api/v1 group. Keys by the admin's OrgID (read from
+			// the user context by RequestRateLimit when tenant is
+			// empty... wait no, RequestRateLimit reads tenant
+			// context which JWTAuth doesn't set. Use a dedicated
+			// middleware that keys on the authenticated user.
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
 			r.Post("/", srv.handleCreateUser)
 			r.Get("/", srv.handleListUsers)
 			r.Get("/{id}", srv.handleGetUser)
@@ -232,11 +262,27 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			r.Delete("/{id}", srv.handleDeleteUser)
 			r.Post("/{id}/resend-invite", srv.handleResendInvite)
 		})
+
+		// Audit log query — Phase 5 Sprint 3 B2. Org-scoped via the
+		// JWT's org claim; admin role required to read.
+		r.Route("/api/v1/audit", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s))
+			r.Use(BlockUntilPasswordChanged)
+			r.Use(RequireOrgAdmin)
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
+			r.Get("/", srv.handleListAudit)
+		})
 	}
 
 	// Health check — intentionally outside the auth group so it remains public.
 	// It returns no sensitive data (only {"status":"ok"}).
 	r.Get("/api/v1/health", srv.handleHealth)
+
+	// Metrics endpoint — Phase 5 Sprint 3 B4. Also outside the auth
+	// group because Prometheus scrapers typically cannot
+	// authenticate as a user. Operators restrict access via network
+	// (reverse proxy IP allowlist or TLS client cert).
+	r.Get("/api/v1/metrics", srv.handleMetrics)
 
 	// Serve embedded web UI.
 	r.Handle("/ui/*", http.StripPrefix("/ui/", uiHandler()))

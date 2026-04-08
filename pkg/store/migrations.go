@@ -102,4 +102,39 @@ var migrations = []string{
 	// reading the SQL sees the intent plainly.
 	`ALTER TABLE users ADD COLUMN invited_at TIMESTAMPTZ NOT NULL DEFAULT now();
 	UPDATE users SET invited_at = created_at;`,
+
+	// Version 6: Report server audit log (Phase 5 Sprint 3 B2).
+	//
+	// Mirrors the license server's audit_log schema. Every sensitive
+	// action on the report server — user CRUD, scan deletion,
+	// resend-invite, admin provisioning receiver calls — writes a
+	// row here so operators and compliance auditors can reconstruct
+	// who did what and when. Reads are exposed via a future admin
+	// endpoint; writes happen inline from handlers.
+	//
+	// Columns:
+	//   timestamp   — when the event occurred (server clock)
+	//   event_type  — short tag e.g. "user.create", "scan.delete"
+	//   org_id      — tenant the event belongs to, nullable for
+	//                 service-key admin calls that cross tenants
+	//   actor_id    — user ID of the human who triggered the event,
+	//                 empty for system / service-key actions
+	//   target_id   — the primary object the event acted on (user
+	//                 ID, scan ID, etc.), free-form string
+	//   details     — JSONB bag for event-specific context
+	//   ip_address  — remote IP from chi RealIP middleware
+	`CREATE TABLE IF NOT EXISTS audit_events (
+		id         BIGSERIAL PRIMARY KEY,
+		timestamp  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		event_type TEXT NOT NULL,
+		org_id     UUID,
+		actor_id   TEXT NOT NULL DEFAULT '',
+		target_id  TEXT NOT NULL DEFAULT '',
+		details    JSONB NOT NULL DEFAULT '{}',
+		ip_address TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp DESC);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_org_id ON audit_events(org_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_actor_id ON audit_events(actor_id);`,
 }

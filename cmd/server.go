@@ -2,15 +2,19 @@ package cmd
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/mailer"
@@ -63,6 +67,59 @@ func runServer(_ *cobra.Command, _ []string) error {
 		Guard:                guard,
 		DataEncryptionKeyHex: os.Getenv("REPORT_SERVER_DATA_ENCRYPTION_KEY"),
 		InviteLoginURL:       os.Getenv("REPORT_SERVER_INVITE_URL"),
+		// Phase 5 Sprint 3 A2 — cross-server service key for
+		// license-server → report-server provisioning. When empty,
+		// the /api/v1/admin/* route group is NOT registered (see
+		// pkg/server/server.go), which is the correct behavior for
+		// single-tenant deployments. Multi-tenant deployments MUST
+		// set this to the same value as the license server's
+		// TRITON_LICENSE_SERVER_REPORT_SERVICE_KEY.
+		ServiceKey: os.Getenv("REPORT_SERVER_SERVICE_KEY"),
+	}
+
+	// Phase 5 Sprint 3 A2 — JWT signing key for org-user login. When
+	// unset, the /api/v1/auth/* and /api/v1/users routes are NOT
+	// registered and the server runs in "agents only" mode. This is
+	// acceptable for deployments where humans use the license server
+	// admin UI exclusively; multi-tenant deployments with human org
+	// users MUST set this to a hex-encoded Ed25519 private key.
+	if jwtHex := os.Getenv("REPORT_SERVER_JWT_SIGNING_KEY"); jwtHex != "" {
+		priv, err := decodeEd25519PrivateKey(jwtHex)
+		if err != nil {
+			return fmt.Errorf("REPORT_SERVER_JWT_SIGNING_KEY: %w", err)
+		}
+		cfg.JWTSigningKey = priv
+		cfg.JWTPublicKey = priv.Public().(ed25519.PublicKey)
+		log.Printf("JWT signing configured; /api/v1/auth and /api/v1/users endpoints enabled")
+	}
+
+	// Phase 5 Sprint 3 A2 — optional tenant public key override for
+	// license-token verification. Multi-tenant deployments that want
+	// a different signing key from the build-time embedded default
+	// set this to a hex-encoded Ed25519 public key. When unset the
+	// embedded default (loaded via license.LoadPublicKeyBytes) is
+	// used.
+	if pubHex := os.Getenv("REPORT_SERVER_TENANT_PUBKEY"); pubHex != "" {
+		pubBytes, err := hex.DecodeString(pubHex)
+		if err != nil {
+			return fmt.Errorf("REPORT_SERVER_TENANT_PUBKEY: %w", err)
+		}
+		if len(pubBytes) != ed25519.PublicKeySize {
+			return fmt.Errorf("REPORT_SERVER_TENANT_PUBKEY: expected %d bytes, got %d",
+				ed25519.PublicKeySize, len(pubBytes))
+		}
+		cfg.TenantPubKey = pubBytes
+		log.Printf("tenant public key loaded from REPORT_SERVER_TENANT_PUBKEY")
+	}
+
+	// Phase 5 Sprint 3 A2 — optional rate-limiter tuning. When any
+	// of the three env vars is set, we construct a custom
+	// LoginRateLimiterConfig. Missing values fall back to the
+	// DefaultLoginRateLimiterConfig (5 attempts / 15min / 15min).
+	if rlCfg := parseRateLimitEnv(); rlCfg != nil {
+		cfg.LoginRateLimiterConfig = rlCfg
+		log.Printf("login rate limiter tuned: maxAttempts=%d window=%s lockout=%s",
+			rlCfg.MaxAttempts, rlCfg.Window, rlCfg.LockoutDuration)
 	}
 
 	// Phase 5 Sprint 2 D3 — optional Resend mailer wiring for the
@@ -106,4 +163,65 @@ func runServer(_ *cobra.Command, _ []string) error {
 		defer cancel()
 		return srv.Shutdown(ctx)
 	}
+}
+
+// decodeEd25519PrivateKey parses a hex-encoded Ed25519 private key.
+// Accepts either the 32-byte seed form or the full 64-byte key form
+// produced by ed25519.GenerateKey, because operators encoding keys
+// with different tooling may get different representations.
+func decodeEd25519PrivateKey(hexStr string) (ed25519.PrivateKey, error) {
+	raw, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex: %w", err)
+	}
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(raw), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(raw), nil
+	default:
+		return nil, fmt.Errorf("expected %d or %d bytes, got %d",
+			ed25519.SeedSize, ed25519.PrivateKeySize, len(raw))
+	}
+}
+
+// parseRateLimitEnv reads REPORT_SERVER_RATE_LIMIT_* env vars and
+// returns a LoginRateLimiterConfig pointer if ANY of the three
+// recognized vars is set; callers that want partial overrides must
+// set all three. Returns nil (= use DefaultLoginRateLimiterConfig)
+// when none of the vars is present.
+//
+// Invalid values (non-integer attempts, unparseable duration) are
+// silently ignored and fall back to the default. This matches the
+// pattern for other optional env vars in this file.
+func parseRateLimitEnv() *auth.LoginRateLimiterConfig {
+	attemptsRaw := os.Getenv("REPORT_SERVER_RATE_LIMIT_MAX_ATTEMPTS")
+	windowRaw := os.Getenv("REPORT_SERVER_RATE_LIMIT_WINDOW")
+	lockoutRaw := os.Getenv("REPORT_SERVER_RATE_LIMIT_LOCKOUT")
+	if attemptsRaw == "" && windowRaw == "" && lockoutRaw == "" {
+		return nil
+	}
+	cfg := auth.DefaultLoginRateLimiterConfig
+	if attemptsRaw != "" {
+		if n, err := strconv.Atoi(attemptsRaw); err == nil && n > 0 {
+			cfg.MaxAttempts = n
+		} else {
+			log.Printf("REPORT_SERVER_RATE_LIMIT_MAX_ATTEMPTS=%q is not a positive integer, ignoring", attemptsRaw)
+		}
+	}
+	if windowRaw != "" {
+		if d, err := time.ParseDuration(windowRaw); err == nil && d > 0 {
+			cfg.Window = d
+		} else {
+			log.Printf("REPORT_SERVER_RATE_LIMIT_WINDOW=%q is not a valid duration, ignoring", windowRaw)
+		}
+	}
+	if lockoutRaw != "" {
+		if d, err := time.ParseDuration(lockoutRaw); err == nil && d > 0 {
+			cfg.LockoutDuration = d
+		} else {
+			log.Printf("REPORT_SERVER_RATE_LIMIT_LOCKOUT=%q is not a valid duration, ignoring", lockoutRaw)
+		}
+	}
+	return &cfg
 }

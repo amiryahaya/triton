@@ -15,9 +15,18 @@ const tenantOrgIDKey contextKey = "tenant_org_id"
 
 const licenseTokenHeader = "X-Triton-License-Token"
 
-// TenantFromContext returns the org ID set by the TenantScope middleware.
-// Returns empty string if no tenant is set (e.g. standalone mode).
+// TenantFromContext returns the org ID set by either the unified
+// UnifiedAuth middleware (Phase 2.3+) or the legacy TenantScope
+// middleware (for routes not yet migrated). Returns empty string if
+// no tenant is set (e.g., standalone mode, public routes).
+//
+// Prefers the new tenantContextKey. Falls back to the legacy
+// tenantOrgIDKey during the migration window. Both keys are also
+// written by UnifiedAuth for compatibility.
 func TenantFromContext(ctx context.Context) string {
+	if tc, _ := ctx.Value(tenantContextKey).(*TenantContext); tc != nil {
+		return tc.OrgID
+	}
 	v, _ := ctx.Value(tenantOrgIDKey).(string)
 	return v
 }

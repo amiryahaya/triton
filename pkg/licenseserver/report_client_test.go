@@ -43,21 +43,21 @@ func fakeReportServer(t *testing.T, status int, responseBody map[string]any, wan
 
 // --- Construction ---
 
-func TestNewReportClient_EmptyFieldsReturnsNil(t *testing.T) {
-	assert.Nil(t, NewReportClient("", "key"))
-	assert.Nil(t, NewReportClient("http://report", ""))
-	assert.Nil(t, NewReportClient("", ""))
-	assert.NotNil(t, NewReportClient("http://report", "key"))
+func TestNewReportAPIClient_EmptyFieldsReturnsNil(t *testing.T) {
+	assert.Nil(t, NewReportAPIClient("", "key"))
+	assert.Nil(t, NewReportAPIClient("http://report", ""))
+	assert.Nil(t, NewReportAPIClient("", ""))
+	assert.NotNil(t, NewReportAPIClient("http://report", "key"))
 }
 
 // --- ProvisionOrg ---
 
-func TestReportClient_ProvisionOrg_Success(t *testing.T) {
+func TestReportAPIClient_ProvisionOrg_Success(t *testing.T) {
 	ts, received := fakeReportServer(t, http.StatusCreated, map[string]any{
 		"org":           map[string]any{"id": "org-123", "name": "Acme"},
 		"admin_user_id": "user-456",
 	}, "shared-secret")
-	client := NewReportClient(ts.URL, "shared-secret")
+	client := NewReportAPIClient(ts.URL, "shared-secret")
 
 	resp, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
 		ID:                "org-123",
@@ -78,13 +78,13 @@ func TestReportClient_ProvisionOrg_Success(t *testing.T) {
 	assert.Equal(t, "correct-horse-battery-staple", received.AdminTempPassword)
 }
 
-func TestReportClient_ProvisionOrg_IdempotentRetry(t *testing.T) {
+func TestReportAPIClient_ProvisionOrg_IdempotentRetry(t *testing.T) {
 	// Fake returns 200 (already exists) instead of 201.
 	ts, _ := fakeReportServer(t, http.StatusOK, map[string]any{
 		"org":            map[string]any{"id": "org-123", "name": "Acme"},
 		"already_exists": true,
 	}, "shared-secret")
-	client := NewReportClient(ts.URL, "shared-secret")
+	client := NewReportAPIClient(ts.URL, "shared-secret")
 
 	resp, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
 		ID: "org-123", Name: "Acme",
@@ -94,14 +94,14 @@ func TestReportClient_ProvisionOrg_IdempotentRetry(t *testing.T) {
 	assert.True(t, resp.AlreadyExists, "200 response must mark result as idempotent retry")
 }
 
-func TestReportClient_ProvisionOrg_SendsServiceKey(t *testing.T) {
+func TestReportAPIClient_ProvisionOrg_SendsServiceKey(t *testing.T) {
 	// If the fake rejects because of a missing/wrong key, the test fails
 	// with "provision failed: status 403" — proving the header is checked
 	// and the client is sending the right value.
 	ts, _ := fakeReportServer(t, http.StatusCreated, map[string]any{
 		"org": map[string]any{"id": "x", "name": "y"}, "admin_user_id": "u",
 	}, "strict-key")
-	client := NewReportClient(ts.URL, "strict-key")
+	client := NewReportAPIClient(ts.URL, "strict-key")
 
 	_, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
 		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
@@ -109,9 +109,9 @@ func TestReportClient_ProvisionOrg_SendsServiceKey(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestReportClient_ProvisionOrg_WrongKey(t *testing.T) {
+func TestReportAPIClient_ProvisionOrg_WrongKey(t *testing.T) {
 	ts, _ := fakeReportServer(t, http.StatusCreated, map[string]any{}, "expected-key")
-	client := NewReportClient(ts.URL, "wrong-key")
+	client := NewReportAPIClient(ts.URL, "wrong-key")
 
 	_, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
 		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
@@ -120,9 +120,9 @@ func TestReportClient_ProvisionOrg_WrongKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 }
 
-func TestReportClient_ProvisionOrg_ServerUnreachable(t *testing.T) {
+func TestReportAPIClient_ProvisionOrg_ServerUnreachable(t *testing.T) {
 	// Point at a closed port — connection will be refused.
-	client := NewReportClient("http://127.0.0.1:1", "any-key")
+	client := NewReportAPIClient("http://127.0.0.1:1", "any-key")
 	_, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
 		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
 	})
@@ -132,13 +132,13 @@ func TestReportClient_ProvisionOrg_ServerUnreachable(t *testing.T) {
 	assert.ErrorIs(t, err, ErrReportServerUnreachable)
 }
 
-func TestReportClient_ProvisionOrg_BadJSONResponse(t *testing.T) {
+func TestReportAPIClient_ProvisionOrg_BadJSONResponse(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte("not-json"))
 	}))
 	defer ts.Close()
-	client := NewReportClient(ts.URL, "key")
+	client := NewReportAPIClient(ts.URL, "key")
 
 	_, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
 		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",

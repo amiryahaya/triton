@@ -15,11 +15,11 @@ import (
 
 // Server is the License Server REST API.
 type Server struct {
-	config       *Config
-	store        licensestore.Store
-	router       chi.Router
-	http         *http.Server
-	reportClient *ReportClient // nil when no report server configured
+	config          *Config
+	store           licensestore.Store
+	router          chi.Router
+	http            *http.Server
+	reportAPIClient *ReportAPIClient // nil when no report server configured
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -52,9 +52,9 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 // New creates a new license Server.
 func New(cfg *Config, s licensestore.Store) *Server {
 	srv := &Server{
-		config:       cfg,
-		store:        s,
-		reportClient: NewReportClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
+		config:          cfg,
+		store:           s,
+		reportAPIClient: NewReportAPIClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
 	}
 
 	r := chi.NewRouter()

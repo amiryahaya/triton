@@ -13,27 +13,27 @@ import (
 	"time"
 )
 
-// ReportClient pushes provisioning calls from the license server to the
+// ReportAPIClient pushes provisioning calls from the license server to the
 // report server. It is the client-side counterpart to the report server's
 // POST /api/v1/admin/orgs endpoint (Phase 1.5b).
 //
-// Usage: create once at server startup via NewReportClient(url, serviceKey)
+// Usage: create once at server startup via NewReportAPIClient(url, serviceKey)
 // and reuse for all provisioning calls. Nil is a valid zero-value meaning
 // "no report server configured" — in that case, license server handlers
 // skip provisioning entirely.
-type ReportClient struct {
+type ReportAPIClient struct {
 	baseURL    string
 	serviceKey string
 	httpClient *http.Client
 }
 
-// NewReportClient constructs a client. If baseURL or serviceKey is empty,
+// NewReportAPIClient constructs a client. If baseURL or serviceKey is empty,
 // returns nil — callers should check and skip provisioning if so.
-func NewReportClient(baseURL, serviceKey string) *ReportClient {
+func NewReportAPIClient(baseURL, serviceKey string) *ReportAPIClient {
 	if baseURL == "" || serviceKey == "" {
 		return nil
 	}
-	return &ReportClient{
+	return &ReportAPIClient{
 		baseURL:    baseURL,
 		serviceKey: serviceKey,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
@@ -72,7 +72,7 @@ type ProvisionOrgResponse struct {
 // response body that can't be parsed. Callers should decide whether
 // to surface the failure to the admin (hard dependency) or log and
 // continue (best effort) — this function does not decide.
-func (c *ReportClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequest) (*ProvisionOrgResponse, error) {
+func (c *ReportAPIClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequest) (*ProvisionOrgResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling provision request: %w", err)

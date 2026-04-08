@@ -73,7 +73,7 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "admin_name exceeds maximum length")
 			return
 		}
-		if s.reportClient == nil {
+		if s.reportAPIClient == nil {
 			writeError(w, http.StatusServiceUnavailable, "report server not configured; cannot provision admin")
 			return
 		}
@@ -118,7 +118,7 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		}
 		tempPassword = generated
 
-		_, err = s.reportClient.ProvisionOrg(r.Context(), ProvisionOrgRequest{
+		_, err = s.reportAPIClient.ProvisionOrg(r.Context(), ProvisionOrgRequest{
 			ID:                org.ID,
 			Name:              org.Name,
 			AdminEmail:        req.AdminEmail,

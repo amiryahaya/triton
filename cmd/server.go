@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -56,26 +55,14 @@ func runServer(_ *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	// Phase 2.7: optional at-rest encryption for scan_data. Enabled when
-	// REPORT_SERVER_DATA_ENCRYPTION_KEY is set to a 32-byte hex key.
-	// Transparent to handlers — new writes are encrypted, old plain rows
-	// remain readable (forward-compat on enable; one-way on disable).
-	if encKeyHex := os.Getenv("REPORT_SERVER_DATA_ENCRYPTION_KEY"); encKeyHex != "" {
-		enc, encErr := store.NewEncryptor(encKeyHex)
-		if encErr != nil {
-			return fmt.Errorf("configuring scan data encryption: %w", encErr)
-		}
-		db.SetEncryptor(enc)
-		log.Printf("at-rest scan data encryption enabled (AES-256-GCM)")
-	}
-
 	cfg := &server.Config{
-		ListenAddr: serverListen,
-		DBUrl:      dbUrlVal,
-		APIKeys:    serverAPIKeys,
-		TLSCert:    serverTLSCert,
-		TLSKey:     serverTLSKey,
-		Guard:      guard,
+		ListenAddr:           serverListen,
+		DBUrl:                dbUrlVal,
+		APIKeys:              serverAPIKeys,
+		TLSCert:              serverTLSCert,
+		TLSKey:               serverTLSKey,
+		Guard:                guard,
+		DataEncryptionKeyHex: os.Getenv("REPORT_SERVER_DATA_ENCRYPTION_KEY"),
 	}
 
 	srv := server.New(cfg, db)

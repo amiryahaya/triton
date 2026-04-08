@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,7 +17,7 @@ import (
 // PostgresStore implements Store using PostgreSQL via pgx v5.
 type PostgresStore struct {
 	pool      *pgxpool.Pool
-	encryptor *Encryptor // optional; nil = no at-rest encryption
+	encryptor atomic.Pointer[Encryptor] // optional; nil load = no at-rest encryption
 }
 
 // SetEncryptor enables at-rest AES-256-GCM encryption for the scans
@@ -25,10 +26,17 @@ type PostgresStore struct {
 // Disabling encryption after rows have been encrypted is a one-way
 // door without the key — don't rotate keys without a migration.
 //
-// Safe to call at any time but typically invoked at startup right
-// after NewPostgresStore.
+// Thread-safe via atomic.Pointer — safe to call at any time, even
+// while other goroutines are handling SaveScan/GetScan. (D4 fix from
+// the Phase 2 review.)
 func (s *PostgresStore) SetEncryptor(enc *Encryptor) {
-	s.encryptor = enc
+	s.encryptor.Store(enc)
+}
+
+// loadEncryptor returns the current encryptor, or nil if unset.
+// Callers use the nil-check pattern directly after this.
+func (s *PostgresStore) loadEncryptor() *Encryptor {
+	return s.encryptor.Load()
 }
 
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
@@ -127,8 +135,8 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 	// At-rest encryption (Phase 2.7). The Encryptor wraps the JSON in
 	// an AES-256-GCM envelope that's itself valid JSON, so the JSONB
 	// column stores it transparently. No-op when encryptor is nil.
-	if s.encryptor != nil {
-		encrypted, encErr := s.encryptor.Encrypt(blob)
+	if enc := s.loadEncryptor(); enc != nil {
+		encrypted, encErr := enc.Encrypt(blob)
 		if encErr != nil {
 			return fmt.Errorf("encrypting scan result: %w", encErr)
 		}
@@ -189,8 +197,8 @@ func (s *PostgresStore) GetScan(ctx context.Context, id, orgID string) (*model.S
 	// At-rest decryption (Phase 2.7). Decrypt is a no-op for rows
 	// written before encryption was enabled (envelope detection falls
 	// through to pass-through).
-	if s.encryptor != nil {
-		decrypted, decErr := s.encryptor.Decrypt(blob)
+	if enc := s.loadEncryptor(); enc != nil {
+		decrypted, decErr := enc.Decrypt(blob)
 		if decErr != nil {
 			return nil, fmt.Errorf("decrypting scan result: %w", decErr)
 		}

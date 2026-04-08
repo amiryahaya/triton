@@ -1,7 +1,6 @@
 package licenseserver
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -10,26 +9,45 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
+
+// CreateOrgResponse is the unified response shape for POST /api/v1/admin/orgs.
+// The Admin field is always present in the struct (by design — a consistent
+// shape is easier for OpenAPI/typed clients), but is nil in the JSON when
+// the request did not request admin provisioning (via the omitempty tag on
+// a pointer field — nil pointers are omitted).
+//
+// Previously this endpoint had two different response shapes depending on
+// whether admin_email was supplied. Unified per Phase 1.7/1.8 architecture
+// review Arch #8.
+type CreateOrgResponse struct {
+	Org   *licensestore.Organization `json:"org"`
+	Admin *CreateOrgAdminBlock       `json:"admin,omitempty"`
+}
+
+// CreateOrgAdminBlock is the admin-invite block returned when the request
+// asked for admin provisioning. TempPassword is plaintext and is returned
+// exactly once — callers must capture it or email delivery must succeed.
+// EmailDelivered is true when the Mailer reported success; false means
+// the caller must deliver the temp password manually.
+type CreateOrgAdminBlock struct {
+	Email          string `json:"email"`
+	TempPassword   string `json:"temp_password"`
+	EmailDelivered bool   `json:"email_delivered"`
+}
 
 // POST /api/v1/admin/orgs
 //
 // Creates an organization in the license server. If admin_email and
 // admin_name are supplied AND a report server is configured, also
-// provisions the org on the report server (creates the org row +
-// first admin user with a generated temporary password).
+// provisions the org on the report server and sends the invite email.
 //
-// The temporary password is returned in the response exactly once —
-// the license server admin (or Phase 1.8 Resend integration) must
-// deliver it to the invited admin out of band. It is never persisted
-// in the license server.
-//
-// If provisioning fails, the org is rolled back in the license server
-// to keep the two servers consistent. Idempotency on the report server
-// side means a retry with the same org ID + name is safe.
+// The handler is a thin adapter: it parses and validates the request,
+// delegates the work to ProvisionOrgWithAdmin (which encapsulates the
+// cross-server call, rollback, and email logic), and writes the
+// unified response. All business logic lives in provisioning.go.
 func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
@@ -52,12 +70,11 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the caller supplied admin invite fields, both must be present
-	// and must pass the same validation rules as the superadmin CRUD
-	// endpoint. Without these checks, user-controlled strings flow into
-	// the report server's user table, the invite email body, and
-	// response bodies — header injection risk (CRLF in email), and
-	// arbitrary-length strings are a DoS vector.
+	// If the caller supplied admin invite fields, validate them before
+	// anything hits the store or the report server. Email normalization
+	// + format check + name length. Without these, user-controlled
+	// strings would flow into the email body (header injection risk)
+	// and the user table.
 	wantProvision := req.AdminEmail != "" || req.AdminName != ""
 	if wantProvision {
 		if req.AdminEmail == "" || req.AdminName == "" {
@@ -73,101 +90,47 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "admin_name exceeds maximum length")
 			return
 		}
-		if s.reportAPIClient == nil {
-			writeError(w, http.StatusServiceUnavailable, "report server not configured; cannot provision admin")
-			return
-		}
 	}
 
-	now := time.Now().UTC()
-	org := &licensestore.Organization{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		Name:      req.Name,
-		Contact:   req.Contact,
-		Notes:     req.Notes,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	if err := s.store.CreateOrg(r.Context(), org); err != nil {
+	result, status, err := s.ProvisionOrgWithAdmin(r.Context(), ProvisionOrgInput{
+		Name:       req.Name,
+		Contact:    req.Contact,
+		Notes:      req.Notes,
+		AdminEmail: req.AdminEmail,
+		AdminName:  req.AdminName,
+	})
+	if status != 0 {
+		// Map service-layer status into HTTP. The service already logged
+		// the underlying error; we surface a user-facing message here.
 		var conflict *licensestore.ErrConflict
-		if errors.As(err, &conflict) {
+		switch {
+		case errors.As(err, &conflict):
 			writeError(w, http.StatusConflict, conflict.Message)
-			return
-		}
-		log.Printf("create org error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	// Provision the admin on the report server if requested.
-	var tempPassword string
-	if wantProvision {
-		generated, err := GenerateTempPassword()
-		if err != nil {
-			log.Printf("create org: temp password generation failed: %v", err)
-			// Roll back the org since provisioning is a hard dependency here.
-			// Use context.WithoutCancel so a client disconnect doesn't
-			// silently prevent the rollback (leaving an orphan org).
-			rollbackCtx := context.WithoutCancel(r.Context())
-			if delErr := s.store.DeleteOrg(rollbackCtx, org.ID); delErr != nil {
-				log.Printf("create org: ROLLBACK FAILED — orphan org %s: %v", org.ID, delErr)
-			}
-			writeError(w, http.StatusInternalServerError, "internal server error")
-			return
-		}
-		tempPassword = generated
-
-		_, err = s.reportAPIClient.ProvisionOrg(r.Context(), ProvisionOrgRequest{
-			ID:                org.ID,
-			Name:              org.Name,
-			AdminEmail:        req.AdminEmail,
-			AdminName:         req.AdminName,
-			AdminTempPassword: tempPassword,
-		})
-		if err != nil {
-			log.Printf("create org: report server provisioning failed: %v", err)
-			// Roll back the org so the two servers stay consistent.
-			if delErr := s.store.DeleteOrg(r.Context(), org.ID); delErr != nil {
-				log.Printf("create org: ROLLBACK FAILED — orphan org %s: %v", org.ID, delErr)
-			}
+		case status == 503:
+			writeError(w, http.StatusServiceUnavailable, "report server not configured; cannot provision admin")
+		case status == 502:
 			writeError(w, http.StatusBadGateway, "report server provisioning failed")
-			return
+		case status == 500:
+			writeError(w, http.StatusInternalServerError, "internal server error")
+		default:
+			writeError(w, status, http.StatusText(status))
 		}
-
-		// Best-effort email delivery via Mailer (Phase 1.8). Email failure
-		// is NOT fatal — the temp password is already in the API response
-		// below, so ops can fall back to manual delivery. We log the
-		// failure so it's visible in monitoring.
-		if s.config.Mailer != nil {
-			emailErr := s.config.Mailer.SendInviteEmail(r.Context(), InviteEmailData{
-				ToEmail:      req.AdminEmail,
-				ToName:       req.AdminName,
-				OrgName:      org.Name,
-				TempPassword: tempPassword,
-				LoginURL:     s.config.ReportServerInviteURL,
-			})
-			if emailErr != nil {
-				log.Printf("create org: invite email delivery failed (non-fatal): %v", emailErr)
-			}
-		}
-	}
-
-	s.audit(r, "org_create", "", org.ID, "", nil)
-
-	// If we provisioned an admin, return the temp password exactly once
-	// so the license server admin can deliver it. Phase 1.8 will replace
-	// this with Resend email delivery — the temp password will still be
-	// returned in the response for automation scenarios.
-	if wantProvision {
-		writeJSON(w, http.StatusCreated, map[string]any{
-			"org":                 org,
-			"admin_email":         req.AdminEmail,
-			"admin_temp_password": tempPassword,
-		})
 		return
 	}
-	writeJSON(w, http.StatusCreated, org)
+
+	s.audit(r, "org_create", "", result.Org.ID, "", nil)
+
+	// Build the unified response shape. Admin is nil (and omitted via
+	// omitempty) when the request had no admin fields.
+	resp := CreateOrgResponse{Org: result.Org}
+	if result.Admin != nil {
+		resp.Admin = &CreateOrgAdminBlock{
+			Email:          result.Admin.Email,
+			TempPassword:   result.Admin.TempPassword,
+			EmailDelivered: result.Admin.EmailDelivered,
+		}
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // GET /api/v1/admin/orgs

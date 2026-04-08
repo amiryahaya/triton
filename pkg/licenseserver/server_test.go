@@ -129,6 +129,19 @@ func decodeJSON(t *testing.T, resp *http.Response) map[string]any {
 	return result
 }
 
+// orgIDOf extracts the org ID from a CreateOrg response body, handling
+// the unified {org: {...}} shape introduced in the Phase 1.7/1.8
+// architecture review (Arch #8). Returns the ID as a string suitable
+// for use in downstream request bodies and paths.
+func orgIDOf(result map[string]any) string {
+	if org, ok := result["org"].(map[string]any); ok {
+		if id, ok := org["id"].(string); ok {
+			return id
+		}
+	}
+	return ""
+}
+
 // --- Health ---
 
 func TestHealth(t *testing.T) {
@@ -169,8 +182,13 @@ func TestCreateOrg(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	result := decodeJSON(t, resp)
-	assert.Equal(t, "Acme Corp", result["name"])
-	assert.NotEmpty(t, result["id"])
+	// Unified response: org lives inside result.org; admin is omitted
+	// when no admin fields were supplied.
+	orgBlock := result["org"].(map[string]any)
+	assert.Equal(t, "Acme Corp", orgBlock["name"])
+	assert.NotEmpty(t, orgBlock["id"])
+	_, hasAdmin := result["admin"]
+	assert.False(t, hasAdmin, "admin block must be omitted when no admin fields supplied")
 }
 
 func TestCreateOrg_MissingName(t *testing.T) {
@@ -185,7 +203,7 @@ func TestCreateOrg_MissingName(t *testing.T) {
 // TestCreateOrg_WithAdminProvisionsReportServer verifies that when the
 // license server admin supplies admin_email + admin_name, the report
 // server is called with a temp password, and the response surfaces the
-// temp password to the caller (Phase 1.8 will email it).
+// temp password to the caller via the unified {org, admin} shape.
 func TestCreateOrg_WithAdminProvisionsReportServer(t *testing.T) {
 	var receivedBody map[string]any
 	var receivedKey string
@@ -212,11 +230,18 @@ func TestCreateOrg_WithAdminProvisionsReportServer(t *testing.T) {
 	var result map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 
-	// Response contains temp password for out-of-band delivery.
-	tempPassword, ok := result["admin_temp_password"].(string)
-	require.True(t, ok, "response must include temp password")
+	// Unified response: org at top level, admin as a nested block.
+	orgBlock, ok := result["org"].(map[string]any)
+	require.True(t, ok, "response must contain org block")
+	assert.Equal(t, "Acme Corp", orgBlock["name"])
+
+	adminBlock, ok := result["admin"].(map[string]any)
+	require.True(t, ok, "response must contain admin block when provisioning")
+	tempPassword := adminBlock["temp_password"].(string)
 	assert.GreaterOrEqual(t, len(tempPassword), 12)
-	assert.Equal(t, "alice@acme.com", result["admin_email"])
+	assert.Equal(t, "alice@acme.com", adminBlock["email"])
+	// email_delivered is false because this test has no Mailer configured
+	assert.Equal(t, false, adminBlock["email_delivered"])
 
 	// Report server received the correct request.
 	assert.Equal(t, "test-shared-secret", receivedKey)
@@ -340,7 +365,8 @@ func setupTestServerWithMailer(t *testing.T, mailer licenseserver.Mailer) (*http
 }
 
 // TestCreateOrg_SendsInviteEmail verifies that after successful
-// provisioning, the Mailer is invoked with the correct invite data.
+// provisioning, the Mailer is invoked with the correct invite data
+// and the response's admin.email_delivered flag reflects success.
 func TestCreateOrg_SendsInviteEmail(t *testing.T) {
 	mailer := &recordingMailer{}
 	ts, _ := setupTestServerWithMailer(t, mailer)
@@ -355,7 +381,12 @@ func TestCreateOrg_SendsInviteEmail(t *testing.T) {
 
 	var result map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	tempPassword := result["admin_temp_password"].(string)
+	adminBlock := result["admin"].(map[string]any)
+	tempPassword := adminBlock["temp_password"].(string)
+
+	// email_delivered must be true when the mailer returned nil.
+	assert.Equal(t, true, adminBlock["email_delivered"],
+		"email_delivered must reflect Mailer success")
 
 	// Mailer should have been called exactly once with matching data.
 	require.Len(t, mailer.sent, 1)
@@ -370,8 +401,8 @@ func TestCreateOrg_SendsInviteEmail(t *testing.T) {
 
 // TestCreateOrg_EmailFailureIsNonFatal verifies that if the mailer
 // fails to send (e.g., Resend API down), the org creation STILL
-// succeeds and the temp password is still returned for manual
-// delivery. Email delivery is best-effort.
+// succeeds, the temp password is still returned, and the response
+// marks email_delivered=false so the caller knows to deliver manually.
 func TestCreateOrg_EmailFailureIsNonFatal(t *testing.T) {
 	mailer := &recordingMailer{failWith: errors.New("resend down")}
 	ts, store := setupTestServerWithMailer(t, mailer)
@@ -386,7 +417,10 @@ func TestCreateOrg_EmailFailureIsNonFatal(t *testing.T) {
 
 	var result map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	assert.NotEmpty(t, result["admin_temp_password"], "temp password must still be in response for manual delivery")
+	adminBlock := result["admin"].(map[string]any)
+	assert.NotEmpty(t, adminBlock["temp_password"], "temp password must still be in response for manual delivery")
+	assert.Equal(t, false, adminBlock["email_delivered"],
+		"email_delivered must be false when the mailer returned an error")
 
 	// License server should still have the org (no rollback).
 	orgs, err := store.ListOrgs(t.Context())
@@ -439,7 +473,7 @@ func TestDeleteOrg_WithLicenses(t *testing.T) {
 	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "CantDelete"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
-	orgID := orgResult["id"].(string)
+	orgID := orgIDOf(orgResult)
 
 	// Create license
 	adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
@@ -460,7 +494,7 @@ func TestCreateLicense(t *testing.T) {
 	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "TestOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
-	orgID := orgResult["id"].(string)
+	orgID := orgIDOf(orgResult)
 
 	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "enterprise", "seats": 10, "days": 90,
@@ -480,7 +514,7 @@ func TestCreateLicense_InvalidTier(t *testing.T) {
 	orgResult := decodeJSON(t, orgResp)
 
 	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": orgResult["id"], "tier": "invalid", "seats": 5,
+		"orgID": orgIDOf(orgResult), "tier": "invalid", "seats": 5,
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -494,7 +528,7 @@ func TestRevokeLicense(t *testing.T) {
 	orgResult := decodeJSON(t, orgResp)
 
 	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": orgResult["id"], "tier": "pro", "seats": 5,
+		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 5,
 	})
 	defer licResp.Body.Close()
 	licResult := decodeJSON(t, licResp)
@@ -514,7 +548,7 @@ func createOrgAndLicense(t *testing.T, tsURL string) (orgID, licID string) {
 	orgResp := adminReq(t, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "ActivOrg" + t.Name()})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
-	orgID = orgResult["id"].(string)
+	orgID = orgIDOf(orgResult)
 
 	licResp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "pro", "seats": 3,
@@ -549,7 +583,7 @@ func TestActivate_SeatsFull(t *testing.T) {
 	orgResult := decodeJSON(t, orgResp)
 
 	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": orgResult["id"], "tier": "pro", "seats": 1,
+		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 1,
 	})
 	defer licResp.Body.Close()
 	licResult := decodeJSON(t, licResp)
@@ -842,7 +876,7 @@ func TestGetOrg(t *testing.T) {
 	})
 	defer createResp.Body.Close()
 	orgResult := decodeJSON(t, createResp)
-	orgID := orgResult["id"].(string)
+	orgID := orgIDOf(orgResult)
 
 	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs/"+orgID, nil)
 	defer resp.Body.Close()
@@ -879,7 +913,7 @@ func TestUpdateOrg(t *testing.T) {
 	})
 	defer createResp.Body.Close()
 	orgResult := decodeJSON(t, createResp)
-	orgID := orgResult["id"].(string)
+	orgID := orgIDOf(orgResult)
 
 	resp := adminReq(t, "PUT", ts.URL+"/api/v1/admin/orgs/"+orgID, map[string]string{
 		"name": "UpdatedName", "contact": "new@contact.com",
@@ -900,7 +934,7 @@ func TestCreateLicense_NegativeDays(t *testing.T) {
 	orgResult := decodeJSON(t, orgResp)
 
 	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": orgResult["id"], "tier": "pro", "seats": 5, "days": -30,
+		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 5, "days": -30,
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -913,7 +947,7 @@ func TestCreateLicense_PastExpiresAt(t *testing.T) {
 	orgResult := decodeJSON(t, orgResp)
 
 	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": orgResult["id"], "tier": "pro", "seats": 5,
+		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 5,
 		"expiresAt": "2020-01-01T00:00:00Z",
 	})
 	defer resp.Body.Close()
@@ -1276,7 +1310,7 @@ func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "ExpiredOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
-	orgID := orgResult["id"].(string)
+	orgID := orgIDOf(orgResult)
 
 	// Create an already-expired license directly via store (bypasses API validation).
 	expiredLicID := "deadbeef-dead-beef-dead-beefdeadbeef"

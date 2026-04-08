@@ -559,7 +559,7 @@ func createDatabase(baseDBURL, name string) error {
 	// identifier keeps us safe if the UUID ever contains a dash —
 	// pg identifiers allow underscores but not dashes bare, so
 	// the quoting is also the correctness anchor.
-	if _, err := conn.Exec(ctx, `DROP DATABASE IF EXISTS "`+name+`"`); err != nil {
+	if _, err := conn.Exec(ctx, `DROP DATABASE IF EXISTS "`+name+`" WITH (FORCE)`); err != nil {
 		return fmt.Errorf("dropping database %s: %w", name, err)
 	}
 	if _, err := conn.Exec(ctx, `CREATE DATABASE "`+name+`"`); err != nil {
@@ -571,6 +571,14 @@ func createDatabase(baseDBURL, name string) error {
 // dropDatabase removes a database created by createDatabase.
 // Called from t.Cleanup; swallows errors because cleanup must not
 // fail the test.
+//
+// Uses WITH (FORCE) (PG 13+) so the drop terminates any connections
+// still alive from a child process that hasn't fully exited yet —
+// the test's stop() helper SIGINTs the servers and waits only 5s
+// before escalating to SIGKILL, so there's a window where pgx
+// connections are still open at cleanup time. Without FORCE we'd
+// hit "database is being accessed by other users" and leave the
+// test database behind. Sprint 3 D7.
 func dropDatabase(baseDBURL, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -580,7 +588,7 @@ func dropDatabase(baseDBURL, name string) error {
 		return err
 	}
 	defer conn.Close(ctx)
-	_, err = conn.Exec(ctx, `DROP DATABASE IF EXISTS "`+name+`"`)
+	_, err = conn.Exec(ctx, `DROP DATABASE IF EXISTS "`+name+`" WITH (FORCE)`)
 	return err
 }
 

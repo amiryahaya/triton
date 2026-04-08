@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -45,12 +44,17 @@ type RequestRateLimiter struct {
 	entries sync.Map // map[string]*requestBucket
 }
 
-// requestBucket tracks a single key's window. Using atomic counters
-// avoids a mutex on the hot path; the windowStart timestamp needs
-// atomic swap too, so we wrap it in an atomic.Int64 (unix nanos).
+// requestBucket tracks a single key's window. Guarded by a mutex
+// because the reset-or-increment transition must be atomic as a
+// pair — the earlier atomic-only implementation lost count updates
+// between the CAS that rolled the window and the Store(1) that
+// reset the counter (Sprint 3 review D1). A mutex per key keeps
+// the hot path per-entry contention-free while giving us the
+// single critical section we need for correctness.
 type requestBucket struct {
-	count       atomic.Int64
-	windowStart atomic.Int64 // nanoseconds since epoch
+	mu          sync.Mutex
+	count       int64
+	windowStart int64 // nanoseconds since epoch, 0 = not yet armed
 }
 
 // NewRequestRateLimiter constructs a limiter with the given config.
@@ -85,24 +89,27 @@ func (l *RequestRateLimiter) Allow(key string) (allowed bool, retryAfter time.Du
 	nowNs := now.UnixNano()
 	windowNs := l.cfg.Window.Nanoseconds()
 
-	// If the current window has elapsed since bucket's anchor, roll
-	// it forward atomically: set windowStart = now and reset count
-	// to 1. Use CAS to avoid the "two goroutines reset, both think
-	// they set count=1, total count becomes 2" race.
-	start := bucket.windowStart.Load()
-	if start == 0 || nowNs-start >= windowNs {
-		if bucket.windowStart.CompareAndSwap(start, nowNs) {
-			// We won the race — reset counter.
-			bucket.count.Store(1)
-			return true, 0
-		}
-		// Someone else reset it — fall through to normal increment.
+	// Single critical section covers the "roll window OR increment"
+	// decision so we don't lose count updates between a concurrent
+	// window reset and a concurrent increment. Earlier atomic-only
+	// code had a gap where a goroutine that read the old windowStart,
+	// took the increment branch, and called count.Add(1) would be
+	// silently clobbered by a CAS-winner's count.Store(1). See
+	// Sprint 3 review D1 for the full rationale.
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	if bucket.windowStart == 0 || nowNs-bucket.windowStart >= windowNs {
+		// Window has elapsed (or never armed) — roll it forward and
+		// count this request as the first of the new window.
+		bucket.windowStart = nowNs
+		bucket.count = 1
+		return true, 0
 	}
 
-	n := bucket.count.Add(1)
-	if n > int64(l.cfg.MaxRequests) {
-		// Compute retry-after based on when the window closes.
-		closes := time.Unix(0, bucket.windowStart.Load()+windowNs)
+	bucket.count++
+	if bucket.count > int64(l.cfg.MaxRequests) {
+		closes := time.Unix(0, bucket.windowStart+windowNs)
 		return false, time.Until(closes)
 	}
 	return true, 0
@@ -135,15 +142,22 @@ func (l *RequestRateLimiter) Stats() RequestRateLimiterStats {
 
 // sweepStale removes buckets whose window has elapsed. Called by
 // the janitor goroutine; safe to call concurrently with Allow.
+// The Delete must happen inside the per-bucket mutex so a
+// concurrent Allow that already locked the entry either completes
+// before us (in which case windowStart is now fresh and we won't
+// delete) or runs on a fresh entry constructed after our Delete
+// (via LoadOrStore). Mirrors the Sprint 1 D8 pattern on the
+// LoginRateLimiter's sweepStale.
 func (l *RequestRateLimiter) sweepStale() {
 	nowNs := time.Now().UnixNano()
 	windowNs := l.cfg.Window.Nanoseconds()
 	l.entries.Range(func(key, value any) bool {
 		b := value.(*requestBucket)
-		start := b.windowStart.Load()
-		if start != 0 && nowNs-start >= windowNs {
+		b.mu.Lock()
+		if b.windowStart != 0 && nowNs-b.windowStart >= windowNs {
 			l.entries.Delete(key)
 		}
+		b.mu.Unlock()
 		return true
 	})
 }

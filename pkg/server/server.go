@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -86,6 +87,11 @@ type Server struct {
 	// Sprint 2 as the N1 follow-up to the Sprint 1 review.
 	ctx    context.Context
 	cancel context.CancelFunc
+	// auditWG tracks fire-and-forget writeAudit goroutines so
+	// Shutdown can drain them before the store pool is closed.
+	// Sprint 3 D2 — without this, an in-flight audit write could
+	// race store.Close() and silently lose the event.
+	auditWG sync.WaitGroup
 }
 
 // securityHeaders adds security-related HTTP headers to all responses.
@@ -349,15 +355,43 @@ func (s *Server) Start() error {
 	return s.http.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server. Cancels the internal
-// Server context first so background workers (e.g., the rate-limit
-// janitor) stop promptly, then drains in-flight HTTP requests up to
-// the caller-supplied deadline.
+// Shutdown gracefully shuts down the server. Order of operations:
+//
+//  1. Cancel the internal Server context so background workers
+//     (rate-limit janitor, ticker-driven helpers) stop promptly.
+//  2. Drain in-flight HTTP requests via http.Server.Shutdown up to
+//     the caller-supplied deadline.
+//  3. Wait for any outstanding writeAudit goroutines to finish.
+//     These are fire-and-forget writes spawned AFTER the HTTP
+//     response is returned, so http.Server.Shutdown does NOT wait
+//     on them (Sprint 3 D2). Without this step, cmd/server.go's
+//     defer db.Close() would tear down the store pool out from
+//     under an in-flight audit write, silently losing the event.
+//
+// The audit drain uses the same ctx deadline the caller supplied to
+// Shutdown so a stuck audit write cannot block indefinitely — an
+// exhausted deadline logs and returns.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	return s.http.Shutdown(ctx)
+	if err := s.http.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	// Drain audit goroutines with a bounded wait.
+	auditDone := make(chan struct{})
+	go func() {
+		s.auditWG.Wait()
+		close(auditDone)
+	}()
+	select {
+	case <-auditDone:
+		return nil
+	case <-ctx.Done():
+		log.Printf("shutdown: audit drain deadline exceeded; some events may have been lost")
+		return ctx.Err()
+	}
 }
 
 // Router returns the chi router (for testing).

@@ -34,6 +34,18 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := requester.OrgID
+	// D5 fix: an empty OrgID must NOT collapse the filter down to
+	// "return every event across all tenants". store.ListAudit
+	// treats an empty OrgID as "no filter", so we reject here with
+	// a 403 to prevent cross-tenant leakage if a user row ever
+	// ends up with an empty org_id column (e.g., a misconfigured
+	// bootstrap admin). The happy path — every real org_user or
+	// org_admin has a non-empty OrgID populated by the provisioning
+	// or create-user flow — passes through unaffected.
+	if orgID == "" {
+		writeError(w, http.StatusForbidden, "audit access requires an organization-scoped user")
+		return
+	}
 	q := r.URL.Query()
 	filter := store.AuditFilter{
 		OrgID:     orgID,

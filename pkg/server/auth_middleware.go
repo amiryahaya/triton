@@ -28,6 +28,12 @@ type jwtAuthStore interface {
 // the limiter by the authenticated user's OrgID directly. Same
 // limiter instance as RequestRateLimit so one org's budget is
 // shared across both middleware surfaces.
+//
+// The "ip:"-prefixed fallback key (used when no user context is
+// present) assumes no legitimate org_id ever starts with "ip:".
+// Since org IDs are UUIDv7 they always begin with a hex digit, so
+// the collision space is empty in practice. Don't change org_id
+// to allow arbitrary strings without revisiting this — Sprint 3 D6.
 func RequestRateLimitByUser(limiter *auth.RequestRateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -55,7 +55,14 @@ func (s *Server) writeAudit(r *http.Request, eventType, targetID string, details
 	// context.WithoutCancel keeps the DB write alive even if the
 	// request context is canceled mid-handler (e.g., client
 	// disconnected). Matches the license server's audit pattern.
+	//
+	// The goroutine is registered on s.auditWG so Server.Shutdown
+	// can drain it before cmd/server.go's defer db.Close() runs —
+	// otherwise an in-flight audit write races the store teardown
+	// and the event is silently lost. See Sprint 3 review D2.
+	s.auditWG.Add(1)
 	go func() {
+		defer s.auditWG.Done()
 		if err := s.store.WriteAudit(context.WithoutCancel(r.Context()), entry); err != nil {
 			log.Printf("audit: WriteAudit(%s) failed: %v", eventType, err)
 		}

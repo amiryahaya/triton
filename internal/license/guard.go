@@ -115,6 +115,21 @@ func ResolveLicenseFilePath(flagFile string) string {
 	return DefaultLicensePath()
 }
 
+// ResolveToken is the canonical public helper for CLI callers that
+// need to resolve a licence token from the full --license-key /
+// TRITON_LICENSE_KEY / --license-file / TRITON_LICENSE_FILE / default
+// precedence without constructing a Guard. Returns an empty string
+// when no source is set — callers treat empty as "free tier".
+//
+// Phase 5 Sprint 3 D4 — exported so cmd/root.go's tenant-pubkey
+// override branch can reuse the same precedence the default branch
+// uses, instead of hand-rolling a subset that forgot to check
+// TRITON_LICENSE_KEY.
+func ResolveToken(flagKey, flagFile string) string {
+	filePath := ResolveLicenseFilePath(flagFile)
+	return resolveToken(flagKey, filePath)
+}
+
 // NewGuardFromFlags is the canonical constructor for CLI callers who
 // have both a --license-key and --license-file flag in hand. It
 // resolves the effective file path via ResolveLicenseFilePath and

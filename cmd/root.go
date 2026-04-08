@@ -89,16 +89,36 @@ Target: Malaysian government critical sectors for 2030 PQC readiness.`,
 			// a customer-specific key without rebuilding the
 			// binary. The report server's UnifiedAuth path honors
 			// the same env var (see cmd/server.go).
+			//
+			// D3 fix: invalid hex or wrong length is FATAL, not
+			// silently ignored. An operator who intended to
+			// configure a tenant-specific key but mistyped it
+			// would otherwise silently fall back to the embedded
+			// production pubkey and get confusing "licence
+			// invalid" errors. Hard fail gives them a clear
+			// message at startup.
 			if pubHex := os.Getenv("REPORT_SERVER_TENANT_PUBKEY"); pubHex != "" {
-				if pubBytes, err := hex.DecodeString(pubHex); err == nil && len(pubBytes) == 32 {
-					filePath := license.ResolveLicenseFilePath(licenseFile)
-					token := license.LoadTokenFromFile(filePath)
-					if licenseKey != "" {
-						token = licenseKey
-					}
-					guard = license.NewGuardFromToken(token, pubBytes)
-					return
+				pubBytes, err := hex.DecodeString(pubHex)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "REPORT_SERVER_TENANT_PUBKEY is not valid hex: %v\n", err)
+					os.Exit(1)
 				}
+				if len(pubBytes) != 32 {
+					fmt.Fprintf(os.Stderr, "REPORT_SERVER_TENANT_PUBKEY: expected 32 bytes (Ed25519 public key), got %d\n", len(pubBytes))
+					os.Exit(1)
+				}
+				// D4 fix: use the canonical resolveToken
+				// precedence via NewGuardFromFlags' internals by
+				// calling the library-level helper that honors
+				// --license-key → TRITON_LICENSE_KEY → --license-file →
+				// TRITON_LICENSE_FILE → default. We can't use
+				// NewGuardFromFlags directly because it embeds the
+				// default pubkey; instead we pre-resolve the token
+				// using the shared helper and then apply the
+				// override pubkey.
+				token := license.ResolveToken(licenseKey, licenseFile)
+				guard = license.NewGuardFromToken(token, pubBytes)
+				return
 			}
 			guard = license.NewGuardFromFlags(licenseKey, licenseFile)
 		},

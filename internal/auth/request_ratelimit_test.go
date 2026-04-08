@@ -119,6 +119,41 @@ func TestRequestRateLimiter_Stats(t *testing.T) {
 	assert.Equal(t, 3, s.Tracked)
 }
 
+// TestRequestRateLimiter_WindowBoundary_DoesNotLoseCountD1 regression
+// test for Sprint 3 review D1: the earlier atomic-only implementation
+// lost count updates when the window rolled mid-burst. We drive 100
+// concurrent goroutines within one Allow burst, then check that the
+// total count() matches the number of allowed calls — a mismatch
+// would indicate the racing reset swallowed some Adds. With the mutex
+// fix the numbers must line up exactly.
+func TestRequestRateLimiter_WindowBoundary_DoesNotLoseCountD1(t *testing.T) {
+	lim := NewRequestRateLimiter(RequestRateLimiterConfig{
+		MaxRequests: 1000,
+		Window:      200 * time.Millisecond,
+	})
+	var wg sync.WaitGroup
+	allowed := 0
+	var allowedMu sync.Mutex
+	for i := 0; i < 500; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, _ := lim.Allow("burst-org")
+			if ok {
+				allowedMu.Lock()
+				allowed++
+				allowedMu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	// Under the fixed mutex-based limiter, ALL 500 calls within one
+	// window must be counted because 500 < MaxRequests (1000), so
+	// every call must return allowed=true.
+	assert.Equal(t, 500, allowed,
+		"every call within a single window under budget must be allowed; race would undercount")
+}
+
 func TestRequestRateLimiter_JanitorSweeps(t *testing.T) {
 	lim := NewRequestRateLimiter(RequestRateLimiterConfig{
 		MaxRequests: 5,

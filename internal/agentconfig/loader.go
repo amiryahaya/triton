@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -154,6 +155,15 @@ func executableDir() string {
 // loadFile reads and parses a single candidate path. Returns
 // os.ErrNotExist (unwrappable) if the file is missing so the
 // caller can distinguish "try the next candidate" from "parse error".
+//
+// Whitespace normalization (Sprint 3 review F2): yaml.v3 preserves
+// trailing newlines on block scalars (``` license_key: | ``` form),
+// so a pasted token that used the multi-line form would carry a
+// trailing \n and fail base64 decoding in the license verifier,
+// producing a confusing silent free-tier fallback. Trim the
+// credential-shaped fields (license_key, report_server) to stay
+// robust against common paste patterns without being clever about
+// the rest of the config.
 func loadFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -163,6 +173,9 @@ func loadFile(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("invalid yaml: %w", err)
 	}
+	cfg.LicenseKey = strings.TrimSpace(cfg.LicenseKey)
+	cfg.ReportServer = strings.TrimSpace(cfg.ReportServer)
+	cfg.Profile = strings.TrimSpace(cfg.Profile)
 	return &cfg, nil
 }
 

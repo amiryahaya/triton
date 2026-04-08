@@ -187,3 +187,44 @@ func TestResolveOutputDir_EmptyDefaultsToReports(t *testing.T) {
 	assert.Equal(t, "reports", filepath.Base(got),
 		"default output_dir must be the 'reports' subdirectory")
 }
+
+// TestLoad_BlockScalarLicenseKeyTrimmed verifies the Sprint 3
+// full-review F2 fix: a license_key pasted via the YAML block
+// scalar (|) form preserves trailing newlines, which would
+// otherwise cause the license token's base64 decode to fail and
+// the agent to fall back to free tier silently. loadFile now
+// trims surrounding whitespace on credential-shaped fields.
+func TestLoad_BlockScalarLicenseKeyTrimmed(t *testing.T) {
+	exeDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	// The | block scalar form preserves ONE trailing newline by
+	// default. Without trimming, the resulting Go string would be
+	// "eyJ...token.sig\n" which fails Ed25519 verification.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(exeDir, "agent.yaml"),
+		[]byte("license_key: |\n  eyJlbXB0eSI6dHJ1ZX0.signature\n"),
+		0600,
+	))
+
+	cfg, err := Load(exeDir)
+	require.NoError(t, err)
+	assert.Equal(t, "eyJlbXB0eSI6dHJ1ZX0.signature", cfg.LicenseKey,
+		"block scalar license_key must be trimmed of surrounding whitespace")
+}
+
+// TestLoad_ReportServerTrimmed covers the same trim behavior for
+// report_server since a trailing newline on the URL would break
+// http.NewRequest with "invalid control character in URL".
+func TestLoad_ReportServerTrimmed(t *testing.T) {
+	exeDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, os.WriteFile(
+		filepath.Join(exeDir, "agent.yaml"),
+		[]byte("report_server: |\n  https://reports.example.com\n"),
+		0600,
+	))
+
+	cfg, err := Load(exeDir)
+	require.NoError(t, err)
+	assert.Equal(t, "https://reports.example.com", cfg.ReportServer)
+}

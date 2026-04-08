@@ -1,3 +1,61 @@
+# =============================================================================
+#  Triton local-development compose stack
+# =============================================================================
+#
+# ⚠️  THIS FILE IS FOR LOCAL DEVELOPMENT ONLY.  DO NOT USE IN PRODUCTION.
+#
+# Every `${VAR:-...}` default below is a publicly-known dev value committed
+# to the public repository:
+#
+#   * TRITON_LICENSE_KEY default — an enterprise-tier Ed25519 token signed
+#     by the DEVELOPMENT public key committed as TRITON_PUBLIC_KEY_HEX
+#     below. Valid until 2036, NOT machine-bound. Only grants enterprise
+#     tier to binaries built with this specific dev pubkey.
+#
+#   * TRITON_PUBLIC_KEY_HEX default — the dev Ed25519 public key, distinct
+#     from whatever the production release uses (which should be injected
+#     via ldflags at release build time).
+#
+#   * TRITON_LICENSE_SERVER_ADMIN_KEY default — "dev-admin-key". Known
+#     bearer secret. Gates the license server's admin API.
+#
+#   * TRITON_LICENSE_SERVER_ADMIN_PASSWORD default —
+#     "dev-admin-password-change-me". Bootstraps the first superadmin.
+#
+#   * REPORT_SERVER_SERVICE_KEY + TRITON_LICENSE_SERVER_REPORT_KEY
+#     defaults — "dev-service-key-888e5158...". The shared secret used
+#     for cross-server (license→report) provisioning calls. Anyone who
+#     knows this value can impersonate the license server to the report
+#     server.
+#
+#   * REPORT_SERVER_JWT_SIGNING_KEY default — "61627bd3...". The Ed25519
+#     seed used to sign org-user JWTs. Anyone who knows this value can
+#     mint a valid JWT for any org.
+#
+# Every single one of these MUST be replaced for any deployment that:
+#
+#     - is reachable from outside localhost, OR
+#     - holds real customer data, OR
+#     - is shared with any user who is not the developer running it.
+#
+# To override for a real deployment, create a .env file (gitignored) with
+# freshly generated values and run:
+#
+#     export RESEND_API_KEY=$(cat ~/.resend_key)                      # for real mail
+#     export REPORT_SERVER_JWT_SIGNING_KEY=$(openssl rand -hex 32)
+#     export REPORT_SERVER_SERVICE_KEY=$(openssl rand -hex 32)
+#     export TRITON_LICENSE_SERVER_REPORT_KEY=$REPORT_SERVER_SERVICE_KEY
+#     export TRITON_LICENSE_SERVER_ADMIN_KEY=$(openssl rand -hex 32)
+#     export TRITON_LICENSE_SERVER_ADMIN_PASSWORD=$(openssl rand -base64 24)
+#     podman compose --profile server --profile license-server up -d
+#
+# Sprint 4 backlog has a `compose.prod.yaml` variant with every default
+# stripped to the empty string so a production operator cannot silently
+# fall back to dev values. Until that ships, use the override recipe
+# above.
+#
+# =============================================================================
+
 services:
   postgres:
     image: docker.io/library/postgres:18

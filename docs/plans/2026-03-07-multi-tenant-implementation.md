@@ -70,6 +70,18 @@
 
 **Sprint 3 full-review deferrals that are NOT architectural** (all closed in feat/phase5-sprint3 follow-up commit): N1 env var rename + RequestRateLimiter env wiring, N2 `/auth/refresh` + `/auth/change-password` rate-limited, N3 misleading comment clarification, N4 dead `NewGuardWithPubKey` deleted, N5 per-DB cleanup registration, N6 bounded audit semaphore (32 in-flight), N7 503 on transient DB error, N8 change-password sibling-session semantics documented.
 
+**Sprint 3 agent+xlsx+UI full-review round 2 deferrals (added 2026-04-09):**
+- **SF1 (Sprint 4)** — Rename or merge `internal/agentconfig` with `internal/config` to avoid two packages named "config". Split identity fields (license_key, report_server) from runtime fields (profile, output_dir, formats) into two files so credential rotation doesn't require touching tuning.
+- **SF2 (Sprint 4)** — Introduce `ScanSink` interface in the agent so `Submit(scan)` has pluggable implementations (server, local-FS, future S3/webhook). Today's `if reportServer != "" { submit } else { write local }` branch is shallow but will widen with every new destination.
+- **SF3 (Sprint 4)** — Extract `applyTierFiltering` from cmd/agent.go into `internal/license.ResolveEffective(tier, requested)` so license-domain policy lives in the license package and can be reused by `triton scan` + the server-side report handler.
+- **SF5 (Sprint 4)** — xlsx generator on the report server does per-request 2× file I/O of the ~10MB template. Cache the template bytes once at startup; consider `excelize.WriteTo(w)` to stream directly to the HTTP response; add a max-concurrent-report-generation semaphore.
+- **SF6 (Sprint 4)** — Add `GET /api/v1/capabilities` returning `{tier, allowedFormats, features}` so the UI can show/hide tier-gated buttons rather than relying on server 403s to surface upgrade prompts.
+- **NH7** — shared `internal/banner` package so every subcommand (agent, scan, server, license show) uses a consistent "config / license / mode" startup banner.
+- **NH8** — ADR documenting the silent-downgrade vs hard-fail policy: degrade when possible, hard-fail only when the requested mode is structurally impossible (e.g., server submission on free tier).
+- **NH9** — `compose.prod.yaml` variant with every `${VAR:-default}` stripped to empty string so production operators can't silently fall back to the dev defaults. Rotate the committed dev-signed enterprise token to a 1-year expiry on next release.
+
+**Sprint 3 full-review round 2 items closed** (commit aa43735 → HEAD follow-up): F1 CLI+yaml license conflict warning, F2 license_key whitespace trim on block-scalar paste, F3 invalid profile is a hard error with attribution, F4 default case in handler format dispatch, F5/F6/F7 compose.yaml dev-only banner with rotation recipe, SF4 local `activeGuard` variable replaces package-global mutation throughout runAgent call chain.
+
 ---
 
 ## Historical status (2026-04-07)

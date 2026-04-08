@@ -93,15 +93,32 @@ type resolvedAgentConfig struct {
 	formatsFilteredOut []string            // formats the tier rejected
 }
 
+// validProfiles is the closed set of scan profiles the scanner
+// engine knows about. Any other value in --profile or agent.yaml
+// is a typo and should produce a hard error (Sprint 3 full-review
+// F3) rather than silently degrading to quick or upgrading to
+// comprehensive via applyTierFiltering's fallback loop.
+var validProfiles = map[string]bool{
+	"quick":         true,
+	"standard":      true,
+	"comprehensive": true,
+}
+
 // resolveAgentConfig walks agent.yaml + CLI flags + license
-// resolution chain and returns the effective settings. Never
-// errors on missing files — only on malformed agent.yaml.
+// resolution chain and returns the effective settings. Errors on:
+//   - malformed agent.yaml (any parse error)
+//   - invalid profile value (typo in --profile or agent.yaml)
+//
+// Missing files are NOT an error — the loader returns a
+// zero-value Config in that case and the agent proceeds with
+// built-in defaults.
 //
 // Tier filtering: when the licence cannot satisfy the requested
-// profile or formats, this function silently rewrites them to what
-// the tier allows AND records the downgrade so the startup banner
-// can surface it. Silent downgrade prevents the scan from failing;
-// explicit banner prevents the operator from being surprised.
+// profile or formats, applyTierFiltering silently rewrites them to
+// what the tier allows AND records the downgrade so
+// printStartupBanner can surface it. Silent downgrade prevents the
+// scan from failing on a tier mismatch; explicit banner prevents
+// the operator from being surprised.
 func resolveAgentConfig() (*resolvedAgentConfig, error) {
 	fileCfg, err := agentconfig.Load(agentConfigDir)
 	if err != nil {
@@ -124,6 +141,17 @@ func resolveAgentConfig() (*resolvedAgentConfig, error) {
 	if requestedProfile == "" {
 		requestedProfile = "quick"
 	}
+	// Reject typos before the scan even starts — otherwise
+	// applyTierFiltering's fallback loop would silently pick
+	// the first allowed profile on enterprise tier (comprehensive)
+	// and an operator with `standdard:` in agent.yaml would run
+	// the slowest possible scan without realizing why.
+	if !validProfiles[requestedProfile] {
+		return nil, fmt.Errorf(
+			"unknown profile %q in %s — valid profiles are: quick, standard, comprehensive",
+			requestedProfile, profileSource(fileCfg.LoadedFrom(), agentProfile != ""),
+		)
+	}
 
 	return &resolvedAgentConfig{
 		source:           fileCfg,
@@ -136,23 +164,47 @@ func resolveAgentConfig() (*resolvedAgentConfig, error) {
 	}, nil
 }
 
-// applyTierFiltering walks the current guard's tier and downgrades
-// the resolved config's profile and formats to what the licence
-// actually allows. Must run AFTER guard has been (re)built from
-// the agent.yaml license_key, because that's the source of truth
-// for the tier being enforced.
+// profileSource returns a human-readable location for the invalid
+// profile value so the error message points at the exact file or
+// flag the operator should fix.
+func profileSource(yamlPath string, cliFlagSet bool) string {
+	if cliFlagSet {
+		return "--profile flag"
+	}
+	if yamlPath != "" {
+		return yamlPath
+	}
+	return "built-in default"
+}
+
+// applyTierFiltering downgrades the resolved config's profile and
+// formats to what the active guard's tier actually allows. Must run
+// AFTER the active guard reflects the full license resolution chain
+// (flag → env → agent.yaml → ~/.triton), because the tier it reads
+// is the source of truth for what the scanner will actually do.
+//
+// Takes an explicit guard argument (not the package global) so the
+// caller controls guard identity — avoids the Sprint 3 full-review
+// SF4 concern about mutating the global mid-run.
 //
 // Records downgrades on the resolvedAgentConfig so printStartupBanner
 // can show them explicitly.
-func applyTierFiltering(r *resolvedAgentConfig) {
-	// Profile downgrade: walk the allowed profiles for the tier
-	// and pick the highest one <= the requested profile.
-	allowedProfiles := license.AllowedProfiles(guard.Tier())
+//
+// Note: resolveAgentConfig already rejected unknown profile names,
+// so this function only sees profiles from the valid closed set
+// (quick | standard | comprehensive). The fallback picks the
+// highest allowed profile that is <= the requested one, not a
+// blind "first allowed" which would silently upgrade on enterprise
+// if the valid-profile check ever regressed.
+func applyTierFiltering(g *license.Guard, r *resolvedAgentConfig) {
+	allowedProfiles := license.AllowedProfiles(g.Tier())
 	if !contains(allowedProfiles, r.requestedProfile) {
-		// Pick the "best" profile the tier allows, preferring
-		// higher tiers (comprehensive > standard > quick).
-		order := []string{"comprehensive", "standard", "quick"}
-		for _, p := range order {
+		// Downgrade order: walk from the requested profile
+		// downward, picking the first one the tier allows.
+		// This ensures we never silently upgrade (comprehensive
+		// on free tier should fall to quick, not to itself).
+		downgradeOrder := profileDowngradeChain(r.requestedProfile)
+		for _, p := range downgradeOrder {
 			if contains(allowedProfiles, p) {
 				r.effectiveProfile = p
 				break
@@ -164,7 +216,7 @@ func applyTierFiltering(r *resolvedAgentConfig) {
 	// Format filtering: intersect requested formats with
 	// tier-allowed formats. An empty requested list means "every
 	// tier-allowed format", which is a non-downgrade.
-	tierAllowed := license.AllowedFormats(guard.Tier())
+	tierAllowed := license.AllowedFormats(g.Tier())
 	if len(r.requestedFormats) == 0 {
 		r.effectiveFormats = tierAllowed
 		return
@@ -204,42 +256,81 @@ func contains(xs []string, v string) bool {
 	return false
 }
 
+// profileDowngradeChain returns the walk order for tier-based
+// profile downgrade, starting from the requested profile and
+// stepping DOWN to cheaper profiles. Ensures
+// applyTierFiltering never silently upgrades a profile (e.g., a
+// "standard" request on a tier that only allows "quick" should
+// produce "quick", not "comprehensive" just because comprehensive
+// happens to be listed first).
+func profileDowngradeChain(requested string) []string {
+	full := []string{"comprehensive", "standard", "quick"}
+	// Find the requested profile's index and return the tail from
+	// there — that gives us [requested, lower, lower-still].
+	for i, p := range full {
+		if p == requested {
+			return full[i:]
+		}
+	}
+	// Unknown profile (shouldn't happen because resolveAgentConfig
+	// validates) — return the full chain so we at least end up on
+	// "quick" as a conservative fallback rather than "comprehensive".
+	return full
+}
+
 func runAgent(_ *cobra.Command, _ []string) error {
 	resolved, err := resolveAgentConfig()
 	if err != nil {
 		return fmt.Errorf("loading agent config: %w", err)
 	}
 
-	// If agent.yaml supplied a license_key AND the global guard
-	// hasn't already picked up a stronger token, rebuild the guard
-	// from the yaml value so the rest of the run sees the correct
-	// tier. This is how "drop agent.yaml next to the exe, run it"
-	// works without any flags or env vars.
-	if resolved.licenseToken != "" && (guard == nil || guard.License() == nil) {
-		guard = license.NewGuard(resolved.licenseToken)
+	// Use a LOCAL guard variable — never mutate the package-global
+	// `guard` from root.go (Sprint 3 full-review SF4). Start with
+	// whatever PersistentPreRun already resolved from flag/env/
+	// default file.
+	activeGuard := guard
+
+	// If agent.yaml carries a license_key AND the CLI-level guard
+	// hasn't already picked up a stronger token, rebuild the local
+	// guard from the yaml value. This is how "drop agent.yaml next
+	// to the exe, run it" works without any flags or env vars.
+	if resolved.licenseToken != "" && activeGuard.License() == nil {
+		activeGuard = license.NewGuard(resolved.licenseToken)
 	}
 
-	// Now that guard reflects the final tier, tier-filter the
-	// resolved settings so the banner and the scan loop see the
-	// effective profile and format list rather than the raw
+	// F1 conflict warning: if the operator set --license-key on
+	// the CLI AND agent.yaml also carries a license_key, the CLI
+	// flag wins (documented precedence) but the operator may not
+	// have realized agent.yaml was also supplying one. Warn loudly
+	// so a misconfigured deployment doesn't silently use the wrong
+	// token for an entire interval loop.
+	if licenseKey != "" && resolved.licenseToken != "" {
+		fmt.Fprintf(os.Stderr,
+			"warning: --license-key flag overrides license_key in %s\n",
+			resolved.source.LoadedFrom())
+	}
+
+	// Now that activeGuard reflects the final tier, tier-filter
+	// the resolved settings so the banner and the scan loop see
+	// the effective profile and format list rather than the raw
 	// user-requested values.
-	applyTierFiltering(resolved)
+	applyTierFiltering(activeGuard, resolved)
 
 	// Print the startup banner BEFORE feature gating so operators
 	// always see what mode they're about to run in, even if the
 	// gate then refuses them.
-	printStartupBanner(resolved)
+	printStartupBanner(activeGuard, resolved)
 
 	// Feature gating. Server submission is enterprise-only; local
 	// report mode is allowed on every tier — it's just running the
 	// scanner and writing files, no coordination cost.
 	if resolved.reportServer != "" {
-		if err := guard.EnforceFeature(license.FeatureAgentMode); err != nil {
+		if err := activeGuard.EnforceFeature(license.FeatureAgentMode); err != nil {
 			return fmt.Errorf("server submission mode: %w", err)
 		}
 	}
 	// Local mode: no feature gate. Tier still caps profile and
-	// formats via guard.FilterConfig and tierAllowedFormats below.
+	// formats via activeGuard.FilterConfig and tierAllowedFormats below.
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -255,7 +346,7 @@ func runAgent(_ *cobra.Command, _ []string) error {
 	}
 
 	for {
-		if err := runAgentScan(ctx, resolved, client); err != nil {
+		if err := runAgentScan(ctx, activeGuard, resolved, client); err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
 		}
 
@@ -282,7 +373,10 @@ func runAgent(_ *cobra.Command, _ []string) error {
 // for "standard" but got "quick", or asked for "xlsx" and it was
 // filtered out, the banner says so. Silent downgrades hidden in
 // the noise lead to "my reports are wrong!" support tickets.
-func printStartupBanner(r *resolvedAgentConfig) {
+//
+// Takes the active guard explicitly (not the package global) so
+// the banner reflects the same guard runAgent will actually use.
+func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 	fmt.Println("Triton Agent starting...")
 	if r.source.LoadedFrom() != "" {
 		fmt.Printf("  config file: %s\n", r.source.LoadedFrom())
@@ -291,13 +385,13 @@ func printStartupBanner(r *resolvedAgentConfig) {
 	}
 
 	// License banner — the user-visible effect of the tier.
-	tier := guard.Tier()
-	if guard.License() == nil {
+	tier := g.Tier()
+	if g.License() == nil {
 		fmt.Println("  license:     NONE — running in FREE tier (quick profile, JSON report only)")
 		fmt.Println("               To unlock standard/comprehensive profiles and HTML/XLSX reports,")
 		fmt.Println("               place your license in agent.yaml next to this binary.")
 	} else {
-		fmt.Printf("  license:     %s tier (org=%s)\n", tier, guard.OrgName())
+		fmt.Printf("  license:     %s tier (org=%s)\n", tier, g.OrgName())
 	}
 
 	// Mode banner.
@@ -337,7 +431,11 @@ func printStartupBanner(r *resolvedAgentConfig) {
 // runAgentScan executes one scan iteration. When client is non-nil
 // the result is submitted via the existing server path; otherwise
 // it's written to disk as json/html/xlsx/cdx/sarif (tier-allowed).
-func runAgentScan(ctx context.Context, r *resolvedAgentConfig, client *agent.Client) error {
+//
+// Takes the active guard as an argument so the whole runAgent call
+// chain uses one identity and never touches the package global
+// (Sprint 3 full-review SF4).
+func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig, client *agent.Client) error {
 	fmt.Printf("Starting scan (profile: %s)...\n", r.effectiveProfile)
 
 	// Load the config from the EFFECTIVE profile (post-tier-filter)
@@ -352,9 +450,7 @@ func runAgentScan(ctx context.Context, r *resolvedAgentConfig, client *agent.Cli
 	// it also drops the DB URL on free tier and narrows the module
 	// list to AllowedModules. Idempotent after the profile-level
 	// downgrade above.
-	if guard != nil {
-		guard.FilterConfig(cfg)
-	}
+	g.FilterConfig(cfg)
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()

@@ -446,6 +446,14 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 		err = gen.GenerateCycloneDXBOM(result, fullPath)
 	case "xlsx":
 		err = gen.GenerateExcel(result, fullPath)
+	default:
+		// Defensive default — reportFormatMetadata already rejected
+		// unknown formats with a 400 above, so reaching this branch
+		// means a new format was added to reportFormatMetadata but
+		// NOT to this dispatch table. Better to return 500 with a
+		// clear server log than to stream the zero-byte temp file
+		// that os.CreateTemp left behind (Sprint 3 review F4).
+		err = fmt.Errorf("format %q validated but not dispatched", format)
 	}
 
 	if err != nil {

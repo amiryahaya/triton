@@ -15,7 +15,20 @@ import (
 
 // PostgresStore implements Store using PostgreSQL via pgx v5.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	encryptor *Encryptor // optional; nil = no at-rest encryption
+}
+
+// SetEncryptor enables at-rest AES-256-GCM encryption for the scans
+// result_json column. New writes are encrypted; existing plain-text
+// rows remain readable via the envelope-detection logic in Encryptor.
+// Disabling encryption after rows have been encrypted is a one-way
+// door without the key — don't rotate keys without a migration.
+//
+// Safe to call at any time but typically invoked at startup right
+// after NewPostgresStore.
+func (s *PostgresStore) SetEncryptor(enc *Encryptor) {
+	s.encryptor = enc
 }
 
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
@@ -111,6 +124,17 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 		return fmt.Errorf("marshalling scan result: %w", err)
 	}
 
+	// At-rest encryption (Phase 2.7). The Encryptor wraps the JSON in
+	// an AES-256-GCM envelope that's itself valid JSON, so the JSONB
+	// column stores it transparently. No-op when encryptor is nil.
+	if s.encryptor != nil {
+		encrypted, encErr := s.encryptor.Encrypt(blob)
+		if encErr != nil {
+			return fmt.Errorf("encrypting scan result: %w", encErr)
+		}
+		blob = encrypted
+	}
+
 	// Use nil for empty org_id to store SQL NULL.
 	var orgID *string
 	if result.OrgID != "" {
@@ -160,6 +184,17 @@ func (s *PostgresStore) GetScan(ctx context.Context, id, orgID string) (*model.S
 	}
 	if err != nil {
 		return nil, fmt.Errorf("querying scan: %w", err)
+	}
+
+	// At-rest decryption (Phase 2.7). Decrypt is a no-op for rows
+	// written before encryption was enabled (envelope detection falls
+	// through to pass-through).
+	if s.encryptor != nil {
+		decrypted, decErr := s.encryptor.Decrypt(blob)
+		if decErr != nil {
+			return nil, fmt.Errorf("decrypting scan result: %w", decErr)
+		}
+		blob = decrypted
 	}
 
 	var result model.ScanResult

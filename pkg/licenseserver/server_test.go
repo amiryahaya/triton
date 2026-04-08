@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -275,6 +276,122 @@ func TestCreateOrg_ProvisioningWithoutReportServerConfigured(t *testing.T) {
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// recordingMailer is a test Mailer that captures every SendInviteEmail
+// call for later assertion. Also supports optional failure injection
+// to test the "email failed, but org still created" path.
+type recordingMailer struct {
+	sent     []licenseserver.InviteEmailData
+	failWith error
+}
+
+func (m *recordingMailer) SendInviteEmail(_ context.Context, data licenseserver.InviteEmailData) error {
+	m.sent = append(m.sent, data)
+	return m.failWith
+}
+
+// setupTestServerWithMailer builds a license server with both a fake
+// report server (for provisioning) and a recording mailer (for email).
+func setupTestServerWithMailer(t *testing.T, mailer licenseserver.Mailer) (*httptest.Server, *licensestore.PostgresStore) {
+	t.Helper()
+	dbURL := os.Getenv("TRITON_TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
+	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	// Fake report server that always accepts provisioning.
+	reportTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"org":{"id":"x","name":"y"},"admin_user_id":"u"}`))
+	}))
+
+	cfg := &licenseserver.Config{
+		ListenAddr:             ":0",
+		AdminKeys:              []string{"test-admin-key"},
+		SigningKey:             priv,
+		PublicKey:              pub,
+		BinariesDir:            t.TempDir(),
+		ReportServerURL:        reportTS.URL,
+		ReportServerServiceKey: "test-shared-secret",
+		Mailer:                 mailer,
+		ReportServerInviteURL:  "https://reports.test/login",
+	}
+	srv := licenseserver.New(cfg, store)
+	ts := httptest.NewServer(srv.Router())
+
+	t.Cleanup(func() {
+		ts.Close()
+		reportTS.Close()
+		_ = store.DropSchema(ctx)
+		store.Close()
+	})
+	return ts, store
+}
+
+// TestCreateOrg_SendsInviteEmail verifies that after successful
+// provisioning, the Mailer is invoked with the correct invite data.
+func TestCreateOrg_SendsInviteEmail(t *testing.T) {
+	mailer := &recordingMailer{}
+	ts, _ := setupTestServerWithMailer(t, mailer)
+
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name":        "Acme Corp",
+		"admin_email": "alice@acme.com",
+		"admin_name":  "Alice Admin",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	tempPassword := result["admin_temp_password"].(string)
+
+	// Mailer should have been called exactly once with matching data.
+	require.Len(t, mailer.sent, 1)
+	sent := mailer.sent[0]
+	assert.Equal(t, "alice@acme.com", sent.ToEmail)
+	assert.Equal(t, "Alice Admin", sent.ToName)
+	assert.Equal(t, "Acme Corp", sent.OrgName)
+	assert.Equal(t, tempPassword, sent.TempPassword,
+		"mailer must receive the same temp password surfaced in the response")
+	assert.Equal(t, "https://reports.test/login", sent.LoginURL)
+}
+
+// TestCreateOrg_EmailFailureIsNonFatal verifies that if the mailer
+// fails to send (e.g., Resend API down), the org creation STILL
+// succeeds and the temp password is still returned for manual
+// delivery. Email delivery is best-effort.
+func TestCreateOrg_EmailFailureIsNonFatal(t *testing.T) {
+	mailer := &recordingMailer{failWith: errors.New("resend down")}
+	ts, store := setupTestServerWithMailer(t, mailer)
+
+	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+		"name":        "Acme Corp",
+		"admin_email": "alice@acme.com",
+		"admin_name":  "Alice Admin",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "org creation must succeed despite email failure")
+
+	var result map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.NotEmpty(t, result["admin_temp_password"], "temp password must still be in response for manual delivery")
+
+	// License server should still have the org (no rollback).
+	orgs, err := store.ListOrgs(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, orgs, 1)
 }
 
 // TestCreateOrg_RollsBackOnProvisioningFailure verifies that if the

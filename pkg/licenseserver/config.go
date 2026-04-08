@@ -22,4 +22,13 @@ type Config struct {
 	// X-Triton-Service-Key header when calling the report server's
 	// admin API. Required alongside ReportServerURL.
 	ReportServerServiceKey string
+
+	// Mailer, if non-nil, is used to send admin-invite emails after
+	// successful org provisioning. Typically a *ResendMailer built from
+	// the RESEND_API_KEY env var. If nil, handlers fall back to
+	// returning credentials in the API response for out-of-band delivery.
+	Mailer Mailer
+	// ReportServerInviteURL is included as the login link in invite
+	// emails. Typically "https://reports.example.com/login".
+	ReportServerInviteURL string
 }

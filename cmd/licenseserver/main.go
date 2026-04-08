@@ -92,15 +92,35 @@ func run() error {
 		log.Printf("seeded initial superadmin: %s", bootstrapEmail)
 	}
 
+	// Optional: report server integration (Phase 1.7) and Resend mailer
+	// (Phase 1.8). Both are no-ops when their env vars are unset — on-prem
+	// single-server deployments can skip them entirely.
+	reportServerURL := envOr("TRITON_LICENSE_SERVER_REPORT_URL", "")
+	reportServerKey := envOr("LICENSE_TO_REPORT_SHARED_KEY", "")
+	resendAPIKey := envOr("RESEND_API_KEY", "")
+	resendFromEmail := envOr("RESEND_FROM_EMAIL", "")
+	resendFromName := envOr("RESEND_FROM_NAME", "Triton Reports")
+	reportInviteURL := envOr("REPORT_SERVER_INVITE_URL_BASE", "")
+
+	var mailer licenseserver.Mailer
+	if resendAPIKey != "" && resendFromEmail != "" {
+		mailer = licenseserver.NewResendMailer(resendAPIKey, resendFromEmail, resendFromName)
+		log.Printf("Resend mailer configured: from=%s", resendFromEmail)
+	}
+
 	cfg := &licenseserver.Config{
-		ListenAddr:  listen,
-		DBUrl:       dbURL,
-		AdminKeys:   adminKeys,
-		TLSCert:     tlsCert,
-		TLSKey:      tlsKey,
-		SigningKey:  privKey,
-		PublicKey:   pubKey,
-		BinariesDir: binariesDir,
+		ListenAddr:             listen,
+		DBUrl:                  dbURL,
+		AdminKeys:              adminKeys,
+		TLSCert:                tlsCert,
+		TLSKey:                 tlsKey,
+		SigningKey:             privKey,
+		PublicKey:              pubKey,
+		BinariesDir:            binariesDir,
+		ReportServerURL:        reportServerURL,
+		ReportServerServiceKey: reportServerKey,
+		Mailer:                 mailer,
+		ReportServerInviteURL:  reportInviteURL,
 	}
 
 	srv := licenseserver.New(cfg, store)

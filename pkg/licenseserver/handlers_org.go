@@ -115,6 +115,23 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "report server provisioning failed")
 			return
 		}
+
+		// Best-effort email delivery via Mailer (Phase 1.8). Email failure
+		// is NOT fatal — the temp password is already in the API response
+		// below, so ops can fall back to manual delivery. We log the
+		// failure so it's visible in monitoring.
+		if s.config.Mailer != nil {
+			emailErr := s.config.Mailer.SendInviteEmail(r.Context(), InviteEmailData{
+				ToEmail:      req.AdminEmail,
+				ToName:       req.AdminName,
+				OrgName:      org.Name,
+				TempPassword: tempPassword,
+				LoginURL:     s.config.ReportServerInviteURL,
+			})
+			if emailErr != nil {
+				log.Printf("create org: invite email delivery failed (non-fatal): %v", emailErr)
+			}
+		}
 	}
 
 	s.audit(r, "org_create", "", org.ID, "", nil)

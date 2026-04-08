@@ -1,0 +1,138 @@
+# =============================================================================
+# Triton Agent configuration — agent.yaml
+# =============================================================================
+#
+# Drop this file next to the triton (or triton.exe) binary, fill in the
+# fields below, and run the binary. The agent will pick up these settings
+# automatically — no CLI flags required.
+#
+# Resolution order (first file found wins):
+#   1. <directory containing the triton binary>/agent.yaml   ← this file
+#   2. ~/.triton/agent.yaml
+#
+# Every field is optional. An empty file is valid. Fields left blank fall
+# back to their built-in defaults documented below.
+#
+# SECURITY: This file may contain your licence token, which is ALSO the
+# credential the agent uses to authenticate to a report server. Anyone with
+# this file can submit scan data as your organization and read back your
+# org's results. Keep it on a trusted filesystem with owner-only read
+# permissions (e.g. `chmod 600 agent.yaml`). Rotate via the Triton licence
+# server (`triton license activate` / `deactivate`) if it ever leaks.
+
+
+# -----------------------------------------------------------------------------
+# License token (optional)
+# -----------------------------------------------------------------------------
+# Your Ed25519-signed Triton licence token. Paste the ENTIRE token here as a
+# single line, including the signature segment after the dot.
+#
+# Leave empty to run in FREE tier — the agent will still work but is limited
+# to the "quick" scan profile and JSON output only. A banner at startup tells
+# you which tier you're running in.
+#
+# Get a token from your Triton licence vendor or from the licence server
+# admin UI (Organizations → your org → Licenses → Download).
+license_key: ""
+
+
+# -----------------------------------------------------------------------------
+# Report server (optional)
+# -----------------------------------------------------------------------------
+# URL of a Triton report server that should receive scan results. When set,
+# the agent submits scan output via POST /api/v1/scans and the report server
+# handles aggregation, diff/trend analysis, and web-UI viewing. The licence
+# token above is used as the authentication credential — no separate API key
+# is needed.
+#
+# Leave empty to run in LOCAL mode: scan results are written to the
+# output_dir below instead of being submitted anywhere.
+#
+# Example: https://reports.example.com
+report_server: ""
+
+
+# -----------------------------------------------------------------------------
+# Scan profile (optional, default: "quick")
+# -----------------------------------------------------------------------------
+# Which modules the agent runs on each scan. Valid values:
+#
+#   quick         — certificates + keys + packages only. Fast (~seconds).
+#                   Works on FREE tier.
+#
+#   standard      — the above plus libraries, binaries, scripts, webapp,
+#                   configs, containers, cert store, database, and Go
+#                   dependency reachability. Takes a few minutes. Requires
+#                   PRO or ENTERPRISE tier.
+#
+#   comprehensive — every module including kernel, processes, network,
+#                   protocol probing, HSM, LDAP, and code signing. Can take
+#                   10+ minutes depending on the host. Requires ENTERPRISE
+#                   tier.
+#
+# If you set a profile above your licence tier, the agent silently downgrades
+# to the best tier the licence allows and prints a warning banner.
+profile: "quick"
+
+
+# -----------------------------------------------------------------------------
+# Output directory (optional, default: "reports")
+# -----------------------------------------------------------------------------
+# Where local reports are written when report_server is empty. Each scan
+# gets its own timestamped subdirectory so historical runs are not clobbered:
+#
+#   <output_dir>/2026-04-08_14-30-22/triton-report-2026-04-08_14-30-22.json
+#   <output_dir>/2026-04-08_14-30-22/triton-report-2026-04-08_14-30-22.html
+#   <output_dir>/2026-04-08_14-30-22/Triton_PQC_Report-2026-04-08_14-30-22.xlsx
+#
+# Relative paths are resolved against the directory containing the triton
+# binary — NOT the shell's current working directory. This is so
+# double-clicking the binary from a file manager writes reports to a
+# predictable place next to the agent itself.
+#
+# Absolute paths (e.g. /var/lib/triton/reports or C:\ProgramData\Triton)
+# are used unchanged.
+#
+# Ignored when report_server is set.
+output_dir: "reports"
+
+
+# -----------------------------------------------------------------------------
+# Report formats (optional, default: all formats allowed by your tier)
+# -----------------------------------------------------------------------------
+# Which output formats to generate when running in LOCAL mode. Unknown
+# formats are ignored with a warning. Formats your licence tier doesn't
+# allow are filtered out silently.
+#
+# Available formats:
+#
+#   json  — proprietary JSON, machine-readable. Always available.
+#   html  — standalone HTML dashboard. Requires PRO or ENTERPRISE.
+#   xlsx  — Excel workbook in Malaysian government Jadual 1 & 2 format.
+#           Requires PRO or ENTERPRISE.
+#   cdx   — CycloneDX 1.7 JSON SBOM/CBOM. Requires PRO or ENTERPRISE.
+#   sarif — SARIF for IDE/CI integration. Requires ENTERPRISE.
+#
+# Leave empty or comment out to generate every format your tier supports.
+# Ignored when report_server is set.
+formats:
+  - json
+  - html
+  - xlsx
+
+
+# =============================================================================
+# Appendix: running the agent
+# =============================================================================
+#
+# One-shot scan:
+#   ./triton agent
+#
+# Continuous scanning every 24 hours:
+#   ./triton agent --interval 24h
+#
+# Override a setting temporarily without editing this file:
+#   ./triton agent --profile comprehensive
+#   ./triton agent --report-server https://other.example.com
+#
+# See `./triton agent --help` for the full flag list.

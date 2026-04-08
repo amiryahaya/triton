@@ -373,9 +373,18 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 	// for the email greeting; failure here is non-fatal (we still
 	// want to deliver the invite), so the org name falls back to
 	// the org ID if the lookup fails.
+	//
+	// D4 from the Sprint 2 review: log the GetOrg failure when it
+	// happens so operators can see a data-integrity problem (an
+	// org row missing for an existing user) rather than silently
+	// sending an email that says "you've been invited to
+	// 3f8a2c91-..." which looks broken to the recipient.
 	orgName := target.OrgID
 	if org, err := s.store.GetOrg(r.Context(), target.OrgID); err == nil && org != nil {
 		orgName = org.Name
+	} else if err != nil {
+		log.Printf("resend invite: GetOrg(%s) failed, falling back to org ID in email: %v",
+			target.OrgID, err)
 	}
 
 	// Cache-Control: no-store regardless of whether the password

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -60,6 +62,25 @@ func runServer(_ *cobra.Command, _ []string) error {
 		TLSKey:               serverTLSKey,
 		Guard:                guard,
 		DataEncryptionKeyHex: os.Getenv("REPORT_SERVER_DATA_ENCRYPTION_KEY"),
+		InviteLoginURL:       os.Getenv("REPORT_SERVER_INVITE_URL"),
+	}
+
+	// Phase 5 Sprint 2 D3 — optional Resend mailer wiring for the
+	// resend-invite flow. When all three REPORT_SERVER_RESEND_*
+	// env vars are set, we build a mailer so handleResendInvite
+	// pushes the temp password via email instead of returning it
+	// in the JSON response body. Missing any variable silently
+	// falls back to the body-return path with Cache-Control:
+	// no-store — see handleResendInvite for the fallback logic.
+	if apiKey := os.Getenv("REPORT_SERVER_RESEND_API_KEY"); apiKey != "" {
+		fromEmail := os.Getenv("REPORT_SERVER_RESEND_FROM_EMAIL")
+		fromName := os.Getenv("REPORT_SERVER_RESEND_FROM_NAME")
+		if m := mailer.NewResendMailer(apiKey, fromEmail, fromName); m != nil {
+			cfg.Mailer = m
+			log.Printf("resend mailer enabled for resend-invite delivery (from=%s)", fromEmail)
+		} else {
+			log.Printf("REPORT_SERVER_RESEND_API_KEY set but REPORT_SERVER_RESEND_FROM_EMAIL is empty; mailer NOT enabled")
+		}
 	}
 
 	srv, err := server.New(cfg, db)

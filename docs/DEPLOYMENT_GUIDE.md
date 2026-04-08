@@ -198,13 +198,15 @@ All report-server options can be set via flags, environment variables, or config
 | `--tls-cert` / `--tls-key` | `TRITON_TLS_CERT` / `TRITON_TLS_KEY` | _(none)_ | TLS material |
 | `--license-key` | `TRITON_LICENSE_KEY` | _(none)_ | Enterprise license token |
 | _(not a flag)_ | `REPORT_SERVER_DATA_ENCRYPTION_KEY` | _(none)_ | 64-hex-char AES-256 key for at-rest encryption of scan payloads; if set, malformed values fail startup |
+| _(not a flag)_ | `REPORT_SERVER_RESEND_API_KEY` | _(none)_ | Resend API key for the invite mailer; when set alongside the `FROM_EMAIL` var, `handleResendInvite` pushes temp passwords via email |
+| _(not a flag)_ | `REPORT_SERVER_RESEND_FROM_EMAIL` | _(none)_ | From address for invite emails sent by the report server |
+| _(not a flag)_ | `REPORT_SERVER_RESEND_FROM_NAME` | _(none)_ | From name for invite emails (optional) |
+| _(not a flag)_ | `REPORT_SERVER_INVITE_URL` | _(none)_ | URL embedded in resent invite emails (typically the report server login page) |
 | _(programmatic)_ | _(none)_ | _(none)_ | `Config.ServiceKey` — shared secret for cross-server provisioning; when empty the `/api/v1/admin/*` route group is NOT registered |
 | _(programmatic)_ | _(none)_ | _(none)_ | `Config.JWTSigningKey` — Ed25519 private key used to sign org-user JWTs; when empty the `/api/v1/auth/*` route group is NOT registered |
-| _(programmatic)_ | _(none)_ | _(none)_ | `Config.Mailer` — optional `internal/mailer.Mailer` for invite delivery; when nil, `resend-invite` returns temp passwords in the JSON body |
-| _(programmatic)_ | _(none)_ | _(none)_ | `Config.InviteLoginURL` — URL embedded in resent invite emails |
 | _(programmatic)_ | _(none)_ | _(none)_ | `Config.LoginRateLimiterConfig` — override the default 5-attempts-in-15min policy |
 
-**Programmatic configuration note:** the "programmatic" entries above reflect fields on `pkg/server.Config` that are not yet exposed as CLI flags. For multi-tenant production deployments you need a thin wrapper main that sets these from env vars — see `test/e2e/cmd/testserver/main.go` for a working example. Exposing them as CLI flags is tracked in the Sprint 3 backlog.
+**Programmatic configuration note:** the `ServiceKey`, `JWTSigningKey`, and `LoginRateLimiterConfig` fields on `pkg/server.Config` are not yet exposed as CLI flags. For multi-tenant production deployments you need a thin wrapper main that sets these from env vars — see `test/e2e/cmd/testserver/main.go` for a working example. Exposing them as CLI flags is tracked in the Sprint 3 backlog.
 
 ### 5c. At-rest encryption
 

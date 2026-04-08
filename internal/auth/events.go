@@ -41,16 +41,69 @@ func LogSuccessfulLogin(server, email, ip string) {
 		kvValue(server), kvValue(email), kvValue(ip))
 }
 
-// kvValue formats a single value for key=value logging. Values
-// containing whitespace, quotes, or `=` are double-quoted with
-// embedded quotes escaped. Empty values become `-` so a parser
-// can unambiguously distinguish "missing" from "empty-but-present".
+// kvValue formats a single value for key=value logging. Empty
+// values become `-` so a parser can unambiguously distinguish
+// "missing" from "empty-but-present".
+//
+// Security: any value containing whitespace, quotes, `=`, backslash,
+// or control characters is double-quoted. Inside the quoted form,
+// backslashes and quotes are doubled-escaped and control characters
+// are emitted as `\n`, `\r`, `\t`, or `\xNN` so they cannot be
+// misread as line terminators by a downstream log parser.
+//
+// This closes the Sprint 2 review D1 (log-injection via `\n` in
+// email) and D2 (backslash-quote ambiguity) findings. Without the
+// control-character handling, an attacker could POST a login with
+// email="alice\nevent=login_success server=attacker" and inject a
+// fake success line into the SIEM.
 func kvValue(s string) string {
 	if s == "" {
 		return "-"
 	}
-	if strings.ContainsAny(s, " \t\"=") {
-		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	if !needsQuoting(s) {
+		return s
 	}
-	return s
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if c < 0x20 || c == 0x7f {
+				// Other control character — hex-escape.
+				const hex = "0123456789abcdef"
+				b.WriteString(`\x`)
+				b.WriteByte(hex[c>>4])
+				b.WriteByte(hex[c&0x0f])
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// needsQuoting returns true for any value that cannot be emitted
+// bare in a key=value log line — whitespace, the quoting
+// machinery's own delimiters, or any control character.
+func needsQuoting(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '"' || c == '=' || c == '\\' || c < 0x20 || c == 0x7f {
+			return true
+		}
+	}
+	return false
 }

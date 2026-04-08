@@ -503,6 +503,35 @@ td[colspan] {
 
 .view-header h2 { margin-bottom: 0; }
 
+/* -- Download row (scan detail report buttons) ----------------------
+ * Phase 5 Sprint 3 — groups the "Download report: JSON HTML Excel …"
+ * buttons on the scan detail page. Flex container with a subtle
+ * background so it reads as an action bar rather than inline text.
+ */
+.download-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  background: rgba(8, 145, 178, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.download-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.download-row .btn[disabled] {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 /* -- Forms ----------------------------------------------------------- */
 
 .form-row {

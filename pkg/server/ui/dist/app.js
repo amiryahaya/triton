@@ -659,6 +659,22 @@
       let html = `<div class="view-header"><h2>Scan: ${escapeHtml(id.slice(0,12))}...</h2>
         <button class="btn btn-outline" onclick="location.hash='#/scans'">Back</button></div>`;
 
+      // Report download buttons. Click handlers are wired after
+      // innerHTML is set via data-format attributes — see
+      // wireDownloadButtons below. A plain <a href> would not work
+      // because the report endpoint requires the JWT Authorization
+      // header, which only fetch() calls attach. Tier-blocked
+      // formats (e.g. sarif on pro tier) surface as a 403 alert
+      // when clicked, rather than being pre-filtered client-side.
+      html += `<div class="download-row">
+        <span class="download-label">Download report:</span>
+        <button class="btn btn-sm js-download-report" data-format="json">JSON</button>
+        <button class="btn btn-sm js-download-report" data-format="html">HTML</button>
+        <button class="btn btn-sm js-download-report" data-format="xlsx">Excel</button>
+        <button class="btn btn-sm js-download-report" data-format="cdx">CycloneDX</button>
+        <button class="btn btn-sm js-download-report" data-format="sarif">SARIF</button>
+      </div>`;
+
       html += `<div class="card-grid">
         <div class="card info"><div class="value">${escapeHtml(scan.metadata.hostname)}</div><div class="label">Hostname</div></div>
         <div class="card info"><div class="value">${escapeHtml(scan.metadata.scanProfile)}</div><div class="label">Profile</div></div>
@@ -699,8 +715,133 @@
       }
 
       content.innerHTML = html;
+      wireDownloadButtons(id);
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  // wireDownloadButtons attaches click handlers to every
+  // `.js-download-report` button on the scan detail page. The
+  // scanId is captured once per render so the handlers don't
+  // have to re-read the hash. Buttons read their format from a
+  // data-format attribute — no dynamic HTML interpolation, so
+  // no XSS surface.
+  function wireDownloadButtons(scanId) {
+    $$('.js-download-report').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fmt = btn.dataset.format;
+        if (!fmt) return;
+        // Disable the button while the download is in flight so
+        // impatient clickers don't fire multiple requests.
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Downloading…';
+        try {
+          await downloadReport(scanId, fmt);
+        } catch (err) {
+          alert('Download failed: ' + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
+    });
+  }
+
+  // downloadReport fetches /api/v1/reports/{id}/{format} with the
+  // stored JWT and streams the response body into a browser
+  // download. A plain <a href> link would not work because the
+  // report endpoint requires the Authorization header — only
+  // fetch() attaches it.
+  //
+  // On a 200 response the body is converted to a Blob, an object
+  // URL is created, a synthetic <a download> element is clicked to
+  // trigger the browser's save dialog, and the object URL is
+  // revoked to free the blob.
+  //
+  // On a non-200 response the error message (if JSON-shaped) is
+  // surfaced to the caller for display in an alert — the most
+  // common case is a 403 when the user's tier doesn't allow the
+  // requested format (e.g., pro tier asking for sarif).
+  async function downloadReport(scanId, format) {
+    const token = auth.getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const resp = await fetch('/api/v1/reports/' + encodeURIComponent(scanId) + '/' + encodeURIComponent(format), {
+      method: 'GET',
+      headers,
+    });
+
+    if (resp.status === 401) {
+      // Token expired / revoked — punt to login the same way the
+      // api() helper does on 401s.
+      auth.clearToken();
+      location.hash = '#/login';
+      throw new Error('authentication required');
+    }
+    if (!resp.ok) {
+      // Try to extract a JSON error message; fall back to a
+      // generic status-code message if the server returned
+      // binary content or empty body.
+      let msg = `Server returned ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+
+    // Convert the body to a Blob. The Content-Type from the
+    // server is preserved so the browser's Save As dialog opens
+    // the right default app (Excel for .xlsx, a browser for
+    // .html, etc.) — note the blob constructor's `type` option
+    // is authoritative for download-attribute semantics, not
+    // the response's Content-Type header alone.
+    const blob = await resp.blob();
+
+    // Prefer the Content-Disposition filename from the server,
+    // falling back to a sensible default. Content-Disposition
+    // parsing is minimal — we only care about the filename
+    // attribute in the quoted form the handler produces.
+    let filename = defaultDownloadFilename(scanId, format);
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="([^"]+)"/);
+    if (match && match[1]) filename = match[1];
+
+    const objectURL = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement('a');
+      a.href = objectURL;
+      a.download = filename;
+      // Firefox requires the anchor to be in the DOM before a
+      // programmatic click fires the download; Chromium is more
+      // lenient but this works everywhere.
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } finally {
+      // Always revoke the object URL to release the blob's
+      // memory, even if the click threw.
+      URL.revokeObjectURL(objectURL);
+    }
+  }
+
+  // defaultDownloadFilename returns the filename the browser will
+  // save the report under when the server didn't supply a
+  // Content-Disposition header (which should never happen, but
+  // the fallback keeps downloads usable even if a reverse proxy
+  // strips the header).
+  function defaultDownloadFilename(scanId, format) {
+    const shortID = scanId.slice(0, 8);
+    switch (format) {
+      case 'json':  return `triton-report-${shortID}.json`;
+      case 'html':  return `triton-report-${shortID}.html`;
+      case 'xlsx':  return `Triton_PQC_Report-${shortID}.xlsx`;
+      case 'cdx':   return `triton-report-${shortID}.cdx.json`;
+      case 'sarif': return `triton-report-${shortID}.sarif`;
+      default:      return `triton-report-${shortID}.${format}`;
     }
   }
 

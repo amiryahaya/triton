@@ -156,18 +156,26 @@ func (l *LoginRateLimiter) RecordFailure(email string) {
 // never fires for a nonexistent user. Called periodically by the
 // janitor goroutine when started, and called directly from tests.
 //
-// Acquires each entry's lock before inspecting it — safe to run
-// concurrently with Check/RecordFailure.
+// The Delete call MUST happen inside the entry's critical section
+// (D8 from the Sprint 1 full review). If the delete were outside the
+// lock, a concurrent RecordFailure that did `getOrCreate → mu.Lock`
+// between our `mu.Unlock` and our `entries.Delete` would mutate an
+// entry we were about to evict: the mutation would then be silently
+// dropped because the next lookup constructs a fresh zero-state
+// entry via LoadOrStore. Holding the mutex across the delete closes
+// that window — any concurrent RecordFailure either grabbed the
+// entry BEFORE us (in which case its mutation happened first and
+// stale will be false) or AFTER us (in which case LoadOrStore now
+// returns a fresh entry, not the one we deleted).
 func (l *LoginRateLimiter) sweepStale() {
 	now := time.Now()
 	l.entries.Range(func(key, value any) bool {
 		entry := value.(*rateLimitEntry)
 		entry.mu.Lock()
-		stale := isStale(entry, now, l.cfg.Window)
-		entry.mu.Unlock()
-		if stale {
+		if isStale(entry, now, l.cfg.Window) {
 			l.entries.Delete(key)
 		}
+		entry.mu.Unlock()
 		return true
 	})
 }
@@ -199,12 +207,20 @@ func isStale(e *rateLimitEntry, now time.Time, window time.Duration) bool {
 // cfg.LockoutDuration (so every sweep reclaims any entry whose
 // lockout has fully elapsed since the previous sweep). Passing
 // interval <= 0 starts no janitor — the caller takes responsibility
-// for memory bounds via sweepStale calls.
-func (l *LoginRateLimiter) StartJanitor(ctx context.Context, interval time.Duration) {
+// for memory bounds via sweepStale calls — and returns a closed
+// done channel so tests and callers can uniformly wait on it.
+//
+// The returned channel closes once the goroutine has fully exited,
+// so tests can assert shutdown determinism and callers who want a
+// synchronous wait-on-stop can block on it after canceling ctx.
+func (l *LoginRateLimiter) StartJanitor(ctx context.Context, interval time.Duration) <-chan struct{} {
+	done := make(chan struct{})
 	if interval <= 0 {
-		return
+		close(done)
+		return done
 	}
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -216,6 +232,7 @@ func (l *LoginRateLimiter) StartJanitor(ctx context.Context, interval time.Durat
 			}
 		}
 	}()
+	return done
 }
 
 // RecordSuccess clears the failure state for email. Call this after a

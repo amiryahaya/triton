@@ -149,9 +149,11 @@ type Organization struct {
 //
 // InvitedAt is the wall-clock anchor for the Phase 5.2 invite expiry
 // gate: if must_change_password is still true when invited_at + the
-// configured expiry window has elapsed, handleLogin rejects with 403.
-// Users who have completed the change-password flow ignore the field
-// entirely (mcp=false short-circuits the expiry check).
+// configured expiry window has elapsed, handleLogin returns 401
+// "invalid credentials" (not a distinct status) to avoid a credential
+// oracle — see Sprint 1 review D4. Users who have completed the
+// change-password flow ignore the field entirely (mcp=false
+// short-circuits the expiry check).
 type User struct {
 	ID                 string    `json:"id"`
 	OrgID              string    `json:"orgID"`

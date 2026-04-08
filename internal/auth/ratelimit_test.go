@@ -205,9 +205,11 @@ func TestRateLimiter_SweepReclaimsStaleEntries(t *testing.T) {
 }
 
 // TestRateLimiter_JanitorStopsOnContextCancel verifies that
-// StartJanitor's goroutine shuts down when its context is canceled.
-// No assertion on timing — we only care that cancelling does not
-// deadlock or leak the goroutine past the test's t.Cleanup.
+// StartJanitor's goroutine shuts down deterministically when its
+// context is canceled: the done channel returned by StartJanitor
+// must close within a bounded deadline. A regression in ctx.Done()
+// handling fails this test explicitly (rather than hanging the
+// whole process and relying on go test's top-level timeout).
 func TestRateLimiter_JanitorStopsOnContextCancel(t *testing.T) {
 	lim := NewLoginRateLimiter(LoginRateLimiterConfig{
 		MaxAttempts:     3,
@@ -215,7 +217,7 @@ func TestRateLimiter_JanitorStopsOnContextCancel(t *testing.T) {
 		LockoutDuration: 10 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	lim.StartJanitor(ctx, 5*time.Millisecond)
+	done := lim.StartJanitor(ctx, 5*time.Millisecond)
 
 	// Populate then cancel.
 	for i := 0; i < 5; i++ {
@@ -223,16 +225,28 @@ func TestRateLimiter_JanitorStopsOnContextCancel(t *testing.T) {
 	}
 	time.Sleep(25 * time.Millisecond) // let at least one tick fire
 	cancel()
-	// If the goroutine doesn't exit, the -race detector will catch
-	// any follow-on state mutation via go test's leak detection.
+
+	select {
+	case <-done:
+		// goroutine exited — shutdown deterministic
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("janitor goroutine did not exit within 200ms of ctx cancel")
+	}
 }
 
 // TestRateLimiter_StartJanitor_ZeroIntervalIsNoOp verifies the
-// contract that interval <= 0 starts no goroutine at all.
+// contract that interval <= 0 starts no goroutine at all and
+// returns an already-closed done channel so callers that want to
+// wait on stop don't block forever.
 func TestRateLimiter_StartJanitor_ZeroIntervalIsNoOp(t *testing.T) {
 	lim := NewLoginRateLimiter(DefaultLoginRateLimiterConfig)
-	// Should return immediately without launching anything.
-	lim.StartJanitor(context.Background(), 0)
+	done := lim.StartJanitor(context.Background(), 0)
+	select {
+	case <-done:
+		// closed immediately — correct
+	default:
+		t.Fatal("StartJanitor(..., 0) must return an already-closed done channel")
+	}
 }
 
 // TestRateLimiter_LockoutExpiryThenFail_ResetsWindowCounter is the

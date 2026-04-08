@@ -40,6 +40,13 @@ type Config struct {
 	// scan_data. 64 hex characters = 32-byte key. Empty disables
 	// encryption (existing rows continue to read as plaintext).
 	DataEncryptionKeyHex string
+
+	// LoginRateLimiterConfig tunes the per-email login rate limit.
+	// When nil, auth.DefaultLoginRateLimiterConfig applies (5
+	// attempts per 15-minute window, 15-minute lockout). Matches
+	// the license server's same-named Config field so both servers
+	// can be tuned symmetrically — see Sprint 1 review finding M1.
+	LoginRateLimiterConfig *auth.LoginRateLimiterConfig
 }
 
 // Server is the Triton REST API server.
@@ -91,20 +98,30 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		}
 	}
 
+	rateLimitCfg := auth.DefaultLoginRateLimiterConfig
+	if cfg.LoginRateLimiterConfig != nil {
+		rateLimitCfg = *cfg.LoginRateLimiterConfig
+	}
 	srv := &Server{
 		config:       cfg,
 		store:        s,
 		guard:        cfg.Guard,
-		loginLimiter: auth.NewLoginRateLimiter(auth.DefaultLoginRateLimiterConfig),
+		loginLimiter: auth.NewLoginRateLimiter(rateLimitCfg),
 	}
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
-	// memory over time. The janitor stops when ctx is canceled; for now
-	// we use context.Background() because Server has no lifecycle ctx,
-	// and the goroutine is cheap and exits on process shutdown. A future
-	// refactor that gives Server an explicit Shutdown-linked context
-	// should pass it here instead.
-	srv.loginLimiter.StartJanitor(context.Background(), auth.DefaultLoginRateLimiterConfig.LockoutDuration)
+	// memory over time. The janitor stops when ctx is canceled; for
+	// now we use context.Background() because Server has no lifecycle
+	// ctx, and the goroutine is cheap and exits on process shutdown.
+	//
+	// TODO(phase-5-N1): plumb a Server.ctx that cancels on Shutdown
+	// and pass it here, so graceful shutdown also stops the janitor
+	// (and any other future background workers). Tracked in the
+	// multi-tenant plan under "Server.ctx lifecycle (N1)".
+	//
+	// The returned done channel is intentionally discarded — only
+	// tests and shutdown code care about deterministic stop.
+	_ = srv.loginLimiter.StartJanitor(context.Background(), rateLimitCfg.LockoutDuration)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)

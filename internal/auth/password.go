@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"time"
 )
 
 // MinPasswordLength is the minimum character count required for any
@@ -17,6 +18,21 @@ import (
 // touching both server Go constants AND the two UI `minlength`
 // attributes — grep for MinPasswordLength when changing.
 const MinPasswordLength = 12
+
+// DefaultInviteExpiryWindow is the default lifetime of an unused
+// invite (a user who has must_change_password=true and has never
+// logged in). Past this window, the report server's handleLogin
+// rejects the credential with 401 "invalid credentials" — the same
+// response as every other failure path, so attackers cannot
+// distinguish "expired invite" from "wrong password" (Sprint 1
+// review finding D4). Legitimate users recover via the
+// resend-invite endpoint which rotates the temp password and resets
+// invited_at.
+//
+// Centralized here alongside MinPasswordLength and the rate limiter
+// config so all auth-policy knobs are discoverable by grep in one
+// package (Sprint 1 review finding S4).
+const DefaultInviteExpiryWindow = 7 * 24 * time.Hour
 
 // GenerateTempPassword returns a cryptographically random base64url
 // password of approximately the given character length. Used by the

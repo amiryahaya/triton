@@ -46,8 +46,18 @@
 - Phase 1.7/1.8 — 2 rounds — 9 findings fixed (incl. D1 rollback-cancel bug, D2 admin field validation)
 - Phase 2 — 2 rounds — 8 findings fixed (incl. CRITICAL D1: tenant isolation bypass from missing RequireTenant wire)
 - Phase 3+4 — 1 round (code-reviewer + architecture-reviewer) — Tier 1+2 fixed: C1 XSS (single-quote escape + data-attrs), H1 server.New returns error on bad enc key, H2 `--server` MarkDeprecated, F1 POST /scans rejects cross-org body, M1 clear stale JWT on change-pw, M2 mcp gate defence-in-depth, M3 drop dead submitScan param, M4 auth.spec.js E2E, F2 requireServer godoc.
+- **Phase 5 Sprint 1** — 2 review rounds. Round 1 (internal) — fixed D1 memory leak, D2 migration comment, D4 credential oracle (403→401), D5 dead truncation branch, D6 coverage gap. Round 2 (full review) — fixed D7 stale comments, D8 janitor-delete race, D9 deterministic janitor shutdown, D10 expired-invite RecordFailure doc, M1 config symmetry (pkg/server.Config now has LoginRateLimiterConfig), S3 no-store header on resend-invite + TODO for mailer integration, S4 moved inviteExpiryWindow to internal/auth.
 
-**Deferred to future phases (documented below):** saga/orphan reconciliation, ValidationCache wiring decision, encryption envelope → bytea migration, invite expiry, password constant consolidation, the DEPLOYMENT_GUIDE rewrite, and the Triton → Report Server user-facing rename.
+**Phase 5 deferrals (from full review, to be addressed in Sprint 2 or later):**
+- **M2** — migration v5 full-table UPDATE not chunked; safe at current scale but must be split before a million-user deployment.
+- **S1** — write an ADR documenting the in-memory rate limiter's split-brain semantics in multi-replica deploys (effective MaxAttempts = 5 × replicas × (deploys+1)).
+- **S2** — cross-server email correlation gap: an attacker alternating between license server and report server login gets 2× budget. Log failed-login events with a structured email key so a future SIEM layer can correlate even before the limiter itself becomes shared.
+- **N1** — plumb `Server.ctx` that cancels on Shutdown and pass it to `StartJanitor` (currently `context.Background()` with TODO comment).
+- **N2** — consider exposing `LoginRateLimiter.Stats()` for /metrics observability (replaces test-only `entryCount` helper).
+- **N4** — audit whether any code path ever writes `users.created_at` from a client clock (migration v5 backfills `invited_at` from it, so client-clock skew would propagate to the security-critical expiry anchor).
+- **Sprint 2 mailer integration** — report server should push temp passwords via the license server's Resend mailer on resend-invite instead of returning them in the JSON body.
+
+**Still deferred (unchanged from Phase 3+4):** saga/orphan reconciliation, encryption envelope → bytea migration, the DEPLOYMENT_GUIDE rewrite, and the Triton → Report Server user-facing rename.
 
 ---
 

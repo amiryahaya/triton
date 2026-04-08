@@ -64,8 +64,9 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		loginLimiter:    auth.NewLoginRateLimiter(rateLimitCfg),
 	}
 	// Phase 5.1 D1 fix — see pkg/server/server.go for rationale. Same
-	// janitor strategy on the license server's limiter.
-	srv.loginLimiter.StartJanitor(context.Background(), rateLimitCfg.LockoutDuration)
+	// janitor strategy on the license server's limiter. done channel
+	// intentionally discarded; TODO(phase-5-N1) plumb Server.ctx.
+	_ = srv.loginLimiter.StartJanitor(context.Background(), rateLimitCfg.LockoutDuration)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)

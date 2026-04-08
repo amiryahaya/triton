@@ -301,11 +301,23 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/users/{id}/resend-invite — Phase 5.2.
 //
 // Rotates a pending invite for a user whose must_change_password flag
-// is still set. The store layer generates a NotFound for users who
-// have already completed the first-login flow (mcp=false) so this
-// endpoint can't be abused to reset a working user's password. The
-// response carries the new temp password ONCE — the admin is expected
-// to surface it to the invitee out-of-band.
+// is still set. The store layer refuses to update users who have
+// already completed the first-login flow (mcp=false) so this endpoint
+// can't be abused to reset a working user's password. The response
+// carries the new temp password ONCE — the admin is expected to
+// surface it to the invitee out-of-band.
+//
+// Security note (Sprint 1 review S3): returning the temp password in
+// the JSON body puts credential material into HTTP response logs,
+// browser devtools history, and any reverse proxy that captures
+// response bodies. We set Cache-Control: no-store to prevent the
+// response from being cached, and operators are expected to disable
+// response-body logging on the reverse proxy layer for this route.
+//
+// TODO(sprint-2): integrate the license server's Resend mailer so
+// the report server can push the temp password via email directly
+// and drop it from the response body entirely. Tracked in the
+// multi-tenant plan under "Report-server mailer integration".
 func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	requester := UserFromContext(r.Context())
@@ -355,6 +367,12 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cache-Control: no-store prevents any intermediate cache or the
+	// browser from retaining the response body, which carries the
+	// one-time temp password. Belt-and-braces alongside the TODO for
+	// moving to mailer-based delivery.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":       "invite resent",
 		"tempPassword": newTempPassword,

@@ -23,12 +23,11 @@ const (
 	// call sites in pkg/server stay readable. The canonical value lives
 	// in internal/auth/password.go — raise it there.
 	minUserPasswordLen = auth.MinPasswordLength
-	// inviteExpiryWindow caps how long an unused invite (a user with
-	// must_change_password=true who has never completed the first-login
-	// flow) remains valid. Beyond this window handleLogin returns 403
-	// and the user must have an admin issue a fresh invite via the
-	// resend-invite flow. Phase 5.2.
-	inviteExpiryWindow = 7 * 24 * time.Hour
+	// inviteExpiryWindow aliases auth.DefaultInviteExpiryWindow so call
+	// sites in this file stay short. The canonical value lives in
+	// internal/auth/password.go alongside the rest of the auth policy
+	// knobs — see Sprint 1 review finding S4 for the consolidation.
+	inviteExpiryWindow = auth.DefaultInviteExpiryWindow
 )
 
 // signUserToken issues a JWT for the given user and creates a session row
@@ -162,6 +161,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		time.Since(user.InvitedAt) > inviteExpiryWindow {
 		log.Printf("login: rejected expired invite for %s (invited_at=%s)",
 			email, user.InvitedAt.Format(time.RFC3339))
+		// Note (D10): RecordFailure here charges the rate-limit
+		// budget even though the password was technically correct.
+		// That is deliberate — without it, an attacker with a leaked
+		// temp-password list could scan for expired invites without
+		// burning the lockout counter. Operators who see a legit
+		// user locked out "despite entering the right password"
+		// should resend the invite (admin flow) which clears the
+		// expiry anchor and lets the user in cleanly.
 		s.loginLimiter.RecordFailure(email)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return

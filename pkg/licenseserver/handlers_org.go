@@ -1,10 +1,12 @@
 package licenseserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -50,11 +52,25 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the caller supplied admin invite fields, both must be present.
+	// If the caller supplied admin invite fields, both must be present
+	// and must pass the same validation rules as the superadmin CRUD
+	// endpoint. Without these checks, user-controlled strings flow into
+	// the report server's user table, the invite email body, and
+	// response bodies — header injection risk (CRLF in email), and
+	// arbitrary-length strings are a DoS vector.
 	wantProvision := req.AdminEmail != "" || req.AdminName != ""
 	if wantProvision {
 		if req.AdminEmail == "" || req.AdminName == "" {
 			writeError(w, http.StatusBadRequest, "admin_email and admin_name must be supplied together")
+			return
+		}
+		req.AdminEmail = strings.ToLower(strings.TrimSpace(req.AdminEmail))
+		if err := validateEmail(req.AdminEmail); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid admin_email: "+err.Error())
+			return
+		}
+		if tooLong(req.AdminName, maxNameLen) {
+			writeError(w, http.StatusBadRequest, "admin_name exceeds maximum length")
 			return
 		}
 		if s.reportClient == nil {
@@ -91,7 +107,10 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("create org: temp password generation failed: %v", err)
 			// Roll back the org since provisioning is a hard dependency here.
-			if delErr := s.store.DeleteOrg(r.Context(), org.ID); delErr != nil {
+			// Use context.WithoutCancel so a client disconnect doesn't
+			// silently prevent the rollback (leaving an orphan org).
+			rollbackCtx := context.WithoutCancel(r.Context())
+			if delErr := s.store.DeleteOrg(rollbackCtx, org.ID); delErr != nil {
 				log.Printf("create org: ROLLBACK FAILED — orphan org %s: %v", org.ID, delErr)
 			}
 			writeError(w, http.StatusInternalServerError, "internal server error")

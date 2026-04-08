@@ -87,7 +87,10 @@ func (c *ReportClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequest
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("provision request: %w", err)
+		// Wrap both the sentinel (so callers can errors.Is-check for
+		// "unreachable" specifically) and the underlying error (so
+		// logs show the actual network failure). Multi-%w is Go 1.20+.
+		return nil, fmt.Errorf("%w: %w", ErrReportServerUnreachable, err)
 	}
 	defer func() {
 		// Drain the body so the connection can be reused.

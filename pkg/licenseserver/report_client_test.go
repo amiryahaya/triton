@@ -127,6 +127,9 @@ func TestReportClient_ProvisionOrg_ServerUnreachable(t *testing.T) {
 		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
 	})
 	require.Error(t, err)
+	// Network error must wrap ErrReportServerUnreachable so callers can
+	// distinguish it from a 4xx/5xx response (D4 fix).
+	assert.ErrorIs(t, err, ErrReportServerUnreachable)
 }
 
 func TestReportClient_ProvisionOrg_BadJSONResponse(t *testing.T) {

@@ -59,6 +59,17 @@
 
 **Still deferred (unchanged from Phase 3+4):** saga/orphan reconciliation, encryption envelope → bytea migration, the DEPLOYMENT_GUIDE rewrite, and the Triton → Report Server user-facing rename.
 
+**Sprint 4 architectural hygiene (from Phase 5 Sprint 3 full-review architecture-reviewer pass):**
+- **Arch #1** — Split the report server's audit store to its own PostgreSQL schema (default same DSN, optional `REPORT_SERVER_AUDIT_DB_URL` override). Current co-location means a `DROP SCHEMA` during disaster recovery obliterates the forensic record. License server already has a separate audit store — make the report server match.
+- **Arch #2** — Replace the per-event goroutine model in `pkg/server/audit.go::writeAudit` with a single-writer goroutine consuming from a buffered channel and batching `INSERT ... VALUES (...), (...), (...)`. Current semaphore stop-gap is acceptable for Sprint 3 but goroutine-per-event will be a latency cliff under sustained load. Estimate: ~80 LOC, drops memory churn, preserves ordering within a writer.
+- **Arch #3** — Add a `keyKind` label (`tenant` vs `ip`) to the rate-limiter metrics path so operators can separate tenant-keyed buckets from the `ip:`-prefixed fallback in dashboards. Observability-only; no behavior change.
+- **Arch #4** — Introduce a short-TTL LRU cache (30–60 s) keyed by `sha256(token)` → `(userID, orgID, expiry)` on the `JWTAuth` session lookup so the per-request PG round-trip is amortized. Revocation becomes eventually-consistent within one TTL. Pair with an admin "flush session cache" endpoint for instant-kill scenarios. Do NOT ship to production multi-tenant without this — the current per-request DB cost caps p99 at around 500 req/s.
+- **Arch #5** — Switch `/api/v1/metrics` from the hand-written text writer to `prometheus/client_golang` the first time a histogram requirement lands (request latency distribution, audit-write latency). ~2MB binary bloat, negligible.
+- **Arch #6** — Refactor the 15 `REPORT_SERVER_*` env vars into a struct-tag driven config parser (`caarlos0/env` or `kelseyhightower/envconfig`) with optional YAML overlay via `REPORT_SERVER_CONFIG_FILE`. Single source of truth, auto-generated `--help`, startup validation. Do this BEFORE adding the 16th env var.
+- **Arch #10** — Split `internal/auth/` into sub-packages: `jwt`, `password`, `ratelimit` (or `internal/middleware/ratelimit`), `events`. Four concerns in one flat package is the "utils → graph" trajectory; pure code-motion, ~1 hour, prevents future import cycles.
+
+**Sprint 3 full-review deferrals that are NOT architectural** (all closed in feat/phase5-sprint3 follow-up commit): N1 env var rename + RequestRateLimiter env wiring, N2 `/auth/refresh` + `/auth/change-password` rate-limited, N3 misleading comment clarification, N4 dead `NewGuardWithPubKey` deleted, N5 per-DB cleanup registration, N6 bounded audit semaphore (32 in-flight), N7 503 on transient DB error, N8 change-password sibling-session semantics documented.
+
 ---
 
 ## Historical status (2026-04-07)

@@ -92,7 +92,20 @@ type Server struct {
 	// Sprint 3 D2 — without this, an in-flight audit write could
 	// race store.Close() and silently lose the event.
 	auditWG sync.WaitGroup
+	// auditSem bounds the number of in-flight audit goroutines so
+	// a burst of sensitive actions (batch delete, bulk user CRUD)
+	// cannot spawn thousands of goroutines contending for the
+	// pgx pool. Empty-struct buffered channel used as a
+	// semaphore; Sprint 3 full-review N6 — stop-gap before the
+	// Sprint 4 batched-writer refactor.
+	auditSem chan struct{}
 }
+
+// auditSemDepth is the max number of concurrent writeAudit
+// goroutines. 32 is chosen to stay well under pgx's default 4
+// connections × 4 "waiter slack" while still absorbing short
+// bursts; tune downward if the pool saturates in practice.
+const auditSemDepth = 32
 
 // securityHeaders adds security-related HTTP headers to all responses.
 func securityHeaders(next http.Handler) http.Handler {
@@ -150,6 +163,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		requestLimiter: auth.NewRequestRateLimiter(requestLimitCfg),
 		ctx:            ctx,
 		cancel:         cancel,
+		auditSem:       make(chan struct{}, auditSemDepth),
 	}
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
@@ -236,6 +250,22 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	// Only registered if JWT signing is configured.
 	if cfg.JWTSigningKey != nil {
 		r.Route("/api/v1/auth", func(r chi.Router) {
+			// Phase 5 Sprint 3 full-review N2 fix: /auth/refresh and
+			// /auth/change-password were outside the request rate
+			// limiter, so an authenticated client could hammer them
+			// at full speed bounded only by the global concurrency
+			// throttle. RequestRateLimit keys by IP for these
+			// routes (there's no tenant ctx on login/logout paths
+			// and the JWT handlers set user context only AFTER
+			// middleware runs), which gives DoS protection
+			// without coupling the budget to the per-tenant
+			// authenticated limit on /users and /audit.
+			//
+			// login remains gated by the dedicated per-email
+			// LoginRateLimiter inside handleLogin — stricter
+			// than the request limit because login is a
+			// credential-attack surface, not a data-fetch surface.
+			r.Use(RequestRateLimit(srv.requestLimiter))
 			r.Post("/login", srv.handleLogin)
 			r.Post("/logout", srv.handleLogout)
 			r.Post("/refresh", srv.handleRefresh)

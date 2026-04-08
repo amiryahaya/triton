@@ -275,6 +275,21 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/auth/change-password
 //
+// Design note (Sprint 3 full-review N8): this handler rotates the
+// password and invalidates ONLY the session that made the call,
+// not other sessions the same user may have open on other devices.
+// Other devices continue working with their existing JWTs until
+// natural expiry because their session rows remain in the table.
+//
+// This matches the typical "change password" UX where the device
+// you're currently using is the one that rotates — a logged-in
+// laptop that changes password doesn't kick a parallel mobile
+// session. If we ever need the alternative "change password kills
+// every session for this user" semantics, the fix is a single
+// store call to delete all sessions WHERE user_id = X before
+// issuing the new token. For now we match handleRefresh's
+// single-session rotation intentionally.
+//
 // Accepts the user's current password (must match) plus a new password,
 // re-hashes, persists, and clears the must_change_password flag. Issues
 // a fresh JWT reflecting the cleared flag so the client can immediately

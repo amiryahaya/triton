@@ -153,6 +153,14 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler)
 			// sessions table and refuse the request if the row is
 			// missing or expired. GetSessionByHash already filters
 			// expires_at > now at the SQL level.
+			//
+			// N7 fix: a transient DB error (connection timeout,
+			// pool exhausted) must NOT be reported as 401. A 401
+			// tells the client "your token is invalid — log in
+			// again", which causes spurious logouts during DB
+			// hiccups. Return 503 for non-NotFound errors so the
+			// client knows to retry with the same token after a
+			// backoff.
 			h := sha256.Sum256([]byte(token))
 			tokenHash := hex.EncodeToString(h[:])
 			if _, err := jwtStore.GetSessionByHash(r.Context(), tokenHash); err != nil {
@@ -161,7 +169,7 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore) func(http.Handler)
 					writeError(w, http.StatusUnauthorized, "session revoked or expired")
 					return
 				}
-				writeError(w, http.StatusUnauthorized, "invalid or expired token")
+				writeError(w, http.StatusServiceUnavailable, "authentication backend unavailable; retry")
 				return
 			}
 			user, err := jwtStore.GetUser(r.Context(), claims.Sub)

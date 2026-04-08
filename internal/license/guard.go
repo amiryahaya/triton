@@ -24,15 +24,6 @@ func NewGuard(flagKey string) *Guard {
 	return newGuardWithKey(flagKey, loadPublicKey())
 }
 
-// NewGuardWithPubKey creates a Guard using an explicit public key
-// instead of the embedded default. Used by multi-tenant deployments
-// (and system tests) where the report server needs to accept
-// license tokens signed by an ephemeral or customer-specific key,
-// not the build-time embedded one. Phase 5 Sprint 3 A2.
-func NewGuardWithPubKey(flagKey string, pubKey ed25519.PublicKey) *Guard {
-	return newGuardWithKey(flagKey, pubKey)
-}
-
 // NewGuardFromToken creates a Guard from an explicit token and public key.
 // Intended for testing with ephemeral keypairs.
 func NewGuardFromToken(token string, pubKey ed25519.PublicKey) *Guard {

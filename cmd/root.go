@@ -66,12 +66,18 @@ and Cryptographic Bill of Materials (CBOM) for Post-Quantum Cryptography complia
 Target: Malaysian government critical sectors for 2030 PQC readiness.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			if licenseServerURL != "" {
-				// Online validation path. License-file flag is
-				// honored for the initial token load but the
-				// server's authoritative answer wins afterwards.
+				// Online validation path. Precedence on this branch
+				// is narrower than the offline path: --license-key
+				// wins, and if it's unset --license-file is read
+				// once to seed licenseKey. TRITON_LICENSE_KEY env
+				// and TRITON_LICENSE_FILE env are NOT honored on
+				// this path — an operator using env vars for token
+				// delivery should not be running online validation
+				// because NewGuardWithServer does its own env
+				// handling via the cache meta file. If you need
+				// the full flag→env→file precedence, use the
+				// offline path (don't pass --license-server).
 				if licenseKey == "" && licenseFile != "" {
-					// Pre-resolve the file so NewGuardWithServer
-					// receives the loaded token directly.
 					if token := license.LoadTokenFromFile(licenseFile); token != "" {
 						licenseKey = token
 					}

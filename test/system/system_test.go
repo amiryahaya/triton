@@ -177,15 +177,18 @@ func startStack(t *testing.T) *systemStack {
 	// Allocate two dedicated databases. Dropping and creating each
 	// time isolates runs from each other. Requires the connecting
 	// user to have CREATE DATABASE privilege.
+	//
+	// N5 fix: register cleanup IMMEDIATELY after each createDatabase
+	// call, not after both — otherwise a failure in the second
+	// create leaks the first database (t.Cleanup never runs because
+	// require.NoError fires t.FailNow before the registration).
 	suffix := uuid.Must(uuid.NewV7()).String()[:8]
 	licenseDBName := "triton_sys_lic_" + suffix
 	reportDBName := "triton_sys_rep_" + suffix
 	require.NoError(t, createDatabase(baseDBURL, licenseDBName))
+	t.Cleanup(func() { _ = dropDatabase(baseDBURL, licenseDBName) })
 	require.NoError(t, createDatabase(baseDBURL, reportDBName))
-	t.Cleanup(func() {
-		_ = dropDatabase(baseDBURL, licenseDBName)
-		_ = dropDatabase(baseDBURL, reportDBName)
-	})
+	t.Cleanup(func() { _ = dropDatabase(baseDBURL, reportDBName) })
 	licenseDBURL := swapDatabase(baseDBURL, licenseDBName)
 	reportDBURL := swapDatabase(baseDBURL, reportDBName)
 
@@ -247,9 +250,9 @@ func startStack(t *testing.T) *systemStack {
 		"REPORT_SERVER_TENANT_PUBKEY=" + pubHex,
 		// Short rate-limiter windows so tests don't wait 15 minutes
 		// for a lockout to expire if they need to exercise one.
-		"REPORT_SERVER_RATE_LIMIT_MAX_ATTEMPTS=5",
-		"REPORT_SERVER_RATE_LIMIT_WINDOW=1m",
-		"REPORT_SERVER_RATE_LIMIT_LOCKOUT=1m",
+		"REPORT_SERVER_LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5",
+		"REPORT_SERVER_LOGIN_RATE_LIMIT_WINDOW=1m",
+		"REPORT_SERVER_LOGIN_RATE_LIMIT_LOCKOUT=1m",
 	}
 	reportCmd.Stdout = prefixedWriter{p: "[report] ", w: os.Stdout}
 	reportCmd.Stderr = prefixedWriter{p: "[report] ", w: os.Stderr}
@@ -492,11 +495,25 @@ func TestSystem_FullMultiTenantFlow(t *testing.T) {
 	assert.Contains(t, body, "triton_login_rate_limiter_tracked")
 	assert.Contains(t, body, "triton_request_rate_limiter_tracked")
 
-	// Step 7: rate limiter observed at least 1 tracked bucket from
-	// our login flow. We can't assert on exact values because the
-	// login limiter deletes buckets on success, but the request
-	// limiter bucket should persist across the window.
-	assert.Contains(t, body, "triton_request_rate_limiter_tracked 1")
+	// Step 7: rate limiter observed AT LEAST 1 tracked bucket from
+	// our HTTP traffic. Exact count depends on which routes we
+	// hit and whether they're tenant-keyed (/users, /audit) or
+	// IP-keyed (/auth/* now has RequestRateLimit too per Sprint 3
+	// N2 fix). We don't want a brittle exact-equality assertion,
+	// so we just verify the counter is NOT zero — proof that
+	// traffic flowed through the limiter middleware.
+	//
+	// Parse the line and assert the integer is > 0.
+	var tracked int
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "triton_request_rate_limiter_tracked ") {
+			_, err := fmt.Sscanf(line, "triton_request_rate_limiter_tracked %d", &tracked)
+			require.NoError(t, err)
+			break
+		}
+	}
+	assert.Greater(t, tracked, 0,
+		"request rate limiter should have seen at least one bucket from the test traffic")
 }
 
 // readAll drains a response body into a string for error messages.

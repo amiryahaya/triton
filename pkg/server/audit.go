@@ -60,9 +60,26 @@ func (s *Server) writeAudit(r *http.Request, eventType, targetID string, details
 	// can drain it before cmd/server.go's defer db.Close() runs —
 	// otherwise an in-flight audit write races the store teardown
 	// and the event is silently lost. See Sprint 3 review D2.
+	//
+	// N6 back-pressure: auditSem caps the in-flight goroutine
+	// count so a burst of sensitive actions cannot spawn
+	// thousands of goroutines contending for the pgx pool. If
+	// the semaphore is full we drop the audit event and log a
+	// warning rather than blocking the request handler — the
+	// trade-off is intentional for fire-and-forget semantics.
+	// Sprint 4 will replace this with a batched single-writer.
+	select {
+	case s.auditSem <- struct{}{}:
+		// got a slot — proceed
+	default:
+		log.Printf("audit: semaphore full, dropping %s event for %s (increase auditSemDepth or switch to batched writer)",
+			eventType, targetID)
+		return
+	}
 	s.auditWG.Add(1)
 	go func() {
 		defer s.auditWG.Done()
+		defer func() { <-s.auditSem }()
 		if err := s.store.WriteAudit(context.WithoutCancel(r.Context()), entry); err != nil {
 			log.Printf("audit: WriteAudit(%s) failed: %v", eventType, err)
 		}

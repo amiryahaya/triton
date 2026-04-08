@@ -112,14 +112,26 @@ func runServer(_ *cobra.Command, _ []string) error {
 		log.Printf("tenant public key loaded from REPORT_SERVER_TENANT_PUBKEY")
 	}
 
-	// Phase 5 Sprint 3 A2 — optional rate-limiter tuning. When any
-	// of the three env vars is set, we construct a custom
-	// LoginRateLimiterConfig. Missing values fall back to the
-	// DefaultLoginRateLimiterConfig (5 attempts / 15min / 15min).
-	if rlCfg := parseRateLimitEnv(); rlCfg != nil {
+	// Phase 5 Sprint 3 A2 — optional login rate-limiter tuning.
+	// When any of the three REPORT_SERVER_LOGIN_RATE_LIMIT_* env
+	// vars is set, we construct a custom LoginRateLimiterConfig.
+	// Missing values fall back to DefaultLoginRateLimiterConfig
+	// (5 attempts / 15min window / 15min lockout).
+	if rlCfg := parseLoginRateLimitEnv(); rlCfg != nil {
 		cfg.LoginRateLimiterConfig = rlCfg
 		log.Printf("login rate limiter tuned: maxAttempts=%d window=%s lockout=%s",
 			rlCfg.MaxAttempts, rlCfg.Window, rlCfg.LockoutDuration)
+	}
+
+	// Phase 5 Sprint 3 B3 — optional per-tenant request rate
+	// limiter tuning via REPORT_SERVER_REQUEST_RATE_LIMIT_* vars.
+	// Default is 600 req/min per tenant. Sprint 3 full-review N1
+	// flagged that the earlier commit had no env wiring for this
+	// limiter at all.
+	if rlCfg := parseRequestRateLimitEnv(); rlCfg != nil {
+		cfg.RequestRateLimiterConfig = rlCfg
+		log.Printf("request rate limiter tuned: maxRequests=%d window=%s",
+			rlCfg.MaxRequests, rlCfg.Window)
 	}
 
 	// Phase 5 Sprint 2 D3 — optional Resend mailer wiring for the
@@ -185,19 +197,23 @@ func decodeEd25519PrivateKey(hexStr string) (ed25519.PrivateKey, error) {
 	}
 }
 
-// parseRateLimitEnv reads REPORT_SERVER_RATE_LIMIT_* env vars and
-// returns a LoginRateLimiterConfig pointer if ANY of the three
-// recognized vars is set; callers that want partial overrides must
-// set all three. Returns nil (= use DefaultLoginRateLimiterConfig)
-// when none of the vars is present.
+// parseLoginRateLimitEnv reads REPORT_SERVER_LOGIN_RATE_LIMIT_* env
+// vars and returns a LoginRateLimiterConfig pointer if ANY of the
+// three recognized vars is set. Returns nil (= use
+// DefaultLoginRateLimiterConfig) when none of the vars is present.
 //
 // Invalid values (non-integer attempts, unparseable duration) are
 // silently ignored and fall back to the default. This matches the
 // pattern for other optional env vars in this file.
-func parseRateLimitEnv() *auth.LoginRateLimiterConfig {
-	attemptsRaw := os.Getenv("REPORT_SERVER_RATE_LIMIT_MAX_ATTEMPTS")
-	windowRaw := os.Getenv("REPORT_SERVER_RATE_LIMIT_WINDOW")
-	lockoutRaw := os.Getenv("REPORT_SERVER_RATE_LIMIT_LOCKOUT")
+//
+// For backward compatibility with the earlier REPORT_SERVER_RATE_LIMIT_*
+// names (Sprint 3 Round 1), those legacy vars are still honored
+// but log a deprecation warning. The Sprint 3 full-review N1 flagged
+// the earlier naming as ambiguous between login and request limiters.
+func parseLoginRateLimitEnv() *auth.LoginRateLimiterConfig {
+	attemptsRaw := envOrLegacy("REPORT_SERVER_LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "REPORT_SERVER_RATE_LIMIT_MAX_ATTEMPTS")
+	windowRaw := envOrLegacy("REPORT_SERVER_LOGIN_RATE_LIMIT_WINDOW", "REPORT_SERVER_RATE_LIMIT_WINDOW")
+	lockoutRaw := envOrLegacy("REPORT_SERVER_LOGIN_RATE_LIMIT_LOCKOUT", "REPORT_SERVER_RATE_LIMIT_LOCKOUT")
 	if attemptsRaw == "" && windowRaw == "" && lockoutRaw == "" {
 		return nil
 	}
@@ -206,22 +222,63 @@ func parseRateLimitEnv() *auth.LoginRateLimiterConfig {
 		if n, err := strconv.Atoi(attemptsRaw); err == nil && n > 0 {
 			cfg.MaxAttempts = n
 		} else {
-			log.Printf("REPORT_SERVER_RATE_LIMIT_MAX_ATTEMPTS=%q is not a positive integer, ignoring", attemptsRaw)
+			log.Printf("REPORT_SERVER_LOGIN_RATE_LIMIT_MAX_ATTEMPTS=%q is not a positive integer, ignoring", attemptsRaw)
 		}
 	}
 	if windowRaw != "" {
 		if d, err := time.ParseDuration(windowRaw); err == nil && d > 0 {
 			cfg.Window = d
 		} else {
-			log.Printf("REPORT_SERVER_RATE_LIMIT_WINDOW=%q is not a valid duration, ignoring", windowRaw)
+			log.Printf("REPORT_SERVER_LOGIN_RATE_LIMIT_WINDOW=%q is not a valid duration, ignoring", windowRaw)
 		}
 	}
 	if lockoutRaw != "" {
 		if d, err := time.ParseDuration(lockoutRaw); err == nil && d > 0 {
 			cfg.LockoutDuration = d
 		} else {
-			log.Printf("REPORT_SERVER_RATE_LIMIT_LOCKOUT=%q is not a valid duration, ignoring", lockoutRaw)
+			log.Printf("REPORT_SERVER_LOGIN_RATE_LIMIT_LOCKOUT=%q is not a valid duration, ignoring", lockoutRaw)
 		}
 	}
 	return &cfg
+}
+
+// parseRequestRateLimitEnv reads REPORT_SERVER_REQUEST_RATE_LIMIT_*
+// env vars and returns a RequestRateLimiterConfig pointer if any
+// are set. Default is 600 requests per minute per tenant.
+func parseRequestRateLimitEnv() *auth.RequestRateLimiterConfig {
+	maxRaw := os.Getenv("REPORT_SERVER_REQUEST_RATE_LIMIT_MAX_REQUESTS")
+	windowRaw := os.Getenv("REPORT_SERVER_REQUEST_RATE_LIMIT_WINDOW")
+	if maxRaw == "" && windowRaw == "" {
+		return nil
+	}
+	cfg := auth.DefaultRequestRateLimiterConfig
+	if maxRaw != "" {
+		if n, err := strconv.Atoi(maxRaw); err == nil && n > 0 {
+			cfg.MaxRequests = n
+		} else {
+			log.Printf("REPORT_SERVER_REQUEST_RATE_LIMIT_MAX_REQUESTS=%q is not a positive integer, ignoring", maxRaw)
+		}
+	}
+	if windowRaw != "" {
+		if d, err := time.ParseDuration(windowRaw); err == nil && d > 0 {
+			cfg.Window = d
+		} else {
+			log.Printf("REPORT_SERVER_REQUEST_RATE_LIMIT_WINDOW=%q is not a valid duration, ignoring", windowRaw)
+		}
+	}
+	return &cfg
+}
+
+// envOrLegacy returns the value of the canonical env var when set,
+// or the legacy env var's value with a deprecation warning when the
+// legacy one is still in use. Empty means neither was set.
+func envOrLegacy(canonical, legacy string) string {
+	if v := os.Getenv(canonical); v != "" {
+		return v
+	}
+	if v := os.Getenv(legacy); v != "" {
+		log.Printf("WARN: %s is deprecated; rename to %s", legacy, canonical)
+		return v
+	}
+	return ""
 }

@@ -19,7 +19,6 @@ import (
 var (
 	serverListen  string
 	serverDB      string
-	serverAPIKeys []string
 	serverTLSCert string
 	serverTLSKey  string
 )
@@ -36,7 +35,6 @@ var serverCmd = &cobra.Command{
 func init() {
 	serverCmd.Flags().StringVar(&serverListen, "listen", ":8080", "Listen address")
 	serverCmd.Flags().StringVar(&serverDB, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
-	serverCmd.Flags().StringSliceVar(&serverAPIKeys, "api-key", nil, "Allowed API keys (can be specified multiple times)")
 	serverCmd.Flags().StringVar(&serverTLSCert, "tls-cert", "", "TLS certificate file")
 	serverCmd.Flags().StringVar(&serverTLSKey, "tls-key", "", "TLS key file")
 	rootCmd.AddCommand(serverCmd)
@@ -58,7 +56,6 @@ func runServer(_ *cobra.Command, _ []string) error {
 	cfg := &server.Config{
 		ListenAddr:           serverListen,
 		DBUrl:                dbUrlVal,
-		APIKeys:              serverAPIKeys,
 		TLSCert:              serverTLSCert,
 		TLSKey:               serverTLSKey,
 		Guard:                guard,

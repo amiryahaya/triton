@@ -55,25 +55,38 @@ func requireDB(t *testing.T) *store.PostgresStore {
 	return s
 }
 
+// testOrgID is the org ID used by requireServer's single-tenant Guard
+// so Phase 2's RequireTenant middleware is satisfied without any
+// per-request auth. Matches the testOrgID used by pkg/server's unit
+// tests for consistency.
+const testOrgID = "00000000-0000-0000-0000-000000000abc"
+
 // requireServer creates a real TCP httptest.NewServer backed by PostgreSQL.
 // Returns the server URL (no trailing slash) and the underlying store.
+// Configures a single-tenant Guard so data routes work without requiring
+// per-request authentication.
 func requireServer(t *testing.T) (string, *store.PostgresStore) {
 	t.Helper()
 	db := requireDB(t)
-	cfg := &server.Config{ListenAddr: ":0"}
-	srv := server.New(cfg, db)
-	ts := httptest.NewServer(srv.Router())
-	t.Cleanup(ts.Close)
-	return ts.URL, db
-}
 
-// requireServerWithAuth creates a real TCP httptest.NewServer with API key auth.
-func requireServerWithAuth(t *testing.T, keys []string) (string, *store.PostgresStore) {
-	t.Helper()
-	db := requireDB(t)
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+	lic := &license.License{
+		ID:        "integration-test",
+		Tier:      license.TierEnterprise,
+		OrgID:     testOrgID,
+		Org:       "IntegrationTest",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(365 * 24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+	guard := license.NewGuardFromToken(token, pub)
+
 	cfg := &server.Config{
 		ListenAddr: ":0",
-		APIKeys:    keys,
+		Guard:      guard,
 	}
 	srv := server.New(cfg, db)
 	ts := httptest.NewServer(srv.Router())
@@ -81,16 +94,32 @@ func requireServerWithAuth(t *testing.T, keys []string) (string, *store.Postgres
 	return ts.URL, db
 }
 
+// requireServerWithAuth was removed in Phase 4 — API key auth no longer
+// exists. Tests that previously used it should either use requireServer
+// (unauthenticated single-tenant) or build a server with a license-token
+// Guard if they need a tenant context. See pkg/server tests for the
+// license-token auth path.
+
 // requireServerWithGuard creates a real TCP httptest.NewServer with licence enforcement.
 // Generates an ephemeral keypair, issues a token for the given tier, and configures the
-// server's LicenceGate middleware accordingly.
+// server's LicenceGate middleware accordingly. The license also includes an OrgID so
+// Phase 2's RequireTenant middleware is satisfied via the guard fallback.
 func requireServerWithGuard(t *testing.T, tier license.Tier) (string, *store.PostgresStore) {
 	t.Helper()
 	db := requireDB(t)
 
 	pub, priv, err := license.GenerateKeypair()
 	require.NoError(t, err)
-	token, err := license.IssueTokenWithOptions(priv, tier, "IntegrationTest", 1, 365, false)
+	lic := &license.License{
+		ID:        "integration-tier-test",
+		Tier:      tier,
+		OrgID:     testOrgID,
+		Org:       "IntegrationTest",
+		Seats:     1,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(365 * 24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
 	require.NoError(t, err)
 	guard := license.NewGuardFromToken(token, pub)
 
@@ -193,7 +222,8 @@ func makeScanResultWithPQC(id, hostname string, safe, trans, dep, unsafe int) *m
 	addFindings(unsafe, "UNSAFE", "DES", 5)
 
 	return &model.ScanResult{
-		ID: id,
+		ID:    id,
+		OrgID: testOrgID, // matches the single-tenant Guard configured by requireServer
 		Metadata: model.ScanMetadata{
 			Timestamp:   now,
 			Hostname:    hostname,
@@ -214,7 +244,10 @@ func makeScanResultWithPQC(id, hostname string, safe, trans, dep, unsafe int) *m
 }
 
 // submitScan POSTs a scan to the server and asserts a 201 response. Returns the scan ID.
-func submitScan(t *testing.T, serverURL, apiKey string, scan *model.ScanResult) string {
+// The second parameter (formerly apiKey) is now unused and kept for signature
+// compatibility with call sites that still pass "". Will be removed in a
+// follow-up cleanup.
+func submitScan(t *testing.T, serverURL, _ string, scan *model.ScanResult) string {
 	t.Helper()
 	body, err := json.Marshal(scan)
 	require.NoError(t, err)
@@ -222,9 +255,6 @@ func submitScan(t *testing.T, serverURL, apiKey string, scan *model.ScanResult) 
 	req, err := http.NewRequest("POST", serverURL+"/api/v1/scans", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("X-Triton-API-Key", apiKey)
-	}
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

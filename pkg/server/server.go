@@ -18,7 +18,6 @@ import (
 type Config struct {
 	ListenAddr   string
 	DBUrl        string
-	APIKeys      []string
 	TLSCert      string
 	TLSKey       string
 	Guard        *license.Guard // nil = no enforcement (backward compat for testserver)
@@ -116,19 +115,12 @@ func New(cfg *Config, s store.Store) *Server {
 		jwtPubKey = cfg.JWTPublicKey
 	}
 
-	// API routes with optional auth.
-	//
-	// Phase 2.4: the /api/v1 group now uses UnifiedAuth (JWT OR license
-	// token) as its primary tenant resolver, replacing the old
-	// TenantScope. Agents keep working (license-token path is
-	// preserved); org users can now access scan data (new JWT path).
-	//
-	// APIKeyAuth and LicenceGate remain in the chain for backward
-	// compatibility until Phase 4 deprecates them.
+	// API routes — UnifiedAuth (JWT OR license token) is the primary
+	// tenant resolver. Agents authenticate via license token; org users
+	// authenticate via JWT obtained from /api/v1/auth/login. The legacy
+	// APIKeyAuth was removed in Phase 4 — clients that previously used
+	// X-Triton-API-Key must migrate to one of the supported auth modes.
 	r.Route("/api/v1", func(r chi.Router) {
-		if len(cfg.APIKeys) > 0 {
-			r.Use(APIKeyAuth(cfg.APIKeys))
-		}
 		if cfg.Guard != nil {
 			r.Use(LicenceGate(cfg.Guard))
 		}

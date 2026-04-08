@@ -13,19 +13,20 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
-// Client submits scan results to a remote Triton server.
+// Client submits scan results to a remote report server.
 type Client struct {
 	ServerURL    string
-	APIKey       string
 	LicenseToken string // Ed25519-signed licence token for tenant identification
 	HTTPClient   *http.Client
 }
 
-// New creates a new agent Client.
-func New(serverURL, apiKey string) *Client {
+// New creates a new agent Client. The API key parameter was removed in
+// Phase 4 — agents now authenticate via license tokens (set the
+// LicenseToken field directly) or submit unauthenticated to single-
+// tenant deployments.
+func New(serverURL string) *Client {
 	return &Client{
 		ServerURL: strings.TrimRight(serverURL, "/"),
-		APIKey:    apiKey,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -57,9 +58,6 @@ func (c *Client) Submit(result *model.ScanResult) (*SubmitResponse, error) {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		req.Header.Set("X-Triton-API-Key", c.APIKey)
-	}
 	if c.LicenseToken != "" {
 		req.Header.Set("X-Triton-License-Token", c.LicenseToken)
 	}

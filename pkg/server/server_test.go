@@ -88,35 +88,6 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	return srv, db
 }
 
-func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
-	t.Helper()
-	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
-	if dbUrl == "" {
-		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
-	}
-	ctx := context.Background()
-	db, err := store.NewPostgresStore(ctx, dbUrl)
-	if err != nil {
-		t.Skipf("PostgreSQL unavailable: %v", err)
-	}
-	// Truncate at start to handle stale data from parallel package tests
-	require.NoError(t, db.TruncateAll(ctx))
-	t.Cleanup(func() {
-		_ = db.TruncateAll(ctx)
-		db.Close()
-	})
-
-	cfg := &Config{
-		ListenAddr: ":0",
-		APIKeys:    []string{"test-key-123"},
-		// Need a Guard with OrgID so RequireTenant on /api/v1 routes
-		// is satisfied — API key auth is orthogonal to tenant identity.
-		Guard: testGuardForOrg(t, testOrgID),
-	}
-	srv := New(cfg, db)
-	return srv, db
-}
-
 // testServerWithServiceKey builds a server configured for service-to-service
 // auth (used by the license server → report server provisioning endpoint).
 // Returns the server, store, and the configured service key.
@@ -282,37 +253,13 @@ func TestHealth(t *testing.T) {
 
 // --- Auth ---
 
-func TestAuth_MissingKey(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuth_InvalidKey(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
-	r.Header.Set("X-Triton-API-Key", "wrong-key")
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
-func TestAuth_ValidKey(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
-	r.Header.Set("X-Triton-API-Key", "test-key-123")
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
+// API key auth was removed in Phase 4. Agents now authenticate via
+// license tokens (X-Triton-License-Token), and human users via JWT
+// (Authorization: Bearer). See tenant_context_test.go for the
+// UnifiedAuth coverage that replaces TestAuth_*.
 
 func TestHealth_NoAuthRequired(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
+	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/health", nil)
 	srv.Router().ServeHTTP(w, r)

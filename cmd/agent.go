@@ -20,7 +20,6 @@ import (
 
 var (
 	agentServer   string
-	agentAPIKey   string
 	agentProfile  string
 	agentInterval time.Duration
 )
@@ -37,19 +36,23 @@ Triton server. Use --interval for continuous scanning.`,
 }
 
 func init() {
-	agentCmd.Flags().StringVar(&agentServer, "server", "", "Triton server URL (e.g., http://localhost:8080)")
-	agentCmd.Flags().StringVar(&agentAPIKey, "api-key", "", "API key for authentication")
+	// --report-server is the canonical Phase 4 name; --server is kept
+	// as an alias for one release cycle for backward compatibility.
+	agentCmd.Flags().StringVar(&agentServer, "report-server", "", "Report server URL (e.g., http://localhost:8080)")
+	agentCmd.Flags().StringVar(&agentServer, "server", "", "Alias for --report-server (deprecated, will be removed)")
 	agentCmd.Flags().StringVar(&agentProfile, "profile", "quick", "Scan profile: quick, standard, comprehensive")
 	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h). If unset, runs once.")
-	_ = agentCmd.MarkFlagRequired("server")
 	rootCmd.AddCommand(agentCmd)
 }
 
 func runAgent(_ *cobra.Command, _ []string) error {
+	if agentServer == "" {
+		return fmt.Errorf("--report-server (or --server) is required")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	client := agent.New(agentServer, agentAPIKey)
+	client := agent.New(agentServer)
 
 	// Check server connectivity
 	if err := client.Healthcheck(); err != nil {

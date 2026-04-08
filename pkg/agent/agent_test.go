@@ -46,7 +46,6 @@ func TestSubmit_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "/api/v1/scans", r.URL.Path)
-		assert.Equal(t, "test-key", r.Header.Get("X-Triton-API-Key"))
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		err := json.NewDecoder(r.Body).Decode(&receivedScan)
@@ -57,7 +56,7 @@ func TestSubmit_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(server.URL, "test-key")
+	client := New(server.URL)
 	resp, err := client.Submit(testScanResult())
 	require.NoError(t, err)
 
@@ -73,21 +72,23 @@ func TestSubmit_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(server.URL, "")
+	client := New(server.URL)
 	_, err := client.Submit(testScanResult())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
-func TestSubmit_NoAPIKey(t *testing.T) {
+func TestSubmit_NoAuth(t *testing.T) {
+	// Agent with no license token set — submit goes through
+	// unauthenticated (single-tenant deployments use this path).
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Empty(t, r.Header.Get("X-Triton-API-Key"))
+		assert.Empty(t, r.Header.Get("X-Triton-License-Token"))
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(SubmitResponse{ID: "test", Status: "saved"})
 	}))
 	defer server.Close()
 
-	client := New(server.URL, "")
+	client := New(server.URL)
 	resp, err := client.Submit(testScanResult())
 	require.NoError(t, err)
 	assert.Equal(t, "saved", resp.Status)
@@ -101,7 +102,7 @@ func TestHealthcheck_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(server.URL, "")
+	client := New(server.URL)
 	err := client.Healthcheck()
 	assert.NoError(t, err)
 }
@@ -112,13 +113,13 @@ func TestHealthcheck_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(server.URL, "")
+	client := New(server.URL)
 	err := client.Healthcheck()
 	assert.Error(t, err)
 }
 
 func TestSubmit_ConnectionRefused(t *testing.T) {
-	client := New("http://127.0.0.1:1", "")
+	client := New("http://127.0.0.1:1")
 	_, err := client.Submit(testScanResult())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "sending request")

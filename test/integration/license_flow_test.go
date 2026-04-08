@@ -563,4 +563,3 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "pro should block SARIF report")
 }
-

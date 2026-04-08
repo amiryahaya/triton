@@ -304,6 +304,14 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Arch #4 — the sessions table is ON DELETE CASCADE from
+	// users, so the row is already gone on the DB side. But the
+	// in-process JWT session cache has no FK and would keep
+	// serving the deleted user's token for up to TTL seconds on
+	// the fast path. Drop every cached entry for this user ID.
+	// Nil-safe on receiver; no-op when cache is disabled.
+	s.sessionCache.DeleteByUserID(id)
+
 	s.writeAudit(r, auditUserDelete, id, map[string]any{
 		"email": target.Email,
 		"role":  target.Role,

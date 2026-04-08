@@ -145,12 +145,14 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if cfg.JWTSigningKey != nil {
 		cfg.SessionCacheSize = 10000
 		cfg.SessionCacheTTL = 60 * time.Second
+		sizeExplicit := false
 		if raw := os.Getenv("REPORT_SERVER_SESSION_CACHE_SIZE"); raw != "" {
 			n, err := strconv.Atoi(raw)
 			if err != nil || n < 0 {
 				log.Printf("REPORT_SERVER_SESSION_CACHE_SIZE=%q is not a non-negative integer, ignoring", raw)
 			} else {
 				cfg.SessionCacheSize = n
+				sizeExplicit = true
 			}
 		}
 		if raw := os.Getenv("REPORT_SERVER_SESSION_CACHE_TTL"); raw != "" {
@@ -161,9 +163,12 @@ func runServer(_ *cobra.Command, _ []string) error {
 				cfg.SessionCacheTTL = d
 			}
 		}
-		if cfg.SessionCacheSize == 0 {
+		switch {
+		case cfg.SessionCacheSize == 0 && sizeExplicit:
+			log.Printf("JWT session cache disabled by operator (REPORT_SERVER_SESSION_CACHE_SIZE=0); multi-tenant p99 will be DB-bound")
+		case cfg.SessionCacheSize == 0:
 			log.Printf("WARNING: JWT session cache is disabled — multi-tenant p99 is DB-bound; expect <500 req/s sustained")
-		} else {
+		default:
 			log.Printf("JWT session cache enabled: size=%d ttl=%s", cfg.SessionCacheSize, cfg.SessionCacheTTL)
 		}
 	}

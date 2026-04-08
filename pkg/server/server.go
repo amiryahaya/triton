@@ -186,11 +186,15 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		if ttl <= 0 {
 			ttl = 60 * time.Second
 		}
+		original := ttl
 		if ttl < 5*time.Second {
 			ttl = 5 * time.Second
 		}
 		if ttl > 5*time.Minute {
 			ttl = 5 * time.Minute
+		}
+		if ttl != original {
+			log.Printf("session cache TTL clamped from %s to %s (allowed range 5s–5m)", original, ttl)
 		}
 		sessCache = sessioncache.New(sessioncache.Config{
 			MaxEntries: cfg.SessionCacheSize,

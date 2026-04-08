@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -202,20 +203,9 @@ func TestHandleFlushSessionCache(t *testing.T) {
 	}
 	// Response body should contain flushed count = 2.
 	body := rec.Body.String()
-	if !contains(body, `"flushed":2`) {
+	if !strings.Contains(body, `"flushed":2`) {
 		t.Errorf("body=%q, want flushed:2", body)
 	}
-}
-
-// contains is a tiny helper so the test does not pull in strings
-// purely for a single membership check.
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 func TestHandleFlushSessionCache_NilCache(t *testing.T) {
@@ -225,7 +215,7 @@ func TestHandleFlushSessionCache_NilCache(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d, want 200", rec.Code)
 	}
-	if !contains(rec.Body.String(), `"flushed":0`) {
+	if !strings.Contains(rec.Body.String(), `"flushed":0`) {
 		t.Errorf("nil cache should report flushed:0, got %s", rec.Body.String())
 	}
 }

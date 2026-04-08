@@ -105,6 +105,37 @@ func TestDelete(t *testing.T) {
 	c.Delete("never-existed")
 }
 
+func TestDeleteByUserID(t *testing.T) {
+	c := New(Config{MaxEntries: 10, TTL: time.Minute})
+	c.Put("hash-a", makeEntry("alice")) // OrgID "org-1"
+	c.Put("hash-b", makeEntry("bob"))
+	c.Put("hash-a2", makeEntry("alice")) // alice has two active sessions
+
+	n := c.DeleteByUserID("alice")
+	if n != 2 {
+		t.Errorf("DeleteByUserID(alice) = %d, want 2", n)
+	}
+	if _, ok := c.Get("hash-a"); ok {
+		t.Errorf("hash-a should be gone")
+	}
+	if _, ok := c.Get("hash-a2"); ok {
+		t.Errorf("hash-a2 should be gone")
+	}
+	if _, ok := c.Get("hash-b"); !ok {
+		t.Errorf("bob's entry should still be present")
+	}
+	// Missing user is a no-op, not an error.
+	if n := c.DeleteByUserID("ghost"); n != 0 {
+		t.Errorf("DeleteByUserID(ghost) = %d, want 0", n)
+	}
+	// Empty user ID is a no-op (defensive — an empty string would
+	// otherwise match any zero-value cached entry if the cache is
+	// ever populated with one).
+	if n := c.DeleteByUserID(""); n != 0 {
+		t.Errorf("DeleteByUserID(\"\") = %d, want 0", n)
+	}
+}
+
 func TestFlushRemovesAll(t *testing.T) {
 	c := New(Config{MaxEntries: 10, TTL: time.Minute})
 	c.Put("a", makeEntry("ua"))

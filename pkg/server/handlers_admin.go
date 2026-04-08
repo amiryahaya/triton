@@ -185,11 +185,19 @@ func (s *Server) handleProvisionOrg(w http.ResponseWriter, r *http.Request) {
 // Running behind ServiceKeyAuth keeps this out of the public auth
 // surface — only the license server (or a trusted admin with the
 // service key) can trigger a flush. Per-org flushes are not
-// supported in v1; a full flush is cheap and operators who need
-// per-user revocation already get it by calling DeleteSession on
-// the sessions table (the resulting 401 is the next thing the
-// cached entry sees after its TTL expires, and in-band mutations
-// already call SessionCache.Delete directly).
+// supported in v1; a full flush is cheap and the residual
+// eventually-consistent window exists because:
+//
+//   - logout/refresh/change-password already call
+//     SessionCache.Delete on the affected token hash (instant)
+//   - DELETE /api/v1/users/{id} already calls
+//     SessionCache.DeleteByUserID (instant)
+//
+// so the only paths this endpoint exists to cover are
+// out-of-band DB mutations (a DBA running SQL by hand, a direct
+// DeleteSession from another service) or incident response where
+// an operator wants to drop every cached token at once as a
+// kill-switch.
 //
 // Returns the number of entries removed so operators can confirm
 // the cache was actually populated when they flushed it. The

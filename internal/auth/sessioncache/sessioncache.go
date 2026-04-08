@@ -114,7 +114,11 @@ func (c *SessionCache) Get(key string) (Entry, bool) {
 		c.misses++
 		return Entry{}, false
 	}
-	// JWT exp expiry — never hand back a dead token.
+	// JWT exp expiry — never hand back a dead token. VerifyJWT
+	// also checks exp upstream, so in the normal middleware flow
+	// this branch is unreachable; we keep it as defense-in-depth
+	// against a future caller that populates the cache from a
+	// path that does not run VerifyJWT first.
 	if !item.entry.JWTExpiry.IsZero() && !now.Before(item.entry.JWTExpiry) {
 		c.removeElement(el)
 		c.misses++
@@ -162,6 +166,34 @@ func (c *SessionCache) Delete(key string) {
 	if el, ok := c.items[key]; ok {
 		c.removeElement(el)
 	}
+}
+
+// DeleteByUserID removes every cached entry whose UserID matches.
+// Admin-side invalidation path: delete-user cascades the sessions
+// row in PG, but the cache has no FK and must be told explicitly
+// to drop the user's token(s). Returns the number of entries
+// removed.
+//
+// O(n) scan under the cache mutex. n is bounded by SessionCacheSize
+// (default 10k) and this path runs only on rare admin mutations,
+// so the blocking cost is acceptable versus the alternative
+// (adding store.ListSessionsByUserID + per-hash invalidation).
+func (c *SessionCache) DeleteByUserID(userID string) int {
+	if c == nil || c.maxSize <= 0 || userID == "" {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var victims []*list.Element
+	for _, el := range c.items {
+		if el.Value.(*lruItem).entry.UserID == userID {
+			victims = append(victims, el)
+		}
+	}
+	for _, el := range victims {
+		c.removeElement(el)
+	}
+	return len(victims)
 }
 
 // Flush drops every entry. Returns the number removed so admin

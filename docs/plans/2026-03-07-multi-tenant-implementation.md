@@ -12,7 +12,45 @@
 
 ---
 
-## Status (2026-04-07)
+## Status (2026-04-08) — Phases 1 through 4 functionally complete
+
+**As of 2026-04-08, 51 commits beyond main on `feat/multi-tenant`:**
+
+| Phase | Status | Notes |
+|---|---|---|
+| **Phase 1** (1.1–1.6) | ✅ Closed | License server identity, JWT, superadmin CRUD, seed, validate enrichment |
+| **Phase 1.5** (1.5a–1.5e) | ✅ Closed | Report server identity tables, provisioning receiver, auth, user CRUD, mcp gate |
+| **Phase 1.7** | ✅ Closed | License server org provisioning client → report server |
+| **Phase 1.8** | ✅ Closed | Resend mailer + invite email flow |
+| **Phase 1.9** | ✅ API-complete | Org create form gained admin_email/admin_name fields; web UI is 3.5 |
+| **Phase 2.1** | ✅ Closed | ValidationCache (TTL, thread-safe, singleflight deferred) — not yet wired |
+| **Phase 2.3** | ✅ Closed | UnifiedAuth + TenantContext + RequireTenant middleware |
+| **Phase 2.4** | ✅ Closed | UnifiedAuth wired onto /api/v1; scan routes now tenant-scoped |
+| **Phase 2.5** | Obsolete | Auth proxy — subsumed by report server's own auth handlers |
+| **Phase 2.6** | ✅ Closed | Server tests absorbed into each phase's test deliverables |
+| **Phase 2.7** | ✅ Closed | At-rest AES-256-GCM encryption for scan_data |
+| **Phase 3.1** | ✅ Closed | Report server login page |
+| **Phase 3.2** | ✅ Closed | License server admin UI: superadmins page |
+| **Phase 3.3** | ✅ Closed | Report server UI: org-scoped user CRUD |
+| **Phase 3.4** | ✅ Closed | Forced password change screen |
+| **Phase 3.5** | ✅ Closed | License server org create form with admin_email + temp password reveal |
+| **Phase 4.1** | ✅ Closed | API key auth removed |
+| **Phase 4.2** | Deferred | Full DEPLOYMENT_GUIDE.md rewrite — substantial, awaits review |
+| **Phase 4.3/4.4** | ✅ Absorbed | E2E and integration tests updated incrementally in each phase |
+| **Phase 4.5** | Deferred | "Triton Server" → "Report Server" user-facing rename — awaits review |
+| **Phase 4.6** | ✅ Closed | Agent `--report-server` flag added; `--server` kept as alias |
+
+**Review rounds completed:**
+- Phase 1 — 2 rounds (bug hunting + architecture) — 13 findings fixed
+- Phase 1.5 — 2 rounds — 9 findings fixed
+- Phase 1.7/1.8 — 2 rounds — 9 findings fixed (incl. D1 rollback-cancel bug, D2 admin field validation)
+- Phase 2 — 2 rounds — 8 findings fixed (incl. CRITICAL D1: tenant isolation bypass from missing RequireTenant wire)
+
+**Deferred to future phases (documented below):** saga/orphan reconciliation, ValidationCache wiring decision, encryption envelope → bytea migration, invite expiry, password constant consolidation, the DEPLOYMENT_GUIDE rewrite, and the Triton → Report Server user-facing rename.
+
+---
+
+## Historical status (2026-04-07)
 
 **Active path:** Self-managed auth (this plan, as written + amendments below). Phase 1 Tasks 1.1–1.3 complete on `feat/multi-tenant` (commits `2c82ff9`, `827eb1a`, `4bca111`). Resuming at Task 1.4.
 

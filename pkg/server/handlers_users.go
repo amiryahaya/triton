@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/amiryahaya/triton/internal/auth"
+	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -367,12 +368,54 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cache-Control: no-store prevents any intermediate cache or the
-	// browser from retaining the response body, which carries the
-	// one-time temp password. Belt-and-braces alongside the TODO for
-	// moving to mailer-based delivery.
+	// Phase 5 Sprint 2 S2.7 — prefer mailer-based delivery when the
+	// server has been configured with a Mailer. Load the org name
+	// for the email greeting; failure here is non-fatal (we still
+	// want to deliver the invite), so the org name falls back to
+	// the org ID if the lookup fails.
+	orgName := target.OrgID
+	if org, err := s.store.GetOrg(r.Context(), target.OrgID); err == nil && org != nil {
+		orgName = org.Name
+	}
+
+	// Cache-Control: no-store regardless of whether the password
+	// ends up in the body — belt-and-braces against any future bug
+	// that accidentally reintroduces it into a cached response.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
+
+	if s.config.Mailer != nil {
+		// Mailer delivery path — push the temp password via email
+		// and return a response that does NOT contain it. This is
+		// the preferred production configuration. Mailer failure is
+		// treated as fatal here because the admin explicitly asked
+		// for a resend; falling back to the JSON-body path would
+		// leak credential material that the operator configured
+		// their deployment specifically to avoid.
+		mailErr := s.config.Mailer.SendInviteEmail(r.Context(), mailer.InviteEmailData{
+			ToEmail:      target.Email,
+			ToName:       target.Name,
+			OrgName:      orgName,
+			TempPassword: newTempPassword,
+			LoginURL:     s.config.InviteLoginURL,
+		})
+		if mailErr != nil {
+			log.Printf("resend invite: mailer error: %v", mailErr)
+			writeError(w, http.StatusBadGateway,
+				"invite password rotated but email delivery failed; contact the invitee out-of-band or retry")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":         "invite resent",
+			"emailDelivered": "true",
+		})
+		return
+	}
+
+	// Legacy fallback — mailer not configured, return the temp
+	// password in the JSON body so the admin can surface it to the
+	// invitee manually. The no-store header above plus the one-time
+	// nature (next call rotates it again) is our only defense here.
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":       "invite resent",
 		"tempPassword": newTempPassword,

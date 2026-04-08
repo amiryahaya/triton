@@ -288,15 +288,42 @@ func TestRateLimiter_LockoutExpiryThenFail_ResetsWindowCounter(t *testing.T) {
 }
 
 // entryCount returns the number of entries in the limiter's sync.Map.
-// Test-only helper — not exposed on the public type because production
-// code has no legitimate use for counting entries.
+// Phase 5 Sprint 2 (N2) replaced the handwritten Range with
+// Stats().Tracked so tests exercise the same counting path operators
+// will use via the metrics endpoint.
 func entryCount(l *LoginRateLimiter) int {
-	n := 0
-	l.entries.Range(func(_, _ any) bool {
-		n++
-		return true
+	return l.Stats().Tracked
+}
+
+// TestRateLimiter_Stats_CountsLockedAndTracked verifies that Stats()
+// returns (a) the total number of tracked entries and (b) the
+// subset currently in a locked state.
+func TestRateLimiter_Stats_CountsLockedAndTracked(t *testing.T) {
+	lim := NewLoginRateLimiter(LoginRateLimiterConfig{
+		MaxAttempts:     3,
+		Window:          1 * time.Hour,
+		LockoutDuration: 1 * time.Hour,
 	})
-	return n
+
+	// Three users, only one crosses the lockout threshold.
+	for i := 0; i < 3; i++ {
+		lim.RecordFailure("alice@example.com")
+	}
+	lim.RecordFailure("bob@example.com")
+	lim.RecordFailure("carol@example.com")
+	lim.RecordFailure("carol@example.com")
+
+	stats := lim.Stats()
+	assert.Equal(t, 3, stats.Tracked, "three distinct emails should be tracked")
+	assert.Equal(t, 1, stats.LockedEmails, "only alice should be locked")
+}
+
+// TestRateLimiter_Stats_EmptyLimiter verifies the zero state.
+func TestRateLimiter_Stats_EmptyLimiter(t *testing.T) {
+	lim := NewLoginRateLimiter(DefaultLoginRateLimiterConfig)
+	stats := lim.Stats()
+	assert.Equal(t, 0, stats.Tracked)
+	assert.Equal(t, 0, stats.LockedEmails)
 }
 
 // TestRateLimiter_EmailIsCaseInsensitive verifies that "Alice@..."

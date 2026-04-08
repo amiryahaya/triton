@@ -22,6 +22,10 @@ type Server struct {
 	http            *http.Server
 	reportAPIClient *ReportAPIClient // nil when no report server configured
 	loginLimiter    *auth.LoginRateLimiter
+	// ctx is canceled in Shutdown so background workers (rate-limit
+	// janitor) stop promptly. Wired in Phase 5 Sprint 2 (N1).
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -57,16 +61,19 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	if cfg.LoginRateLimiterConfig != nil {
 		rateLimitCfg = *cfg.LoginRateLimiterConfig
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	srv := &Server{
 		config:          cfg,
 		store:           s,
 		reportAPIClient: NewReportAPIClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
 		loginLimiter:    auth.NewLoginRateLimiter(rateLimitCfg),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 	// Phase 5.1 D1 fix — see pkg/server/server.go for rationale. Same
-	// janitor strategy on the license server's limiter. done channel
-	// intentionally discarded; TODO(phase-5-N1) plumb Server.ctx.
-	_ = srv.loginLimiter.StartJanitor(context.Background(), rateLimitCfg.LockoutDuration)
+	// janitor strategy on the license server's limiter. Sprint 2 (N1)
+	// threaded srv.ctx so Shutdown cancels the janitor deterministically.
+	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -172,8 +179,14 @@ func (s *Server) Start() error {
 	return s.http.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server.
+// Shutdown gracefully shuts down the server. Cancels the internal
+// Server context first so background workers (rate-limit janitor)
+// stop promptly, then drains in-flight HTTP requests up to the
+// caller-supplied deadline.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	return s.http.Shutdown(ctx)
 }
 

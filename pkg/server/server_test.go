@@ -1130,6 +1130,17 @@ func TestStartAndShutdown(t *testing.T) {
 	// Start should return http.ErrServerClosed
 	startErr := <-errCh
 	assert.ErrorIs(t, startErr, http.ErrServerClosed)
+
+	// Phase 5 Sprint 2 (N1) — Shutdown must cancel srv.ctx so any
+	// background workers (the rate-limit janitor and future ticker-
+	// driven helpers) stop promptly rather than running until the
+	// process exits.
+	select {
+	case <-srv.ctx.Done():
+		// canceled as expected
+	default:
+		t.Fatal("Shutdown did not cancel Server.ctx")
+	}
 }
 
 // --- ListScans validation ---

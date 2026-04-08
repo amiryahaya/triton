@@ -124,6 +124,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			seconds = 1
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		auth.LogFailedLogin("report", "rate_limited", email, r.RemoteAddr, "retry-after="+strconv.Itoa(seconds))
 		writeError(w, http.StatusTooManyRequests, "too many failed login attempts; try again later")
 		return
 	}
@@ -134,11 +135,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// helper's 404 directly. Still record the failure so attackers
 		// who guess non-existent emails also burn through the budget.
 		s.loginLimiter.RecordFailure(email)
+		auth.LogFailedLogin("report", "unknown_email", email, r.RemoteAddr, "no such user")
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		s.loginLimiter.RecordFailure(email)
+		auth.LogFailedLogin("report", "bad_password", email, r.RemoteAddr, "bcrypt mismatch")
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -159,8 +162,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// invited_at entirely.
 	if user.MustChangePassword && !user.InvitedAt.IsZero() &&
 		time.Since(user.InvitedAt) > inviteExpiryWindow {
-		log.Printf("login: rejected expired invite for %s (invited_at=%s)",
-			email, user.InvitedAt.Format(time.RFC3339))
+		auth.LogFailedLogin("report", "invite_expired", email, r.RemoteAddr,
+			"invited_at="+user.InvitedAt.Format(time.RFC3339))
 		// Note (D10): RecordFailure here charges the rate-limit
 		// budget even though the password was technically correct.
 		// That is deliberate — without it, an attacker with a leaked
@@ -184,6 +187,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Successful login — clear the failure counter so earlier mistypes
 	// don't accumulate against this user for the next session.
 	s.loginLimiter.RecordSuccess(email)
+	auth.LogSuccessfulLogin("report", email, r.RemoteAddr)
 
 	// Surface must_change_password in the response so the UI can route
 	// the user to the change-password screen on first login.

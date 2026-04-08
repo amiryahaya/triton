@@ -3,8 +3,6 @@ package licenseserver
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,21 +127,9 @@ func (c *ReportAPIClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequ
 	return &out, nil
 }
 
-// GenerateTempPassword returns a cryptographically random 24-character
-// base64url-encoded password suitable for a one-time invite. 18 random
-// bytes × 4/3 base64 expansion = 24 chars. Well above the 12-char minimum
-// enforced by the report server's provisioning handler.
-//
-// The license server generates the password (not the report server)
-// because it's the side that emails the admin via Resend in Phase 1.8.
-// The report server never sees it in plaintext after storage.
-func GenerateTempPassword() (string, error) {
-	raw := make([]byte, 18)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generating temp password: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
-}
+// (GenerateTempPassword moved to internal/auth in Phase 5 Sprint 2 so
+// the license server and report server share one canonical helper.
+// Callers in this package now use auth.GenerateTempPassword(24).)
 
 // Error sentinel callers can check for when they want to distinguish
 // "report server unreachable" from other failures.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
@@ -94,7 +95,7 @@ func (s *Server) ProvisionOrgWithAdmin(ctx context.Context, input ProvisionOrgIn
 	}
 
 	// Generate temp password and call the report server.
-	tempPassword, tpErr := GenerateTempPassword()
+	tempPassword, tpErr := auth.GenerateTempPassword(24)
 	if tpErr != nil {
 		log.Printf("provision: temp password generation failed: %v", tpErr)
 		s.rollbackOrg(ctx, org.ID)

@@ -47,6 +47,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			seconds = 1
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		auth.LogFailedLogin("license", "rate_limited", email, r.RemoteAddr, "retry-after="+strconv.Itoa(seconds))
 		writeError(w, http.StatusTooManyRequests, "too many failed login attempts; try again later")
 		return
 	}
@@ -58,18 +59,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	user, status, _ := s.loadPlatformAdminByEmail(r.Context(), email)
 	if status != 0 {
 		s.loginLimiter.RecordFailure(email)
+		auth.LogFailedLogin("license", "unknown_email_or_non_admin", email, r.RemoteAddr, "no matching platform_admin")
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		s.loginLimiter.RecordFailure(email)
+		auth.LogFailedLogin("license", "bad_password", email, r.RemoteAddr, "bcrypt mismatch")
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	// Successful login — clear the failure counter.
 	s.loginLimiter.RecordSuccess(email)
+	auth.LogSuccessfulLogin("license", email, r.RemoteAddr)
 
 	claims := &auth.UserClaims{
 		Sub:  user.ID,

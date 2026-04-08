@@ -197,6 +197,45 @@ func isStale(e *rateLimitEntry, now time.Time, window time.Duration) bool {
 	return false
 }
 
+// LoginRateLimiterStats is a snapshot of the limiter's observable
+// state. Used by operators for dashboards and alerting: a sudden
+// jump in LockedEmails is a strong signal of a coordinated brute
+// force attempt, while Tracked growing unbounded is a sign the
+// janitor is mis-tuned.
+type LoginRateLimiterStats struct {
+	// Tracked is the number of email buckets currently in memory.
+	// This is the sync.Map's effective size at the moment of the
+	// snapshot; concurrent mutations may make the true count drift
+	// slightly, which is acceptable for metrics.
+	Tracked int
+	// LockedEmails is the subset of Tracked entries whose lockedUntil
+	// is in the future. Zero means no one is currently rate-limited.
+	LockedEmails int
+}
+
+// Stats returns a consistent snapshot of the limiter's observable
+// counters. Phase 5 Sprint 2 (N2) — exposed as first-class API to
+// replace the test-only entryCount helper and provide a hook for a
+// future /metrics/auth endpoint. Cheap enough to call on every
+// metrics-scrape interval (O(n) in number of tracked emails).
+//
+// Safe to call concurrently with Check / RecordFailure / RecordSuccess.
+func (l *LoginRateLimiter) Stats() LoginRateLimiterStats {
+	var stats LoginRateLimiterStats
+	now := time.Now()
+	l.entries.Range(func(_, value any) bool {
+		entry := value.(*rateLimitEntry)
+		entry.mu.Lock()
+		stats.Tracked++
+		if !entry.lockedUntil.IsZero() && now.Before(entry.lockedUntil) {
+			stats.LockedEmails++
+		}
+		entry.mu.Unlock()
+		return true
+	})
+	return stats
+}
+
 // StartJanitor launches a background goroutine that periodically
 // sweeps stale entries from the limiter. Call once per process at
 // startup. The goroutine stops when ctx is canceled. Safe to call

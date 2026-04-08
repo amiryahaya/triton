@@ -25,7 +25,7 @@ var (
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
-	Short: "Start the Triton REST API server",
+	Short: "Start the Triton report server (REST API + web UI)",
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		return guard.EnforceFeature(license.FeatureServerMode)
 	},

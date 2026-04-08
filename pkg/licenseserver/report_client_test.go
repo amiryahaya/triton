@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -177,30 +176,6 @@ func TestReportAPIClient_ProvisionOrg_BadJSONResponse(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing provision response")
 }
 
-// --- GenerateTempPassword ---
-
-func TestGenerateTempPassword_Uniqueness(t *testing.T) {
-	seen := map[string]bool{}
-	for i := 0; i < 100; i++ {
-		p, err := GenerateTempPassword()
-		require.NoError(t, err)
-		assert.False(t, seen[p], "generated passwords must be unique")
-		seen[p] = true
-	}
-}
-
-func TestGenerateTempPassword_MeetsMinLength(t *testing.T) {
-	// Must be at least 12 chars (the report server's minimum).
-	for i := 0; i < 10; i++ {
-		p, err := GenerateTempPassword()
-		require.NoError(t, err)
-		assert.GreaterOrEqual(t, len(p), 12)
-	}
-}
-
-func TestGenerateTempPassword_URLSafe(t *testing.T) {
-	// Base64url chars only: A-Z a-z 0-9 - _
-	p, err := GenerateTempPassword()
-	require.NoError(t, err)
-	assert.False(t, strings.ContainsAny(p, "+/="), "temp password must be base64url (no +, /, =)")
-}
+// GenerateTempPassword tests moved to internal/auth/password_test.go
+// as part of the Phase 5 Sprint 2 convergence — the canonical
+// implementation lives in internal/auth.

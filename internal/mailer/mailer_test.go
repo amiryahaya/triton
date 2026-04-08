@@ -1,4 +1,4 @@
-package licenseserver
+package mailer
 
 import (
 	"context"

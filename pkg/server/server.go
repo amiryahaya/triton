@@ -13,6 +13,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -47,6 +48,20 @@ type Config struct {
 	// the license server's same-named Config field so both servers
 	// can be tuned symmetrically — see Sprint 1 review finding M1.
 	LoginRateLimiterConfig *auth.LoginRateLimiterConfig
+
+	// Mailer, if non-nil, is used by the resend-invite flow to push
+	// the rotated temp password directly to the invitee via email,
+	// so the temp password does NOT appear in the API response body.
+	// If nil, resend-invite falls back to returning the temp
+	// password in the JSON body (with Cache-Control: no-store) for
+	// out-of-band admin delivery. See Sprint 1 review finding S3.
+	Mailer mailer.Mailer
+
+	// InviteLoginURL is the URL embedded in resent-invite emails.
+	// Typically the report server's own login page (e.g.,
+	// "https://reports.example.com/ui/#/login"). Ignored when
+	// Mailer is nil.
+	InviteLoginURL string
 }
 
 // Server is the Triton REST API server.
@@ -57,6 +72,12 @@ type Server struct {
 	http         *http.Server
 	guard        *license.Guard
 	loginLimiter *auth.LoginRateLimiter
+	// ctx is canceled in Shutdown so background workers (rate-limit
+	// janitor, and any future ticker-driven helpers) stop promptly
+	// instead of running until the process exits. Wired in Phase 5
+	// Sprint 2 as the N1 follow-up to the Sprint 1 review.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // securityHeaders adds security-related HTTP headers to all responses.
@@ -102,26 +123,26 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	if cfg.LoginRateLimiterConfig != nil {
 		rateLimitCfg = *cfg.LoginRateLimiterConfig
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	srv := &Server{
 		config:       cfg,
 		store:        s,
 		guard:        cfg.Guard,
 		loginLimiter: auth.NewLoginRateLimiter(rateLimitCfg),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
-	// memory over time. The janitor stops when ctx is canceled; for
-	// now we use context.Background() because Server has no lifecycle
-	// ctx, and the goroutine is cheap and exits on process shutdown.
+	// memory over time. Phase 5 Sprint 2 (N1) replaced the previous
+	// context.Background() with srv.ctx so that Shutdown cancels the
+	// janitor deterministically.
 	//
-	// TODO(phase-5-N1): plumb a Server.ctx that cancels on Shutdown
-	// and pass it here, so graceful shutdown also stops the janitor
-	// (and any other future background workers). Tracked in the
-	// multi-tenant plan under "Server.ctx lifecycle (N1)".
-	//
-	// The returned done channel is intentionally discarded — only
-	// tests and shutdown code care about deterministic stop.
-	_ = srv.loginLimiter.StartJanitor(context.Background(), rateLimitCfg.LockoutDuration)
+	// The returned done channel is intentionally discarded here; if
+	// a future caller needs to wait for background workers at
+	// shutdown, thread it through Server struct state and drain it
+	// inside Shutdown.
+	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -275,15 +296,21 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
-	log.Printf("Triton server listening on %s", s.config.ListenAddr)
+	log.Printf("Triton report server listening on %s", s.config.ListenAddr)
 	if s.config.TLSCert != "" && s.config.TLSKey != "" {
 		return s.http.ListenAndServeTLS(s.config.TLSCert, s.config.TLSKey)
 	}
 	return s.http.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server.
+// Shutdown gracefully shuts down the server. Cancels the internal
+// Server context first so background workers (e.g., the rate-limit
+// janitor) stop promptly, then drains in-flight HTTP requests up to
+// the caller-supplied deadline.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	return s.http.Shutdown(ctx)
 }
 

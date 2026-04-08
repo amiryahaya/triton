@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/amiryahaya/triton/internal/auth"
+	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -454,6 +456,109 @@ func TestResendInvite_AlreadyCompleted_Rejects(t *testing.T) {
 	w := authReq(t, srv, http.MethodPost, "/api/v1/users/"+id+"/resend-invite", token, nil)
 	assert.Equal(t, http.StatusConflict, w.Code,
 		"resend-invite on an already-completed user must be 409")
+}
+
+// fakeMailer is a test double that captures the InviteEmailData
+// passed to SendInviteEmail. A non-nil sendErr makes SendInviteEmail
+// return that error so tests can exercise the mailer-failure path.
+type fakeMailer struct {
+	sendErr error
+	sent    []mailer.InviteEmailData
+}
+
+func (f *fakeMailer) SendInviteEmail(_ context.Context, data mailer.InviteEmailData) error {
+	f.sent = append(f.sent, data)
+	return f.sendErr
+}
+
+// TestResendInvite_WithMailer_DropsTempPasswordFromBody verifies
+// Sprint 2 S2.7: when the report server is configured with a Mailer,
+// resend-invite pushes the temp password via email and the JSON
+// response body does NOT contain the password field.
+func TestResendInvite_WithMailer_DropsTempPasswordFromBody(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	fm := &fakeMailer{}
+	srv.config.Mailer = fm
+	srv.config.InviteLoginURL = "https://reports.test/ui/#/login"
+	_, _, token := loginAsRole(t, srv, db, "org_admin")
+
+	// Create an invited user and mark mcp=true via direct store update.
+	wCreate := authReq(t, srv, http.MethodPost, "/api/v1/users", token, map[string]any{
+		"email":    "mailer-invitee@example.com",
+		"name":     "Mailer Invitee",
+		"role":     "org_user",
+		"password": "initial-temp-pw-12",
+	})
+	require.Equal(t, http.StatusCreated, wCreate.Code)
+	var created map[string]any
+	require.NoError(t, json.NewDecoder(wCreate.Body).Decode(&created))
+	id := created["id"].(string)
+	mcpTrue := true
+	require.NoError(t, db.UpdateUser(context.Background(), store.UserUpdate{
+		ID:                 id,
+		Name:               "Mailer Invitee",
+		MustChangePassword: &mcpTrue,
+	}))
+
+	// Trigger resend-invite.
+	w := authReq(t, srv, http.MethodPost, "/api/v1/users/"+id+"/resend-invite", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "invite resent", resp["status"])
+	assert.Equal(t, "true", resp["emailDelivered"])
+	_, hasTemp := resp["tempPassword"]
+	assert.False(t, hasTemp, "mailer path must NOT leak tempPassword in JSON body")
+
+	// Verify the mailer captured the right payload.
+	require.Len(t, fm.sent, 1, "mailer should have been called exactly once")
+	sent := fm.sent[0]
+	assert.Equal(t, "mailer-invitee@example.com", sent.ToEmail)
+	assert.Equal(t, "Mailer Invitee", sent.ToName)
+	assert.Equal(t, "https://reports.test/ui/#/login", sent.LoginURL)
+	assert.NotEmpty(t, sent.TempPassword, "mailer must receive the new temp password")
+	assert.NotEmpty(t, sent.OrgName, "mailer must receive a non-empty org name")
+}
+
+// TestResendInvite_WithMailer_FailureReturns502 verifies that a
+// mailer error causes the endpoint to return 502 — the password was
+// already rotated in the DB, but the admin needs to know the email
+// did not arrive, so they can contact the invitee out-of-band or
+// retry. Falling back to leaking the password in the response body
+// would violate the operator's intent (they explicitly configured
+// a mailer to prevent that).
+func TestResendInvite_WithMailer_FailureReturns502(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	fm := &fakeMailer{sendErr: errors.New("resend unreachable")}
+	srv.config.Mailer = fm
+	_, _, token := loginAsRole(t, srv, db, "org_admin")
+
+	wCreate := authReq(t, srv, http.MethodPost, "/api/v1/users", token, map[string]any{
+		"email":    "mailer-fail@example.com",
+		"name":     "Mailer Fail",
+		"role":     "org_user",
+		"password": "initial-temp-pw-12",
+	})
+	require.Equal(t, http.StatusCreated, wCreate.Code)
+	var created map[string]any
+	require.NoError(t, json.NewDecoder(wCreate.Body).Decode(&created))
+	id := created["id"].(string)
+	mcpTrue := true
+	require.NoError(t, db.UpdateUser(context.Background(), store.UserUpdate{
+		ID:                 id,
+		Name:               "Mailer Fail",
+		MustChangePassword: &mcpTrue,
+	}))
+
+	w := authReq(t, srv, http.MethodPost, "/api/v1/users/"+id+"/resend-invite", token, nil)
+	assert.Equal(t, http.StatusBadGateway, w.Code,
+		"mailer failure must return 502 with no tempPassword leak")
+
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	_, hasTemp := resp["tempPassword"]
+	assert.False(t, hasTemp, "mailer failure must NOT leak tempPassword in JSON body")
 }
 
 // TestResendInvite_TenantIsolation verifies that admin A cannot

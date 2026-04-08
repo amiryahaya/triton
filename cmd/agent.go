@@ -26,9 +26,9 @@ var (
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
-	Short: "Run scan and submit results to a Triton server",
+	Short: "Run scan and submit results to a Triton report server",
 	Long: `Agent mode runs a local scan and submits the results to a remote
-Triton server. Use --interval for continuous scanning.`,
+Triton report server. Use --interval for continuous scanning.`,
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		return guard.EnforceFeature(license.FeatureAgentMode)
 	},

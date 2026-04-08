@@ -74,15 +74,51 @@ func New(cfg *Config, s store.Store) *Server {
 	r.Use(securityHeaders)
 	r.Use(middleware.Throttle(100))
 
+	// Resolve tenant Ed25519 pubkey for license token verification. If
+	// TenantPubKey is nil, fall back to the embedded default. UnifiedAuth
+	// below passes this to the license-token resolution path.
+	var licensePubKey ed25519.PublicKey
+	if len(cfg.TenantPubKey) > 0 {
+		licensePubKey = ed25519.PublicKey(cfg.TenantPubKey)
+	} else {
+		licensePubKey = license.LoadPublicKeyBytes()
+	}
+
+	// Derive JWT public key now (also done below for /auth routes, but
+	// UnifiedAuth needs it up-front).
+	var jwtPubKey ed25519.PublicKey
+	if cfg.JWTSigningKey != nil {
+		if cfg.JWTPublicKey == nil {
+			cfg.JWTPublicKey = cfg.JWTSigningKey.Public().(ed25519.PublicKey)
+		}
+		jwtPubKey = cfg.JWTPublicKey
+	}
+
 	// API routes with optional auth.
+	//
+	// Phase 2.4: the /api/v1 group now uses UnifiedAuth (JWT OR license
+	// token) as its primary tenant resolver, replacing the old
+	// TenantScope. Agents keep working (license-token path is
+	// preserved); org users can now access scan data (new JWT path).
+	//
+	// APIKeyAuth and LicenceGate remain in the chain for backward
+	// compatibility until Phase 4 deprecates them.
 	r.Route("/api/v1", func(r chi.Router) {
 		if len(cfg.APIKeys) > 0 {
 			r.Use(APIKeyAuth(cfg.APIKeys))
 		}
 		if cfg.Guard != nil {
 			r.Use(LicenceGate(cfg.Guard))
-			r.Use(TenantScope(cfg.Guard, cfg.TenantPubKey))
 		}
+		// Always install UnifiedAuth. It gracefully handles:
+		//   - Guard == nil (skips the single-tenant fallback)
+		//   - JWT not configured (skips the JWT path)
+		//   - License pubkey always present via embedded default
+		// When no credentials are supplied and no guard exists, it
+		// passes through without setting tenant context — existing
+		// handlers that read TenantFromContext will see an empty
+		// org_id (backward compat with public-ish routes).
+		r.Use(UnifiedAuth(jwtPubKey, s, licensePubKey, cfg.Guard))
 		srv.registerAPIRoutes(r)
 	})
 
@@ -99,10 +135,6 @@ func New(cfg *Config, s store.Store) *Server {
 	// User auth API (login, logout, refresh, change-password).
 	// Only registered if JWT signing is configured.
 	if cfg.JWTSigningKey != nil {
-		// Derive public key from signing key if not explicitly supplied.
-		if cfg.JWTPublicKey == nil {
-			cfg.JWTPublicKey = cfg.JWTSigningKey.Public().(ed25519.PublicKey)
-		}
 		r.Route("/api/v1/auth", func(r chi.Router) {
 			r.Post("/login", srv.handleLogin)
 			r.Post("/logout", srv.handleLogout)

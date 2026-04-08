@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,7 +59,7 @@ func TestSubmit_Success(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL)
-	resp, err := client.Submit(testScanResult())
+	resp, err := client.Submit(context.Background(), testScanResult())
 	require.NoError(t, err)
 
 	assert.Equal(t, "agent-test-1", resp.ID)
@@ -72,8 +74,10 @@ func TestSubmit_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(server.URL)
-	_, err := client.Submit(testScanResult())
+	// Use fast-retry tuning — 5xx is retryable, so the default
+	// 1s/4s backoff would make this test take ~5 seconds.
+	client := fastRetryClient(server.URL)
+	_, err := client.Submit(context.Background(), testScanResult())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
@@ -89,7 +93,7 @@ func TestSubmit_NoAuth(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL)
-	resp, err := client.Submit(testScanResult())
+	resp, err := client.Submit(context.Background(), testScanResult())
 	require.NoError(t, err)
 	assert.Equal(t, "saved", resp.Status)
 }
@@ -119,8 +123,130 @@ func TestHealthcheck_Failure(t *testing.T) {
 }
 
 func TestSubmit_ConnectionRefused(t *testing.T) {
-	client := New("http://127.0.0.1:1")
-	_, err := client.Submit(testScanResult())
+	// Use fast-retry tuning so the test exercises the 3-attempt
+	// retry path without the 1s/4s production backoff schedule.
+	client := fastRetryClient("http://127.0.0.1:1")
+	_, err := client.Submit(context.Background(), testScanResult())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "sending request")
+	// Connection refused is retryable, so the error is wrapped with the
+	// attempt count after the final attempt.
+	assert.Contains(t, err.Error(), "after 3 attempts")
+}
+
+// fastRetryClient is a test helper that collapses the retry backoff
+// to near-zero so retry-path tests don't take tens of seconds. Tests
+// must assert on attempt counts / outcomes, not on wall-clock timing.
+func fastRetryClient(serverURL string) *Client {
+	c := New(serverURL)
+	c.RetryInitialBackoff = 1 * time.Millisecond
+	c.RetryMaxAttempts = 3
+	return c
+}
+
+func TestSubmit_RetriesOn500ThenSucceeds(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(SubmitResponse{ID: "r1", Status: "saved"})
+	}))
+	defer server.Close()
+
+	resp, err := fastRetryClient(server.URL).Submit(context.Background(), testScanResult())
+	require.NoError(t, err)
+	assert.Equal(t, "saved", resp.Status)
+	assert.Equal(t, int32(3), atomic.LoadInt32(&attempts), "should have made 3 attempts")
+}
+
+func TestSubmit_DoesNotRetryOn400(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"bad input"}`))
+	}))
+	defer server.Close()
+
+	_, err := fastRetryClient(server.URL).Submit(context.Background(), testScanResult())
+	require.Error(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&attempts), "4xx must not retry")
+	assert.Contains(t, err.Error(), "400")
+}
+
+func TestSubmit_DoesNotRetryOn401(t *testing.T) {
+	// Auth errors are terminal — retrying a bad token just wastes
+	// attempts and can trigger rate limiters on the server side.
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	_, err := fastRetryClient(server.URL).Submit(context.Background(), testScanResult())
+	require.Error(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&attempts))
+}
+
+func TestSubmit_GivesUpAfterMaxAttempts(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	_, err := fastRetryClient(server.URL).Submit(context.Background(), testScanResult())
+	require.Error(t, err)
+	assert.Equal(t, int32(3), atomic.LoadInt32(&attempts))
+	assert.Contains(t, err.Error(), "after 3 attempts")
+}
+
+func TestSubmit_HonorsRetryAfter(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n == 1 {
+			// Retry-After "0" means "retry immediately" — tests
+			// whether the header is parsed at all, without making
+			// the test slow.
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(SubmitResponse{ID: "r2", Status: "saved"})
+	}))
+	defer server.Close()
+
+	resp, err := fastRetryClient(server.URL).Submit(context.Background(), testScanResult())
+	require.NoError(t, err)
+	assert.Equal(t, "saved", resp.Status)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&attempts))
+}
+
+func TestSubmit_RespectsContextCancellation(t *testing.T) {
+	// Server always 500s; context is canceled after the first attempt
+	// so the retry loop exits early instead of burning all 3 attempts.
+	var attempts int32
+	ctx, cancel := context.WithCancel(context.Background())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		cancel() // trigger cancellation mid-retry
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := fastRetryClient(server.URL)
+	// Give the retry loop a visible backoff window so the cancel beats it.
+	client.RetryInitialBackoff = 200 * time.Millisecond
+	_, err := client.Submit(ctx, testScanResult())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.LessOrEqual(t, atomic.LoadInt32(&attempts), int32(2),
+		"should have stopped retrying when ctx was canceled")
 }

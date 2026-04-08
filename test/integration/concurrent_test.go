@@ -59,7 +59,7 @@ func TestConcurrent_MultiAgentSubmit(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			client := agent.New(serverURL)
-			_, errs[idx] = client.Submit(scans[idx])
+			_, errs[idx] = client.Submit(context.Background(), scans[idx])
 		}(i)
 	}
 	wg.Wait()

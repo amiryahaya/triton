@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestAgent_SubmitAndRetrieve(t *testing.T) {
 	client := agent.New(serverURL)
 	scan := makeScanResult("agent-submit-1", "agent-host", 10)
 
-	resp, err := client.Submit(scan)
+	resp, err := client.Submit(context.Background(), scan)
 	require.NoError(t, err)
 	assert.Equal(t, scan.ID, resp.ID)
 
@@ -59,7 +60,7 @@ func TestAgent_LargeScan(t *testing.T) {
 	client := agent.New(serverURL)
 	scan := makeScanResult("agent-large", "large-host", 1000)
 
-	resp, err := client.Submit(scan)
+	resp, err := client.Submit(context.Background(), scan)
 	require.NoError(t, err)
 	assert.Equal(t, scan.ID, resp.ID)
 
@@ -82,7 +83,7 @@ func TestAgent_ParallelSubmissions(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			client := agent.New(serverURL)
-			_, errs[idx] = client.Submit(scans[idx])
+			_, errs[idx] = client.Submit(context.Background(), scans[idx])
 		}(i)
 	}
 	wg.Wait()

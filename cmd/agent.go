@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,11 +29,47 @@ import (
 // agent.yaml when both are set so an operator can temporarily
 // redirect a scheduled run without editing the config file.
 var (
-	agentServer    string
-	agentProfile   string
-	agentInterval  time.Duration
-	agentConfigDir string // test hook: override the exe-dir search
+	agentServer      string
+	agentProfile     string
+	agentInterval    time.Duration
+	agentCheckConfig bool   // --check-config: validate then exit without scanning
+	agentConfigDir   string // test hook: override the exe-dir search
 )
+
+// Tunables surfaced as package variables so tests can shrink the
+// retry/wait windows without waiting the production durations.
+var (
+	// healthCheckMaxAttempts bounds the initial-reachability retry
+	// loop in continuous mode. Set to 1 to make healthcheck failures
+	// immediately fatal (useful for one-shot CI runs).
+	healthCheckMaxAttempts = 5
+	// healthCheckBackoff is the initial wait between healthcheck
+	// attempts; each retry doubles up to healthCheckMaxBackoff.
+	healthCheckBackoff    = 2 * time.Second
+	healthCheckMaxBackoff = 30 * time.Second
+)
+
+// intervalJitterFn is swappable in tests so jitter is deterministic.
+// Production uses the package-global rand source; tests inject a
+// seeded source to assert on exact outputs.
+var intervalJitterFn = defaultIntervalJitter
+
+// defaultIntervalJitter returns a value in [-0.1×base, +0.1×base],
+// i.e. ±10% of the interval. Kept as a package-level var so the
+// package init stays trivial and tests can call it directly.
+func defaultIntervalJitter(base time.Duration) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	// Range is one-fifth of base (±10%). rand.Int63n is exclusive
+	// of its upper bound, so the max is "just under +10%".
+	maxJitter := int64(base / 5)
+	if maxJitter <= 0 {
+		return 0
+	}
+	//nolint:gosec // G404: non-cryptographic jitter is intentional
+	return time.Duration(rand.Int63n(maxJitter) - maxJitter/2)
+}
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
@@ -62,6 +99,7 @@ func init() {
 	}
 	agentCmd.Flags().StringVar(&agentProfile, "profile", "", "Scan profile: quick | standard | comprehensive. Overrides agent.yaml.")
 	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h). If unset, runs once.")
+	agentCmd.Flags().BoolVar(&agentCheckConfig, "check-config", false, "Validate agent.yaml, probe the report server, print the effective config, then exit without scanning.")
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -339,10 +377,29 @@ func runAgent(_ *cobra.Command, _ []string) error {
 	if resolved.reportServer != "" {
 		client = agent.New(resolved.reportServer)
 		client.LicenseToken = resolved.licenseToken
-		if err := client.Healthcheck(); err != nil {
+		// In continuous (--interval) mode, retry the initial
+		// healthcheck with backoff instead of exiting: a brief
+		// server restart during the systemd timer firing is the
+		// common case and deserves to be absorbed silently. In
+		// one-shot mode we fall back to a single attempt so CI
+		// pipelines fail fast on misconfiguration.
+		attempts := healthCheckMaxAttempts
+		if agentInterval == 0 {
+			attempts = 1
+		}
+		if err := waitForServerReady(ctx, client, attempts); err != nil {
 			return fmt.Errorf("cannot reach report server: %w", err)
 		}
 		fmt.Printf("Connected to report server: %s\n", resolved.reportServer)
+	}
+
+	// --check-config: report what we would have done and exit. The
+	// scan is NOT run — this is intended for deployment smoke tests
+	// ("did I drop the file in the right place?") without waiting
+	// for a full comprehensive scan.
+	if agentCheckConfig {
+		fmt.Println("Config check passed — agent would run successfully with the settings above.")
+		return nil
 	}
 
 	for {
@@ -354,14 +411,65 @@ func runAgent(_ *cobra.Command, _ []string) error {
 			return nil
 		}
 
-		fmt.Printf("Next scan in %s...\n", agentInterval)
+		// Jitter the sleep by ±10% so a fleet of agents rebooted
+		// simultaneously (e.g., after a patch window) does not
+		// dog-pile the report server at the same second every
+		// interval. Logged as the effective wait, not the raw
+		// interval, so operators can see what actually happened.
+		wait := agentInterval + intervalJitterFn(agentInterval)
+		if wait < 0 {
+			wait = agentInterval // belt-and-braces: never sleep negative
+		}
+		fmt.Printf("Next scan in %s...\n", wait.Round(time.Second))
 		select {
-		case <-time.After(agentInterval):
+		case <-time.After(wait):
 		case <-ctx.Done():
 			fmt.Println("\nAgent stopped.")
 			return nil
 		}
 	}
+}
+
+// waitForServerReady retries the report server healthcheck with
+// exponential backoff so a brief server restart during the agent's
+// timer firing does not crash the process. Honors ctx cancellation
+// between attempts and the HTTP-layer timeout within each attempt
+// (see pkg/agent.Client.HealthcheckWithContext).
+//
+// When maxAttempts == 1 this degrades to a single-shot check —
+// exactly the original behavior, kept for one-shot runs and tests.
+func waitForServerReady(ctx context.Context, client *agent.Client, maxAttempts int) error {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	backoff := healthCheckBackoff
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := client.HealthcheckWithContext(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if attempt == maxAttempts {
+			break
+		}
+		fmt.Fprintf(os.Stderr,
+			"report server not ready (attempt %d/%d): %v — retrying in %s\n",
+			attempt, maxAttempts, lastErr, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		backoff *= 2
+		if backoff > healthCheckMaxBackoff {
+			backoff = healthCheckMaxBackoff
+		}
+	}
+	return fmt.Errorf("after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // printStartupBanner tells the user in plain English which config
@@ -392,6 +500,15 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 		fmt.Println("               place your license in agent.yaml next to this binary.")
 	} else {
 		fmt.Printf("  license:     %s tier (org=%s)\n", tier, g.OrgName())
+		// Pre-warn the operator when the embedded license token is
+		// within 30 days of expiry (or already expired under
+		// guard's grace window). An agent on a 24h interval has
+		// a whole month to regenerate agent.yaml from the license
+		// server admin UI — we just need to surface the deadline
+		// in a place they're already looking.
+		if msg := licenseExpiryWarning(g.License(), time.Now()); msg != "" {
+			fmt.Printf("               %s\n", msg)
+		}
 	}
 
 	// Mode banner.
@@ -503,16 +620,20 @@ func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig,
 	}
 
 	if client != nil {
-		return submitToServer(client, r.reportServer, scan)
+		return submitToServer(ctx, client, r.reportServer, scan)
 	}
 	return writeLocalReports(r, scan)
 }
 
 // submitToServer is the existing Phase 4 path, factored out so the
-// dual-mode runAgentScan stays readable.
-func submitToServer(client *agent.Client, serverURL string, scan *model.ScanResult) error {
+// dual-mode runAgentScan stays readable. Takes ctx so a SIGTERM
+// during a large upload exits promptly instead of hanging until the
+// HTTP client timeout. The retry loop inside Client.Submit also
+// honors ctx, so cancel-during-backoff stops the retry chain
+// deterministically.
+func submitToServer(ctx context.Context, client *agent.Client, serverURL string, scan *model.ScanResult) error {
 	fmt.Printf("Submitting to %s...\n", serverURL)
-	resp, err := client.Submit(scan)
+	resp, err := client.Submit(ctx, scan)
 	if err != nil {
 		return fmt.Errorf("submit failed: %w", err)
 	}
@@ -571,6 +692,37 @@ func reportFilename(format, timestamp string) string {
 	default:
 		return fmt.Sprintf("triton-report-%s.%s", timestamp, format)
 	}
+}
+
+// licenseExpiryWarning returns a human-readable message when the
+// license is within 30 days of expiry, or already expired within
+// the guard's grace window. Returns "" when the license has more
+// than 30 days of runway — no banner noise in the common case.
+//
+// Pure function: takes an explicit now so the unit test doesn't
+// need to freeze time.Now().
+func licenseExpiryWarning(lic *license.License, now time.Time) string {
+	if lic == nil {
+		return ""
+	}
+	expiry := time.Unix(lic.ExpiresAt, 0)
+	remaining := expiry.Sub(now)
+	switch {
+	case remaining < 0:
+		return fmt.Sprintf(
+			"WARNING: license EXPIRED on %s — regenerate agent.yaml from the license server admin UI before the next scan",
+			expiry.Format("2006-01-02"))
+	case remaining < 7*24*time.Hour:
+		return fmt.Sprintf(
+			"WARNING: license expires in %s (%s) — regenerate agent.yaml soon",
+			remaining.Round(time.Hour), expiry.Format("2006-01-02"))
+	case remaining < 30*24*time.Hour:
+		days := int(remaining.Hours() / 24)
+		return fmt.Sprintf(
+			"notice: license expires in %d days (%s) — plan to regenerate agent.yaml",
+			days, expiry.Format("2006-01-02"))
+	}
+	return ""
 }
 
 // generateByFormat dispatches to the right Generator method. The

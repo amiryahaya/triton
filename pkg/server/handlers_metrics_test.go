@@ -36,9 +36,15 @@ func TestMetrics_ExposesExpectedSeries(t *testing.T) {
 		"triton_go_memstats_alloc_bytes",
 		"triton_go_memstats_sys_bytes",
 		"triton_go_memstats_gc_runs",
-		// Analytics Phase 1 — backfill observability.
-		"triton_backfill_scans_processed_total",
+		// Analytics Phase 1 — backfill observability. The
+		// scans_succeeded name (was scans_processed in the original
+		// Phase 1 commit) reflects that the counter only tracks
+		// successful extractions; failures go to the separate
+		// failed counter. /pensive:full-review B6.
+		"triton_backfill_scans_succeeded_total",
 		"triton_backfill_scans_failed_total",
+		"triton_backfill_scans_initial",
+		"triton_backfill_last_progress_seconds",
 		"triton_backfill_in_progress",
 	}
 	for _, series := range expected {

@@ -193,4 +193,23 @@ var migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings (scan_id);
 
 	ALTER TABLE scans ADD COLUMN IF NOT EXISTS findings_extracted_at TIMESTAMPTZ;`,
+
+	// Version 8: Partial index on scans.findings_extracted_at for the
+	// backfill goroutine's batch query. Without this, every batch after
+	// the first re-scans the processed portion of the scans table to
+	// find the next 100 unprocessed rows, giving O(processed_rows)
+	// per-batch cost on large catalogs with intermittent backfill runs.
+	//
+	// The partial index covers ONLY rows awaiting backfill; once a row
+	// is marked via UPDATE ... SET findings_extracted_at = NOW(), it
+	// drops out of the index automatically. Index size stays bounded
+	// to the unprocessed-scan count even as the scans table grows.
+	//
+	// Planner behavior: `SELECT id FROM scans WHERE
+	// findings_extracted_at IS NULL ORDER BY id LIMIT $1` walks the
+	// partial index in id order and stops after $1 rows — O(batch_size)
+	// regardless of total scan count. /pensive:full-review Arch-4.
+	`CREATE INDEX IF NOT EXISTS idx_scans_unbackfilled
+		ON scans (id)
+		WHERE findings_extracted_at IS NULL;`,
 }

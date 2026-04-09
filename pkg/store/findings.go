@@ -184,7 +184,7 @@ func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error 
 func (s *PostgresStore) ListInventory(ctx context.Context, orgID string) ([]InventoryRow, error) {
 	const q = `
 WITH latest_scans AS (
-    SELECT DISTINCT ON (hostname) id
+    SELECT DISTINCT ON (hostname) id, org_id
     FROM scans
     WHERE org_id = $1
     ORDER BY hostname, timestamp DESC
@@ -206,7 +206,7 @@ SELECT
     COALESCE(MAX(f.migration_priority), 0) AS max_priority
 FROM findings f
 WHERE f.org_id = $1
-  AND f.scan_id IN (SELECT id FROM latest_scans)
+  AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
 GROUP BY f.algorithm, f.key_size
 ORDER BY status_rank ASC, instances DESC
 `
@@ -252,7 +252,7 @@ func pqcStatusFromRank(rank int) string {
 func (s *PostgresStore) ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration) ([]ExpiringCertRow, error) {
 	const q = `
 WITH latest_scans AS (
-    SELECT DISTINCT ON (hostname) id
+    SELECT DISTINCT ON (hostname) id, org_id
     FROM scans
     WHERE org_id = $1
     ORDER BY hostname, timestamp DESC
@@ -260,7 +260,7 @@ WITH latest_scans AS (
 SELECT f.id, f.subject, f.issuer, f.hostname, f.algorithm, f.key_size, f.not_after
 FROM findings f
 WHERE f.org_id = $1
-  AND f.scan_id IN (SELECT id FROM latest_scans)
+  AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
   AND f.not_after IS NOT NULL
   AND (f.not_after <= NOW() + $2::interval OR f.not_after < NOW())
 ORDER BY f.not_after ASC
@@ -314,7 +314,7 @@ func (s *PostgresStore) ListTopPriorityFindings(ctx context.Context, orgID strin
 	}
 	const q = `
 WITH latest_scans AS (
-    SELECT DISTINCT ON (hostname) id
+    SELECT DISTINCT ON (hostname) id, org_id
     FROM scans
     WHERE org_id = $1
     ORDER BY hostname, timestamp DESC
@@ -323,7 +323,7 @@ SELECT f.id, f.migration_priority, f.algorithm, f.key_size, f.pqc_status,
        f.module, f.hostname, f.file_path
 FROM findings f
 WHERE f.org_id = $1
-  AND f.scan_id IN (SELECT id FROM latest_scans)
+  AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
   AND f.migration_priority > 0
 ORDER BY f.migration_priority DESC
 LIMIT $2

@@ -5,9 +5,28 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
-
-	"github.com/amiryahaya/triton/pkg/store"
+	"time"
 )
+
+// BackfillStatsProvider is the narrow contract the metrics handler
+// needs from the store to emit backfill observability metrics. Kept
+// separate from the main Store interface so (a) the Store interface
+// stays minimal and (b) tests can supply a no-op implementation
+// without faking all of Store.
+//
+// Implemented by *store.PostgresStore via its Backfill* accessor
+// methods. A non-Postgres store can either satisfy this interface
+// (returning zeros) or leave s.store not-assertable, in which case
+// the metrics show up as zeros — which is semantically correct
+// because there's no backfill goroutine to report on.
+//
+// /pensive:full-review action item Arch-1.
+type BackfillStatsProvider interface {
+	BackfillScansSucceeded() uint64
+	BackfillScansFailed() uint64
+	BackfillScansInitial() uint64
+	BackfillLastProgress() time.Time
+}
 
 // GET /api/v1/metrics — Phase 5 Sprint 3 B4.
 //
@@ -72,29 +91,44 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(&body, "triton_go_memstats_gc_runs %d\n", memStats.NumGC)
 
 	// Analytics Phase 1 — backfill observability. The counters live on
-	// the PostgresStore; the in-progress flag lives on the Server.
-	// Type assertion to *store.PostgresStore keeps the Store interface
-	// untouched. If the test harness uses a non-Postgres store, the
-	// counter metrics appear as 0 (which is semantically correct —
-	// there's no backfill goroutine running against a non-Postgres
-	// store either).
-	var bfScansTotal, bfScansFailed uint64
-	if pg, ok := s.store.(*store.PostgresStore); ok {
-		bfScansTotal = pg.BackfillScansTotal()
-		bfScansFailed = pg.BackfillScansFailed()
+	// the store; the in-progress flag lives on the Server. We assert
+	// against the narrow BackfillStatsProvider interface (not the
+	// concrete *store.PostgresStore) so non-Postgres test harnesses
+	// don't need to fake all of Store — they can leave the store not-
+	// assertable and the metrics surface as zeros, which is
+	// semantically correct because there's no backfill goroutine
+	// running against an in-memory store either.
+	// /pensive:full-review Arch-1.
+	var bfSucceeded, bfFailed, bfInitial uint64
+	var bfLastProgressSecondsAgo int64
+	if stats, ok := s.store.(BackfillStatsProvider); ok {
+		bfSucceeded = stats.BackfillScansSucceeded()
+		bfFailed = stats.BackfillScansFailed()
+		bfInitial = stats.BackfillScansInitial()
+		if last := stats.BackfillLastProgress(); !last.IsZero() {
+			bfLastProgressSecondsAgo = int64(time.Since(last).Seconds())
+		}
 	}
 	var bfInProgress int
 	if s.backfillInProgress.Load() {
 		bfInProgress = 1
 	}
 
-	fmt.Fprintln(&body, "# HELP triton_backfill_scans_processed_total Scans processed by the findings backfill loop.")
-	fmt.Fprintln(&body, "# TYPE triton_backfill_scans_processed_total counter")
-	fmt.Fprintf(&body, "triton_backfill_scans_processed_total %d\n", bfScansTotal)
+	fmt.Fprintln(&body, "# HELP triton_backfill_scans_succeeded_total Scans successfully extracted by the findings backfill loop.")
+	fmt.Fprintln(&body, "# TYPE triton_backfill_scans_succeeded_total counter")
+	fmt.Fprintf(&body, "triton_backfill_scans_succeeded_total %d\n", bfSucceeded)
 
 	fmt.Fprintln(&body, "# HELP triton_backfill_scans_failed_total Scans that failed extraction and were marked to skip.")
 	fmt.Fprintln(&body, "# TYPE triton_backfill_scans_failed_total counter")
-	fmt.Fprintf(&body, "triton_backfill_scans_failed_total %d\n", bfScansFailed)
+	fmt.Fprintf(&body, "triton_backfill_scans_failed_total %d\n", bfFailed)
+
+	fmt.Fprintln(&body, "# HELP triton_backfill_scans_initial Snapshot of unbackfilled scans taken when the goroutine started. Compute remaining as initial - (succeeded + failed).")
+	fmt.Fprintln(&body, "# TYPE triton_backfill_scans_initial gauge")
+	fmt.Fprintf(&body, "triton_backfill_scans_initial %d\n", bfInitial)
+
+	fmt.Fprintln(&body, "# HELP triton_backfill_last_progress_seconds Seconds since the last backfill batch advanced. 0 means the goroutine has not yet started or has finished. Use to distinguish 'slow' from 'stuck'.")
+	fmt.Fprintln(&body, "# TYPE triton_backfill_last_progress_seconds gauge")
+	fmt.Fprintf(&body, "triton_backfill_last_progress_seconds %d\n", bfLastProgressSecondsAgo)
 
 	fmt.Fprintln(&body, "# HELP triton_backfill_in_progress 1 if the first-boot backfill goroutine is running, 0 otherwise.")
 	fmt.Fprintln(&body, "# TYPE triton_backfill_in_progress gauge")

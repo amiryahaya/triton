@@ -27,15 +27,9 @@ func saveScan(t *testing.T, s *PostgresStore, id, hostname, orgID string, findin
 	return scan
 }
 
-// cryptoF is a terse helper that builds a file-sourced finding with
-// the given module, path, and CryptoAsset.
-func cryptoF(module, path string, ca *model.CryptoAsset) model.Finding {
-	return model.Finding{
-		Module:      module,
-		Source:      model.FindingSource{Type: "file", Path: path},
-		CryptoAsset: ca,
-	}
-}
+// (Helper `cryptoFinding` lives in extract_test.go — always compiled,
+// also visible to the integration-tag test files via package sharing.
+// /pensive:full-review T5.)
 
 // queryFindingsCount counts findings rows for a scan using the
 // package-private pool directly. Only available to tests in
@@ -77,8 +71,8 @@ func TestSaveScanWithFindings_StoresScanAndFindings(t *testing.T) {
 	orgID := testUUID("swf-org")
 
 	scan := saveScan(t, s, testUUID("swf-1"), "host-1", orgID,
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
-		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE", MigrationPriority: 10}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE", MigrationPriority: 10}),
 	)
 
 	retrieved, err := s.GetScan(context.Background(), scan.ID, orgID)
@@ -95,7 +89,7 @@ func TestSaveScanWithFindings_SkipsNonCryptoFindings(t *testing.T) {
 
 	scan := saveScan(t, s, testUUID("swf-2"), "host-2", orgID,
 		model.Finding{Module: "file", Source: model.FindingSource{Path: "/plain"}},
-		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
 	)
 	assert.Equal(t, 1, queryFindingsCount(t, s, scan.ID))
 }
@@ -116,7 +110,7 @@ func TestSaveScanWithFindings_EmptyOrgIDSkipsFindings(t *testing.T) {
 	scan := testScanResult(testUUID("swf-single-tenant"), "host-single", "quick")
 	scan.OrgID = "" // explicitly single-tenant
 	scan.Findings = []model.Finding{
-		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
 	}
 
 	// MUST NOT ERROR — the whole point of this test is that
@@ -144,7 +138,7 @@ func TestSaveScanWithFindings_OnConflictSkipsDuplicates(t *testing.T) {
 	scan := testScanResult(testUUID("swf-3"), "host-3", "quick")
 	scan.OrgID = orgID
 	scan.Findings = []model.Finding{
-		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
 	}
 	extracted := ExtractFindings(scan)
 
@@ -169,7 +163,7 @@ func TestListInventory_SingleFinding(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("inv-org")
 	_ = saveScan(t, s, testUUID("inv-1"), "host-1", orgID,
-		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
 	)
 
 	rows, err := s.ListInventory(context.Background(), orgID)
@@ -187,9 +181,9 @@ func TestListInventory_GroupsByAlgorithmAndSize(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("inv-grp")
 	_ = saveScan(t, s, testUUID("inv-grp-1"), "host-1", orgID,
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
-		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 75}),
-		cryptoF("key", "/c", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE", MigrationPriority: 0}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 75}),
+		cryptoFinding("key", "/c", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE", MigrationPriority: 0}),
 	)
 
 	rows, err := s.ListInventory(context.Background(), orgID)
@@ -213,10 +207,10 @@ func TestListInventory_TenantIsolation(t *testing.T) {
 	orgB := testUUID("inv-tenant-b")
 
 	_ = saveScan(t, s, testUUID("inv-tenant-scan-a"), "host-a", orgA,
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED"}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED"}),
 	)
 	_ = saveScan(t, s, testUUID("inv-tenant-scan-b"), "host-b", orgB,
-		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE"}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE"}),
 	)
 
 	rowsA, err := s.ListInventory(context.Background(), orgA)
@@ -230,6 +224,35 @@ func TestListInventory_TenantIsolation(t *testing.T) {
 	assert.Equal(t, "AES", rowsB[0].Algorithm)
 }
 
+// TestListInventory_UnknownStatusRank guards the CASE-rank round-trip
+// when a finding has a blank or unrecognised pqc_status (e.g., a
+// scanner module that emits a finding without running PQC
+// classification). The store must still return the row — sorted last
+// via rank 5 — with PQCStatus as an empty string so the UI can render
+// a "?" badge rather than crashing on missing data.
+// /pensive:full-review T3.
+func TestListInventory_UnknownStatusRank(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("inv-unknown")
+
+	_ = saveScan(t, s, testUUID("inv-unknown-1"), "host-1", orgID,
+		// Blank pqc_status — scanner ran but emitted no classification.
+		cryptoFinding("key", "/blank", &model.CryptoAsset{Algorithm: "WEIRD", KeySize: 512, PQCStatus: ""}),
+		// Normal finding for contrast — must sort BEFORE the blank one
+		// because UNSAFE (rank 1) < blank (rank 5).
+		cryptoFinding("key", "/rsa", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "UNSAFE"}),
+	)
+
+	rows, err := s.ListInventory(context.Background(), orgID)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	// Sorted by status rank ASC: UNSAFE first, blank last.
+	assert.Equal(t, "RSA", rows[0].Algorithm)
+	assert.Equal(t, "UNSAFE", rows[0].PQCStatus)
+	assert.Equal(t, "WEIRD", rows[1].Algorithm)
+	assert.Equal(t, "", rows[1].PQCStatus, "blank input status must round-trip as empty string")
+}
+
 func TestListInventory_LatestScanPerHostOnly(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("inv-latest")
@@ -238,7 +261,7 @@ func TestListInventory_LatestScanPerHostOnly(t *testing.T) {
 	oldScan.OrgID = orgID
 	oldScan.Metadata.Timestamp = time.Now().UTC().Add(-48 * time.Hour)
 	oldScan.Findings = []model.Finding{
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 1024, PQCStatus: "UNSAFE"}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 1024, PQCStatus: "UNSAFE"}),
 	}
 	require.NoError(t, s.SaveScanWithFindings(context.Background(), oldScan, ExtractFindings(oldScan)))
 
@@ -246,7 +269,7 @@ func TestListInventory_LatestScanPerHostOnly(t *testing.T) {
 	newScan.OrgID = orgID
 	newScan.Metadata.Timestamp = time.Now().UTC()
 	newScan.Findings = []model.Finding{
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE"}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE"}),
 	}
 	require.NoError(t, s.SaveScanWithFindings(context.Background(), newScan, ExtractFindings(newScan)))
 
@@ -272,8 +295,8 @@ func TestListExpiringCerts_WithinWindow(t *testing.T) {
 	in200 := time.Now().UTC().Add(200 * 24 * time.Hour)
 
 	_ = saveScan(t, s, testUUID("cert-win-1"), "host-1", orgID,
-		cryptoF("certificate", "/soon.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in30, Subject: "CN=soon"}),
-		cryptoF("certificate", "/later.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in200, Subject: "CN=later"}),
+		cryptoFinding("certificate", "/soon.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in30, Subject: "CN=soon"}),
+		cryptoFinding("certificate", "/later.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in200, Subject: "CN=later"}),
 	)
 
 	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
@@ -288,7 +311,7 @@ func TestListExpiringCerts_AlreadyExpiredAlwaysIncluded(t *testing.T) {
 	expired := time.Now().UTC().Add(-10 * 24 * time.Hour)
 
 	_ = saveScan(t, s, testUUID("cert-expired-1"), "host-1", orgID,
-		cryptoF("certificate", "/dead.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &expired, Subject: "CN=dead"}),
+		cryptoFinding("certificate", "/dead.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &expired, Subject: "CN=dead"}),
 	)
 
 	// Even a 1-hour window includes already-expired certs.
@@ -304,7 +327,7 @@ func TestListExpiringCerts_NullNotAfterExcluded(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("cert-null")
 	_ = saveScan(t, s, testUUID("cert-null-1"), "host-1", orgID,
-		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
+		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
 	)
 
 	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
@@ -320,9 +343,9 @@ func TestListExpiringCerts_SortedAscending(t *testing.T) {
 	in5 := time.Now().UTC().Add(5 * 24 * time.Hour)
 
 	_ = saveScan(t, s, testUUID("cert-sort-1"), "host-1", orgID,
-		cryptoF("certificate", "/15.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in15, Subject: "CN=fifteen"}),
-		cryptoF("certificate", "/45.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in45, Subject: "CN=forty-five"}),
-		cryptoF("certificate", "/5.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in5, Subject: "CN=five"}),
+		cryptoFinding("certificate", "/15.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in15, Subject: "CN=fifteen"}),
+		cryptoFinding("certificate", "/45.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in45, Subject: "CN=forty-five"}),
+		cryptoFinding("certificate", "/5.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in5, Subject: "CN=five"}),
 	)
 
 	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
@@ -339,7 +362,7 @@ func TestListExpiringCerts_LargeWithinReturnsFuture(t *testing.T) {
 	inYear := time.Now().UTC().Add(400 * 24 * time.Hour)
 
 	_ = saveScan(t, s, testUUID("cert-all-1"), "host-1", orgID,
-		cryptoF("certificate", "/far.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &inYear, Subject: "CN=far"}),
+		cryptoFinding("certificate", "/far.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &inYear, Subject: "CN=far"}),
 	)
 
 	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 100*365*24*time.Hour)
@@ -361,9 +384,9 @@ func TestListPriority_SortedDescending(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("prio-sort")
 	_ = saveScan(t, s, testUUID("prio-sort-1"), "host-1", orgID,
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
-		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "MD5", MigrationPriority: 95}),
-		cryptoF("key", "/c", &model.CryptoAsset{Algorithm: "SHA-1", MigrationPriority: 80}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "MD5", MigrationPriority: 95}),
+		cryptoFinding("key", "/c", &model.CryptoAsset{Algorithm: "SHA-1", MigrationPriority: 80}),
 	)
 
 	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20)
@@ -379,7 +402,7 @@ func TestListPriority_LimitRespected(t *testing.T) {
 	orgID := testUUID("prio-limit")
 	findings := make([]model.Finding, 0, 30)
 	for i := 0; i < 30; i++ {
-		findings = append(findings, cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
+		findings = append(findings, cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
 	}
 	_ = saveScan(t, s, testUUID("prio-limit-1"), "host-1", orgID, findings...)
 
@@ -396,8 +419,8 @@ func TestListPriority_ExcludesZeroPriority(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("prio-zero")
 	_ = saveScan(t, s, testUUID("prio-zero-1"), "host-1", orgID,
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "AES", MigrationPriority: 0}),
-		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "AES", MigrationPriority: 0}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
 	)
 
 	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20)
@@ -411,7 +434,7 @@ func TestListPriority_LimitZeroDefaultsTo20(t *testing.T) {
 	orgID := testUUID("prio-default")
 	findings := make([]model.Finding, 0, 25)
 	for i := 0; i < 25; i++ {
-		findings = append(findings, cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
+		findings = append(findings, cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
 	}
 	_ = saveScan(t, s, testUUID("prio-default-1"), "host-1", orgID, findings...)
 
@@ -427,8 +450,8 @@ func TestDeleteScan_CascadesToFindings(t *testing.T) {
 	orgID := testUUID("cascade-org")
 
 	scan := saveScan(t, s, testUUID("cascade-1"), "host-1", orgID,
-		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
-		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
 	)
 	require.Equal(t, 2, queryFindingsCount(t, s, scan.ID))
 

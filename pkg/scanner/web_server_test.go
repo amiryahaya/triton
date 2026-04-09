@@ -238,6 +238,31 @@ func TestParseCaddyfile(t *testing.T) {
 	assert.NotNil(t, hsts)
 }
 
+// --- Regression: B4 Apache quoted SSLCipherSuite ---
+
+// TestParseApache_QuotedCipherSuite reproduces the B4 review
+// finding: Apache allows `SSLCipherSuite "…"` with outer
+// double-quotes. Before the fix, the quotes leaked through the
+// cipher-list split and produced algorithm names like `"NULL`
+// and `ECDHE+AESGCM"` with literal quote characters.
+func TestParseApache_QuotedCipherSuite(t *testing.T) {
+	const apacheQuoted = `
+<VirtualHost *:443>
+    SSLProtocol +TLSv1.2 +TLSv1.3
+    SSLCipherSuite "!NULL:ECDHE+AESGCM:HIGH"
+</VirtualHost>
+`
+	m := NewWebServerModule(&config.Config{})
+	findings := m.parseApache("/test/ssl.conf", []byte(apacheQuoted))
+	require.NotEmpty(t, findings)
+
+	for _, f := range findings {
+		require.NotNil(t, f.CryptoAsset)
+		assert.NotContains(t, f.CryptoAsset.Algorithm, `"`,
+			"algorithm name %q should not contain literal quote char", f.CryptoAsset.Algorithm)
+	}
+}
+
 // --- Regression: B1 nil-finding panic ---
 
 // TestParseNginx_DegenerateCipherList reproduces the B1 review

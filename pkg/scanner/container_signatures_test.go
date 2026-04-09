@@ -236,6 +236,39 @@ resources:
 	assert.Equal(t, 1, plaintextWarnings, "exactly one PLAINTEXT warning expected (second resource, configmaps)")
 }
 
+// TestParseK8sEncryptionConfig_ProvidersWithInlineComment is
+// the B5 regression test: before the fix, a `providers: #
+// managed by kubeadm` line failed HasSuffix("providers:"), so
+// the parser never entered the block and the whole config was
+// silently skipped.
+func TestParseK8sEncryptionConfig_ProvidersWithInlineComment(t *testing.T) {
+	const cfg = `
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers: # managed by kubeadm
+      - aescbc:
+          keys:
+            - name: key1
+              secret: c2VjcmV0
+      - identity: {}
+`
+	m := NewContainerSignaturesModule(&config.Config{})
+	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(cfg))
+	require.NotEmpty(t, findings, "inline comment on providers: line should not silence the walker")
+
+	// aescbc must be present.
+	hasAES := false
+	for _, f := range findings {
+		if f.CryptoAsset != nil && strings.Contains(f.CryptoAsset.Algorithm, "AES") {
+			hasAES = true
+		}
+	}
+	assert.True(t, hasAES, "aescbc provider missing, algos=%v", collectAlgorithms(findings))
+}
+
 func TestParseK8sEncryptionConfig_IdentityFirst(t *testing.T) {
 	// When `identity` is the FIRST provider for a resource, no
 	// encryption-at-rest is applied — this is a critical

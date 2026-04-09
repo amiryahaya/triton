@@ -31,6 +31,21 @@ const (
 	ConfidenceSpeculative = 0.50 // Unreachable dependency
 )
 
+// appendNonNil is a tiny guard that drops nil findings before
+// appending to a parser's output slice. Finding builders may
+// return nil for degenerate tokens (pure OpenSSL list operators
+// like `!`, `-`, `+`), and the engine collector would panic
+// dereferencing a nil pointer. Centralizing the guard keeps
+// every parser callsite a one-liner and makes the "never leak
+// nil" invariant visible in one place. Used by web_server,
+// vpn_config, container_signatures and any future config-style
+// scanner.
+func appendNonNil(out *[]*model.Finding, f *model.Finding) {
+	if f != nil {
+		*out = append(*out, f)
+	}
+}
+
 // newFinding creates a Finding with common fields pre-populated.
 func newFinding(module string, category int, source model.FindingSource, asset *model.CryptoAsset, confidence float64) *model.Finding {
 	return &model.Finding{

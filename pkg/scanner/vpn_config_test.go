@@ -222,6 +222,65 @@ func TestParseOpenVPN_Strong(t *testing.T) {
 	assert.Contains(t, algos, "TLS 1.2")
 }
 
+// TestParseOpenVPN_TLSGroups is the S4 regression test: before
+// the fix, `tls-groups` was not a case in parseOpenVPN's switch,
+// so the vpnAlgoTokenMap entries for secp*/prime256v1 were dead
+// code and OpenVPN ECDH curve names produced zero findings.
+func TestParseOpenVPN_TLSGroups(t *testing.T) {
+	const cfg = `
+client
+remote vpn.example.com 1194
+tls-groups secp384r1:X25519:prime256v1
+`
+	m := NewVPNModule(&config.Config{})
+	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(cfg))
+	require.NotEmpty(t, findings)
+
+	algos := collectAlgorithms(findings)
+	// Expect all three curves (normalized by vpnAlgoTokenMap or
+	// classified by the registry).
+	hasP384 := false
+	hasX25519 := false
+	hasP256 := false
+	for _, a := range algos {
+		up := strings.ToUpper(a)
+		if strings.Contains(up, "P384") || strings.Contains(up, "P-384") {
+			hasP384 = true
+		}
+		if strings.Contains(up, "X25519") || strings.Contains(up, "CURVE25519") {
+			hasX25519 = true
+		}
+		if strings.Contains(up, "P256") || strings.Contains(up, "P-256") {
+			hasP256 = true
+		}
+	}
+	assert.True(t, hasP384, "secp384r1 missing, got %v", algos)
+	assert.True(t, hasX25519, "X25519 missing, got %v", algos)
+	assert.True(t, hasP256, "prime256v1 missing, got %v", algos)
+}
+
+// TestParseIPsec_PFSDisabled verifies that `pfs = no` surfaces
+// as a PFS-disabled finding (the B3 defensive refactor turned
+// this path into an appendNonNil call; ensure it still fires).
+func TestParseIPsec_PFSDisabled(t *testing.T) {
+	const cfg = `
+conn weak
+    keyexchange=ikev2
+    ike=aes256-sha256-modp2048
+    pfs=no
+`
+	m := NewVPNModule(&config.Config{})
+	findings := m.parseIPsec("/etc/ipsec.conf", []byte(cfg))
+
+	hasDisabled := false
+	for _, f := range findings {
+		if f.CryptoAsset != nil && strings.Contains(f.CryptoAsset.Algorithm, "PFS-disabled") {
+			hasDisabled = true
+		}
+	}
+	assert.True(t, hasDisabled, "PFS-disabled finding missing, algos=%v", collectAlgorithms(findings))
+}
+
 func TestParseOpenVPN_Weak(t *testing.T) {
 	m := NewVPNModule(&config.Config{})
 	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(openvpnWeak))

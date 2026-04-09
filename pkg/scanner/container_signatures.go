@@ -311,10 +311,21 @@ func (m *ContainerSignaturesModule) parseK8sEncryptionConfig(path string, data [
 	for scanner.Scan() {
 		line := scanner.Text()
 		stripped := strings.TrimSpace(line)
+		// Strip YAML line comments before detecting block
+		// boundaries. B5 review — `providers: # managed by
+		// kubeadm` must still enter the providers block. Be
+		// careful to only strip comments, not `#` inside
+		// quoted string values (which don't appear in
+		// encryption-config.yaml but cost nothing to guard).
+		if idx := strings.IndexByte(stripped, '#'); idx >= 0 && !quotedUpTo(stripped, idx) {
+			stripped = strings.TrimSpace(stripped[:idx])
+		}
 		lower := strings.ToLower(stripped)
 
 		// A new providers: key (re)starts the block. Reset.
-		if strings.HasSuffix(lower, "providers:") {
+		// Use HasPrefix on the trimmed-and-de-commented line so
+		// `providers:` anywhere in the line structure counts.
+		if strings.HasPrefix(lower, "providers:") {
 			inProviders = true
 			providerCount = 0
 			providerIndent = -1
@@ -401,6 +412,21 @@ func (m *ContainerSignaturesModule) parseK8sEncryptionConfig(path string, data [
 		out = append(out, containerSigFinding(path, asset))
 	}
 	return out
+}
+
+// quotedUpTo reports whether position idx in s falls inside a
+// double-quoted substring. Used by the YAML comment-stripper
+// to avoid cutting at a `#` that lives inside a quoted value.
+// Simple scanner — does not honor escape sequences because
+// encryption-config.yaml keys never contain embedded quotes.
+func quotedUpTo(s string, idx int) bool {
+	inQuote := false
+	for i := 0; i < idx && i < len(s); i++ {
+		if s[i] == '"' {
+			inQuote = !inQuote
+		}
+	}
+	return inQuote
 }
 
 // countLeadingSpaces counts the leading space characters in a

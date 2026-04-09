@@ -214,18 +214,6 @@ func (m *WebServerModule) matchNginxLine(path, line string, out *[]*model.Findin
 	}
 }
 
-// appendNonNil is a tiny guard that drops nil findings before
-// appending to the parser's output slice. The finding builders
-// return nil for degenerate tokens (pure OpenSSL operators like
-// `!`), and the engine collector would panic dereferencing a
-// nil finding pointer. Centralized here so callers don't have
-// to open-code the guard at every append site. See B1 review.
-func appendNonNil(out *[]*model.Finding, f *model.Finding) {
-	if f != nil {
-		*out = append(*out, f)
-	}
-}
-
 // --- Apache ---
 
 func (m *WebServerModule) parseApache(path string, data []byte) []*model.Finding {
@@ -270,7 +258,15 @@ func (m *WebServerModule) matchApacheLine(path, line string, out *[]*model.Findi
 		// Apache uses ":" or " " to separate ciphers; the value
 		// can be multi-word. Re-join everything after the
 		// directive and split on : / space.
-		raw := strings.Join(parts[1:], " ")
+		//
+		// B4 review — Apache permits `SSLCipherSuite "HIGH:!NULL"`
+		// with outer double-quotes. Without stripping them,
+		// the first and last cipher tokens carry literal `"`
+		// characters that survive TrimLeft("!-+") and pollute
+		// the algorithm name in every finding. Mirror the
+		// nginx parser which strips outer quotes before
+		// cipher-list splitting.
+		raw := strings.Trim(strings.Join(parts[1:], " "), `"`)
 		for _, c := range cipherList(raw) {
 			appendNonNil(out, m.cipherFinding(path, "apache", c))
 		}

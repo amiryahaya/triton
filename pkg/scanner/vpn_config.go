@@ -232,7 +232,7 @@ func (m *VPNModule) parseIPsec(path string, data []byte) []*model.Finding {
 			appendNonNil(&out, m.vpnAlgoFinding(path, "Key exchange version", val, "strongSwan keyexchange directive"))
 			continue
 		case "pfs":
-			out = append(out, m.vpnPFSFinding(path, val))
+			appendNonNil(&out, m.vpnPFSFinding(path, val))
 			continue
 		default:
 			continue
@@ -318,7 +318,7 @@ func (m *VPNModule) parseWireGuard(path string, data []byte) []*model.Finding {
 			Purpose:   spec.purp,
 		}
 		crypto.ClassifyCryptoAsset(asset)
-		out = append(out, vpnFinding(path, asset))
+		appendNonNil(&out, vpnFinding(path, asset))
 	}
 
 	if hasPrivateKey {
@@ -329,7 +329,7 @@ func (m *VPNModule) parseWireGuard(path string, data []byte) []*model.Finding {
 			Purpose:   "WireGuard interface PrivateKey present (value redacted)",
 		}
 		crypto.ClassifyCryptoAsset(asset)
-		out = append(out, vpnFinding(path, asset))
+		appendNonNil(&out, vpnFinding(path, asset))
 	}
 	return out
 }
@@ -384,6 +384,20 @@ func (m *VPNModule) parseOpenVPN(path string, data []byte) []*model.Finding {
 				canonical = "TLS " + value
 			}
 			appendNonNil(&out, m.vpnAlgoFinding(path, "TLS protocol version", canonical, "OpenVPN tls-version-min"))
+		case "tls-groups":
+			// S4 review — `tls-groups` lists the ECDH curves
+			// OpenVPN will negotiate during the TLS handshake.
+			// Colon-separated in OpenVPN's spelling (e.g.
+			// `tls-groups secp384r1:X25519:prime256v1`). The
+			// vpnAlgoTokenMap normalizes secp* / prime256v1
+			// into the registry's canonical curve names.
+			for _, c := range strings.Split(value, ":") {
+				c = strings.TrimSpace(c)
+				if c == "" {
+					continue
+				}
+				appendNonNil(&out, m.vpnAlgoFinding(path, "TLS ECDH curve", c, "OpenVPN tls-groups"))
+			}
 		}
 	}
 	return out

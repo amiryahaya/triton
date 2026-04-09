@@ -141,11 +141,16 @@ func insertFindingsInTx(ctx context.Context, tx pgx.Tx, findings []Finding) erro
 
 // insertFindingsChunk inserts up to 1000 finding rows in a single
 // statement. Column count: 16 (no category, no line_number).
+//
+// The loop indexes directly into chunk (rather than `for i, f := range
+// chunk`) to avoid copying each 232-byte Finding struct per iteration —
+// gocritic rangeValCopy fix.
 func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error {
 	const cols = 16
 	args := make([]any, 0, len(chunk)*cols)
 	valueStrs := make([]string, 0, len(chunk))
-	for i, f := range chunk {
+	for i := range chunk {
+		f := &chunk[i]
 		base := i * cols
 		valueStrs = append(valueStrs, fmt.Sprintf(
 			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",

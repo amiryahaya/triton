@@ -63,10 +63,10 @@ func (s *Server) handleExpiringCertificates(w http.ResponseWriter, r *http.Reque
 
 	withinParam := strings.TrimSpace(r.URL.Query().Get("within"))
 	var within time.Duration
-	switch {
-	case withinParam == "":
+	switch withinParam {
+	case "":
 		within = 90 * 24 * time.Hour
-	case withinParam == "all":
+	case "all":
 		within = 100 * 365 * 24 * time.Hour
 	default:
 		days, err := strconv.Atoi(withinParam)

@@ -1054,10 +1054,84 @@
     }
   }
 
-  // Stubs — implemented in commits 3 and 4.
+  // certFilterDays is the currently-selected window for the
+  // Expiring Certificates view. Persisted in module state so filter
+  // chip clicks don't require a full re-render of the chrome.
+  let certFilterDays = 90;
+
   async function renderCertificates() {
-    content.innerHTML = '<h2>Expiring Certificates</h2><div class="empty-state">Coming soon.</div>';
+    content.innerHTML = '<div class="loading">Loading certificates...</div>';
+    try {
+      const param = certFilterDays === 'all' ? 'all' : String(certFilterDays);
+      const rows = await api('/certificates/expiring?within=' + param);
+
+      // Summary counts computed from the rows we just fetched. Note
+      // these reflect only what the current window returned — to see
+      // a wider view, click the "All" chip which broadens the query.
+      let expired = 0, urgent = 0, warning = 0;
+      for (const r of rows) {
+        if (r.daysRemaining < 0) expired++;
+        else if (r.daysRemaining <= 30) urgent++;
+        else if (r.daysRemaining <= 90) warning++;
+      }
+
+      let html = '<h2>Expiring Certificates</h2>' +
+        '<p class="subtitle">Latest-scan certificates sorted by soonest expiry. Already-expired certs are always included regardless of the filter.</p>' +
+        '<div class="summary-chips">' +
+          '<div class="summary-chip critical"><strong>' + expired + '</strong> expired</div>' +
+          '<div class="summary-chip urgent"><strong>' + urgent + '</strong> within 30 days</div>' +
+          '<div class="summary-chip warning"><strong>' + warning + '</strong> within 90 days</div>' +
+          '<div class="summary-chip"><strong>' + rows.length + '</strong> shown</div>' +
+        '</div>' +
+        '<div class="form-row" style="gap:8px;margin-bottom:12px">' +
+          ['30', '90', '180', 'all'].map(function(d) {
+            const active = String(certFilterDays) === d;
+            const label = d === 'all' ? 'All' : d + ' days';
+            return '<button class="btn" data-window="' + d + '" style="opacity:' + (active ? '1' : '0.6') + '">' + label + '</button>';
+          }).join('') +
+        '</div>';
+
+      if (rows.length === 0) {
+        html += '<div class="empty-state">No certificates match this filter.</div>';
+      } else {
+        html += '<table class="analytics-table"><thead><tr>' +
+          '<th>Subject</th><th>Host</th><th>Algorithm</th>' +
+          '<th class="num">Expires in</th><th>Status</th>' +
+          '</tr></thead><tbody>';
+        for (const row of rows) {
+          const days = row.daysRemaining;
+          const daysText = days < 0 ? 'expired ' + (-days) + 'd ago' : days + ' days';
+          const algo = row.algorithm + (row.keySize ? '-' + row.keySize : '');
+          html += '<tr>' +
+            '<td>' + escapeHtml(row.subject) + '</td>' +
+            '<td>' + escapeHtml(row.hostname) + '</td>' +
+            '<td>' + escapeHtml(algo) + '</td>' +
+            '<td class="num">' + escapeHtml(daysText) + '</td>' +
+            '<td>' + badge(row.status) + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+
+      // Wire up filter chip buttons. Each click updates the module-
+      // level certFilterDays and re-renders. The selected chip stays
+      // highlighted via opacity = 1.
+      $$('button[data-window]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const v = btn.dataset.window;
+          certFilterDays = v === 'all' ? 'all' : parseInt(v, 10);
+          renderCertificates();
+        });
+      });
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load certificates: ' + escapeHtml(e.message) + '</div>';
+    }
   }
+
+  // Stub — implemented in commit 4.
   async function renderPriority() {
     content.innerHTML = '<h2>Migration Priority</h2><div class="empty-state">Coming soon.</div>';
   }

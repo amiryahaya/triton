@@ -85,3 +85,42 @@ test.describe('Analytics — Crypto Inventory empty state', () => {
   // describe block so the intent is documented in the spec file.
   test.skip('empty org renders the no-findings card', () => {});
 });
+
+test.describe('Analytics — Expiring Certificates view', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/ui/#/certificates');
+    // Wait for either the table or the empty-state card.
+    await page.waitForSelector('.analytics-table, .empty-state', { timeout: 10_000 });
+  });
+
+  test('renders the page heading and summary chips', async ({ page }) => {
+    await expect(page.locator('h2', { hasText: 'Expiring Certificates' })).toBeVisible();
+    // Four summary chips: expired, within 30, within 90, shown.
+    const chips = page.locator('.summary-chip');
+    await expect(chips).toHaveCount(4);
+  });
+
+  test('exposes filter chip buttons for 30/90/180/all days', async ({ page }) => {
+    await expect(page.locator('button[data-window="30"]')).toBeVisible();
+    await expect(page.locator('button[data-window="90"]')).toBeVisible();
+    await expect(page.locator('button[data-window="180"]')).toBeVisible();
+    await expect(page.locator('button[data-window="all"]')).toBeVisible();
+  });
+
+  test('clicking 30-day chip keeps the view on /certificates', async ({ page }) => {
+    // Clicking the filter re-renders the view in place; URL stays the same.
+    await page.click('button[data-window="30"]');
+    // Give the re-render a moment; the filter change happens client-side
+    // and triggers a fresh API call.
+    await page.waitForTimeout(500);
+    await expect(page.locator('h2', { hasText: 'Expiring Certificates' })).toBeVisible();
+  });
+
+  test('clicking All broadens the view without errors', async ({ page }) => {
+    await page.click('button[data-window="all"]');
+    await page.waitForTimeout(500);
+    // Still on certificates view, no error state.
+    await expect(page.locator('h2', { hasText: 'Expiring Certificates' })).toBeVisible();
+    await expect(page.locator('.error')).not.toBeVisible();
+  });
+});

@@ -466,6 +466,7 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		// by the denormalized findings table. All three are tenant-
 		// scoped via the surrounding RequireTenant middleware.
 		r.Get("/inventory", s.handleInventory)
+		r.Get("/certificates/expiring", s.handleExpiringCertificates)
 
 		// Destructive operations require org_admin (Arch #7 from
 		// Phase 2 review). org_user can read but cannot delete scans.

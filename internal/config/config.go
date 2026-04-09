@@ -51,7 +51,13 @@ var profiles = map[string]ScanProfile{
 		// profile because TLS posture and VPN crypto are
 		// expected coverage for any compliance-driven scan,
 		// not deep-dive territory.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn"},
+		//
+		// Fast Wins sprint — password_hash joins standard
+		// because /etc/shadow and pg_hba.conf are the #1
+		// compliance-audit targets after certificates. Auth
+		// material stays in comprehensive only (Kerberos /
+		// GPG / Tor / DNSSEC are niche per host).
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn", "password_hash"},
 		Depth:   10,
 		Workers: 8,
 	},
@@ -63,7 +69,11 @@ var profiles = map[string]ScanProfile{
 		// comprehensive profile. Codesign already runs here
 		// and now picks up Authenticode (.exe/.dll/.msi) and
 		// JAR (.jar/.war/.ear) artifacts via the C2 extension.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures"},
+		//
+		// Fast Wins sprint — password_hash + auth_material
+		// cover every remaining canonical auth-material surface
+		// on Linux/BSD hosts.
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},

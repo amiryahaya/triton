@@ -35,7 +35,7 @@ func TestCertStoreModule_ParsePEMCerts_RSA(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), pemData, findings)
+	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -57,7 +57,7 @@ func TestCertStoreModule_ParsePEMCerts_ECDSA(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), pemData, findings)
+	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -77,7 +77,7 @@ func TestCertStoreModule_ParsePEMCerts_Ed25519(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), pemData, findings)
+	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -99,7 +99,7 @@ func TestCertStoreModule_ParsePEMCerts_Multiple(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), combined, findings)
+	err := m.parsePEMCerts(context.Background(), combined, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -115,7 +115,7 @@ func TestCertStoreModule_ParsePEMCerts_Empty(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), []byte("not a pem"), findings)
+	err := m.parsePEMCerts(context.Background(), []byte("not a pem"), "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -135,7 +135,7 @@ func TestCertStoreModule_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	findings := make(chan *model.Finding, 50)
-	err := m.parsePEMCerts(ctx, pemData, findings)
+	err := m.parsePEMCerts(ctx, pemData, "test", "OS certificate store", findings)
 	close(findings)
 
 	assert.ErrorIs(t, err, context.Canceled)
@@ -188,15 +188,20 @@ func TestCertStoreModule_Scan_Integration(t *testing.T) {
 		t.Skip("OS certificate store not accessible or empty — skipping integration assertions")
 	}
 
-	// Verify all findings have correct module and category
+	// Verify all findings have correct module and category.
+	// Source.Path may now be either a synthetic "os:certstore:<os>"
+	// label (for OS native stores) OR a real filesystem path to a
+	// Java cacerts keystore we auto-discovered — both valid.
+	// Function likewise can be "OS certificate store" or
+	// "Java cacerts keystore".
 	for _, f := range results {
 		assert.Equal(t, "certstore", f.Module)
 		assert.Equal(t, 2, f.Category)
-		assert.Equal(t, "os:certstore", f.Source.Path)
+		assert.NotEmpty(t, f.Source.Path, "source path should be set")
 		require.NotNil(t, f.CryptoAsset)
 		assert.NotEmpty(t, f.CryptoAsset.Algorithm)
 		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
-		assert.Equal(t, "OS certificate store", f.CryptoAsset.Function)
+		assert.NotEmpty(t, f.CryptoAsset.Function)
 	}
 }
 

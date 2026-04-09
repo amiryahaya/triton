@@ -39,6 +39,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	// Sprint A1/A3 — web_server and vpn graduate to standard.
 	assert.Contains(t, cfg.Modules, "web_server")
 	assert.Contains(t, cfg.Modules, "vpn")
+	// Fast Wins sprint — password_hash joins standard.
+	assert.Contains(t, cfg.Modules, "password_hash")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -58,6 +60,9 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "web_server")
 	assert.Contains(t, cfg.Modules, "vpn")
 	assert.Contains(t, cfg.Modules, "container_signatures")
+	// Fast Wins sprint — password_hash + auth_material.
+	assert.Contains(t, cfg.Modules, "password_hash")
+	assert.Contains(t, cfg.Modules, "auth_material")
 
 	// Should have process and network targets
 	hasProcess := false

@@ -37,7 +37,7 @@ func TestResolveAgentConfig_InvalidProfileErrors(t *testing.T) {
 	t.Cleanup(func() { agentConfigDir = "" })
 	agentProfile = "" // flag unset → yaml value is the source
 
-	_, err := resolveAgentConfig()
+	_, err := resolveAgentConfig(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `unknown profile "standdard"`)
 	assert.Contains(t, err.Error(),
@@ -60,7 +60,7 @@ func TestResolveAgentConfig_InvalidFlagProfileErrors(t *testing.T) {
 	agentProfile = "bla"
 	t.Cleanup(func() { agentProfile = "" })
 
-	_, err := resolveAgentConfig()
+	_, err := resolveAgentConfig(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `unknown profile "bla"`)
 	assert.Contains(t, err.Error(), "--profile flag",
@@ -80,7 +80,7 @@ func TestResolveAgentConfig_ValidProfilesAllAccepted(t *testing.T) {
 			agentProfile = p
 			t.Cleanup(func() { agentProfile = "" })
 
-			r, err := resolveAgentConfig()
+			r, err := resolveAgentConfig(nil)
 			require.NoError(t, err, "profile %q must be accepted", p)
 			assert.Equal(t, p, r.requestedProfile)
 		})

@@ -32,7 +32,8 @@ var (
 	agentServer      string
 	agentProfile     string
 	agentInterval    time.Duration
-	agentCheckConfig bool   // --check-config: validate then exit without scanning
+	agentCheckConfig bool // --check-config: validate then exit without scanning
+	agentAlsoLocal   bool // --also-local: tee mode — write locally AND submit to server
 	agentConfigDir   string // test hook: override the exe-dir search
 )
 
@@ -100,6 +101,7 @@ func init() {
 	agentCmd.Flags().StringVar(&agentProfile, "profile", "", "Scan profile: quick | standard | comprehensive. Overrides agent.yaml.")
 	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h). If unset, runs once.")
 	agentCmd.Flags().BoolVar(&agentCheckConfig, "check-config", false, "Validate agent.yaml, probe the report server, print the effective config, then exit without scanning.")
+	agentCmd.Flags().BoolVar(&agentAlsoLocal, "also-local", false, "Tee mode: when --report-server is set, also write the scan to OutputDir locally. Overrides also_local in agent.yaml.")
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -129,6 +131,7 @@ type resolvedAgentConfig struct {
 	effectiveFormats   []string            // after tier filtering
 	profileDowngraded  bool                // true when requested != effective
 	formatsFilteredOut []string            // formats the tier rejected
+	alsoLocal          bool                // tee mode: write locally AND submit to server
 }
 
 // validProfiles is the closed set of scan profiles the scanner
@@ -157,7 +160,7 @@ var validProfiles = map[string]bool{
 // printStartupBanner can surface it. Silent downgrade prevents the
 // scan from failing on a tier mismatch; explicit banner prevents
 // the operator from being surprised.
-func resolveAgentConfig() (*resolvedAgentConfig, error) {
+func resolveAgentConfig(cmd *cobra.Command) (*resolvedAgentConfig, error) {
 	fileCfg, err := agentconfig.Load(agentConfigDir)
 	if err != nil {
 		return nil, err
@@ -191,6 +194,24 @@ func resolveAgentConfig() (*resolvedAgentConfig, error) {
 		)
 	}
 
+	// Tee mode: CLI flag wins if explicitly set (even to false),
+	// else fall back to agent.yaml. cobra's Changed() distinguishes
+	// "user passed --also-local=false" from "user didn't touch the
+	// flag" so yaml-set true can be overridden by an explicit CLI
+	// false without being overridden by the default false. cmd may
+	// be nil in tests that exercise resolveAgentConfig in isolation
+	// — in that case we fall back to the package global, which
+	// tests can set directly.
+	alsoLocal := fileCfg.AlsoLocal
+	if cmd != nil && cmd.Flags().Changed("also-local") {
+		alsoLocal = agentAlsoLocal
+	} else if cmd == nil {
+		// No cobra command — use the package-global directly so
+		// tests that set agentAlsoLocal = true still behave as
+		// though the flag was explicitly set.
+		alsoLocal = agentAlsoLocal || fileCfg.AlsoLocal
+	}
+
 	return &resolvedAgentConfig{
 		source:           fileCfg,
 		licenseToken:     fileCfg.LicenseKey,
@@ -199,6 +220,7 @@ func resolveAgentConfig() (*resolvedAgentConfig, error) {
 		effectiveProfile: requestedProfile, // updated by applyTierFiltering
 		outputDir:        fileCfg.ResolveOutputDir(),
 		requestedFormats: fileCfg.Formats,
+		alsoLocal:        alsoLocal,
 	}, nil
 }
 
@@ -316,8 +338,8 @@ func profileDowngradeChain(requested string) []string {
 	return full
 }
 
-func runAgent(_ *cobra.Command, _ []string) error {
-	resolved, err := resolveAgentConfig()
+func runAgent(cmd *cobra.Command, _ []string) error {
+	resolved, err := resolveAgentConfig(cmd)
 	if err != nil {
 		return fmt.Errorf("loading agent config: %w", err)
 	}
@@ -512,9 +534,12 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 	}
 
 	// Mode banner.
-	if r.reportServer != "" {
+	switch {
+	case r.reportServer != "" && r.alsoLocal:
+		fmt.Printf("  mode:        tee — local reports → %s + submit to %s\n", r.outputDir, r.reportServer)
+	case r.reportServer != "":
 		fmt.Printf("  mode:        submit to report server %s\n", r.reportServer)
-	} else {
+	default:
 		fmt.Printf("  mode:        local reports → %s\n", r.outputDir)
 	}
 
@@ -527,12 +552,13 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 		fmt.Printf("  profile:     %s\n", r.effectiveProfile)
 	}
 
-	// Effective formats (only meaningful in local-report mode).
+	// Effective formats — meaningful whenever the agent is writing
+	// locally, which is true in both local-only mode AND tee mode.
 	// Surfaced so the operator knows which files to expect on
 	// disk. A filtered-out list is shown alongside so they can
 	// see what their tier would need to produce the missing
 	// formats.
-	if r.reportServer == "" {
+	if r.reportServer == "" || r.alsoLocal {
 		if len(r.effectiveFormats) > 0 {
 			fmt.Printf("  formats:     %s\n", strings.Join(r.effectiveFormats, ", "))
 		}
@@ -619,10 +645,46 @@ func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig,
 		}
 	}
 
-	if client != nil {
-		return submitToServer(ctx, client, r.reportServer, scan)
+	return dispatchScanResult(ctx, r, client, scan)
+}
+
+// dispatchScanResult decides where a completed scan goes, based on
+// whether the agent is in local-only, server-only, or tee mode.
+// Factored out of runAgentScan so it can be exercised by unit tests
+// that bypass the scanner engine entirely.
+//
+// Dispatch matrix:
+//
+//	client == nil                        → local only (writeLocalReports)
+//	client != nil && !r.alsoLocal        → server only (submitToServer)
+//	client != nil &&  r.alsoLocal        → tee: local first (soft-fail),
+//	                                       then submit (hard-fail)
+//
+// Tee ordering rationale: the local write is CHEAP and local failures
+// are operationally diagnosable (disk full, permission denied) in a
+// way that the operator can fix. The server submit is THE AUTHORITATIVE
+// destination in server mode — if it fails the scan is effectively
+// lost for tenant reporting — so a local-write error must not abort
+// the submit. We log the local failure as a warning and proceed.
+func dispatchScanResult(ctx context.Context, r *resolvedAgentConfig, client *agent.Client, scan *model.ScanResult) error {
+	// Local-only mode: no server configured.
+	if client == nil {
+		return writeLocalReports(r, scan)
 	}
-	return writeLocalReports(r, scan)
+
+	// Tee mode: try the local write first, but don't block the
+	// server submit if it fails.
+	if r.alsoLocal {
+		if err := writeLocalReports(r, scan); err != nil {
+			fmt.Fprintf(os.Stderr,
+				"Warning: local report write failed (continuing with server submit): %v\n",
+				err)
+		}
+	}
+
+	// Server submit is the authoritative destination whenever a
+	// client is configured. Its error is the returned error.
+	return submitToServer(ctx, client, r.reportServer, scan)
 }
 
 // submitToServer is the existing Phase 4 path, factored out so the

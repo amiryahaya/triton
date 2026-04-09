@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -41,6 +42,17 @@ type Client struct {
 	// each subsequent wait quadruples (1s → 4s → 16s by default).
 	// Tests override this to keep the retry path fast.
 	RetryInitialBackoff time.Duration
+
+	// CompressSubmissions enables gzip compression on the request
+	// body with `Content-Encoding: gzip`. Typical scan payloads
+	// are 1-5 MB of JSON with high redundancy (repeated algorithm
+	// names, file paths, hostnames) and compress 4-8x. Defaults to
+	// true from New(); set to false for test servers that can't
+	// decompress, or for operators who need the raw body on the
+	// wire for debugging. The server-side chi middleware handles
+	// decompression transparently, so existing uncompressed bodies
+	// still work from either side.
+	CompressSubmissions bool
 }
 
 // New creates a new agent Client. The API key parameter was removed in
@@ -60,6 +72,10 @@ func New(serverURL string) *Client {
 		},
 		RetryMaxAttempts:    defaultRetryMaxAttempts,
 		RetryInitialBackoff: defaultRetryInitialBackoff,
+		// Default ON: shrinks typical scan submissions by 4-8x.
+		// The report server's /api/v1 middleware handles both
+		// compressed and uncompressed bodies for backward compat.
+		CompressSubmissions: true,
 	}
 }
 
@@ -154,13 +170,37 @@ func (c *Client) Submit(ctx context.Context, result *model.ScanResult) (*SubmitR
 //   - err: non-nil on any non-success outcome
 func (c *Client) submitOnce(ctx context.Context, body []byte) (*SubmitResponse, time.Duration, bool, error) {
 	url := c.ServerURL + "/api/v1/scans"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+
+	// Build the request body. Compress when CompressSubmissions
+	// is true — the common production path. Typical scan payloads
+	// shrink 4-8x and the server middleware decodes transparently.
+	// Compression errors are non-retryable (they indicate a bug,
+	// not a transient condition).
+	reqBody := bytes.NewReader(body)
+	var contentEncoding string
+	if c.CompressSubmissions {
+		var buf bytes.Buffer
+		gzw := gzip.NewWriter(&buf)
+		if _, err := gzw.Write(body); err != nil {
+			return nil, 0, false, fmt.Errorf("compressing body: %w", err)
+		}
+		if err := gzw.Close(); err != nil {
+			return nil, 0, false, fmt.Errorf("closing gzip writer: %w", err)
+		}
+		reqBody = bytes.NewReader(buf.Bytes())
+		contentEncoding = "gzip"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, reqBody)
 	if err != nil {
 		// Request construction errors are never retryable — they
 		// indicate a bug in the client, not a transient condition.
 		return nil, 0, false, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+	}
 	if c.LicenseToken != "" {
 		req.Header.Set("X-Triton-License-Token", c.LicenseToken)
 	}

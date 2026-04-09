@@ -19,8 +19,8 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
-	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"

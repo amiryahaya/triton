@@ -200,4 +200,3 @@ func loadFile(path string) (*Config, error) {
 	cfg.Profile = strings.TrimSpace(cfg.Profile)
 	return &cfg, nil
 }
-

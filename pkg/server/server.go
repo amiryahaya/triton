@@ -262,6 +262,14 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	// APIKeyAuth was removed in Phase 4 — clients that previously used
 	// X-Triton-API-Key must migrate to one of the supported auth modes.
 	r.Route("/api/v1", func(r chi.Router) {
+		// A10: transparently decompress gzipped request bodies.
+		// Runs BEFORE auth/licence so a gzipped body with a valid
+		// license token is parsed correctly. Uncompressed bodies
+		// pass through unchanged — this is a pure additive
+		// middleware with backward compatibility for pre-A10
+		// agents.
+		r.Use(GzipDecodeMiddleware)
+
 		if cfg.Guard != nil {
 			r.Use(LicenceGate(cfg.Guard))
 		}

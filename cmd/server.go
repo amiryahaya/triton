@@ -15,9 +15,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/auth"
-	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/mailer"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
 )

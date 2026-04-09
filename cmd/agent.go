@@ -14,8 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/agentconfig"
-	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/agent"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -32,8 +32,8 @@ var (
 	agentServer      string
 	agentProfile     string
 	agentInterval    time.Duration
-	agentCheckConfig bool // --check-config: validate then exit without scanning
-	agentAlsoLocal   bool // --also-local: tee mode — write locally AND submit to server
+	agentCheckConfig bool   // --check-config: validate then exit without scanning
+	agentAlsoLocal   bool   // --also-local: tee mode — write locally AND submit to server
 	agentConfigDir   string // test hook: override the exe-dir search
 )
 

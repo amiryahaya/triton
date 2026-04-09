@@ -22,16 +22,35 @@ import (
 // per-scan failure the scan is MARKED anyway so we don't retry forever
 // on a corrupt blob; operators investigate via logs.
 //
+// Observability: the function records a one-time snapshot of the
+// initial row count (exposed via BackfillScansInitial) and updates
+// backfillLastProgressUnix on every batch iteration so operators can
+// distinguish slow from stuck. See /pensive:full-review action
+// item Arch-3.
+//
 // See docs/plans/2026-04-09-analytics-phase-1-design.md §5 and the
 // plan's Appendix A.9.
 func (s *PostgresStore) BackfillFindings(ctx context.Context) error {
 	const batchSize = 100
-	total := 0
+	processed := 0
 	start := time.Now()
+
+	// One-time snapshot of how much work is in front of us. Failures
+	// here are non-fatal (the metric is diagnostic; the actual work
+	// proceeds regardless). /pensive:full-review Arch-3.
+	var initial int64
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM scans WHERE findings_extracted_at IS NULL`).Scan(&initial); err == nil {
+		//nolint:gosec // COUNT(*) never goes negative; uint64 conversion is safe.
+		s.backfillScansInitial.Store(uint64(initial))
+	} else {
+		log.Printf("backfill: initial count query failed: %v — continuing without gauge", err)
+	}
+	s.backfillLastProgressUnix.Store(time.Now().Unix())
 
 	for {
 		if err := ctx.Err(); err != nil {
-			log.Printf("backfill: context cancelled after %d scans: %v", total, err)
+			log.Printf("backfill: context cancelled after %d scans: %v", processed, err)
 			return nil
 		}
 
@@ -40,27 +59,47 @@ func (s *PostgresStore) BackfillFindings(ctx context.Context) error {
 			return fmt.Errorf("backfill: select unbackfilled: %w", err)
 		}
 		if len(scans) == 0 {
-			log.Printf("backfill: done — processed %d scans in %s", total, time.Since(start))
+			log.Printf("backfill: done — processed %d scans in %s", processed, time.Since(start))
 			return nil
 		}
 
 		for _, scanID := range scans {
 			if err := ctx.Err(); err != nil {
-				log.Printf("backfill: context cancelled mid-batch after %d scans", total)
+				log.Printf("backfill: context cancelled mid-batch after %d scans", processed)
 				return nil
 			}
 			if err := s.extractAndInsertOneScan(ctx, scanID); err != nil {
+				// Distinguish a genuine per-scan failure (corrupt
+				// blob, decrypt error) from a context cancellation
+				// that happened mid-operation. A cancelled context
+				// is a graceful-shutdown signal, not a "this scan
+				// is poisoned" signal — return nil instead of
+				// marking it as failed and moving on.
+				// /pensive:full-review T4 timeout test fix.
+				if ctx.Err() != nil {
+					log.Printf("backfill: context cancelled during scan %s after %d scans", scanID, processed)
+					return nil
+				}
 				log.Printf("backfill: scan %s failed: %v — marking as processed anyway", scanID, err)
 				s.backfillScansFailed.Add(1)
 			} else {
-				s.backfillScansTotal.Add(1)
+				s.backfillScansSucceeded.Add(1)
 			}
 			if err := s.markScanBackfilled(ctx, scanID); err != nil {
+				// Same graceful-cancellation handling as above — a
+				// failed mark due to expired context should not be
+				// wrapped as a fatal error. The scan stays unmarked
+				// so a future run picks it up.
+				if ctx.Err() != nil {
+					log.Printf("backfill: context cancelled marking scan %s after %d scans", scanID, processed)
+					return nil
+				}
 				return fmt.Errorf("backfill: mark scan %s: %w", scanID, err)
 			}
-			total++
+			processed++
 		}
-		log.Printf("backfill: progress — %d scans processed", total)
+		s.backfillLastProgressUnix.Store(time.Now().Unix())
+		log.Printf("backfill: progress — %d scans processed", processed)
 	}
 }
 

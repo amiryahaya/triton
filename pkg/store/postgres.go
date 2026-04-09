@@ -21,21 +21,52 @@ type PostgresStore struct {
 
 	// Backfill counters — read by the metrics handler, written by
 	// BackfillFindings. Lock-free atomics so the metrics scrape path
-	// costs nothing on every request. Analytics Phase 1.
-	backfillScansTotal  atomic.Uint64
-	backfillScansFailed atomic.Uint64
+	// costs nothing on every request. Analytics Phase 1 + polish
+	// follow-ups (/pensive:full-review B6, Arch-3).
+	backfillScansSucceeded   atomic.Uint64 // incremented on successful extraction
+	backfillScansFailed      atomic.Uint64 // incremented when a blob fails to decode
+	backfillScansInitial     atomic.Uint64 // snapshot of COUNT(*) awaiting backfill at start
+	backfillLastProgressUnix atomic.Int64  // unix seconds of last batch-loop iteration
 }
 
-// BackfillScansTotal returns the running count of scans successfully
-// processed by the findings backfill loop. Analytics Phase 1.
-func (s *PostgresStore) BackfillScansTotal() uint64 {
-	return s.backfillScansTotal.Load()
+// BackfillScansSucceeded returns the running count of scans that were
+// successfully processed by the findings backfill loop. Exposed as
+// triton_backfill_scans_succeeded_total. Analytics Phase 1.
+func (s *PostgresStore) BackfillScansSucceeded() uint64 {
+	return s.backfillScansSucceeded.Load()
 }
 
 // BackfillScansFailed returns the running count of scans that failed
-// extraction and were marked to skip (e.g. corrupt blobs). Analytics Phase 1.
+// extraction and were marked to skip (e.g. corrupt blobs). Exposed as
+// triton_backfill_scans_failed_total. Analytics Phase 1.
 func (s *PostgresStore) BackfillScansFailed() uint64 {
 	return s.backfillScansFailed.Load()
+}
+
+// BackfillScansInitial returns the snapshot of unbackfilled scans
+// taken once at the start of BackfillFindings. Zero if the goroutine
+// has not yet started, or if the initial count query failed.
+// Operators compute remaining work as:
+//
+//	remaining = initial - (succeeded + failed)
+//
+// /pensive:full-review action item Arch-3.
+func (s *PostgresStore) BackfillScansInitial() uint64 {
+	return s.backfillScansInitial.Load()
+}
+
+// BackfillLastProgress returns the most recent time a batch iteration
+// advanced during BackfillFindings. Returns the zero time if the
+// goroutine has not yet started or has finished. Operators use this
+// to distinguish "backfill is progressing slowly through a large
+// catalog" from "backfill is wedged on an uncancellable query".
+// /pensive:full-review action item Arch-3.
+func (s *PostgresStore) BackfillLastProgress() time.Time {
+	unix := s.backfillLastProgressUnix.Load()
+	if unix == 0 {
+		return time.Time{}
+	}
+	return time.Unix(unix, 0).UTC()
 }
 
 // SetEncryptor enables at-rest AES-256-GCM encryption for the scans

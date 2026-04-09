@@ -88,6 +88,15 @@ func (s *PostgresStore) loadEncryptor() *Encryptor {
 	return s.encryptor.Load()
 }
 
+// Pool returns the underlying pgxpool.Pool. Exposed so integration
+// tests can run ad-hoc SQL that the Store interface does not cover
+// (e.g., Phase 2 tests that update organizations.executive_target_percent
+// via direct UPDATE to exercise the per-org config path). Not part
+// of the Store interface — prefer interface methods in production.
+func (s *PostgresStore) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
 func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, error) {
 	pool, err := pgxpool.New(ctx, connStr)

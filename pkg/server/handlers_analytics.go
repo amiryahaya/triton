@@ -1,12 +1,18 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/amiryahaya/triton/pkg/analytics"
+	"github.com/amiryahaya/triton/pkg/policy"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -123,4 +129,160 @@ func (s *Server) handlePriorityFindings(w http.ResponseWriter, r *http.Request) 
 		rows = []store.PriorityRow{}
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+// GET /api/v1/executive
+//
+// Returns a single-round-trip ExecutiveSummary for the authenticated
+// tenant, driven by the org's per-org executive_target_percent and
+// executive_deadline_year settings. See
+// docs/plans/2026-04-10-analytics-phase-2-design.md §4 for the full
+// response contract.
+func (s *Server) handleExecutiveSummary(w http.ResponseWriter, r *http.Request) {
+	if s.backfillInProgress.Load() {
+		w.Header().Set("X-Backfill-In-Progress", "true")
+	}
+	orgID := TenantFromContext(r.Context())
+
+	// Fetch per-org settings for the projection math. Empty orgID
+	// (single-tenant mode) skips the lookup and uses defaults.
+	targetPercent := 80.0
+	deadlineYear := 2030
+	if orgID != "" {
+		org, err := s.store.GetOrg(r.Context(), orgID)
+		if err != nil {
+			var nf *store.ErrNotFound
+			if !errors.As(err, &nf) {
+				log.Printf("executive: get org: %v", err)
+				writeError(w, http.StatusInternalServerError, "internal server error")
+				return
+			}
+			// Org not found — fall through with defaults.
+		} else {
+			targetPercent = org.ExecutiveTargetPercent
+			deadlineYear = org.ExecutiveDeadlineYear
+		}
+	}
+
+	// Fetch all scan summaries in chronological order for the trend.
+	summaries, err := s.store.ListScansOrderedByTime(r.Context(), orgID)
+	if err != nil {
+		log.Printf("executive: list scans: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	latestPerHost := analytics.LatestByHostname(summaries)
+
+	// Compute the pure-math parts.
+	trend := analytics.ComputeOrgTrend(summaries)
+	projection := analytics.ComputeProjection(trend, targetPercent, deadlineYear)
+	machineHealth := analytics.ComputeMachineHealth(latestPerHost)
+
+	// Compute readiness from the latest-per-host summaries.
+	readiness := computeReadiness(latestPerHost)
+
+	// Top-5 blockers from Phase 1 store method.
+	topBlockers, err := s.store.ListTopPriorityFindings(r.Context(), orgID, 5)
+	if err != nil {
+		log.Printf("executive: top blockers: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if topBlockers == nil {
+		topBlockers = []store.PriorityRow{}
+	}
+
+	// Evaluate both built-in policies against each latest scan and
+	// aggregate the verdicts.
+	policyVerdicts, err := s.computePolicyVerdicts(r.Context(), orgID, latestPerHost)
+	if err != nil {
+		log.Printf("executive: policy verdicts: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	out := store.ExecutiveSummary{
+		Readiness:      readiness,
+		Trend:          trend,
+		Projection:     projection,
+		PolicyVerdicts: policyVerdicts,
+		TopBlockers:    topBlockers,
+		MachineHealth:  machineHealth,
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// computeReadiness sums safe and total findings across the latest
+// scan per host and returns the ReadinessSummary.
+func computeReadiness(latestPerHost []store.ScanSummary) store.ReadinessSummary {
+	var safe, total int
+	for _, s := range latestPerHost {
+		safe += s.Safe
+		total += s.Safe + s.Transitional + s.Deprecated + s.Unsafe
+	}
+	percent := 0.0
+	if total > 0 {
+		percent = math.Round(float64(safe)/float64(total)*1000) / 10 // 1 decimal
+	}
+	return store.ReadinessSummary{
+		Percent:       percent,
+		TotalFindings: total,
+		SafeFindings:  safe,
+	}
+}
+
+// computePolicyVerdicts evaluates both built-in policies against
+// each latest scan in the org and aggregates the results.
+// Verdict aggregation: worst wins (FAIL > WARN > PASS). Counts sum.
+func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latestPerHost []store.ScanSummary) ([]store.PolicyVerdictSummary, error) {
+	type policyDef struct {
+		name  string
+		label string
+	}
+	builtins := []policyDef{
+		{name: "nacsa-2030", label: "NACSA-2030"},
+		{name: "cnsa-2.0", label: "CNSA-2.0"},
+	}
+
+	out := make([]store.PolicyVerdictSummary, 0, len(builtins))
+	for _, def := range builtins {
+		pol, err := policy.LoadBuiltin(def.name)
+		if err != nil {
+			return nil, fmt.Errorf("load builtin %q: %w", def.name, err)
+		}
+
+		verdict := "PASS"
+		var totalViolations, totalFindings int
+		for _, summary := range latestPerHost {
+			// Fetch the full scan with findings for policy evaluation.
+			scan, err := s.store.GetScan(ctx, summary.ID, orgID)
+			if err != nil {
+				return nil, fmt.Errorf("get scan %s: %w", summary.ID, err)
+			}
+			result := policy.Evaluate(pol, scan)
+			totalViolations += len(result.Violations)
+			totalFindings += result.FindingsChecked
+			verdict = worstVerdict(verdict, string(result.Verdict))
+		}
+
+		out = append(out, store.PolicyVerdictSummary{
+			PolicyName:      def.name,
+			PolicyLabel:     def.label,
+			Verdict:         verdict,
+			ViolationCount:  totalViolations,
+			FindingsChecked: totalFindings,
+		})
+	}
+	return out, nil
+}
+
+// worstVerdict returns the more severe of two policy verdicts.
+// Severity order: FAIL > WARN > PASS. Used to aggregate per-scan
+// verdicts into a single org-wide verdict.
+func worstVerdict(a, b string) string {
+	rank := map[string]int{"PASS": 0, "WARN": 1, "FAIL": 2}
+	if rank[b] > rank[a] {
+		return b
+	}
+	return a
 }

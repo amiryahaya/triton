@@ -449,6 +449,115 @@ triton license show
 triton license verify <token>
 ```
 
+## End-to-End Flow: License Server → Agent → Report Server
+
+This is the fool-proof deployment path. A superadmin creates a license in the license server, clicks **Download agent.yaml**, ships that file next to the `triton` binary, and the operator runs `./triton agent`. No flags, no env vars, no shell knowledge required.
+
+```
+┌──────────────────┐   1. create org + license   ┌─────────────────┐
+│  Superadmin      │ ──────────────────────────► │ License Server  │
+│  (admin UI or    │                             │   :8081         │
+│   admin API)     │ ◄────── 2. agent.yaml ───── │ (Ed25519 signer)│
+└──────────────────┘                             └─────────────────┘
+         │                                                │
+         │ 3. ship agent.yaml next to the triton binary   │
+         ▼                                                │
+┌──────────────────┐                                      │
+│  Operator host   │                                      │
+│  ./triton agent  │ ─── 4. POST /api/v1/scans ──────────►│
+│  (agent.yaml     │        (gzip, license token auth)    ▼
+│   next to binary)│                             ┌─────────────────┐
+└──────────────────┘                             │ Report Server   │
+                                                 │   :8080         │
+                                                 │ (verifies token │
+                                                 │  via tenant     │
+                                                 │  pubkey env)    │
+                                                 └─────────────────┘
+```
+
+### 1. Provision an organization and a license
+
+From the license server admin UI (`http://<license-server>:8081/ui/`) or directly via the admin API:
+
+```bash
+# Create the org
+curl -X POST http://localhost:8081/api/v1/admin/orgs \
+  -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"acme-corp","contact":"ops@acme.example"}'
+# → {"org":{"id":"<ORG_ID>",...}}
+
+# Mint a license for that org
+curl -X POST http://localhost:8081/api/v1/admin/licenses \
+  -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"orgID":"<ORG_ID>","tier":"enterprise","seats":10,"days":365}'
+# → {"id":"<LICENSE_ID>",...}
+```
+
+### 2. Download a ready-to-ship `agent.yaml`
+
+One click from the admin UI's license detail page, or via the admin API:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/admin/licenses/<LICENSE_ID>/agent-yaml \
+  -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"profile":"comprehensive"}' \
+  -o agent.yaml
+```
+
+The generated `agent.yaml` includes:
+- The Ed25519-signed license token (doubles as the report-server auth credential)
+- The `report_server` URL (baked in from `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` on the license server)
+- The scan profile (`quick` | `standard` | `comprehensive`)
+- Header comments with license ID, org name, tier, seats, expiry
+
+### 3. Drop the file next to the triton binary and run
+
+```bash
+# On the operator host
+./triton agent --check-config   # validates agent.yaml without scanning
+./triton agent                  # runs the scan and submits to the report server
+```
+
+The agent resolves `agent.yaml` in this order:
+1. `<dir-containing-triton-binary>/agent.yaml`
+2. `~/.triton/agent.yaml`
+
+Its startup banner shows the effective tier, profile, report server URL, expiry countdown, and the file path it loaded.
+
+### 4. Verify the scan landed
+
+```bash
+# List recent scans
+curl http://localhost:8080/api/v1/scans?limit=5
+
+# Fetch a specific scan by ID
+curl http://localhost:8080/api/v1/scans/<SCAN_ID>
+```
+
+Or open the report server web UI at `http://<report-server>:8080/ui/`.
+
+### Key trust relationships
+
+For the token chain to work, these three components must share the same Ed25519 keypair:
+
+| Component | Variable | What it holds |
+|-----------|----------|---------------|
+| License Server | `TRITON_LICENSE_SERVER_SIGNING_KEY` | 64-byte private key (seed + pub), signs all issued tokens |
+| Report Server | `REPORT_SERVER_TENANT_PUBKEY` | Last 32 bytes (public half), verifies tokens from agents |
+| Agent binary | `-ldflags "-X ...publicKeyHex=<pub>"` | Embedded pubkey, verifies the token in its own `agent.yaml` |
+
+`scripts/gen-dev-env.sh` generates a fresh keypair and emits a `.env` file with all three values pre-wired — the fastest way to bring up a local stack for testing.
+
+### Options beyond the default flow
+
+- **Tee mode**: set `also_local: true` in `agent.yaml` (or pass `--also-local`) to write local reports in `output_dir` *and* submit to the server. The server submit remains authoritative; a local-write failure degrades to a warning.
+- **Continuous scanning**: pass `--interval 24h` to keep the agent running and rescan on a schedule (with ±10% jitter). Interval mode is enterprise-tier only.
+- **Local-only mode**: omit `report_server` in `agent.yaml`. The agent writes reports to `output_dir` in every format the tier allows. No server needed.
+- **Compressed submission**: enabled by default — scan bodies ship as `Content-Encoding: gzip` and are transparently decoded by the report server's middleware (capped at 32 MiB decompressed to prevent bomb amplification).
+
 ## CI/CD
 
 The project uses GitHub Actions for continuous integration:

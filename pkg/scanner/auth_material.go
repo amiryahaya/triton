@@ -340,13 +340,14 @@ var gpgPubkeyAlgoMap = map[string]string{
 // parseGPGList parses the colon-separated output of
 // `gpg --list-keys --with-colons`. Each `pub:` record is one key
 // with fields (RFC: https://github.com/gpg/gnupg/blob/master/doc/DETAILS):
-//   pub : type
-//   [1] : validity
-//   [2] : key length (bits)
-//   [3] : pubkey algo
-//   [4] : keyid
-//   [5] : creation date
-//   ...
+//
+//	pub : type
+//	[1] : validity
+//	[2] : key length (bits)
+//	[3] : pubkey algo
+//	[4] : keyid
+//	[5] : creation date
+//	...
 func (m *AuthMaterialModule) parseGPGList(data []byte) []*model.Finding {
 	var out []*model.Finding
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -405,15 +406,15 @@ func (m *AuthMaterialModule) parseGPGList(data []byte) []*model.Finding {
 // the open/weak cases because that's exactly what operators
 // want to see flagged.
 var wpaKeyMgmtMap = map[string]string{
-	"WPA-EAP":          "WPA-EAP",
-	"WPA-EAP-SHA256":   "WPA-EAP-SHA256",
-	"WPA-EAP-SUITE-B":  "WPA-EAP-SUITE-B (CNSA)",
-	"WPA-PSK":          "WPA-PSK",
-	"WPA-PSK-SHA256":   "WPA-PSK-SHA256",
-	"FT-EAP":           "WPA2-FT-EAP",
-	"FT-PSK":           "WPA2-FT-PSK",
-	"SAE":              "WPA3-SAE",
-	"NONE":             "OPEN (no authentication)",
+	"WPA-EAP":         "WPA-EAP",
+	"WPA-EAP-SHA256":  "WPA-EAP-SHA256",
+	"WPA-EAP-SUITE-B": "WPA-EAP-SUITE-B (CNSA)",
+	"WPA-PSK":         "WPA-PSK",
+	"WPA-PSK-SHA256":  "WPA-PSK-SHA256",
+	"FT-EAP":          "WPA2-FT-EAP",
+	"FT-PSK":          "WPA2-FT-PSK",
+	"SAE":             "WPA3-SAE",
+	"NONE":            "OPEN (no authentication)",
 }
 
 // parseWPASupplicant walks a wpa_supplicant.conf looking at every
@@ -508,7 +509,9 @@ func (m *AuthMaterialModule) parseWPASupplicant(path string, data []byte) []*mod
 // files. Unlike wpa_supplicant.conf it uses INI sections; we look
 // in [wifi-security] for `key-mgmt` and in [802-1x] for `eap`.
 func (m *AuthMaterialModule) parseNMConnection(path string, data []byte) []*model.Finding {
-	var out []*model.Finding
+	// Preallocate for the single finding we typically emit —
+	// one per connection file.
+	out := make([]*model.Finding, 0, 1)
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 8*1024), 256*1024)
 
@@ -601,9 +604,9 @@ func (m *AuthMaterialModule) parseTorHiddenServiceKey(path string) []*model.Find
 // entries (1, 3, 5, 6, 7) intact so operators running old
 // signers see them flagged.
 var dnssecAlgoMap = map[string]string{
-	"001": "RSA-MD5",      // deprecated
-	"003": "DSA-SHA1",     // deprecated
-	"005": "RSA-SHA1",     // deprecated
+	"001": "RSA-MD5",  // deprecated
+	"003": "DSA-SHA1", // deprecated
+	"005": "RSA-SHA1", // deprecated
 	"006": "DSA-NSEC3-SHA1",
 	"007": "RSA-SHA1-NSEC3",
 	"008": "RSA-SHA-256",

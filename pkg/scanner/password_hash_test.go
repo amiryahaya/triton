@@ -27,11 +27,11 @@ func TestPasswordHashModule_Interface(t *testing.T) {
 
 func TestIsPasswordHashFile(t *testing.T) {
 	cases := map[string]bool{
-		"/etc/shadow":                true,
-		"/etc/gshadow":               true,
-		"/etc/pam.d/common-password": true,
-		"/etc/pam.d/passwd":          true,
-		"/etc/pam.d/system-auth":     true,
+		"/etc/shadow":                         true,
+		"/etc/gshadow":                        true,
+		"/etc/pam.d/common-password":          true,
+		"/etc/pam.d/passwd":                   true,
+		"/etc/pam.d/system-auth":              true,
 		"/etc/postgresql/15/main/pg_hba.conf": true,
 		"/var/lib/pgsql/data/pg_hba.conf":     true,
 		"/etc/passwd":                         false, // no hashes since ~1990

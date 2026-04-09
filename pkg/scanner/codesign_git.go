@@ -96,7 +96,7 @@ func (m *CodeSignModule) checkGitSignature(ctx context.Context, ref string) []*m
 	}
 	crypto.ClassifyCryptoAsset(asset)
 	asset.Algorithm = algo // restore — registry substring matcher may rewrite
-	return []*model.Finding{codesignFinding("git:" + ref, asset)}
+	return []*model.Finding{codesignFinding("git:"+ref, asset)}
 }
 
 // gitUnsignedFinding emits a canonical "this git tag carries no

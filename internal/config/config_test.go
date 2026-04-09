@@ -41,6 +41,9 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "vpn")
 	// Fast Wins sprint — password_hash joins standard.
 	assert.Contains(t, cfg.Modules, "password_hash")
+	// Enterprise sprint — deps_ecosystems + mail_server join standard.
+	assert.Contains(t, cfg.Modules, "deps_ecosystems")
+	assert.Contains(t, cfg.Modules, "mail_server")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -63,6 +66,11 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	// Fast Wins sprint — password_hash + auth_material.
 	assert.Contains(t, cfg.Modules, "password_hash")
 	assert.Contains(t, cfg.Modules, "auth_material")
+	// Enterprise sprint — deps_ecosystems + service_mesh + xml_dsig + mail_server.
+	assert.Contains(t, cfg.Modules, "deps_ecosystems")
+	assert.Contains(t, cfg.Modules, "service_mesh")
+	assert.Contains(t, cfg.Modules, "xml_dsig")
+	assert.Contains(t, cfg.Modules, "mail_server")
 
 	// Should have process and network targets
 	hasProcess := false

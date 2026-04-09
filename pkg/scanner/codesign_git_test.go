@@ -14,9 +14,9 @@ import (
 
 // `git log --format=%G?%n%GK%n%GF -n 5` emits, per commit:
 //
-//   G? = signature status (G = good, B = bad, U = unknown, N = none, X = expired, Y = expired key, R = revoked key, E = cannot be checked)
-//   GK = signing key ID (e.g., an SSH fingerprint or a GPG key ID)
-//   GF = signing key fingerprint
+//	G? = signature status (G = good, B = bad, U = unknown, N = none, X = expired, Y = expired key, R = revoked key, E = cannot be checked)
+//	GK = signing key ID (e.g., an SSH fingerprint or a GPG key ID)
+//	GF = signing key fingerprint
 //
 // We use the simpler `git tag -v <tag>` / `git verify-commit`
 // output for classification since those are the documented

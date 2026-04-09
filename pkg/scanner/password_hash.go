@@ -136,16 +136,16 @@ func (m *PasswordHashModule) parseFile(path string, data []byte) []*model.Findin
 // hash to a canonical algorithm name. Covers every scheme that
 // has appeared in mainstream libc implementations:
 //
-//   $1$   — MD5-crypt (DEPRECATED — collision-weak, fast GPU attacks)
-//   $2a$  — bcrypt (original variant)
-//   $2b$  — bcrypt (bug-fixed 2014)
-//   $2y$  — bcrypt (PHP passlib variant)
-//   $5$   — SHA-256-crypt (TRANSITIONAL)
-//   $6$   — SHA-512-crypt (TRANSITIONAL but widely used)
-//   $7$   — scrypt
-//   $y$   — yescrypt (libxcrypt, default on Debian 12+)
-//   $gy$  — gost-yescrypt
-//   $argon2i$ / $argon2d$ / $argon2id$ — Argon2 (SAFE)
+//	$1$   — MD5-crypt (DEPRECATED — collision-weak, fast GPU attacks)
+//	$2a$  — bcrypt (original variant)
+//	$2b$  — bcrypt (bug-fixed 2014)
+//	$2y$  — bcrypt (PHP passlib variant)
+//	$5$   — SHA-256-crypt (TRANSITIONAL)
+//	$6$   — SHA-512-crypt (TRANSITIONAL but widely used)
+//	$7$   — scrypt
+//	$y$   — yescrypt (libxcrypt, default on Debian 12+)
+//	$gy$  — gost-yescrypt
+//	$argon2i$ / $argon2d$ / $argon2id$ — Argon2 (SAFE)
 //
 // A plain 13-char hash with no prefix is DES-crypt, which is
 // completely broken and MUST surface as a finding.

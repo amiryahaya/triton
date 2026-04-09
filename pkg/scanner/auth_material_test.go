@@ -25,18 +25,18 @@ func TestAuthMaterialModule_Interface(t *testing.T) {
 
 func TestIsAuthMaterialFile(t *testing.T) {
 	cases := map[string]bool{
-		"/etc/krb5.keytab":                                   true,
-		"/etc/httpd/conf.d/http.keytab":                      true,
-		"/var/lib/tor/hidden_service/hs_ed25519_secret_key":  true,
-		"/var/lib/tor/hidden_service/hostname":               true,
-		"/etc/wpa_supplicant/wpa_supplicant.conf":            true,
+		"/etc/krb5.keytab":                                         true,
+		"/etc/httpd/conf.d/http.keytab":                            true,
+		"/var/lib/tor/hidden_service/hs_ed25519_secret_key":        true,
+		"/var/lib/tor/hidden_service/hostname":                     true,
+		"/etc/wpa_supplicant/wpa_supplicant.conf":                  true,
 		"/etc/NetworkManager/system-connections/Work.nmconnection": true,
-		"/var/lib/bind/Kexample.com.+008+12345.private":      true,
-		"/etc/bind/keys/Kexample.com.+013+54321.private":     true,
-		"/etc/systemd/system/myapp.service":                  true,
-		"/etc/systemd/system.conf":                           false, // not a unit
-		"/etc/passwd":                                        false,
-		"/home/user/.bashrc":                                 false,
+		"/var/lib/bind/Kexample.com.+008+12345.private":            true,
+		"/etc/bind/keys/Kexample.com.+013+54321.private":           true,
+		"/etc/systemd/system/myapp.service":                        true,
+		"/etc/systemd/system.conf":                                 false, // not a unit
+		"/etc/passwd":                                              false,
+		"/home/user/.bashrc":                                       false,
 	}
 	for path, want := range cases {
 		got := isAuthMaterialFile(path)
@@ -252,11 +252,11 @@ func TestDNSSEC_KeyFileName(t *testing.T) {
 
 	// K<name>+<algo>+<tag>.private — algo 8 = RSA-SHA256, 13 = ECDSA-P256, 15 = Ed25519
 	cases := map[string]string{
-		"Kexample.com.+008+12345.private":   "RSA",   // 8 = RSASHA256
-		"Kexample.com.+013+54321.private":   "ECDSA", // 13 = ECDSAP256SHA256
-		"Kexample.com.+015+98765.private":   "Ed25519",
-		"Kexample.com.+007+00001.private":   "RSA",   // 7 = RSASHA1 (DEPRECATED)
-		"Kexample.com.+005+00002.private":   "RSA",   // 5 = RSASHA1
+		"Kexample.com.+008+12345.private": "RSA",   // 8 = RSASHA256
+		"Kexample.com.+013+54321.private": "ECDSA", // 13 = ECDSAP256SHA256
+		"Kexample.com.+015+98765.private": "Ed25519",
+		"Kexample.com.+007+00001.private": "RSA", // 7 = RSASHA1 (DEPRECATED)
+		"Kexample.com.+005+00002.private": "RSA", // 5 = RSASHA1
 	}
 	for name, expect := range cases {
 		findings := m.parseDNSSECKey(name)

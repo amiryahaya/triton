@@ -10,15 +10,22 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // Server is the License Server REST API.
 type Server struct {
-	config *Config
-	store  licensestore.Store
-	router chi.Router
-	http   *http.Server
+	config          *Config
+	store           licensestore.Store
+	router          chi.Router
+	http            *http.Server
+	reportAPIClient *ReportAPIClient // nil when no report server configured
+	loginLimiter    *auth.LoginRateLimiter
+	// ctx is canceled in Shutdown so background workers (rate-limit
+	// janitor) stop promptly. Wired in Phase 5 Sprint 2 (N1).
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -50,10 +57,23 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 
 // New creates a new license Server.
 func New(cfg *Config, s licensestore.Store) *Server {
-	srv := &Server{
-		config: cfg,
-		store:  s,
+	rateLimitCfg := auth.DefaultLoginRateLimiterConfig
+	if cfg.LoginRateLimiterConfig != nil {
+		rateLimitCfg = *cfg.LoginRateLimiterConfig
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	srv := &Server{
+		config:          cfg,
+		store:           s,
+		reportAPIClient: NewReportAPIClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
+		loginLimiter:    auth.NewLoginRateLimiter(rateLimitCfg),
+		ctx:             ctx,
+		cancel:          cancel,
+	}
+	// Phase 5.1 D1 fix — see pkg/server/server.go for rationale. Same
+	// janitor strategy on the license server's limiter. Sprint 2 (N1)
+	// threaded srv.ctx so Shutdown cancels the janitor deterministically.
+	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -75,6 +95,13 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.With(middleware.Timeout(300*time.Second)).Get("/download/{version}/{os}/{arch}", srv.handleDownloadBinary)
 	})
 
+	// Auth API (public, no admin key required).
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Post("/login", srv.handleLogin)
+		r.Post("/logout", srv.handleLogout)
+		r.Post("/refresh", srv.handleRefresh)
+	})
+
 	// Admin API (requires admin key — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(AdminKeyAuth(cfg.AdminKeys))
@@ -91,6 +118,10 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Get("/licenses", srv.handleListLicenses)
 		r.Get("/licenses/{id}", srv.handleGetLicense)
 		r.Post("/licenses/{id}/revoke", srv.handleRevokeLicense)
+		// agent.yaml download (closes the fool-proof loop —
+		// superadmin clicks one button and gets a ready-to-ship
+		// file with the license's Ed25519 token baked in).
+		r.Post("/licenses/{id}/agent-yaml", srv.handleDownloadAgentYAML)
 
 		// Activations
 		r.Get("/activations", srv.handleListActivations)
@@ -106,6 +137,15 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/binaries", srv.handleUploadBinary)
 		r.Get("/binaries", srv.handleListBinaries)
 		r.Delete("/binaries/{version}/{os}/{arch}", srv.handleDeleteBinary)
+
+		// Superadmins (platform admins for the license server itself)
+		r.Route("/superadmins", func(r chi.Router) {
+			r.Post("/", srv.handleCreateSuperadmin)
+			r.Get("/", srv.handleListSuperadmins)
+			r.Get("/{id}", srv.handleGetSuperadmin)
+			r.Put("/{id}", srv.handleUpdateSuperadmin)
+			r.Delete("/{id}", srv.handleDeleteSuperadmin)
+		})
 	})
 
 	// Serve embedded admin UI.
@@ -143,8 +183,14 @@ func (s *Server) Start() error {
 	return s.http.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server.
+// Shutdown gracefully shuts down the server. Cancels the internal
+// Server context first so background workers (rate-limit janitor)
+// stop promptly, then drains in-flight HTTP requests up to the
+// caller-supplied deadline.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	return s.http.Shutdown(ctx)
 }
 

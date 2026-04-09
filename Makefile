@@ -1,4 +1,4 @@
-.PHONY: build build-all build-licenseserver test test-integration test-all test-integration-race test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver
+.PHONY: build build-all build-licenseserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -55,7 +55,7 @@ db-reset:
 
 # Container lifecycle
 container-build:
-	podman build -t triton:local -f Containerfile .
+	podman compose --profile server build
 
 container-run: container-build
 	podman compose --profile server up -d
@@ -65,7 +65,7 @@ container-stop:
 
 # License server container lifecycle
 container-build-licenseserver:
-	podman build -t triton-license-server:local -f Containerfile.licenseserver .
+	podman compose --profile license-server build
 
 container-run-licenseserver: container-build-licenseserver
 	podman compose --profile license-server up -d
@@ -88,6 +88,14 @@ test-all: db-up
 # Integration with race detector
 test-integration-race: db-up
 	go test -v -tags integration -race -count=1 -p 1 ./test/integration/...
+
+# System tests (Phase 5 Sprint 3 C1) — spawns REAL triton + triton-license-server
+# binaries as child processes and drives the full multi-tenant flow via HTTP.
+# Requires PostgreSQL with CREATE DATABASE privilege (each run allocates its
+# own two databases and drops them in cleanup). Rebuilds binaries on every run.
+test-system: db-up
+	TRITON_SYSTEM_TEST_DB_URL="postgres://triton:triton@localhost:5435/postgres?sslmode=disable" \
+	  go test -v -tags system -timeout 300s ./test/system/...
 
 # Playwright E2E browser tests (requires PostgreSQL + Chromium)
 test-e2e: db-up build

@@ -60,8 +60,22 @@ func (m *CodeSignModule) Scan(ctx context.Context, target model.ScanTarget, find
 // isCodeSignCandidate checks if a file is a candidate for code signing verification.
 // Only matches package files (.app, .pkg, .deb, .rpm) and skips extensionless files
 // to avoid invoking codesign on thousands of non-binary files.
+//
+// Sprint C2: PE artifacts (.exe/.dll/.msi/.sys/.cab) and JVM
+// archives (.jar/.war/.ear) are now candidates on every
+// platform because osslsigncode and jarsigner both run cross-
+// platform — operators want to audit Authenticode and JAR
+// signing from a Linux scanning host.
 func isCodeSignCandidate(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
+
+	// Cross-platform: PE Authenticode artifacts.
+	switch ext {
+	case ".exe", ".dll", ".msi", ".sys", ".cab":
+		return true
+	case ".jar", ".war", ".ear":
+		return true
+	}
 
 	switch runtime.GOOS {
 	case "darwin":
@@ -79,7 +93,12 @@ func isCodeSignCandidate(path string) bool {
 	return false
 }
 
-// checkCodeSign verifies code signing for a specific file.
+// checkCodeSign verifies code signing for a specific file. The
+// dispatch order is extension-first (cross-platform formats:
+// PE/JAR) and then OS-native (macOS codesign / Linux dpkg+rpm).
+// This ordering lets a Linux scanning host pick up Authenticode
+// and JAR findings via osslsigncode/jarsigner without losing
+// the existing native paths.
 func (m *CodeSignModule) checkCodeSign(ctx context.Context, path string) []*model.Finding {
 	select {
 	case <-ctx.Done():
@@ -87,11 +106,20 @@ func (m *CodeSignModule) checkCodeSign(ctx context.Context, path string) []*mode
 	default:
 	}
 
+	ext := strings.ToLower(filepath.Ext(path))
+
+	// Cross-platform extension dispatch first.
+	switch ext {
+	case ".exe", ".dll", ".msi", ".sys", ".cab":
+		return m.checkAuthenticode(ctx, path)
+	case ".jar", ".war", ".ear":
+		return m.checkJARSignature(ctx, path)
+	}
+
 	switch runtime.GOOS {
 	case "darwin":
 		return m.checkMacOSCodeSign(ctx, path)
 	case "linux":
-		ext := strings.ToLower(filepath.Ext(path))
 		switch ext {
 		case ".rpm":
 			return m.checkRPMSignature(ctx, path)
@@ -182,7 +210,13 @@ func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr er
 	}
 
 	if sigAlgo == "" {
-		sigAlgo = "SHA256withRSA" // default assumption for macOS code signing
+		// Default to the signing key algorithm (RSA), NOT the
+		// hash+sig-algo string. The crypto registry's
+		// substring classifier rewrites "SHA256withRSA" to
+		// "SHA-256" (hash family wins), which silently
+		// reclassifies the codesign finding as a hash function.
+		// "RSA" keeps the finding semantically correct.
+		sigAlgo = "RSA"
 	}
 
 	purpose := fmt.Sprintf("Code signing: %s", validity)

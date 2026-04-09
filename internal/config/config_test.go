@@ -36,6 +36,9 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "binaries")
 	assert.Contains(t, cfg.Modules, "scripts")
 	assert.Contains(t, cfg.Modules, "webapp")
+	// Sprint A1/A3 — web_server and vpn graduate to standard.
+	assert.Contains(t, cfg.Modules, "web_server")
+	assert.Contains(t, cfg.Modules, "vpn")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -51,6 +54,10 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "processes")
 	assert.Contains(t, cfg.Modules, "network")
 	assert.Contains(t, cfg.Modules, "protocol")
+	// Sprint A1/A3/C1 — coverage + supply chain additions.
+	assert.Contains(t, cfg.Modules, "web_server")
+	assert.Contains(t, cfg.Modules, "vpn")
+	assert.Contains(t, cfg.Modules, "container_signatures")
 
 	// Should have process and network targets
 	hasProcess := false

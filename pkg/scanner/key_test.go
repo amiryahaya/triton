@@ -246,6 +246,17 @@ func TestIsKeyFile(t *testing.T) {
 	assert.True(t, m.isKeyFile("/path/to/private_key.pem"))
 	assert.True(t, m.isKeyFile("/path/to/public_key.pem"))
 
+	// SSH server host keys (Sprint A2 — gap filled). Real-world
+	// servers store these in /etc/ssh/. Existing extension
+	// matcher (".pub") catches the public counterparts; the
+	// private host keys have NO extension and were missed before.
+	assert.True(t, m.isKeyFile("/etc/ssh/ssh_host_rsa_key"))
+	assert.True(t, m.isKeyFile("/etc/ssh/ssh_host_ecdsa_key"))
+	assert.True(t, m.isKeyFile("/etc/ssh/ssh_host_ed25519_key"))
+	assert.True(t, m.isKeyFile("/etc/ssh/ssh_host_dsa_key"))
+	assert.True(t, m.isKeyFile("/etc/ssh/ssh_host_rsa_key.pub"))
+	assert.True(t, m.isKeyFile("/etc/ssh/ssh_host_ed25519_key.pub"))
+
 	// Should NOT match (previously caused false positives)
 	assert.False(t, m.isKeyFile("/home/user/private_notes.txt"))
 	assert.False(t, m.isKeyFile("/var/private/data.json"))

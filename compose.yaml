@@ -1,3 +1,35 @@
+# =============================================================================
+#  Triton compose stack — dev-by-default, prod-capable via .env
+# =============================================================================
+#
+# Every secret-shaped environment variable below is REQUIRED at compose-up
+# time. There are no committed fallbacks for signing keys, admin passwords,
+# or cross-server shared secrets — the `${VAR:?...}` form causes
+# `podman compose up` (or `docker compose up`) to abort with a clear error
+# if the variable is unset. This eliminates the "oops, I shipped with the
+# dev key" failure mode and keeps GitGuardian / secret scanners quiet.
+#
+# ## First-time setup
+#
+# Generate a fresh `.env` file (gitignored) with ephemeral dev credentials:
+#
+#     ./scripts/gen-dev-env.sh > .env
+#     podman compose --profile server --profile license-server up -d
+#
+# Or, if you prefer to do it by hand, copy `.env.example` to `.env` and
+# fill in the values using the `openssl rand` recipes in the comments.
+#
+# ## Production deployments
+#
+# Use the same `.env` pattern but with keys from your secrets manager
+# (Vault, AWS SM, sops, etc.). Never commit `.env` — it's in `.gitignore`.
+#
+# Public keys (TRITON_PUBLIC_KEY_HEX, REPORT_SERVER_TENANT_PUBKEY) ARE
+# committed because they're not secrets — embedded in binaries at build
+# time via ldflags and used only for signature verification.
+#
+# =============================================================================
+
 services:
   postgres:
     image: docker.io/library/postgres:18
@@ -7,7 +39,7 @@ services:
       POSTGRES_USER: triton
       POSTGRES_PASSWORD: triton
     ports:
-      - "5434:5432"
+      - "5435:5432"
     volumes:
       - triton-data:/var/lib/postgresql
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
@@ -21,16 +53,53 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      args:
+        PUBLIC_KEY_HEX: "${TRITON_PUBLIC_KEY_HEX:-a158a5193e2443ddc7cc7c25745c407e47d6c68ff56d8baddf4e822ce43cff96}"
     container_name: triton-server
     profiles: [server]
     depends_on:
       postgres:
         condition: service_healthy
     environment:
+      HOME: /tmp
       TRITON_DB_URL: postgres://triton:triton@postgres:5432/triton?sslmode=disable
       TRITON_LISTEN: ":8080"
+      # Enterprise licence token for the CLI guard. This token is
+      # signed with the dev license server's SIGNING_KEY (the last
+      # 32 bytes of which are the TENANT_PUBKEY below). For real
+      # deployments, issue a fresh token via the license server
+      # admin UI → Licenses → your license → Download agent.yaml,
+      # then extract the license_key field.
+      TRITON_LICENSE_KEY: "${TRITON_LICENSE_KEY:?set TRITON_LICENSE_KEY in .env — mint one via the license server admin UI or scripts/gen-dev-env.sh}"
+      # Phase 5 Sprint 3 env-var wiring for multi-tenant features.
+      # See docs/DEPLOYMENT_GUIDE.md §5b.
+      #
+      # Shared secret for license-server → report-server
+      # provisioning; MUST match the license server's
+      # TRITON_LICENSE_SERVER_REPORT_KEY below.
+      REPORT_SERVER_SERVICE_KEY: "${REPORT_SERVER_SERVICE_KEY:?set REPORT_SERVER_SERVICE_KEY in .env — openssl rand -hex 32}"
+      # Ed25519 seed (32 bytes, 64 hex chars) for signing org-user JWTs.
+      REPORT_SERVER_JWT_SIGNING_KEY: "${REPORT_SERVER_JWT_SIGNING_KEY:?set REPORT_SERVER_JWT_SIGNING_KEY in .env — openssl rand -hex 32}"
+      # Ed25519 PUBLIC key used to verify incoming agent
+      # license tokens. Must correspond to the license server's
+      # TRITON_LICENSE_SERVER_SIGNING_KEY private key — i.e., it's
+      # the LAST 32 bytes of that 64-byte private key. When unset
+      # the report server uses the build-time embedded pubkey,
+      # which will reject any token the local license server
+      # mints. In production, set this to the public half of
+      # whatever keypair your licensing vendor controls.
+      REPORT_SERVER_TENANT_PUBKEY: "${REPORT_SERVER_TENANT_PUBKEY:?set REPORT_SERVER_TENANT_PUBKEY in .env — last 32 bytes of the license server signing key, hex-encoded}"
+      # Link embedded in resend-invite emails — points at the
+      # report server's own login page.
+      REPORT_SERVER_INVITE_URL: "${REPORT_SERVER_INVITE_URL:-http://localhost:8090/ui/#/login}"
+      # Phase 5 Sprint 2 — optional Resend mailer. When unset,
+      # handleResendInvite falls back to returning the temp
+      # password in the JSON body with Cache-Control: no-store.
+      REPORT_SERVER_RESEND_API_KEY: "${REPORT_SERVER_RESEND_API_KEY:-}"
+      REPORT_SERVER_RESEND_FROM_EMAIL: "${REPORT_SERVER_RESEND_FROM_EMAIL:-}"
+      REPORT_SERVER_RESEND_FROM_NAME: "${REPORT_SERVER_RESEND_FROM_NAME:-Triton Reports}"
     ports:
-      - "8080:8080"
+      - "8090:8080"
     command: ["server", "--listen", ":8080", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable"]
 
   license-server:
@@ -45,8 +114,34 @@ services:
     environment:
       TRITON_LICENSE_SERVER_DB_URL: postgres://triton:triton@postgres:5432/triton_license?sslmode=disable
       TRITON_LICENSE_SERVER_LISTEN: ":8081"
-      TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY}"
-      TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY}"
+      TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY:?set TRITON_LICENSE_SERVER_ADMIN_KEY in .env — openssl rand -hex 32}"
+      TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY:?set TRITON_LICENSE_SERVER_SIGNING_KEY in .env — Ed25519 64-byte private key, hex-encoded (generate with scripts/gen-dev-env.sh)}"
+      TRITON_LICENSE_SERVER_BINARIES_DIR: /tmp/binaries
+      # Bootstrap superadmin — seeds on first startup against an
+      # empty users table. Rotate the password immediately after
+      # first login in any non-dev environment.
+      TRITON_LICENSE_SERVER_ADMIN_EMAIL: "${TRITON_LICENSE_SERVER_ADMIN_EMAIL:-admin@triton.local}"
+      TRITON_LICENSE_SERVER_ADMIN_PASSWORD: "${TRITON_LICENSE_SERVER_ADMIN_PASSWORD:?set TRITON_LICENSE_SERVER_ADMIN_PASSWORD in .env — openssl rand -base64 24}"
+      # Cross-server provisioning wiring — MUST match the report
+      # server's REPORT_SERVER_SERVICE_KEY above. Uses the
+      # compose-network hostname `triton` (service name) to reach
+      # the report server, not `localhost`.
+      TRITON_LICENSE_SERVER_REPORT_URL: "${TRITON_LICENSE_SERVER_REPORT_URL:-http://triton:8080}"
+      # Public URL is what customer agents use to reach the
+      # report server from outside the compose network. For
+      # local dev this points at the host port mapping (8090).
+      # In production, set to the public hostname (e.g.
+      # https://reports.example.com).
+      TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL: "${TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL:-http://localhost:8090}"
+      TRITON_LICENSE_SERVER_REPORT_KEY: "${TRITON_LICENSE_SERVER_REPORT_KEY:?set TRITON_LICENSE_SERVER_REPORT_KEY in .env — must match REPORT_SERVER_SERVICE_KEY on the report-server side}"
+      # Phase 5 Sprint 2 — Resend mailer for first-org-admin
+      # invites. Pulled from .env (see RESEND_* block). When
+      # unset, provisioning returns the temp password in the API
+      # response body for manual delivery.
+      RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      RESEND_FROM_EMAIL: "${RESEND_FROM_EMAIL:-}"
+      RESEND_FROM_NAME: "${RESEND_FROM_NAME:-Triton Reports}"
+      REPORT_SERVER_INVITE_URL_BASE: "${REPORT_SERVER_INVITE_URL_BASE:-http://localhost:8090/ui/#/login}"
     ports:
       - "8081:8081"
 

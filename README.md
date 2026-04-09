@@ -182,7 +182,7 @@ Triton includes two built-in compliance policies. Without `--policy`, Triton sca
 ┌──────────────────────────────────────────────────────────────────┐
 │  Triton CLI (Cobra + BubbleTea TUI)         Licence Guard        │
 │  ├─ triton scan (default)                   ├─ Ed25519 signed    │
-│  ├─ triton server (enterprise)              ├─ 3-tier gating     │
+│  ├─ triton server (report server, ent.)     ├─ 3-tier gating     │
 │  ├─ triton agent (enterprise)               └─ graceful degrade  │
 │  ├─ triton diff/trend/history (pro+)                             │
 │  ├─ triton policy (pro+)                                         │

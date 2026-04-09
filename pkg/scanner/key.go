@@ -126,6 +126,16 @@ func (m *KeyModule) isKeyFile(path string) bool {
 		return true
 	}
 
+	// SSH server host keys live in /etc/ssh/ on Linux/macOS and
+	// have no extension on the private side, so the extension
+	// matcher above misses them. Sprint A2 — close the host-key
+	// blind spot. Same parser handles them; only the matcher
+	// changed. Pattern: ssh_host_<algo>_key[.pub]
+	if strings.HasPrefix(base, "ssh_host_") &&
+		(strings.HasSuffix(base, "_key") || strings.HasSuffix(base, "_key.pub")) {
+		return true
+	}
+
 	// Match files with "private_key" or "public_key" in name (compound pattern)
 	if strings.Contains(lower, "private_key") || strings.Contains(lower, "public_key") {
 		return true

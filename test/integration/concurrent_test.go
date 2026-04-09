@@ -58,8 +58,8 @@ func TestConcurrent_MultiAgentSubmit(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			client := agent.New(serverURL, "")
-			_, errs[idx] = client.Submit(scans[idx])
+			client := agent.New(serverURL)
+			_, errs[idx] = client.Submit(context.Background(), scans[idx])
 		}(i)
 	}
 	wg.Wait()
@@ -128,7 +128,7 @@ func TestConcurrent_ServerUnderLoad(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		s := makeScanResult("", "load-host", 10)
 		seedIDs[i] = s.ID
-		submitScan(t, serverURL, "", s)
+		submitScan(t, serverURL, s)
 	}
 
 	const n = 50

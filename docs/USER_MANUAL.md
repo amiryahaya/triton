@@ -892,17 +892,21 @@ triton --profile standard --policy nacsa-2030 --db postgres://triton:triton@loca
 
 ---
 
-## 12. Server Mode
+## 12. Report Server Mode
 
-Triton includes a REST API server with an embedded web dashboard for centralized scan management (enterprise tier).
+Triton includes a REST API report server with an embedded web dashboard for
+centralized scan management (enterprise tier). It is called the **report
+server** because agents submit scan reports to it for aggregation, diff,
+trend, and policy analysis. The Go package path is still `pkg/server` for
+historical reasons — the rename is user-facing only.
 
-### Starting the Server
+### Starting the Report Server
 
 ```bash
 triton server --db postgres://triton:triton@localhost:5434/triton
 ```
 
-The server listens on port 8080 by default and provides:
+The report server listens on port 8080 by default and provides:
 
 - REST API for submitting, querying, and comparing scans
 - Web dashboard with scan history, machine inventory, diff, and trend views
@@ -911,20 +915,22 @@ The server listens on port 8080 by default and provides:
 
 ### Agent Mode
 
-Remote machines can submit scans to the server using agent mode:
+Remote machines can submit scans to the report server using agent mode:
 
 ```bash
-triton agent --server http://triton-server:8080 --profile standard
+triton agent --report-server http://triton-report-server:8080 --profile standard
 ```
 
-The agent runs a local scan and uploads the results to the central server.
+The agent runs a local scan and uploads the results to the central report
+server. The legacy `--server` flag remains as a deprecated alias for one
+release cycle — see the agent command help for the deprecation warning.
 
 ### Container Deployment
 
 Triton provides a multi-stage container image (~10MB) for production deployment:
 
 ```bash
-make container-run   # Starts PostgreSQL + Triton server
+make container-run   # Starts PostgreSQL + Triton report server
 make container-stop  # Stops the stack
 ```
 
@@ -946,7 +952,7 @@ Triton uses a 3-tier licence system based on Ed25519-signed tokens. All licence 
 | Format: JSON | Yes | Yes | Yes |
 | Format: CDX, HTML, XLSX | — | Yes | Yes |
 | Format: SARIF | — | — | Yes |
-| Server mode (`triton server`) | — | — | Yes |
+| Report server mode (`triton server`) | — | — | Yes |
 | Agent mode (`triton agent`) | — | — | Yes |
 | Policy: builtin (NACSA-2030, CNSA-2.0) | — | Yes | Yes |
 | Policy: custom YAML | — | — | Yes |

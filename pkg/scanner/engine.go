@@ -106,6 +106,14 @@ func (e *Engine) RegisterDefaultModules() {
 
 	// Phase 12: Dependency crypto reachability
 	e.RegisterModule(NewDepsModule(e.config))
+
+	// Sprint A1+A3+C1: web server TLS configs, VPN configs,
+	// container supply-chain signatures. Each is a config-file
+	// scanner targeting TargetFilesystem; they share the
+	// walker/finding pipeline used by the older config module.
+	e.RegisterModule(NewWebServerModule(e.config))
+	e.RegisterModule(NewVPNModule(e.config))
+	e.RegisterModule(NewContainerSignaturesModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

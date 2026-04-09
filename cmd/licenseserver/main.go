@@ -76,15 +76,74 @@ func run() error {
 	}
 	defer func() { _ = store.Close() }()
 
+	// Seed an initial superadmin if the users table is empty (idempotent).
+	// On a fresh database, TRITON_LICENSE_SERVER_ADMIN_PASSWORD must be set;
+	// once seeded, subsequent boots no-op even without the env var.
+	bootstrapEmail := envOr("TRITON_LICENSE_SERVER_ADMIN_EMAIL", "admin@localhost")
+	bootstrapPassword := envOr("TRITON_LICENSE_SERVER_ADMIN_PASSWORD", "")
+	created, err := licenseserver.SeedInitialSuperadmin(ctx, store, bootstrapEmail, bootstrapPassword)
+	if err != nil {
+		if bootstrapPassword == "" {
+			return fmt.Errorf("license server has no users and no bootstrap password set; set TRITON_LICENSE_SERVER_ADMIN_PASSWORD (and optionally TRITON_LICENSE_SERVER_ADMIN_EMAIL) to seed an initial superadmin: %w", err)
+		}
+		return fmt.Errorf("seeding initial superadmin: %w", err)
+	}
+	if created {
+		log.Printf("seeded initial superadmin: %s", bootstrapEmail)
+	}
+
+	// Optional: report server integration (Phase 1.7) and Resend mailer
+	// (Phase 1.8). Both are no-ops when their env vars are unset — on-prem
+	// single-server deployments can skip them entirely.
+	//
+	// Env var naming: TRITON_LICENSE_SERVER_REPORT_* prefix for consistency
+	// with the rest of this binary's config surface. The report server
+	// binary reads its end of the shared key from its own env var name —
+	// each side owns its own variable, ops sets both to the same value.
+	reportServerURL := envOr("TRITON_LICENSE_SERVER_REPORT_URL", "")
+	reportServerKey := envOr("TRITON_LICENSE_SERVER_REPORT_KEY", "")
+	// Public URL is the hostname customer agents use to reach
+	// the report server. Distinct from REPORT_URL because the
+	// latter is typically an internal service-mesh name (e.g.,
+	// http://triton:8080) that only resolves inside the deploy
+	// network. The public URL is embedded in agent.yaml
+	// downloads and invite emails. When unset, handlers fall
+	// back to REPORT_URL with a log warning at first use.
+	reportServerPublicURL := envOr("TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL", "")
+	resendAPIKey := envOr("RESEND_API_KEY", "")
+	resendFromEmail := envOr("RESEND_FROM_EMAIL", "")
+	resendFromName := envOr("RESEND_FROM_NAME", "Triton Reports")
+	reportInviteURL := envOr("REPORT_SERVER_INVITE_URL_BASE", "")
+
+	// Fail loud on partial report server config — either both URL and
+	// key are set (enable provisioning) or neither (skip entirely).
+	// Silently degrading is worse than warning the operator.
+	if (reportServerURL == "") != (reportServerKey == "") {
+		log.Printf("WARNING: TRITON_LICENSE_SERVER_REPORT_URL and TRITON_LICENSE_SERVER_REPORT_KEY must both be set to enable report server provisioning; provisioning is DISABLED")
+	}
+
+	var mailer licenseserver.Mailer
+	if resendAPIKey != "" && resendFromEmail != "" {
+		mailer = licenseserver.NewResendMailer(resendAPIKey, resendFromEmail, resendFromName)
+		log.Printf("Resend mailer configured: from=%s", resendFromEmail)
+	} else if resendAPIKey != "" || resendFromEmail != "" {
+		log.Printf("WARNING: RESEND_API_KEY and RESEND_FROM_EMAIL must both be set to enable invite emails; email delivery is DISABLED")
+	}
+
 	cfg := &licenseserver.Config{
-		ListenAddr:  listen,
-		DBUrl:       dbURL,
-		AdminKeys:   adminKeys,
-		TLSCert:     tlsCert,
-		TLSKey:      tlsKey,
-		SigningKey:  privKey,
-		PublicKey:   pubKey,
-		BinariesDir: binariesDir,
+		ListenAddr:             listen,
+		DBUrl:                  dbURL,
+		AdminKeys:              adminKeys,
+		TLSCert:                tlsCert,
+		TLSKey:                 tlsKey,
+		SigningKey:             privKey,
+		PublicKey:              pubKey,
+		BinariesDir:            binariesDir,
+		ReportServerURL:        reportServerURL,
+		ReportServerPublicURL:  reportServerPublicURL,
+		ReportServerServiceKey: reportServerKey,
+		Mailer:                 mailer,
+		ReportServerInviteURL:  reportInviteURL,
 	}
 
 	srv := licenseserver.New(cfg, store)

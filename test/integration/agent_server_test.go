@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -17,10 +18,10 @@ import (
 func TestAgent_SubmitAndRetrieve(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	client := agent.New(serverURL, "")
+	client := agent.New(serverURL)
 	scan := makeScanResult("agent-submit-1", "agent-host", 10)
 
-	resp, err := client.Submit(scan)
+	resp, err := client.Submit(context.Background(), scan)
 	require.NoError(t, err)
 	assert.Equal(t, scan.ID, resp.ID)
 
@@ -33,49 +34,33 @@ func TestAgent_SubmitAndRetrieve(t *testing.T) {
 func TestAgent_HealthcheckOK(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	client := agent.New(serverURL, "")
+	client := agent.New(serverURL)
 	err := client.Healthcheck()
 	assert.NoError(t, err)
 }
 
 // C3: No server → agent.Healthcheck → error
 func TestAgent_HealthcheckServerDown(t *testing.T) {
-	client := agent.New("http://127.0.0.1:19999", "")
+	client := agent.New("http://127.0.0.1:19999")
 	err := client.Healthcheck()
 	assert.Error(t, err)
 }
 
-// C4: Server with auth → agent Submit with correct key → 201
-func TestAgent_AuthSuccess(t *testing.T) {
-	serverURL, _ := requireServerWithAuth(t, []string{"agent-key-good"})
-
-	client := agent.New(serverURL, "agent-key-good")
-	scan := makeScanResult("agent-auth-ok", "auth-host", 5)
-
-	resp, err := client.Submit(scan)
-	require.NoError(t, err)
-	assert.Equal(t, scan.ID, resp.ID)
-}
-
-// C5: Server with auth → agent Submit with wrong key → error
-func TestAgent_AuthFailure(t *testing.T) {
-	serverURL, _ := requireServerWithAuth(t, []string{"agent-key-good"})
-
-	client := agent.New(serverURL, "wrong-key")
-	scan := makeScanResult("agent-auth-fail", "auth-host", 5)
-
-	_, err := client.Submit(scan)
-	assert.Error(t, err, "should fail with wrong API key")
-}
+// C4/C5 (TestAgent_AuthSuccess / TestAgent_AuthFailure) removed in
+// Phase 4 deprecation cleanup. API key auth has been removed; agents
+// now authenticate via license tokens (X-Triton-License-Token header)
+// via the Client.LicenseToken field, not a --api-key flag. The
+// license-token agent auth path is covered by pkg/server's
+// TestUnifiedAuth_LicenseTokenPath.
 
 // C6: 1000-finding scan → Submit → Retrieve → all findings preserved
 func TestAgent_LargeScan(t *testing.T) {
 	serverURL, _ := requireServer(t)
 
-	client := agent.New(serverURL, "")
+	client := agent.New(serverURL)
 	scan := makeScanResult("agent-large", "large-host", 1000)
 
-	resp, err := client.Submit(scan)
+	resp, err := client.Submit(context.Background(), scan)
 	require.NoError(t, err)
 	assert.Equal(t, scan.ID, resp.ID)
 
@@ -97,8 +82,8 @@ func TestAgent_ParallelSubmissions(t *testing.T) {
 		scans[i] = makeScanResult("", "parallel-host", 10)
 		go func(idx int) {
 			defer wg.Done()
-			client := agent.New(serverURL, "")
-			_, errs[idx] = client.Submit(scans[idx])
+			client := agent.New(serverURL)
+			_, errs[idx] = client.Submit(context.Background(), scans[idx])
 		}(i)
 	}
 	wg.Wait()

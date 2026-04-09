@@ -2,14 +2,20 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
+	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/internal/auth"
+	"github.com/amiryahaya/triton/internal/auth/sessioncache"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -17,21 +23,108 @@ import (
 type Config struct {
 	ListenAddr   string
 	DBUrl        string
-	APIKeys      []string
 	TLSCert      string
 	TLSKey       string
 	Guard        *license.Guard // nil = no enforcement (backward compat for testserver)
 	TenantPubKey []byte         // optional: Ed25519 public key for tenant token verification (overrides embedded key)
+	// ServiceKey is the shared secret used by the license server to authenticate
+	// to the report server's /api/v1/admin/* endpoints (e.g., org provisioning).
+	// If empty, the admin route group is not registered at all.
+	ServiceKey string
+	// JWTSigningKey is the report server's own Ed25519 private key for signing
+	// user JWTs (org_admin and org_user logins). Independent from the license
+	// server's signing key. If empty, the /api/v1/auth/* route group is not
+	// registered at all.
+	JWTSigningKey ed25519.PrivateKey
+	// JWTPublicKey is the corresponding public key used to verify report
+	// server JWTs. Derived from JWTSigningKey if not supplied.
+	JWTPublicKey ed25519.PublicKey
+	// DataEncryptionKeyHex enables at-rest AES-256-GCM encryption of
+	// scan_data. 64 hex characters = 32-byte key. Empty disables
+	// encryption (existing rows continue to read as plaintext).
+	DataEncryptionKeyHex string
+
+	// LoginRateLimiterConfig tunes the per-email login rate limit.
+	// When nil, auth.DefaultLoginRateLimiterConfig applies (5
+	// attempts per 15-minute window, 15-minute lockout). Matches
+	// the license server's same-named Config field so both servers
+	// can be tuned symmetrically — see Sprint 1 review finding M1.
+	LoginRateLimiterConfig *auth.LoginRateLimiterConfig
+
+	// RequestRateLimiterConfig tunes the per-tenant data-endpoint
+	// rate limit. When nil, auth.DefaultRequestRateLimiterConfig
+	// applies (600 requests / minute). Phase 5 Sprint 3 B3 — covers
+	// non-login endpoints that were previously only throttled by
+	// the global middleware.Throttle(100) concurrency cap.
+	RequestRateLimiterConfig *auth.RequestRateLimiterConfig
+
+	// Mailer, if non-nil, is used by the resend-invite flow to push
+	// the rotated temp password directly to the invitee via email,
+	// so the temp password does NOT appear in the API response body.
+	// If nil, resend-invite falls back to returning the temp
+	// password in the JSON body (with Cache-Control: no-store) for
+	// out-of-band admin delivery. See Sprint 1 review finding S3.
+	Mailer mailer.Mailer
+
+	// InviteLoginURL is the URL embedded in resent-invite emails.
+	// Typically the report server's own login page (e.g.,
+	// "https://reports.example.com/ui/#/login"). Ignored when
+	// Mailer is nil.
+	InviteLoginURL string
+
+	// SessionCacheSize bounds the in-process JWT session cache
+	// (Arch #4). Zero disables the cache, leaving JWTAuth on its
+	// two-round-trip DB fast path (acceptable for dev/testing,
+	// but NOT for production multi-tenant deployments — the
+	// uncached p99 ceiling is around 500 req/s).
+	SessionCacheSize int
+
+	// SessionCacheTTL is the maximum time a cached session entry
+	// may be returned without re-validating against the sessions
+	// table. Defaults to 60 seconds; clamped to [5s, 5m] to keep
+	// revocation latency bounded. Ignored when SessionCacheSize
+	// is zero.
+	SessionCacheTTL time.Duration
 }
 
 // Server is the Triton REST API server.
 type Server struct {
-	config *Config
-	store  store.Store
-	router chi.Router
-	http   *http.Server
-	guard  *license.Guard
+	config         *Config
+	store          store.Store
+	router         chi.Router
+	http           *http.Server
+	guard          *license.Guard
+	loginLimiter   *auth.LoginRateLimiter
+	requestLimiter *auth.RequestRateLimiter
+	// ctx is canceled in Shutdown so background workers (rate-limit
+	// janitor, and any future ticker-driven helpers) stop promptly
+	// instead of running until the process exits. Wired in Phase 5
+	// Sprint 2 as the N1 follow-up to the Sprint 1 review.
+	ctx    context.Context
+	cancel context.CancelFunc
+	// auditWG tracks fire-and-forget writeAudit goroutines so
+	// Shutdown can drain them before the store pool is closed.
+	// Sprint 3 D2 — without this, an in-flight audit write could
+	// race store.Close() and silently lose the event.
+	auditWG sync.WaitGroup
+	// auditSem bounds the number of in-flight audit goroutines so
+	// a burst of sensitive actions (batch delete, bulk user CRUD)
+	// cannot spawn thousands of goroutines contending for the
+	// pgx pool. Empty-struct buffered channel used as a
+	// semaphore; Sprint 3 full-review N6 — stop-gap before the
+	// Sprint 4 batched-writer refactor.
+	auditSem chan struct{}
+	// sessionCache is the Arch #4 short-TTL LRU cache placed
+	// in front of the JWTAuth session+user lookups. Nil when
+	// SessionCacheSize is zero; JWTAuth handles the nil receiver.
+	sessionCache *sessioncache.SessionCache
 }
+
+// auditSemDepth is the max number of concurrent writeAudit
+// goroutines. 32 is chosen to stay well under pgx's default 4
+// connections × 4 "waiter slack" while still absorbing short
+// bursts; tune downward if the pool saturates in practice.
+const auditSemDepth = 32
 
 // securityHeaders adds security-related HTTP headers to all responses.
 func securityHeaders(next http.Handler) http.Handler {
@@ -45,13 +138,95 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// New creates a new Server with the given config and store.
-func New(cfg *Config, s store.Store) *Server {
-	srv := &Server{
-		config: cfg,
-		store:  s,
-		guard:  cfg.Guard,
+// New creates a new Server with the given config and store. It returns
+// an error for any configuration that would silently downgrade security:
+// today that is a malformed DataEncryptionKeyHex, which used to fall
+// through to plaintext storage after a "FATAL" log line. Callers MUST
+// check the returned error and refuse to start the process on failure.
+func New(cfg *Config, s store.Store) (*Server, error) {
+	// Validate the at-rest encryption key first — independently of the
+	// store's concrete type. A malformed key is a fatal misconfiguration
+	// regardless of whether encryption would actually be wired up for
+	// this store, because an operator who set the env var clearly
+	// intended encryption. Silently continuing unencrypted would mask
+	// a config bug and violate the operator's expectation.
+	if cfg.DataEncryptionKeyHex != "" {
+		enc, err := store.NewEncryptor(cfg.DataEncryptionKeyHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DataEncryptionKeyHex: %w", err)
+		}
+		// Only *PostgresStore currently supports at-rest encryption.
+		// For other store types (e.g., future in-memory/testing stores)
+		// the validated key is simply ignored — we still validated it
+		// to preserve the fail-fast contract above.
+		if ps, ok := s.(*store.PostgresStore); ok {
+			ps.SetEncryptor(enc)
+			log.Printf("at-rest scan data encryption enabled (AES-256-GCM)")
+		}
 	}
+
+	rateLimitCfg := auth.DefaultLoginRateLimiterConfig
+	if cfg.LoginRateLimiterConfig != nil {
+		rateLimitCfg = *cfg.LoginRateLimiterConfig
+	}
+	requestLimitCfg := auth.DefaultRequestRateLimiterConfig
+	if cfg.RequestRateLimiterConfig != nil {
+		requestLimitCfg = *cfg.RequestRateLimiterConfig
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	// Arch #4 JWT session cache. Clamp TTL into a sane range so
+	// a misconfigured 24h TTL cannot silently cap revocation
+	// latency at a full day — 5 minutes is the hard upper bound
+	// because at 5 minutes the p99 improvement plateaus and the
+	// eventual-consistency window becomes uncomfortable for
+	// operators. Zero size means no cache (dev/testing only).
+	var sessCache *sessioncache.SessionCache
+	if cfg.SessionCacheSize > 0 {
+		ttl := cfg.SessionCacheTTL
+		if ttl <= 0 {
+			ttl = 60 * time.Second
+		}
+		original := ttl
+		if ttl < 5*time.Second {
+			ttl = 5 * time.Second
+		}
+		if ttl > 5*time.Minute {
+			ttl = 5 * time.Minute
+		}
+		if ttl != original {
+			log.Printf("session cache TTL clamped from %s to %s (allowed range 5s–5m)", original, ttl)
+		}
+		sessCache = sessioncache.New(sessioncache.Config{
+			MaxEntries: cfg.SessionCacheSize,
+			TTL:        ttl,
+		})
+	}
+	srv := &Server{
+		config:         cfg,
+		store:          s,
+		guard:          cfg.Guard,
+		loginLimiter:   auth.NewLoginRateLimiter(rateLimitCfg),
+		requestLimiter: auth.NewRequestRateLimiter(requestLimitCfg),
+		ctx:            ctx,
+		cancel:         cancel,
+		auditSem:       make(chan struct{}, auditSemDepth),
+		sessionCache:   sessCache,
+	}
+	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
+	// so a dictionary-style attack against unknown emails cannot leak
+	// memory over time. Phase 5 Sprint 2 (N1) replaced the previous
+	// context.Background() with srv.ctx so that Shutdown cancels the
+	// janitor deterministically.
+	//
+	// The returned done channel is intentionally discarded here; if
+	// a future caller needs to wait for background workers at
+	// shutdown, thread it through Server struct state and drain it
+	// inside Shutdown.
+	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
+	// Request rate limiter janitor — sweep interval equal to the
+	// rolling window so stale entries from bursty one-off clients
+	// are reclaimed promptly.
+	_ = srv.requestLimiter.StartJanitor(ctx, requestLimitCfg.Window)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -61,21 +236,140 @@ func New(cfg *Config, s store.Store) *Server {
 	r.Use(securityHeaders)
 	r.Use(middleware.Throttle(100))
 
-	// API routes with optional auth.
-	r.Route("/api/v1", func(r chi.Router) {
-		if len(cfg.APIKeys) > 0 {
-			r.Use(APIKeyAuth(cfg.APIKeys))
+	// Resolve tenant Ed25519 pubkey for license token verification. If
+	// TenantPubKey is nil, fall back to the embedded default. UnifiedAuth
+	// below passes this to the license-token resolution path.
+	var licensePubKey ed25519.PublicKey
+	if len(cfg.TenantPubKey) > 0 {
+		licensePubKey = ed25519.PublicKey(cfg.TenantPubKey)
+	} else {
+		licensePubKey = license.LoadPublicKeyBytes()
+	}
+
+	// Derive JWT public key now (also done below for /auth routes, but
+	// UnifiedAuth needs it up-front).
+	var jwtPubKey ed25519.PublicKey
+	if cfg.JWTSigningKey != nil {
+		if cfg.JWTPublicKey == nil {
+			cfg.JWTPublicKey = cfg.JWTSigningKey.Public().(ed25519.PublicKey)
 		}
+		jwtPubKey = cfg.JWTPublicKey
+	}
+
+	// API routes — UnifiedAuth (JWT OR license token) is the primary
+	// tenant resolver. Agents authenticate via license token; org users
+	// authenticate via JWT obtained from /api/v1/auth/login. The legacy
+	// APIKeyAuth was removed in Phase 4 — clients that previously used
+	// X-Triton-API-Key must migrate to one of the supported auth modes.
+	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.Guard != nil {
 			r.Use(LicenceGate(cfg.Guard))
-			r.Use(TenantScope(cfg.Guard, cfg.TenantPubKey))
 		}
+		// Always install UnifiedAuth. It gracefully handles:
+		//   - Guard == nil (skips the single-tenant fallback)
+		//   - JWT not configured (skips the JWT path)
+		//   - License pubkey always present via embedded default
+		// When no credentials are supplied and no guard exists, it
+		// passes through without setting tenant context — existing
+		// handlers that read TenantFromContext will see an empty
+		// org_id (backward compat with public-ish routes).
+		r.Use(UnifiedAuth(jwtPubKey, s, licensePubKey, cfg.Guard))
+		// Phase 5 Sprint 3 B3 — per-tenant request rate limit on
+		// the data-plane route group. Runs AFTER UnifiedAuth so
+		// the limiter keys by the resolved tenant org_id rather
+		// than by IP. Unauthenticated requests fall back to
+		// IP-based keying to still get DoS protection.
+		r.Use(RequestRateLimit(srv.requestLimiter))
 		srv.registerAPIRoutes(r)
 	})
+
+	// Admin API for service-to-service calls (license server → report server).
+	// Only registered if a ServiceKey is configured. Uses its own auth
+	// middleware (X-Triton-Service-Key) separate from the agent API key.
+	if cfg.ServiceKey != "" {
+		r.Route("/api/v1/admin", func(r chi.Router) {
+			r.Use(ServiceKeyAuth(cfg.ServiceKey))
+			r.Post("/orgs", srv.handleProvisionOrg)
+			// Arch #4 operator break-glass — flush the JWT session
+			// cache so a revoked token stops working inside the
+			// current TTL window.
+			r.Post("/sessions/flush", srv.handleFlushSessionCache)
+		})
+	}
+
+	// User auth API (login, logout, refresh, change-password).
+	// Only registered if JWT signing is configured.
+	if cfg.JWTSigningKey != nil {
+		r.Route("/api/v1/auth", func(r chi.Router) {
+			// Phase 5 Sprint 3 full-review N2 fix: /auth/refresh and
+			// /auth/change-password were outside the request rate
+			// limiter, so an authenticated client could hammer them
+			// at full speed bounded only by the global concurrency
+			// throttle. RequestRateLimit keys by IP for these
+			// routes (there's no tenant ctx on login/logout paths
+			// and the JWT handlers set user context only AFTER
+			// middleware runs), which gives DoS protection
+			// without coupling the budget to the per-tenant
+			// authenticated limit on /users and /audit.
+			//
+			// login remains gated by the dedicated per-email
+			// LoginRateLimiter inside handleLogin — stricter
+			// than the request limit because login is a
+			// credential-attack surface, not a data-fetch surface.
+			r.Use(RequestRateLimit(srv.requestLimiter))
+			r.Post("/login", srv.handleLogin)
+			r.Post("/logout", srv.handleLogout)
+			r.Post("/refresh", srv.handleRefresh)
+			r.Post("/change-password", srv.handleChangePassword)
+		})
+
+		// Org-scoped user management — requires JWT auth + org_admin role
+		// + cleared password change requirement. Tenant isolation is
+		// enforced inside the handlers (queries scoped to the requesting
+		// admin's org_id).
+		//
+		// BlockUntilPasswordChanged ensures invited users (must_change_password
+		// =true on their initial JWT) cannot use the user-management API
+		// until they've called /auth/change-password to clear the flag.
+		r.Route("/api/v1/users", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
+			r.Use(BlockUntilPasswordChanged)
+			r.Use(RequireOrgAdmin)
+			// Per-tenant rate limit — same policy as the data-plane
+			// /api/v1 group. Keys by the admin's OrgID (read from
+			// the user context by RequestRateLimit when tenant is
+			// empty... wait no, RequestRateLimit reads tenant
+			// context which JWTAuth doesn't set. Use a dedicated
+			// middleware that keys on the authenticated user.
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
+			r.Post("/", srv.handleCreateUser)
+			r.Get("/", srv.handleListUsers)
+			r.Get("/{id}", srv.handleGetUser)
+			r.Put("/{id}", srv.handleUpdateUser)
+			r.Delete("/{id}", srv.handleDeleteUser)
+			r.Post("/{id}/resend-invite", srv.handleResendInvite)
+		})
+
+		// Audit log query — Phase 5 Sprint 3 B2. Org-scoped via the
+		// JWT's org claim; admin role required to read.
+		r.Route("/api/v1/audit", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
+			r.Use(BlockUntilPasswordChanged)
+			r.Use(RequireOrgAdmin)
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
+			r.Get("/", srv.handleListAudit)
+		})
+	}
 
 	// Health check — intentionally outside the auth group so it remains public.
 	// It returns no sensitive data (only {"status":"ok"}).
 	r.Get("/api/v1/health", srv.handleHealth)
+
+	// Metrics endpoint — Phase 5 Sprint 3 B4. Also outside the auth
+	// group because Prometheus scrapers typically cannot
+	// authenticate as a user. Operators restrict access via network
+	// (reverse proxy IP allowlist or TLS client cert).
+	r.Get("/api/v1/metrics", srv.handleMetrics)
 
 	// Serve embedded web UI.
 	r.Handle("/ui/*", http.StripPrefix("/ui/", uiHandler()))
@@ -93,36 +387,92 @@ func New(cfg *Config, s store.Store) *Server {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	return srv
+	return srv, nil
 }
 
 func (s *Server) registerAPIRoutes(r chi.Router) {
+	// POST /scans is intentionally registered WITHOUT RequireTenant so
+	// single-tenant deployments (no Guard, no JWT) can still accept
+	// agent submissions. The handler sets result.OrgID from
+	// TenantFromContext only if non-empty, so authenticated submissions
+	// stamp the tenant's org and unauthenticated submissions retain
+	// whatever the body says. See handleSubmitScan for the body-injection
+	// guard that prevents cross-org writes when authenticated.
 	r.Post("/scans", s.handleSubmitScan)
-	r.Get("/scans", s.handleListScans)
-	r.Get("/scans/{id}", s.handleGetScan)
-	r.Delete("/scans/{id}", s.handleDeleteScan)
-	r.Get("/scans/{id}/findings", s.handleGetFindings)
-	r.Get("/diff", s.handleDiff)
-	r.Get("/trend", s.handleTrend)
-	r.Get("/machines", s.handleListMachines)
-	r.Get("/machines/{hostname}", s.handleMachineHistory)
-	r.Post("/policy/evaluate", s.handlePolicyEvaluate)
-	r.Get("/reports/{id}/{format}", s.handleGenerateReport)
-	r.Get("/aggregate", s.handleAggregate)
+
+	// All read/write routes require an authenticated tenant context.
+	// This closes the D1 finding from the Phase 2 review: without this
+	// gate, an unauthenticated GET /api/v1/scans returned rows from
+	// ALL orgs because TenantFromContext returned an empty string and
+	// the store accepted empty org_id as "no filter".
+	r.Group(func(r chi.Router) {
+		r.Use(RequireTenant)
+		r.Get("/scans", s.handleListScans)
+		r.Get("/scans/{id}", s.handleGetScan)
+		r.Get("/scans/{id}/findings", s.handleGetFindings)
+		r.Get("/diff", s.handleDiff)
+		r.Get("/trend", s.handleTrend)
+		r.Get("/machines", s.handleListMachines)
+		r.Get("/machines/{hostname}", s.handleMachineHistory)
+		r.Post("/policy/evaluate", s.handlePolicyEvaluate)
+		r.Get("/reports/{id}/{format}", s.handleGenerateReport)
+		r.Get("/aggregate", s.handleAggregate)
+
+		// Destructive operations require org_admin (Arch #7 from
+		// Phase 2 review). org_user can read but cannot delete scans.
+		r.Group(func(r chi.Router) {
+			r.Use(RequireScanAdmin)
+			r.Delete("/scans/{id}", s.handleDeleteScan)
+		})
+	})
 }
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
-	log.Printf("Triton server listening on %s", s.config.ListenAddr)
+	log.Printf("Triton report server listening on %s", s.config.ListenAddr)
 	if s.config.TLSCert != "" && s.config.TLSKey != "" {
 		return s.http.ListenAndServeTLS(s.config.TLSCert, s.config.TLSKey)
 	}
 	return s.http.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server.
+// Shutdown gracefully shuts down the server. Order of operations:
+//
+//  1. Cancel the internal Server context so background workers
+//     (rate-limit janitor, ticker-driven helpers) stop promptly.
+//  2. Drain in-flight HTTP requests via http.Server.Shutdown up to
+//     the caller-supplied deadline.
+//  3. Wait for any outstanding writeAudit goroutines to finish.
+//     These are fire-and-forget writes spawned AFTER the HTTP
+//     response is returned, so http.Server.Shutdown does NOT wait
+//     on them (Sprint 3 D2). Without this step, cmd/server.go's
+//     defer db.Close() would tear down the store pool out from
+//     under an in-flight audit write, silently losing the event.
+//
+// The audit drain uses the same ctx deadline the caller supplied to
+// Shutdown so a stuck audit write cannot block indefinitely — an
+// exhausted deadline logs and returns.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.http.Shutdown(ctx)
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if err := s.http.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	// Drain audit goroutines with a bounded wait.
+	auditDone := make(chan struct{})
+	go func() {
+		s.auditWG.Wait()
+		close(auditDone)
+	}()
+	select {
+	case <-auditDone:
+		return nil
+	case <-ctx.Done():
+		log.Printf("shutdown: audit drain deadline exceeded; some events may have been lost")
+		return ctx.Err()
+	}
 }
 
 // Router returns the chi router (for testing).

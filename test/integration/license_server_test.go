@@ -393,8 +393,8 @@ func requireLicenseServerWithKeys(t *testing.T, keys []string) (string, *license
 	cfg := &licenseserver.Config{
 		ListenAddr: ":0",
 		AdminKeys:  keys,
-		SigningKey:  priv,
-		PublicKey:   pub,
+		SigningKey: priv,
+		PublicKey:  pub,
 	}
 	srv := licenseserver.New(cfg, store)
 	ts := httptest.NewServer(srv.Router())
@@ -1161,9 +1161,9 @@ func TestLicenseServer_StatsAccuracy(t *testing.T) {
 
 	assert.Equal(t, float64(2), stats["totalOrgs"])
 	assert.Equal(t, float64(4), stats["totalLicenses"])    // 2 active + 1 revoked + 1 expired
-	assert.Equal(t, float64(2), stats["activeLicenses"])    // 2 active (not revoked, not expired)
-	assert.Equal(t, float64(1), stats["revokedLicenses"])   // 1 revoked
-	assert.Equal(t, float64(1), stats["expiredLicenses"])   // 1 expired
-	assert.Equal(t, float64(2), stats["totalActivations"])  // 2 activations
-	assert.Equal(t, float64(2), stats["activeSeats"])       // 2 active seats
+	assert.Equal(t, float64(2), stats["activeLicenses"])   // 2 active (not revoked, not expired)
+	assert.Equal(t, float64(1), stats["revokedLicenses"])  // 1 revoked
+	assert.Equal(t, float64(1), stats["expiredLicenses"])  // 1 expired
+	assert.Equal(t, float64(2), stats["totalActivations"]) // 2 activations
+	assert.Equal(t, float64(2), stats["activeSeats"])      // 2 active seats
 }

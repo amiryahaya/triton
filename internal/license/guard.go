@@ -54,7 +54,21 @@ func newGuardWithKeyAndPath(flagKey string, pubKey ed25519.PublicKey, filePath s
 	return NewGuardFromToken(token, pubKey)
 }
 
-// resolveToken checks flag → env → file and returns the first non-empty token.
+// resolveToken checks flag → env → file and returns the first non-empty
+// token, where `filePath` is the fallback path to try when neither the
+// flag nor the env var is set.
+//
+// Resolution order (first non-empty wins):
+//  1. --license-key CLI flag (literal token)
+//  2. TRITON_LICENSE_KEY env var (literal token)
+//  3. --license-file CLI flag (file path; caller resolves and passes here)
+//  4. TRITON_LICENSE_FILE env var (file path)
+//  5. The supplied filePath fallback (typically DefaultLicensePath())
+//
+// Steps 3–5 are handled by the caller pre-computing the effective
+// filePath via ResolveLicenseFilePath before calling resolveToken.
+// This keeps the precedence explicit without threading a half-dozen
+// parameters through every internal call site.
 func resolveToken(flagKey, filePath string) string {
 	if flagKey != "" {
 		return flagKey
@@ -72,6 +86,68 @@ func resolveToken(flagKey, filePath string) string {
 		}
 	}
 	return ""
+}
+
+// ResolveLicenseFilePath picks the effective license-file path for
+// loading a token. The first non-empty argument wins, falling back
+// to the TRITON_LICENSE_FILE env var, and finally to the default
+// ~/.triton/license.key path.
+//
+// Phase 5 Sprint 3 addition — callers that want to override the
+// default path (e.g., `triton agent --license-file /etc/triton/license`)
+// pass the flag value here; when empty the standard fallbacks kick in.
+func ResolveLicenseFilePath(flagFile string) string {
+	if flagFile != "" {
+		return flagFile
+	}
+	if env := os.Getenv("TRITON_LICENSE_FILE"); env != "" {
+		return env
+	}
+	return DefaultLicensePath()
+}
+
+// ResolveToken is the canonical public helper for CLI callers that
+// need to resolve a licence token from the full --license-key /
+// TRITON_LICENSE_KEY / --license-file / TRITON_LICENSE_FILE / default
+// precedence without constructing a Guard. Returns an empty string
+// when no source is set — callers treat empty as "free tier".
+//
+// Phase 5 Sprint 3 D4 — exported so cmd/root.go's tenant-pubkey
+// override branch can reuse the same precedence the default branch
+// uses, instead of hand-rolling a subset that forgot to check
+// TRITON_LICENSE_KEY.
+func ResolveToken(flagKey, flagFile string) string {
+	filePath := ResolveLicenseFilePath(flagFile)
+	return resolveToken(flagKey, filePath)
+}
+
+// NewGuardFromFlags is the canonical constructor for CLI callers who
+// have both a --license-key and --license-file flag in hand. It
+// resolves the effective file path via ResolveLicenseFilePath and
+// then runs the standard resolveToken precedence.
+func NewGuardFromFlags(flagKey, flagFile string) *Guard {
+	pubKey := loadPublicKey()
+	filePath := ResolveLicenseFilePath(flagFile)
+	token := resolveToken(flagKey, filePath)
+	return NewGuardFromToken(token, pubKey)
+}
+
+// LoadTokenFromFile reads a token string from the given file path,
+// trimming surrounding whitespace. Returns empty string on any error
+// (missing file, permission denied, empty content) — callers treat
+// empty as "no token" and let the normal resolution fall through.
+//
+// Used by cmd/root.go's online-validation path to pre-resolve the
+// --license-file content before handing off to NewGuardWithServer.
+func LoadTokenFromFile(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // DefaultLicensePath returns ~/.triton/license.key.

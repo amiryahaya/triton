@@ -5,6 +5,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -14,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -30,6 +34,29 @@ func testUUID(n int) string {
 
 // zeroUUID is a nil UUID for "not found" test cases.
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
+
+// testGuardForOrg builds a *license.Guard backed by a freshly-issued
+// license token bound to the given orgID. Used by testServer to give
+// every test handler a non-empty TenantContext via the Guard fallback
+// path of UnifiedAuth, so RequireTenant doesn't reject unauthenticated
+// test requests.
+func testGuardForOrg(t *testing.T, orgID string) *license.Guard {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	lic := &license.License{
+		ID:        "test-license",
+		Tier:      license.TierEnterprise,
+		OrgID:     orgID,
+		Org:       "test-org",
+		Seats:     100,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+	return license.NewGuardFromToken(token, pub)
+}
 
 func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 	t.Helper()
@@ -51,12 +78,21 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 
 	cfg := &Config{
 		ListenAddr: ":0",
+		// Install a test Guard with testOrgID so RequireTenant on /api/v1
+		// is satisfied via the Guard fallback path. testScanResult also
+		// stamps OrgID = testOrgID, so seeded scans are visible through
+		// the test server's tenant filter.
+		Guard: testGuardForOrg(t, testOrgID),
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db
 }
 
-func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
+// testServerWithServiceKey builds a server configured for service-to-service
+// auth (used by the license server → report server provisioning endpoint).
+// Returns the server, store, and the configured service key.
+func testServerWithServiceKey(t *testing.T) (*Server, *store.PostgresStore, string) {
 	t.Helper()
 	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
 	if dbUrl == "" {
@@ -67,24 +103,121 @@ func testServerWithAuth(t *testing.T) (*Server, *store.PostgresStore) {
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable: %v", err)
 	}
-	// Truncate at start to handle stale data from parallel package tests
 	require.NoError(t, db.TruncateAll(ctx))
 	t.Cleanup(func() {
 		_ = db.TruncateAll(ctx)
 		db.Close()
 	})
 
+	const serviceKey = "test-service-key-shared-secret"
 	cfg := &Config{
 		ListenAddr: ":0",
-		APIKeys:    []string{"test-key-123"},
+		ServiceKey: serviceKey,
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
+	return srv, db, serviceKey
+}
+
+// testServerWithJWT builds a server configured for user JWT auth (login,
+// logout, refresh, change-password). Generates a fresh Ed25519 keypair
+// per test for isolation.
+func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
+	t.Helper()
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cfg := &Config{
+		ListenAddr:    ":0",
+		JWTSigningKey: priv,
+		JWTPublicKey:  pub,
+	}
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db
 }
 
+// createTestUserInOrg adds a user to an EXISTING org. Use when a test
+// needs multiple users in the same org (e.g., peer-admin scenarios).
+// For a fresh-org-plus-user, use createOrgUser instead.
+func createTestUserInOrg(t *testing.T, db *store.PostgresStore, orgID, role, password string, mcp bool) (*store.Organization, *store.User) {
+	t.Helper()
+	ctx := context.Background()
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	user := &store.User{
+		ID:                 uuid.Must(uuid.NewV7()).String(),
+		OrgID:              orgID,
+		Email:              uuid.Must(uuid.NewV7()).String() + "@auth.test",
+		Name:               "Auth Test User",
+		Role:               role,
+		Password:           string(hashed),
+		MustChangePassword: mcp,
+		CreatedAt:          time.Now().UTC(),
+		UpdatedAt:          time.Now().UTC(),
+	}
+	require.NoError(t, db.CreateUser(ctx, user))
+	org, err := db.GetOrg(ctx, orgID)
+	require.NoError(t, err)
+	return org, user
+}
+
+// createOrgUser inserts a user directly into the store for auth tests.
+// Bypasses the provisioning endpoint to keep auth tests independent.
+func createOrgUser(t *testing.T, db *store.PostgresStore, role, password string, mcp bool) (*store.Organization, *store.User) {
+	t.Helper()
+	ctx := context.Background()
+
+	org := &store.Organization{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Name:      "Auth Test Org " + uuid.Must(uuid.NewV7()).String()[:8],
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	require.NoError(t, db.CreateOrg(ctx, org))
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	user := &store.User{
+		ID:                 uuid.Must(uuid.NewV7()).String(),
+		OrgID:              org.ID,
+		Email:              uuid.Must(uuid.NewV7()).String() + "@auth.test",
+		Name:               "Auth Test User",
+		Role:               role,
+		Password:           string(hashed),
+		MustChangePassword: mcp,
+		CreatedAt:          time.Now().UTC(),
+		UpdatedAt:          time.Now().UTC(),
+	}
+	require.NoError(t, db.CreateUser(ctx, user))
+	return org, user
+}
+
+// testOrgID is the default tenant org ID stamped onto scans seeded
+// directly via the store and into the test server's Guard. Tests that
+// need a different org should override OrgID after calling
+// testScanResult and configure their own server.
+const testOrgID = "00000000-0000-0000-0000-000000000abc"
+
 func testScanResult(id, hostname string) *model.ScanResult {
 	return &model.ScanResult{
-		ID: id,
+		ID:    id,
+		OrgID: testOrgID,
 		Metadata: model.ScanMetadata{
 			Timestamp:   time.Now().UTC().Truncate(time.Microsecond),
 			Hostname:    hostname,
@@ -123,37 +256,13 @@ func TestHealth(t *testing.T) {
 
 // --- Auth ---
 
-func TestAuth_MissingKey(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuth_InvalidKey(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
-	r.Header.Set("X-Triton-API-Key", "wrong-key")
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
-func TestAuth_ValidKey(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/api/v1/scans", nil)
-	r.Header.Set("X-Triton-API-Key", "test-key-123")
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
+// API key auth was removed in Phase 4. Agents now authenticate via
+// license tokens (X-Triton-License-Token), and human users via JWT
+// (Authorization: Bearer). See tenant_context_test.go for the
+// UnifiedAuth coverage that replaces TestAuth_*.
 
 func TestHealth_NoAuthRequired(t *testing.T) {
-	srv, _ := testServerWithAuth(t)
+	srv, _ := testServer(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/v1/health", nil)
 	srv.Router().ServeHTTP(w, r)
@@ -769,6 +878,84 @@ func TestGenerateReport_CycloneDX(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "bomFormat")
 }
 
+// TestGenerateReport_CDXAlias verifies the short alias `cdx` also
+// routes to the CycloneDX generator — the agent's local-report
+// path uses this spelling so the download URL should accept it.
+func TestGenerateReport_CDXAlias(t *testing.T) {
+	srv, db := testServer(t)
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/cdx", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code, "cdx alias must work alongside cyclonedx")
+	assert.Contains(t, w.Body.String(), "bomFormat")
+}
+
+// TestGenerateReport_XLSX verifies Phase 5 Sprint 3 S3.2: the
+// report server can stream an Excel workbook for a stored scan.
+// Previously xlsx was file-only via the local generator; this
+// handler now produces it on-demand so the report-server web UI
+// can offer "Download as Excel" on the scan detail page.
+//
+// The test asserts that:
+//  1. The response is 200 OK
+//  2. Content-Type is the OOXML spreadsheet MIME type
+//  3. Content-Disposition advertises the filename with .xlsx
+//  4. The response body starts with the ZIP magic bytes "PK\x03\x04"
+//     (every .xlsx file is a zip archive under the hood)
+//  5. The body is non-empty
+func TestGenerateReport_XLSX(t *testing.T) {
+	srv, db := testServer(t)
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/xlsx", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	assert.Equal(t,
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		w.Header().Get("Content-Type"),
+		"xlsx Content-Type must be the OOXML spreadsheet MIME type",
+	)
+	cd := w.Header().Get("Content-Disposition")
+	assert.Contains(t, cd, "attachment;")
+	assert.Contains(t, cd, ".xlsx", "Content-Disposition must include the .xlsx extension")
+
+	body := w.Body.Bytes()
+	require.NotEmpty(t, body, "xlsx body must not be empty")
+	// Every .xlsx (OOXML) file is a ZIP archive — the first four
+	// bytes are the ZIP local-file-header signature 50 4B 03 04
+	// ("PK\x03\x04"). If this prefix is missing we're streaming
+	// the wrong content (likely an error page or plaintext).
+	require.GreaterOrEqual(t, len(body), 4)
+	assert.Equal(t, []byte{0x50, 0x4B, 0x03, 0x04}, body[:4],
+		"xlsx body must start with the ZIP magic bytes")
+}
+
+// TestGenerateReport_CaseInsensitiveFormat verifies that URL path
+// formats are case-insensitive — an admin typing /xlsx or /XLSX
+// or /Xlsx should all produce the same Excel workbook. The web
+// UI generates lowercase URLs but a human hitting the API
+// directly may not.
+func TestGenerateReport_CaseInsensitiveFormat(t *testing.T) {
+	srv, db := testServer(t)
+	id := testUUID(1)
+	require.NoError(t, db.SaveScan(context.Background(), testScanResult(id, "host-a")))
+
+	for _, fmt := range []string{"XLSX", "Xlsx", "xlsx"} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/api/v1/reports/"+id+"/"+fmt, nil)
+		srv.Router().ServeHTTP(w, r)
+		assert.Equal(t, http.StatusOK, w.Code,
+			"format %q must succeed (body: %s)", fmt, w.Body.String())
+	}
+}
+
 // --- Policy Evaluate Edge Cases ---
 
 func TestPolicyEvaluate_InvalidJSON(t *testing.T) {
@@ -914,10 +1101,21 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 		db.Close()
 	})
 
-	// Generate ephemeral keypair and token for the given tier
-	pub, priv, err := license.GenerateKeypair()
+	// Generate ephemeral keypair and a license with both tier AND
+	// orgID set, so the Guard satisfies both LicenceGate (tier check)
+	// and UnifiedAuth's guard fallback path (non-empty org_id).
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := license.IssueTokenWithOptions(priv, tier, "Test Org", 1, 365, false)
+	lic := &license.License{
+		ID:        "test-tier-license",
+		Tier:      tier,
+		OrgID:     testOrgID,
+		Org:       "Test Org",
+		Seats:     1,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(365 * 24 * time.Hour).Unix(),
+	}
+	token, err := license.Encode(lic, priv)
 	require.NoError(t, err)
 	guard := license.NewGuardFromToken(token, pub)
 
@@ -925,7 +1123,8 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 		ListenAddr: ":0",
 		Guard:      guard,
 	}
-	srv := New(cfg, db)
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
 	return srv, db
 }
 
@@ -1009,6 +1208,17 @@ func TestStartAndShutdown(t *testing.T) {
 	// Start should return http.ErrServerClosed
 	startErr := <-errCh
 	assert.ErrorIs(t, startErr, http.ErrServerClosed)
+
+	// Phase 5 Sprint 2 (N1) — Shutdown must cancel srv.ctx so any
+	// background workers (the rate-limit janitor and future ticker-
+	// driven helpers) stop promptly rather than running until the
+	// process exits.
+	select {
+	case <-srv.ctx.Done():
+		// canceled as expected
+	default:
+		t.Fatal("Shutdown did not cancel Server.ctx")
+	}
 }
 
 // --- ListScans validation ---

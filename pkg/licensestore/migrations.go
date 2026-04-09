@@ -86,4 +86,40 @@ var migrations = []string{
 
 	ALTER TABLE licenses ADD CONSTRAINT licenses_org_id_fkey FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE RESTRICT;
 	ALTER TABLE activations ADD CONSTRAINT activations_license_id_fkey FOREIGN KEY (license_id) REFERENCES licenses(id) ON DELETE RESTRICT;`,
+
+	// Version 4: Users and sessions for multi-tenant auth.
+	//
+	// TODO(phase-1-followup): Tighten the role CHECK constraint to
+	// `CHECK (role = 'platform_admin' AND org_id IS NULL)` once the
+	// 2026-04-07 split-identity amendment is fully realized. Until then,
+	// the application layer enforces the invariant via:
+	//   - handler-level role checks in handleLogin / handleRefresh
+	//   - getSuperadminByID defensive role check (handlers_superadmin.go)
+	//   - UpdateUser store method ignoring the Role field
+	// Removing the defensive checks is safe only after this constraint
+	// is tightened. Tracked under the plan's "Status of existing tasks"
+	// section in docs/plans/2026-03-07-multi-tenant-implementation.md
+	// (Task 1.1 amendment).
+	`CREATE TABLE IF NOT EXISTS users (
+		id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		org_id     UUID REFERENCES organizations(id) ON DELETE CASCADE,
+		email      TEXT NOT NULL UNIQUE,
+		name       TEXT NOT NULL,
+		role       TEXT NOT NULL CHECK (role IN ('platform_admin', 'org_admin', 'org_user')),
+		password   TEXT NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS idx_users_org_id ON users(org_id);
+	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		token_hash TEXT NOT NULL UNIQUE,
+		expires_at TIMESTAMPTZ NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);`,
 }

@@ -38,6 +38,21 @@ type Store interface {
 	// Stats
 	DashboardStats(ctx context.Context) (*DashboardStats, error)
 
+	// Users
+	CreateUser(ctx context.Context, user *User) error
+	GetUser(ctx context.Context, id string) (*User, error)
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	ListUsers(ctx context.Context, filter UserFilter) ([]User, error)
+	UpdateUser(ctx context.Context, update UserUpdate) error
+	DeleteUser(ctx context.Context, id string) error
+	CountUsers(ctx context.Context) (int, error)
+
+	// Sessions
+	CreateSession(ctx context.Context, session *Session) error
+	GetSessionByHash(ctx context.Context, tokenHash string) (*Session, error)
+	DeleteSession(ctx context.Context, id string) error
+	DeleteExpiredSessions(ctx context.Context) error
+
 	// Lifecycle
 	TruncateAll(ctx context.Context) error
 	Close() error
@@ -110,6 +125,48 @@ type DashboardStats struct {
 	ExpiredLicenses  int `json:"expiredLicenses"`
 	TotalActivations int `json:"totalActivations"`
 	ActiveSeats      int `json:"activeSeats"`
+}
+
+// User represents a platform or organization user.
+type User struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"orgID,omitempty"` // empty = platform admin
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"` // platform_admin, org_admin, org_user
+	Password  string    `json:"-"`    // bcrypt hash, never serialized
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	OrgName   string    `json:"orgName,omitempty"` // populated by joins
+}
+
+// Session represents an active user session.
+type Session struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userID"`
+	TokenHash string    `json:"-"` // SHA-256 of session token, never serialized
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// UserFilter controls user listing.
+type UserFilter struct {
+	OrgID string
+	Role  string
+}
+
+// UserUpdate is a narrow type for updating a user. By design it has no Role
+// or OrgID field — those are immutable via the CRUD path. The split-identity
+// model says role changes are not a legitimate runtime operation; if a user's
+// role needs to change, delete and recreate. The type system enforces this:
+// callers cannot supply a Role even by accident, because the field doesn't
+// exist on this struct.
+//
+// Password is optional: an empty string means "leave unchanged".
+type UserUpdate struct {
+	ID       string
+	Name     string
+	Password string // empty = unchanged
 }
 
 // LicenseFilter filters license listings.

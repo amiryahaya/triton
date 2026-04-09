@@ -6,10 +6,66 @@
   const $$ = (sel) => document.querySelectorAll(sel);
   const content = $('#content');
 
-  // API helper
-  async function api(path) {
-    const resp = await fetch('/api/v1' + path);
-    if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+  // ─── Auth state ─────────────────────────────────────────────────────
+  // JWT lives in localStorage. We treat the token as opaque — the server
+  // is the only validator. We DO decode the payload (base64url, no
+  // signature check) to read role/name/org/mcp claims for client-side
+  // routing decisions only. NEVER trust these for authorization.
+  const STORAGE_KEY = 'tritonJWT';
+  const auth = {
+    getToken: () => localStorage.getItem(STORAGE_KEY) || '',
+    setToken: (t) => localStorage.setItem(STORAGE_KEY, t),
+    clearToken: () => localStorage.removeItem(STORAGE_KEY),
+    getClaims: () => {
+      const token = auth.getToken();
+      if (!token) return null;
+      try {
+        const payload = token.split('.')[1];
+        // Base64url → base64 → JSON
+        const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+        return JSON.parse(json);
+      } catch (e) { return null; }
+    },
+    isAdmin: () => {
+      const c = auth.getClaims();
+      return c && c.role === 'org_admin';
+    },
+    mustChangePassword: () => {
+      const c = auth.getClaims();
+      return !!(c && c.mcp);
+    },
+  };
+
+  // API helper. Injects Authorization header from stored JWT, handles
+  // 401 by clearing the token and showing the login screen.
+  // method/body are optional (defaults to GET).
+  async function api(path, opts) {
+    opts = opts || {};
+    const headers = Object.assign({}, opts.headers || {});
+    const token = auth.getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (opts.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const resp = await fetch('/api/v1' + path, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.body || undefined,
+    });
+    if (resp.status === 401) {
+      auth.clearToken();
+      location.hash = '#/login';
+      throw new Error('Authentication required');
+    }
+    if (!resp.ok) {
+      let msg = `API error: ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    if (resp.status === 204) return null;
     return resp.json();
   }
 
@@ -29,9 +85,33 @@
     font: { family: "'Outfit', system-ui, sans-serif" }
   };
 
+  // escapeHtml escapes the five XML-significant characters. Single quote
+  // MUST be escaped because we use double-quoted HTML attributes, but
+  // any interpolation inside an inline JS string literal (onclick="...('${x}')")
+  // would otherwise be broken out of by a single quote. The safer pattern
+  // is to avoid inline handlers entirely — see the delete-user button
+  // below, which uses data-* attrs + addEventListener.
   function escapeHtml(s) {
     if (s == null) return '';
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  // wireClickableRows finds every element with class="clickable-row"
+  // and data-href="#/..." and attaches a click handler that sets
+  // location.hash. This replaces inline onclick="location.hash='...'"
+  // patterns that interpolated user-controlled strings (hostnames,
+  // scan IDs) and were XSS vectors the moment any one of them
+  // contained a quote or `</script>`. data-href values are HTML
+  // attribute-encoded by escapeHtml, so the browser parser sees them
+  // as opaque strings, not JavaScript.
+  function wireClickableRows() {
+    $$('.clickable-row').forEach(el => {
+      el.addEventListener('click', () => {
+        const href = el.dataset.href;
+        if (href) location.hash = href;
+      });
+    });
   }
 
   // Router
@@ -41,12 +121,72 @@
     const view = parts[0] || '';
     const param = parts[1] || '';
 
+    // Auth gate: if the user has a JWT and it says they must change
+    // their password, force them to the change-password screen first.
+    // No other view is reachable until the flag is cleared.
+    if (auth.mustChangePassword() && view !== 'change-password' && view !== 'login') {
+      location.hash = '#/change-password';
+      return;
+    }
+
+    // Auth-mode chrome: hide the sidebar on full-screen auth pages
+    // (login, change-password) so the user isn't presented with nav
+    // links they can't meaningfully use. CSS uses body.auth-mode to
+    // collapse the sidebar and reset the content margin.
+    const authMode = view === 'login' || view === 'change-password';
+    document.body.classList.toggle('auth-mode', authMode);
+
     // Update active nav link
     $$('.nav-link').forEach(a => {
       a.classList.toggle('active', a.dataset.view === (view || 'overview'));
     });
 
+    // Show/hide the Users nav link based on role.
+    const usersLink = $('#nav-users');
+    if (usersLink) {
+      usersLink.style.display = auth.isAdmin() ? '' : 'none';
+    }
+    // Show/hide the logout button based on whether we have a token.
+    const logoutBtn = $('#nav-logout');
+    if (logoutBtn) {
+      logoutBtn.style.display = auth.getToken() ? '' : 'none';
+    }
+
+    // Sidebar user-info card: show the current user's name + role and
+    // the org they belong to, so a logged-in operator can tell at a
+    // glance which tenant they're looking at. Values come from the JWT
+    // claims set by the server (signUserToken embeds org_name best-
+    // effort; it may be briefly stale after an admin renames the org).
+    // Hidden entirely on auth-mode pages (login, change-password).
+    const userInfo = $('#user-info');
+    if (userInfo) {
+      const c = auth.getClaims();
+      if (c && !authMode) {
+        const orgEl = $('#user-info-org');
+        const nameEl = $('#user-info-name');
+        const roleEl = $('#user-info-role');
+        if (orgEl) orgEl.textContent = c.org_name || '(no organization)';
+        if (nameEl) nameEl.textContent = c.name || '';
+        if (roleEl) {
+          // Map machine-readable role values to friendly labels. Keep
+          // the switch exhaustive so adding a new role doesn't
+          // silently display the raw string.
+          let label = c.role || '';
+          if (c.role === 'org_admin') label = 'Admin';
+          else if (c.role === 'org_user') label = 'User';
+          else if (c.role === 'platform_admin') label = 'Platform Admin';
+          roleEl.textContent = label;
+        }
+        userInfo.style.display = '';
+      } else {
+        userInfo.style.display = 'none';
+      }
+    }
+
     switch(view) {
+      case 'login': renderLogin(); break;
+      case 'change-password': renderChangePassword(); break;
+      case 'users': param ? renderUserDetail(param) : renderUsers(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;
@@ -55,6 +195,260 @@
       case 'trend': renderTrend(); break;
       default: content.innerHTML = '<div class="error">Page not found</div>';
     }
+  }
+
+  // ─── Login view (Phase 3.1) ─────────────────────────────────────────
+  function renderLogin() {
+    content.innerHTML = `
+      <div class="auth-card">
+        <h2>Sign in</h2>
+        <p class="muted">Sign in to view your organization's scan reports.</p>
+        <form id="loginForm" onsubmit="return tritonLogin(event)">
+          <label>Email
+            <input type="email" id="loginEmail" required autofocus>
+          </label>
+          <label>Password
+            <input type="password" id="loginPassword" required>
+          </label>
+          <button type="submit" class="btn btn-primary">Sign in</button>
+          <div id="loginError" class="form-error"></div>
+        </form>
+      </div>
+    `;
+  }
+
+  window.tritonLogin = async function(e) {
+    e.preventDefault();
+    const email = $('#loginEmail').value.trim();
+    const password = $('#loginPassword').value;
+    const errEl = $('#loginError');
+    errEl.textContent = '';
+    try {
+      const resp = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password}),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        errEl.textContent = err.error || `Sign in failed (${resp.status})`;
+        return false;
+      }
+      const data = await resp.json();
+      auth.setToken(data.token);
+      // If the response says the user must change their password, route
+      // them there. Otherwise drop them onto the overview.
+      if (data.mustChangePassword) {
+        location.hash = '#/change-password';
+      } else {
+        location.hash = '#/';
+      }
+    } catch (e) {
+      errEl.textContent = 'Network error: ' + e.message;
+    }
+    return false;
+  };
+
+  // ─── Change password view (Phase 3.4) ───────────────────────────────
+  function renderChangePassword() {
+    if (!auth.getToken()) {
+      location.hash = '#/login';
+      return;
+    }
+    const claims = auth.getClaims();
+    const reasonNote = (claims && claims.mcp)
+      ? '<p class="warn">Your account requires a password change before you can continue.</p>'
+      : '';
+    content.innerHTML = `
+      <div class="auth-card">
+        <h2>Change password</h2>
+        ${reasonNote}
+        <form id="changePwForm" onsubmit="return tritonChangePassword(event)">
+          <label>Current password
+            <input type="password" id="cpwCurrent" required autofocus>
+          </label>
+          <label>New password (min 12 characters)
+            <input type="password" id="cpwNew" required minlength="12">
+          </label>
+          <label>Confirm new password
+            <input type="password" id="cpwConfirm" required minlength="12">
+          </label>
+          <button type="submit" class="btn btn-primary">Change password</button>
+          <div id="cpwError" class="form-error"></div>
+        </form>
+      </div>
+    `;
+  }
+
+  window.tritonChangePassword = async function(e) {
+    e.preventDefault();
+    const current = $('#cpwCurrent').value;
+    const newPw = $('#cpwNew').value;
+    const confirm = $('#cpwConfirm').value;
+    const errEl = $('#cpwError');
+    errEl.textContent = '';
+    if (newPw !== confirm) {
+      errEl.textContent = "New passwords don't match.";
+      return false;
+    }
+    try {
+      const data = await api('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({current_password: current, new_password: newPw}),
+      });
+      // Server returns a fresh JWT with mcp=false. Store and continue.
+      // If the server fails to return a token, we refuse to keep the
+      // stale mcp=true JWT (which would re-trigger the forced-change
+      // gate on every page load). Clear local state and force re-login.
+      if (data && data.token) {
+        auth.setToken(data.token);
+        location.hash = '#/';
+      } else {
+        auth.clearToken();
+        location.hash = '#/login';
+      }
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+    return false;
+  };
+
+  // ─── Logout ─────────────────────────────────────────────────────────
+  window.tritonLogout = async function() {
+    try {
+      await api('/auth/logout', {method: 'POST'});
+    } catch (_) {
+      // Best-effort — clear local state regardless
+    }
+    auth.clearToken();
+    location.hash = '#/login';
+  };
+
+  // ─── Users view (Phase 3.3 — org admins only) ───────────────────────
+  async function renderUsers() {
+    // Defense-in-depth: the router's mcp gate should have redirected
+    // already, but re-check here in case renderUsers is invoked via a
+    // direct function call that bypasses route().
+    if (auth.mustChangePassword()) {
+      location.hash = '#/change-password';
+      return;
+    }
+    if (!auth.isAdmin()) {
+      content.innerHTML = '<div class="error">Access denied — org admin role required.</div>';
+      return;
+    }
+    content.innerHTML = '<div class="loading">Loading users...</div>';
+    try {
+      const users = await api('/users');
+      let html = `<div class="view-header">
+        <h2>Users</h2>
+        <button class="btn btn-primary" id="btnShowCreateUser">Add user</button>
+      </div>`;
+      html += `<div id="userFormContainer"></div>`;
+      html += `<table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th></th></tr></thead>
+        <tbody>`;
+      if (users && users.length) {
+        for (const u of users) {
+          // Delete button uses data-* attrs + a delegated click handler.
+          // This avoids inline onclick="...('${u.email}')" which is a
+          // stored-XSS vector when email contains a single quote.
+          html += `<tr>
+            <td>${escapeHtml(u.name)}</td>
+            <td>${escapeHtml(u.email)}</td>
+            <td><span class="badge">${escapeHtml(u.role)}</span></td>
+            <td>${formatDate(u.createdAt)}</td>
+            <td><button class="btn btn-outline btn-sm js-delete-user" data-user-id="${escapeHtml(u.id)}" data-user-email="${escapeHtml(u.email)}">Delete</button></td>
+          </tr>`;
+        }
+      } else {
+        html += `<tr><td colspan="5" class="muted">No users yet.</td></tr>`;
+      }
+      html += `</tbody></table>`;
+      content.innerHTML = html;
+
+      // Wire up event handlers after innerHTML is set.
+      const addBtn = $('#btnShowCreateUser');
+      if (addBtn) addBtn.addEventListener('click', showCreateUserForm);
+      $$('.js-delete-user').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          const id = ev.currentTarget.dataset.userId;
+          const email = ev.currentTarget.dataset.userEmail;
+          deleteUser(id, email);
+        });
+      });
+    } catch (e) {
+      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function showCreateUserForm() {
+    $('#userFormContainer').innerHTML = `
+      <div class="auth-card">
+        <h3>Add user</h3>
+        <form id="createUserForm">
+          <label>Email <input type="email" id="newUserEmail" required></label>
+          <label>Name <input type="text" id="newUserName" required></label>
+          <label>Role
+            <select id="newUserRole">
+              <option value="org_user">org_user (read-only)</option>
+              <option value="org_admin">org_admin (full access)</option>
+            </select>
+          </label>
+          <label>Password (min 12 characters)
+            <input type="password" id="newUserPassword" required minlength="12">
+          </label>
+          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="button" class="btn btn-outline" id="btnCancelCreateUser">Cancel</button>
+          <div id="newUserError" class="form-error"></div>
+        </form>
+      </div>
+    `;
+    $('#createUserForm').addEventListener('submit', createUserHandler);
+    $('#btnCancelCreateUser').addEventListener('click', () => {
+      $('#userFormContainer').innerHTML = '';
+    });
+  }
+
+  async function createUserHandler(e) {
+    e.preventDefault();
+    const errEl = $('#newUserError');
+    errEl.textContent = '';
+    try {
+      await api('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: $('#newUserEmail').value.trim(),
+          name: $('#newUserName').value.trim(),
+          role: $('#newUserRole').value,
+          password: $('#newUserPassword').value,
+        }),
+      });
+      renderUsers();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+    return false;
+  }
+
+  async function deleteUser(id, email) {
+    if (!confirm('Delete user ' + email + '? This cannot be undone.')) return;
+    try {
+      await api('/users/' + encodeURIComponent(id), {method: 'DELETE'});
+      renderUsers();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  }
+
+  // renderUserDetail is a stub for #/users/{id} — currently routes back
+  // to the list. Reserved for a future per-user edit screen.
+  function renderUserDetail(_id) {
+    if (auth.mustChangePassword()) {
+      location.hash = '#/change-password';
+      return;
+    }
+    location.hash = '#/users';
   }
 
   // Render helpers
@@ -128,7 +522,7 @@
           <thead><tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
           <tbody>`;
         for (const m of agg.machines) {
-          html += `<tr onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+          html += `<tr class="clickable-row" data-href="#/machines/${escapeHtml(m.hostname)}">
             <td>${escapeHtml(m.hostname)}</td><td>${formatDate(m.timestamp)}</td>
             <td>${escapeHtml(m.totalFindings)}</td>
             <td>${escapeHtml(m.safe)}</td><td>${escapeHtml(m.transitional)}</td>
@@ -138,6 +532,7 @@
       }
 
       content.innerHTML = html;
+      wireClickableRows();
 
       // Charts
       renderDonutChart(agg);
@@ -195,12 +590,13 @@
         <thead><tr><th>Hostname</th><th>Latest Scan ID</th><th>Scan Time</th><th>Findings</th></tr></thead>
         <tbody>`;
       for (const m of machines) {
-        html += `<tr onclick="location.hash='#/machines/${escapeHtml(m.hostname)}'">
+        html += `<tr class="clickable-row" data-href="#/machines/${escapeHtml(m.hostname)}">
           <td>${escapeHtml(m.hostname)}</td><td>${escapeHtml(m.id)}</td>
           <td>${formatDate(m.timestamp)}</td><td>${escapeHtml(m.totalFindings)}</td></tr>`;
       }
       html += `</tbody></table>`;
       content.innerHTML = html;
+      wireClickableRows();
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
@@ -212,13 +608,13 @@
     try {
       const scans = await api(`/machines/${hostname}`);
       let html = `<div class="view-header"><h2>Machine: ${escapeHtml(hostname)}</h2>
-        <button class="btn btn-outline" onclick="location.hash='#/machines'">Back</button></div>`;
+        <button class="btn btn-outline js-back-machines">Back</button></div>`;
 
       html += `<table>
         <thead><tr><th>Scan ID</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
         <tbody>`;
       for (const s of scans) {
-        html += `<tr onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+        html += `<tr class="clickable-row" data-href="#/scans/${escapeHtml(s.id)}">
           <td>${escapeHtml(s.id.slice(0,8))}...</td>
           <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
           <td>${escapeHtml(s.totalFindings)}</td>
@@ -233,6 +629,9 @@
       }
 
       content.innerHTML = html;
+      wireClickableRows();
+      const backBtn = document.querySelector('.js-back-machines');
+      if (backBtn) backBtn.addEventListener('click', () => { location.hash = '#/machines'; });
 
       if (scans.length >= 2) {
         renderMachineTrend(scans);
@@ -270,13 +669,14 @@
         <thead><tr><th>ID</th><th>Hostname</th><th>Time</th><th>Profile</th><th>Findings</th><th>Safe</th><th>Unsafe</th></tr></thead>
         <tbody>`;
       for (const s of scans) {
-        html += `<tr onclick="location.hash='#/scans/${escapeHtml(s.id)}'">
+        html += `<tr class="clickable-row" data-href="#/scans/${escapeHtml(s.id)}">
           <td>${escapeHtml(s.id.slice(0,8))}...</td><td>${escapeHtml(s.hostname)}</td>
           <td>${formatDate(s.timestamp)}</td><td>${escapeHtml(s.profile)}</td>
           <td>${escapeHtml(s.totalFindings)}</td><td>${escapeHtml(s.safe)}</td><td>${escapeHtml(s.unsafe)}</td></tr>`;
       }
       html += `</tbody></table>`;
       content.innerHTML = html;
+      wireClickableRows();
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
     }
@@ -289,6 +689,22 @@
       const scan = await api(`/scans/${id}`);
       let html = `<div class="view-header"><h2>Scan: ${escapeHtml(id.slice(0,12))}...</h2>
         <button class="btn btn-outline" onclick="location.hash='#/scans'">Back</button></div>`;
+
+      // Report download buttons. Click handlers are wired after
+      // innerHTML is set via data-format attributes — see
+      // wireDownloadButtons below. A plain <a href> would not work
+      // because the report endpoint requires the JWT Authorization
+      // header, which only fetch() calls attach. Tier-blocked
+      // formats (e.g. sarif on pro tier) surface as a 403 alert
+      // when clicked, rather than being pre-filtered client-side.
+      html += `<div class="download-row">
+        <span class="download-label">Download report:</span>
+        <button class="btn btn-sm js-download-report" data-format="json">JSON</button>
+        <button class="btn btn-sm js-download-report" data-format="html">HTML</button>
+        <button class="btn btn-sm js-download-report" data-format="xlsx">Excel</button>
+        <button class="btn btn-sm js-download-report" data-format="cdx">CycloneDX</button>
+        <button class="btn btn-sm js-download-report" data-format="sarif">SARIF</button>
+      </div>`;
 
       html += `<div class="card-grid">
         <div class="card info"><div class="value">${escapeHtml(scan.metadata.hostname)}</div><div class="label">Hostname</div></div>
@@ -330,8 +746,133 @@
       }
 
       content.innerHTML = html;
+      wireDownloadButtons(id);
     } catch(e) {
       content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  // wireDownloadButtons attaches click handlers to every
+  // `.js-download-report` button on the scan detail page. The
+  // scanId is captured once per render so the handlers don't
+  // have to re-read the hash. Buttons read their format from a
+  // data-format attribute — no dynamic HTML interpolation, so
+  // no XSS surface.
+  function wireDownloadButtons(scanId) {
+    $$('.js-download-report').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fmt = btn.dataset.format;
+        if (!fmt) return;
+        // Disable the button while the download is in flight so
+        // impatient clickers don't fire multiple requests.
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Downloading…';
+        try {
+          await downloadReport(scanId, fmt);
+        } catch (err) {
+          alert('Download failed: ' + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
+    });
+  }
+
+  // downloadReport fetches /api/v1/reports/{id}/{format} with the
+  // stored JWT and streams the response body into a browser
+  // download. A plain <a href> link would not work because the
+  // report endpoint requires the Authorization header — only
+  // fetch() attaches it.
+  //
+  // On a 200 response the body is converted to a Blob, an object
+  // URL is created, a synthetic <a download> element is clicked to
+  // trigger the browser's save dialog, and the object URL is
+  // revoked to free the blob.
+  //
+  // On a non-200 response the error message (if JSON-shaped) is
+  // surfaced to the caller for display in an alert — the most
+  // common case is a 403 when the user's tier doesn't allow the
+  // requested format (e.g., pro tier asking for sarif).
+  async function downloadReport(scanId, format) {
+    const token = auth.getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const resp = await fetch('/api/v1/reports/' + encodeURIComponent(scanId) + '/' + encodeURIComponent(format), {
+      method: 'GET',
+      headers,
+    });
+
+    if (resp.status === 401) {
+      // Token expired / revoked — punt to login the same way the
+      // api() helper does on 401s.
+      auth.clearToken();
+      location.hash = '#/login';
+      throw new Error('authentication required');
+    }
+    if (!resp.ok) {
+      // Try to extract a JSON error message; fall back to a
+      // generic status-code message if the server returned
+      // binary content or empty body.
+      let msg = `Server returned ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err.error) msg = err.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+
+    // Convert the body to a Blob. The Content-Type from the
+    // server is preserved so the browser's Save As dialog opens
+    // the right default app (Excel for .xlsx, a browser for
+    // .html, etc.) — note the blob constructor's `type` option
+    // is authoritative for download-attribute semantics, not
+    // the response's Content-Type header alone.
+    const blob = await resp.blob();
+
+    // Prefer the Content-Disposition filename from the server,
+    // falling back to a sensible default. Content-Disposition
+    // parsing is minimal — we only care about the filename
+    // attribute in the quoted form the handler produces.
+    let filename = defaultDownloadFilename(scanId, format);
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="([^"]+)"/);
+    if (match && match[1]) filename = match[1];
+
+    const objectURL = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement('a');
+      a.href = objectURL;
+      a.download = filename;
+      // Firefox requires the anchor to be in the DOM before a
+      // programmatic click fires the download; Chromium is more
+      // lenient but this works everywhere.
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } finally {
+      // Always revoke the object URL to release the blob's
+      // memory, even if the click threw.
+      URL.revokeObjectURL(objectURL);
+    }
+  }
+
+  // defaultDownloadFilename returns the filename the browser will
+  // save the report under when the server didn't supply a
+  // Content-Disposition header (which should never happen, but
+  // the fallback keeps downloads usable even if a reverse proxy
+  // strips the header).
+  function defaultDownloadFilename(scanId, format) {
+    const shortID = scanId.slice(0, 8);
+    switch (format) {
+      case 'json':  return `triton-report-${shortID}.json`;
+      case 'html':  return `triton-report-${shortID}.html`;
+      case 'xlsx':  return `Triton_PQC_Report-${shortID}.xlsx`;
+      case 'cdx':   return `triton-report-${shortID}.cdx.json`;
+      case 'sarif': return `triton-report-${shortID}.sarif`;
+      default:      return `triton-report-${shortID}.${format}`;
     }
   }
 
@@ -447,6 +988,11 @@
   };
 
   // Init
+  // The renderOverview() initial call will hit the API. In single-tenant
+  // mode (Guard provides tenant context), it returns 200 and the UI
+  // renders normally — no login needed. In multi-tenant mode without
+  // a stored token, the API returns 401, the api() helper redirects
+  // to #/login, and the user signs in.
   window.addEventListener('hashchange', route);
   route();
 })();

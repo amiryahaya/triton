@@ -68,7 +68,8 @@ func requireServerWithExternalGuard(t *testing.T, guard *license.Guard) (string,
 		ListenAddr: ":0",
 		Guard:      guard,
 	}
-	srv := server.New(cfg, db)
+	srv, err := server.New(cfg, db)
+	require.NoError(t, err)
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 	return ts.URL, db
@@ -528,7 +529,7 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	platformURL, db := requireServerWithExternalGuard(t, guard)
 
 	// Submit scan result from Phase A
-	submitScan(t, platformURL, "", scanResult)
+	submitScan(t, platformURL, scanResult)
 
 	// Submit a second synthetic scan for diff/trend (set OrgID to match guard)
 	s2 := makeScanResult("", "flow-cross-host", 5)
@@ -563,4 +564,3 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "pro should block SARIF report")
 }
-

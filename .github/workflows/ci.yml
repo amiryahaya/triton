@@ -54,18 +54,7 @@ jobs:
       - name: Run tests
         env:
           TRITON_TEST_DB_URL: postgres://triton:triton@localhost:5434/triton_test?sslmode=disable
-        run: |
-          go test -v -race -p 1 -coverprofile=coverage.out -covermode=atomic \
-            -coverpkg=./pkg/...,./internal/... ./...
-
-      - name: Check coverage
-        run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Testable package coverage: ${COVERAGE}%"
-          if [ "$(echo "$COVERAGE < 60" | bc -l)" -eq 1 ]; then
-            echo "::error::Coverage ${COVERAGE}% is below 60% threshold"
-            exit 1
-          fi
+        run: go test -v -race -p 1 ./...
 
   integration-test:
     name: Integration Test
@@ -95,10 +84,27 @@ jobs:
       - name: Generate test fixtures
         run: go run test/fixtures/generate.go
 
-      - name: Run integration tests
+      - name: Run integration tests with coverage
         env:
           TRITON_TEST_DB_URL: postgres://triton:triton@localhost:5434/triton_test?sslmode=disable
-        run: go test -v -tags integration -race -count=1 -p 1 ./...
+        run: |
+          go test -v -tags integration -race -count=1 -p 1 \
+            -coverprofile=coverage.out -covermode=atomic \
+            -coverpkg=./pkg/...,./internal/... ./...
+
+      - name: Check coverage
+        run: |
+          # Coverage is measured from the integration test job (not the
+          # unit test job) because pkg/server, pkg/licenseserver, and
+          # pkg/store are exercised primarily through integration-tagged
+          # tests. Running the coverage gate on unit-only tests would
+          # under-count those packages and produce a misleading number.
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Testable package coverage (unit + integration): ${COVERAGE}%"
+          if [ "$(echo "$COVERAGE < 60" | bc -l)" -eq 1 ]; then
+            echo "::error::Coverage ${COVERAGE}% is below 60% threshold"
+            exit 1
+          fi
 
   build:
     name: Build

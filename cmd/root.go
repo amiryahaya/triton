@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -48,6 +49,7 @@ var (
 	incremental      bool
 	scanPolicyArg    string
 	licenseKey       string
+	licenseFile      string // --license-file path override (Phase 5 Sprint 3)
 	licenseServerURL string
 	licenseID        string
 	guard            = license.NewGuard("") // safe default, overwritten by PersistentPreRun
@@ -64,10 +66,67 @@ and Cryptographic Bill of Materials (CBOM) for Post-Quantum Cryptography complia
 Target: Malaysian government critical sectors for 2030 PQC readiness.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			if licenseServerURL != "" {
+				// Online validation path. Precedence on this branch
+				// is narrower than the offline path: --license-key
+				// wins, and if it's unset --license-file is read
+				// once to seed licenseKey. TRITON_LICENSE_KEY env
+				// and TRITON_LICENSE_FILE env are NOT honored on
+				// this path — an operator using env vars for token
+				// delivery should not be running online validation
+				// because NewGuardWithServer does its own env
+				// handling via the cache meta file. If you need
+				// the full flag→env→file precedence, use the
+				// offline path (don't pass --license-server).
+				if licenseKey == "" && licenseFile != "" {
+					if token := license.LoadTokenFromFile(licenseFile); token != "" {
+						licenseKey = token
+					}
+				}
 				guard = license.NewGuardWithServer(licenseKey, licenseServerURL, licenseID)
-			} else {
-				guard = license.NewGuard(licenseKey)
+				return
 			}
+			// Offline validation path with full
+			// flag → env → file precedence including the
+			// --license-file override (Phase 5 Sprint 3).
+			//
+			// When REPORT_SERVER_TENANT_PUBKEY is set, use it as
+			// the override pubkey for token verification so
+			// multi-tenant deployments can mint licences with
+			// a customer-specific key without rebuilding the
+			// binary. The report server's UnifiedAuth path honors
+			// the same env var (see cmd/server.go).
+			//
+			// D3 fix: invalid hex or wrong length is FATAL, not
+			// silently ignored. An operator who intended to
+			// configure a tenant-specific key but mistyped it
+			// would otherwise silently fall back to the embedded
+			// production pubkey and get confusing "licence
+			// invalid" errors. Hard fail gives them a clear
+			// message at startup.
+			if pubHex := os.Getenv("REPORT_SERVER_TENANT_PUBKEY"); pubHex != "" {
+				pubBytes, err := hex.DecodeString(pubHex)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "REPORT_SERVER_TENANT_PUBKEY is not valid hex: %v\n", err)
+					os.Exit(1)
+				}
+				if len(pubBytes) != 32 {
+					fmt.Fprintf(os.Stderr, "REPORT_SERVER_TENANT_PUBKEY: expected 32 bytes (Ed25519 public key), got %d\n", len(pubBytes))
+					os.Exit(1)
+				}
+				// D4 fix: use the canonical resolveToken
+				// precedence via NewGuardFromFlags' internals by
+				// calling the library-level helper that honors
+				// --license-key → TRITON_LICENSE_KEY → --license-file →
+				// TRITON_LICENSE_FILE → default. We can't use
+				// NewGuardFromFlags directly because it embeds the
+				// default pubkey; instead we pre-resolve the token
+				// using the shared helper and then apply the
+				// override pubkey.
+				token := license.ResolveToken(licenseKey, licenseFile)
+				guard = license.NewGuardFromToken(token, pubBytes)
+				return
+			}
+			guard = license.NewGuardFromFlags(licenseKey, licenseFile)
 		},
 		RunE: runScan,
 	}
@@ -86,7 +145,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
 	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
 	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
-	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token")
+	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token (literal)")
+	rootCmd.PersistentFlags().StringVar(&licenseFile, "license-file", "", "Path to a file containing the licence token (overrides the default ~/.triton/license.key)")
 	rootCmd.PersistentFlags().StringVar(&licenseServerURL, "license-server", "", "License server URL for online validation")
 	rootCmd.PersistentFlags().StringVar(&licenseID, "license-id", "", "License ID for server activation")
 

@@ -46,6 +46,10 @@
   }
 
   function showAuthPrompt() {
+    // Full-screen auth card: hide the sidebar and let the auth
+    // prompt span the viewport. CSS uses body.auth-mode to
+    // collapse #sidebar and reset #content's margin.
+    document.body.classList.add('auth-mode');
     page.innerHTML = `
       <div id="auth-prompt">
         <img src="logo.png" alt="Triton" class="auth-logo">
@@ -159,6 +163,16 @@
       '<div class="form-group"><label for="org-name">Name</label><input id="org-name" maxlength="255"></div>' +
       '<div class="form-group"><label for="org-contact">Contact</label><input id="org-contact" maxlength="255"></div>' +
       '<div class="form-group"><label for="org-notes">Notes</label><textarea id="org-notes" rows="3" maxlength="1000"></textarea></div>' +
+      '<hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">' +
+      '<p class="text-muted" style="margin:0 0 12px 0;font-size:13px">' +
+        '<strong>Optional:</strong> Provision an org admin on the report server. ' +
+        'When set, the report server will create the admin user with a temporary ' +
+        'password. The temp password will be shown once and (if Resend is configured) ' +
+        'emailed to the admin.</p>' +
+      '<div class="form-group"><label for="org-admin-email">Admin email</label>' +
+        '<input id="org-admin-email" type="email" maxlength="255" placeholder="alice@example.com"></div>' +
+      '<div class="form-group"><label for="org-admin-name">Admin name</label>' +
+        '<input id="org-admin-name" type="text" maxlength="255" placeholder="Alice Admin"></div>' +
       '<div class="modal-actions">' +
         '<button class="btn" id="modal-cancel">Cancel</button>' +
         '<button class="btn btn-primary" id="modal-create">Create</button>' +
@@ -169,17 +183,58 @@
     overlay.querySelector('#modal-create').onclick = async function() {
       var name = document.getElementById('org-name').value.trim();
       if (!name) { alert('Name is required'); return; }
+      var adminEmail = document.getElementById('org-admin-email').value.trim();
+      var adminName = document.getElementById('org-admin-name').value.trim();
+      // Both-or-neither — server enforces this too, but catch early.
+      if ((adminEmail && !adminName) || (!adminEmail && adminName)) {
+        alert('Admin email and name must be supplied together (or both left blank).');
+        return;
+      }
       this.disabled = true;
       try {
-        await api('POST', '/api/v1/admin/orgs', {
+        var body = {
           name: name,
           contact: document.getElementById('org-contact').value,
           notes: document.getElementById('org-notes').value
-        });
+        };
+        if (adminEmail) {
+          body.admin_email = adminEmail;
+          body.admin_name = adminName;
+        }
+        var resp = await api('POST', '/api/v1/admin/orgs', body);
         overlay.remove();
+        // If the server provisioned an admin, show the temp password once.
+        if (resp && resp.admin) {
+          showProvisioningResult(resp);
+        }
         orgsPage();
-      } catch(e) { this.disabled = false; alert('Operation failed. Please try again.'); }
+      } catch(e) { this.disabled = false; alert('Operation failed: ' + e.message); }
     };
+  }
+
+  // showProvisioningResult displays the temp password from a successful
+  // org creation with admin provisioning. The password is shown ONCE and
+  // is the only way to deliver it manually if email delivery failed.
+  function showProvisioningResult(resp) {
+    var emailDelivered = resp.admin && resp.admin.email_delivered;
+    var emailNote = emailDelivered
+      ? '<p class="text-success">An invite email has been sent to ' + escapeHtml(resp.admin.email) + '.</p>'
+      : '<p class="text-warning"><strong>Email delivery failed</strong> (or no mailer configured). ' +
+        'You must deliver the temporary password to the admin out of band — copy it now, it will not be shown again.</p>';
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = '<div class="modal">' +
+      '<h3>Organization Created</h3>' +
+      '<p>Org <strong>' + escapeHtml(resp.org.name) + '</strong> created with admin user.</p>' +
+      emailNote +
+      '<div class="form-group"><label>Admin email</label>' +
+        '<input type="text" readonly value="' + escapeHtml(resp.admin.email) + '" onclick="this.select()"></div>' +
+      '<div class="form-group"><label>Temporary password (one time)</label>' +
+        '<input type="text" readonly value="' + escapeHtml(resp.admin.temp_password) + '" onclick="this.select()" style="font-family:monospace"></div>' +
+      '<div class="modal-actions"><button class="btn btn-primary" id="prov-close">Close</button></div>' +
+    '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('#prov-close').onclick = () => overlay.remove();
   }
 
   async function licensesPage() {
@@ -275,6 +330,10 @@
           '<tr><th>Expires</th><td>' + formatDate(data.expiresAt) + '</td></tr>' +
           '<tr><th>Status</th><td>' + statusBadge(data) + '</td></tr>' +
         '</table>' +
+        '<div class="actions" style="margin:1em 0;">' +
+          '<button class="btn btn-primary" id="download-agent-yaml-btn">Download agent.yaml</button>' +
+          '<span class="text-muted" style="margin-left:0.75em;">Generates a ready-to-ship agent.yaml with an embedded license token. Treat the file as a secret.</span>' +
+        '</div>' +
         '<h3>Activations</h3>' +
         '<table><thead><tr><th>Machine</th><th>Hostname</th><th>OS/Arch</th><th>Last Seen</th><th>Active</th></tr></thead><tbody>';
       for (const a of (data.activations || [])) {
@@ -288,6 +347,65 @@
       }
       html += '</tbody></table>';
       page.innerHTML = html;
+
+      // Wire the Download agent.yaml button. Uses fetch+blob (rather
+      // than a plain anchor) so we can attach the admin-key header
+      // and surface errors inline instead of navigating away.
+      const dlBtn = document.getElementById('download-agent-yaml-btn');
+      if (dlBtn) {
+        // Disable the button for revoked/expired licenses — the server
+        // rejects these anyway, so fail fast in the UI rather than
+        // round-tripping to learn that.
+        const isRevoked = !!data.revoked;
+        const isExpired = data.expiresAt && (new Date(data.expiresAt).getTime() < Date.now());
+        if (isRevoked || isExpired) {
+          dlBtn.disabled = true;
+          dlBtn.title = isRevoked ? 'Cannot download for a revoked license' : 'Cannot download for an expired license';
+        }
+        dlBtn.onclick = async function() {
+          dlBtn.disabled = true;
+          const originalText = dlBtn.textContent;
+          dlBtn.textContent = 'Generating...';
+          try {
+            const resp = await fetch('/api/v1/admin/licenses/' + encodeURIComponent(id) + '/agent-yaml', {
+              method: 'POST',
+              headers: {
+                'X-Triton-Admin-Key': adminKey,
+                'Content-Type': 'application/json'
+              },
+              body: '{}'
+            });
+            if (resp.status === 401 || resp.status === 403) {
+              sessionStorage.removeItem('triton_admin_key');
+              adminKey = '';
+              showAuthPrompt();
+              return;
+            }
+            if (!resp.ok) {
+              let msg = 'Download failed (HTTP ' + resp.status + ')';
+              try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+              alert(msg);
+              return;
+            }
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'agent.yaml';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Release the blob URL on the next tick so the download
+            // has a chance to start before the URL is revoked.
+            setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+          } catch(err) {
+            alert('Download failed. Please try again.');
+          } finally {
+            dlBtn.disabled = isRevoked || isExpired;
+            dlBtn.textContent = originalText;
+          }
+        };
+      }
     } catch(e) { if (e.message !== 'Unauthorized') page.innerHTML = '<h2>License Detail</h2><p class="text-danger">Error loading license</p>'; }
   }
 
@@ -428,10 +546,92 @@
     };
   }
 
+  // --- Superadmins page (Phase 3.2) ---
+
+  async function superadminsPage() {
+    page.innerHTML = '<h2>Superadmins</h2><p class="text-muted">Loading...</p>';
+    try {
+      const admins = await api('GET', '/api/v1/admin/superadmins');
+      let html = '<h2>Superadmins</h2>' +
+        '<p class="text-muted">Platform administrators who can sign in to this license server. ' +
+        'These are distinct from organization users (which live in the report server).</p>' +
+        '<div class="actions"><button class="btn btn-primary" id="create-sa-btn">Add Superadmin</button></div>' +
+        '<table><thead><tr><th>Name</th><th>Email</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+      if (admins && admins.length) {
+        for (const u of admins) {
+          html += '<tr>' +
+            '<td>' + escapeHtml(u.name) + '</td>' +
+            '<td>' + escapeHtml(u.email) + '</td>' +
+            '<td>' + formatDate(u.createdAt) + '</td>' +
+            '<td><button class="btn btn-danger btn-sm" data-delete-sa="' + escapeHtml(u.id) + '" data-email="' + escapeHtml(u.email) + '">Delete</button></td>' +
+          '</tr>';
+        }
+      } else {
+        html += '<tr><td colspan="4" class="text-muted">No superadmins yet.</td></tr>';
+      }
+      html += '</tbody></table>';
+      page.innerHTML = html;
+      document.getElementById('create-sa-btn').onclick = showCreateSuperadminModal;
+      page.querySelectorAll('[data-delete-sa]').forEach(btn => {
+        btn.onclick = async () => {
+          const email = btn.dataset.email;
+          if (!confirm('Delete superadmin ' + email + '? This cannot be undone.')) return;
+          try {
+            await api('DELETE', '/api/v1/admin/superadmins/' + encodeURIComponent(btn.dataset.deleteSa));
+            superadminsPage();
+          } catch (e) {
+            alert('Delete failed: ' + e.message);
+          }
+        };
+      });
+    } catch (e) {
+      if (e.message !== 'Unauthorized') page.innerHTML = '<h2>Superadmins</h2><p class="text-danger">Error: ' + escapeHtml(e.message) + '</p>';
+    }
+  }
+
+  function showCreateSuperadminModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = '<div class="modal">' +
+      '<h3>Add Superadmin</h3>' +
+      '<p class="text-muted" style="margin:0 0 12px 0;font-size:13px">' +
+        'Superadmins can sign into this license server with email + password. ' +
+        'Min 12-character password required.</p>' +
+      '<div class="form-group"><label for="sa-email">Email</label><input id="sa-email" type="email" maxlength="255"></div>' +
+      '<div class="form-group"><label for="sa-name">Name</label><input id="sa-name" type="text" maxlength="255"></div>' +
+      '<div class="form-group"><label for="sa-password">Password</label><input id="sa-password" type="password" minlength="12"></div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn" id="modal-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="modal-create">Create</button>' +
+      '</div>' +
+    '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('#modal-cancel').onclick = () => overlay.remove();
+    overlay.querySelector('#modal-create').onclick = async function () {
+      var email = document.getElementById('sa-email').value.trim();
+      var name = document.getElementById('sa-name').value.trim();
+      var password = document.getElementById('sa-password').value;
+      if (!email || !name || !password) { alert('All fields required'); return; }
+      if (password.length < 12) { alert('Password must be at least 12 characters'); return; }
+      this.disabled = true;
+      try {
+        await api('POST', '/api/v1/admin/superadmins', { email: email, name: name, password: password });
+        overlay.remove();
+        superadminsPage();
+      } catch (e) {
+        this.disabled = false;
+        alert('Create failed: ' + e.message);
+      }
+    };
+  }
+
   // --- Routing ---
 
   function route() {
     if (!adminKey) { showAuthPrompt(); return; }
+    // Authenticated — drop the full-screen auth-mode class so the
+    // sidebar reappears and the content margin is restored.
+    document.body.classList.remove('auth-mode');
     const hash = location.hash || '#/';
     document.querySelectorAll('.nav-link').forEach(el => {
       el.classList.toggle('active', el.getAttribute('href') === hash || (hash.startsWith(el.getAttribute('href')) && el.getAttribute('href') !== '#/'));
@@ -443,6 +643,7 @@
     else if (hash === '#/activations') activationsPage();
     else if (hash === '#/audit') auditPage();
     else if (hash === '#/binaries') binariesPage();
+    else if (hash === '#/superadmins') superadminsPage();
     else page.innerHTML = '<h2>Page Not Found</h2>';
   }
 

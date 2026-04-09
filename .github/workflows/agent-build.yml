@@ -1,0 +1,247 @@
+name: Agent Build (CD)
+
+# Cross-compiles the triton agent binary for every supported target on
+# every push to main and on manual dispatch. Artifacts land on the
+# workflow run so QA, customer previews, and one-off rebuilds don't
+# have to wait for a tagged release.
+#
+# Key trust chain: the production Ed25519 public key is embedded into
+# each binary via ldflags at build time, so operators who drop an
+# agent.yaml next to the binary and run ./triton agent don't need to
+# set REPORT_SERVER_TENANT_PUBKEY in their environment. The matching
+# signing key lives on the license server only — this workflow never
+# touches the private half.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # Only trigger on changes that can affect the compiled binary.
+      # Pure docs / test-only / CI-config changes shouldn't spin up a
+      # 5-target matrix.
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/agent-build.yml"
+      - ".goreleaser.yml"
+  workflow_dispatch:
+    inputs:
+      tenant_pubkey:
+        description: "Override tenant public key (hex, 64 chars). Leave blank to use vars.PRODUCTION_TENANT_PUBKEY."
+        required: false
+        type: string
+      upload_to_license_server:
+        description: "Upload built binaries to the configured license server (requires vars.LICENSE_SERVER_URL)."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+          # NOTE: windows/arm64 is intentionally omitted — it mirrors
+          # the existing .goreleaser.yml ignore list, and Go's CGO-free
+          # default on that target has limited real-world agent demand.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so `git describe` can derive a meaningful
+          # version string (tags + commits-ahead + short SHA).
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Derive version string
+        id: version
+        run: |
+          # For dispatch builds, prefer the raw input if provided.
+          # Otherwise, use git describe which gives us either the exact
+          # tag (on a tag commit) or <tag>-<N>-g<sha> (on a commit
+          # ahead of the tag). Fall back to the short SHA if there are
+          # no tags in the history yet.
+          if version=$(git describe --tags --always --dirty 2>/dev/null); then
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve tenant pubkey
+        id: pubkey
+        env:
+          # Manual-dispatch override wins; fall back to the repo
+          # variable set by the operator during bootstrap.
+          DISPATCH_PUBKEY: ${{ github.event.inputs.tenant_pubkey }}
+          DEFAULT_PUBKEY: ${{ vars.PRODUCTION_TENANT_PUBKEY }}
+        run: |
+          pubkey="${DISPATCH_PUBKEY:-$DEFAULT_PUBKEY}"
+          if [ -z "$pubkey" ]; then
+            echo "::error::No tenant pubkey available. Set the vars.PRODUCTION_TENANT_PUBKEY repo variable or pass tenant_pubkey on workflow_dispatch."
+            exit 1
+          fi
+          # Shape check: 64 hex chars == 32 bytes.
+          if ! printf '%s' "$pubkey" | grep -qE '^[0-9a-fA-F]{64}$'; then
+            echo "::error::tenant pubkey must be 64 hex characters (32 bytes). Got ${#pubkey} chars."
+            exit 1
+          fi
+          # Mark as output so the build step can read it. Safe to
+          # expose — this is a PUBLIC key, not a secret.
+          echo "pubkey=$pubkey" >> "$GITHUB_OUTPUT"
+
+      - name: Build agent binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBKEY: ${{ steps.pubkey.outputs.pubkey }}
+        run: |
+          mkdir -p dist
+          out="dist/triton-${VERSION}-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          echo "Building $out"
+          go build \
+            -trimpath \
+            -ldflags "-s -w \
+              -X github.com/amiryahaya/triton/internal/version.Version=${VERSION} \
+              -X github.com/amiryahaya/triton/internal/license.publicKeyHex=${PUBKEY}" \
+            -o "$out" \
+            .
+          ls -lh "$out"
+
+      - name: Verify embedded pubkey (linux/darwin only)
+        if: matrix.goos != 'windows'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_PUBKEY: ${{ steps.pubkey.outputs.pubkey }}
+        run: |
+          # Sanity check: `strings` the binary and confirm the hex
+          # shows up exactly once. Catches accidental ldflags typos
+          # that silently fall back to the zeroed embedded default.
+          bin="dist/triton-${VERSION}-${GOOS}-${GOARCH}"
+          if ! strings "$bin" | grep -q "^${EXPECTED_PUBKEY}$"; then
+            echo "::error::Embedded pubkey not found in $bin — ldflags injection failed."
+            exit 1
+          fi
+          echo "✓ pubkey $EXPECTED_PUBKEY confirmed in $bin"
+
+      - name: Package archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd dist
+          bin="triton-${VERSION}-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          stage="triton-${VERSION}-${GOOS}-${GOARCH}"
+          # Stage the binary under its simple name (triton / triton.exe)
+          # so operators can drop the archive contents next to
+          # agent.yaml without renaming anything.
+          mkdir -p "$stage"
+          cp "$bin" "$stage/triton${{ matrix.ext }}"
+          cp ../LICENSE "$stage/LICENSE" 2>/dev/null || true
+          cp ../README.md "$stage/README.md" 2>/dev/null || true
+          if [ "${GOOS}" = "windows" ]; then
+            zip -q -r "${stage}.zip" "$stage"
+          else
+            tar -czf "${stage}.tar.gz" "$stage"
+          fi
+          rm -rf "$stage"
+          ls -lh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: triton-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/triton-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.*
+          retention-days: 30
+          if-no-files-found: error
+
+  upload-license-server:
+    name: Upload to License Server
+    runs-on: ubuntu-latest
+    needs: build
+    # Only run on manual dispatch when the operator explicitly asked
+    # for it. We deliberately don't upload on every main-branch push
+    # so the license server's binaries table doesn't accumulate a
+    # row per merge.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_license_server == 'true' && vars.LICENSE_SERVER_URL != '' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./release-assets
+          merge-multiple: true
+
+      - name: Derive version
+        id: version
+        run: echo "version=$(ls release-assets | head -1 | sed -E 's/^triton-(.+)-(linux|darwin|windows)-(amd64|arm64).*/\1/')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload binaries to license server
+        env:
+          LICENSE_SERVER_URL: ${{ vars.LICENSE_SERVER_URL }}
+          LICENSE_SERVER_ADMIN_KEY: ${{ secrets.LICENSE_SERVER_ADMIN_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Mirror the logic in release.yml so behavior is identical
+          # between tag-releases and CD dispatches.
+          cd release-assets
+          for archive in triton-*-*.tar.gz triton-*-*.zip; do
+            [ -e "$archive" ] || continue
+
+            base="${archive%%.tar.gz}"
+            base="${base%%.zip}"
+            os=$(echo "$base" | awk -F- '{print $(NF-1)}')
+            arch=$(echo "$base" | awk -F- '{print $NF}')
+
+            tmpdir=$(mktemp -d)
+            if [[ "$archive" == *.zip ]]; then
+              unzip -q "$archive" -d "$tmpdir"
+            else
+              tar xzf "$archive" -C "$tmpdir"
+            fi
+
+            binary=$(find "$tmpdir" -name "triton" -o -name "triton.exe" | head -1)
+            if [ -z "$binary" ]; then
+              echo "No binary found in $archive — skipping"
+              rm -rf "$tmpdir"
+              continue
+            fi
+
+            echo "Uploading $os/$arch from $archive..."
+            curl -sf -X POST "${LICENSE_SERVER_URL}/api/v1/admin/binaries" \
+              -H "X-Triton-Admin-Key: ${LICENSE_SERVER_ADMIN_KEY}" \
+              -F "version=${VERSION}" \
+              -F "os=${os}" \
+              -F "arch=${arch}" \
+              -F "file=@${binary}" \
+              || echo "Warning: upload failed for $os/$arch"
+
+            rm -rf "$tmpdir"
+          done

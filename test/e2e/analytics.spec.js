@@ -124,3 +124,42 @@ test.describe('Analytics — Expiring Certificates view', () => {
     await expect(page.locator('.error')).not.toBeVisible();
   });
 });
+
+test.describe('Analytics — Migration Priority view', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/ui/#/priority');
+    await page.waitForSelector('.analytics-table, .empty-state', { timeout: 10_000 });
+  });
+
+  test('renders the page heading and subtitle', async ({ page }) => {
+    await expect(page.locator('h2', { hasText: 'Migration Priority' })).toBeVisible();
+    await expect(page.locator('.subtitle')).toContainText('priority score');
+  });
+
+  test('shows four summary cards (critical/high/medium/shown)', async ({ page }) => {
+    await expect(page.locator('.card-grid .card')).toHaveCount(4);
+    await expect(page.locator('.card .label', { hasText: 'Critical' })).toBeVisible();
+    await expect(page.locator('.card .label', { hasText: 'High' })).toBeVisible();
+    await expect(page.locator('.card .label', { hasText: 'Medium' })).toBeVisible();
+    await expect(page.locator('.card .label', { hasText: 'Shown' })).toBeVisible();
+  });
+
+  test('table or empty-state renders', async ({ page }) => {
+    // With seeded data we should see either a populated table or
+    // (if the seeded findings all have priority 0) an empty state.
+    // Neither is a bug — the store integration tests cover data
+    // correctness. Here we just assert the view renders one of the
+    // two valid end states.
+    const table = page.locator('.analytics-table');
+    const empty = page.locator('.empty-state');
+    const anyRendered = table.or(empty);
+    await expect(anyRendered.first()).toBeVisible();
+  });
+
+  test('clicking Priority from the Analytics section navigates here', async ({ page }) => {
+    await page.goto('/ui/#/');
+    await page.click('a[href="#/priority"]');
+    await expect(page).toHaveURL(/#\/priority$/);
+    await expect(page.locator('h2', { hasText: 'Migration Priority' })).toBeVisible();
+  });
+});

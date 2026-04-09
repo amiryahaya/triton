@@ -1131,9 +1131,55 @@
     }
   }
 
-  // Stub — implemented in commit 4.
   async function renderPriority() {
-    content.innerHTML = '<h2>Migration Priority</h2><div class="empty-state">Coming soon.</div>';
+    content.innerHTML = '<div class="loading">Loading priority findings...</div>';
+    try {
+      const rows = await api('/priority?limit=20');
+
+      // Bucket counts for the summary cards.
+      let critical = 0, high = 0, medium = 0;
+      for (const r of rows) {
+        if (r.priority >= 80) critical++;
+        else if (r.priority >= 60) high++;
+        else if (r.priority >= 40) medium++;
+      }
+
+      let html = '<h2>Migration Priority</h2>' +
+        '<p class="subtitle">Top findings to fix first, ranked by migration priority score (latest scan per host, top 20).</p>' +
+        '<div class="card-grid">' +
+          '<div class="card unsafe"><div class="value">' + critical + '</div><div class="label">Critical (≥80)</div></div>' +
+          '<div class="card deprecated"><div class="value">' + high + '</div><div class="label">High (60–79)</div></div>' +
+          '<div class="card transitional"><div class="value">' + medium + '</div><div class="label">Medium (40–59)</div></div>' +
+          '<div class="card info"><div class="value">' + rows.length + '</div><div class="label">Shown</div></div>' +
+        '</div>';
+
+      if (rows.length === 0) {
+        html += '<div class="empty-state">No priority findings yet — run a scan.</div>';
+      } else {
+        html += '<table class="analytics-table"><thead><tr>' +
+          '<th class="num">Score</th><th>Algorithm</th><th>Module</th>' +
+          '<th>Host</th><th>Location</th><th>Status</th>' +
+          '</tr></thead><tbody>';
+        for (const row of rows) {
+          const algo = row.algorithm + (row.keySize ? '-' + row.keySize : '');
+          const loc = row.filePath || '—';
+          html += '<tr>' +
+            '<td class="num">' + escapeHtml(row.priority) + '</td>' +
+            '<td>' + escapeHtml(algo) + '</td>' +
+            '<td>' + escapeHtml(row.module) + '</td>' +
+            '<td>' + escapeHtml(row.hostname) + '</td>' +
+            '<td><code>' + escapeHtml(loc) + '</code></td>' +
+            '<td>' + badge(row.pqcStatus) + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load priority findings: ' + escapeHtml(e.message) + '</div>';
+    }
   }
 
   // Init

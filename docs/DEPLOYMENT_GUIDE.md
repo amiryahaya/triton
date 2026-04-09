@@ -775,3 +775,49 @@ Large scan submissions (>10MB findings sections) may need adjusted timeouts — 
 ### Request throttling
 
 Both servers apply `middleware.Throttle(100)` — up to 100 concurrent requests. Heavier load should stagger agent scan intervals or horizontally scale (noting the rate-limiter split-brain trade-off in ADR 0001).
+
+## 13. Analytics Dashboard (Phase 1)
+
+The report server's web UI includes three analytical views under a new "Analytics" sidebar section, shipped as Analytics Phase 1:
+
+- **Crypto Inventory** (`#/inventory`) — aggregated by `(algorithm, key_size)` across the org, filtered to the latest scan per host. Answers "what crypto is currently deployed?"
+- **Expiring Certificates** (`#/certificates`) — certs sorted by soonest expiry, with 30/90/180-day filter chips. Default window is 90 days. Already-expired certs are always included regardless of the filter.
+- **Migration Priority** (`#/priority`) — top 20 findings by `migration_priority` score, read-only. Summary cards break down by criticality (≥80 critical, 60–79 high, 40–59 medium).
+
+All three views read from a new denormalized `findings` table (schema v7) that is populated on every scan submit transactionally alongside the scan row. For historical data, a first-boot background goroutine walks `scans.result_json`, extracts crypto findings, and marks each scan via the new `findings_extracted_at` column. The goroutine runs once per process start, is bounded to 30 minutes, and is idempotent across restarts — dropping the findings table and clearing `findings_extracted_at` triggers a fresh extraction without data loss.
+
+### 13a. Backfill observability
+
+Three Prometheus metrics expose backfill progress via `/api/v1/metrics`:
+
+- `triton_backfill_scans_processed_total` — counter of successfully processed scans
+- `triton_backfill_scans_failed_total` — counter of scans that failed extraction and were marked to skip (check logs for causes — typically corrupt or unreadable `result_json` blobs)
+- `triton_backfill_in_progress` — gauge, 1 while the goroutine is running, 0 otherwise
+
+While backfill is in progress, the three analytics API responses include an `X-Backfill-In-Progress: true` header and the UI shows an inline cyan banner on the affected views. The banner auto-clears when the header stops being sent.
+
+### 13b. Recovery runbook
+
+The `findings` table is a **read-model** over `scans.result_json`. Dropping or truncating it loses nothing permanent — it can always be rebuilt from the scan blobs.
+
+**If the findings table has stale or wrong data (e.g., mid-flight bug wrote bad rows):**
+
+```sql
+TRUNCATE findings;
+UPDATE scans SET findings_extracted_at = NULL;
+```
+
+Restart the report server — the backfill goroutine re-runs automatically and repopulates the table from `scans.result_json`.
+
+**If the schema itself needs to be rolled back (worst case — v7 misbehaving in production):**
+
+```sql
+DROP TABLE findings;
+ALTER TABLE scans DROP COLUMN findings_extracted_at;
+```
+
+Redeploy with a schema v6 binary. The report server will work without analytics views until v7 is re-applied.
+
+### 13c. Single-tenant mode note
+
+In deployments with no Guard and no JWT (the default local dev mode), `TenantFromContext` returns the empty string. The analytics views won't show any data in this mode because the `findings` table's `org_id` column is `UUID NOT NULL` and requires a real tenant. Scans still persist correctly — the write path short-circuits findings insertion for single-tenant scans. Analytics are a feature of multi-tenant deployments.

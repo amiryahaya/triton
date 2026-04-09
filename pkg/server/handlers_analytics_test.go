@@ -165,3 +165,80 @@ func TestHandleExpiringCerts_EmptyReturns200(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
 	assert.Empty(t, rows)
 }
+
+// --- handlePriorityFindings (Analytics Phase 1, Task 4.1) ---
+
+func TestHandlePriority_DefaultLimit(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	scan := testScanResult(testUUID(4), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = nil
+	for i := 0; i < 25; i++ {
+		scan.Findings = append(scan.Findings,
+			cryptoFinding("key", "/k", &model.CryptoAsset{
+				Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i,
+			}))
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/priority", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.PriorityRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Len(t, rows, 20, "default limit must be 20")
+}
+
+func TestHandlePriority_CustomLimit(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	scan := testScanResult(testUUID(5), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = nil
+	for i := 0; i < 10; i++ {
+		scan.Findings = append(scan.Findings,
+			cryptoFinding("key", "/k", &model.CryptoAsset{
+				Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i,
+			}))
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/priority?limit=5", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.PriorityRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Len(t, rows, 5)
+}
+
+func TestHandlePriority_InvalidLimit(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	for _, param := range []string{"0", "-1", "1001", "abc"} {
+		t.Run(param, func(t *testing.T) {
+			w := authReq(t, srv, http.MethodGet,
+				"/api/v1/priority?limit="+param, token, nil)
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
+}
+
+func TestHandlePriority_EmptyReturns200(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/priority", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.PriorityRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Empty(t, rows)
+}

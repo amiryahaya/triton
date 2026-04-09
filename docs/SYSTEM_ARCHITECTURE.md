@@ -133,7 +133,37 @@ ScanResult (1)
 ├── has many → Finding (N)          ← raw scan output
 │   └── has one → CryptoAsset (0..1)
 └── has one → Summary (1)
+
+Findings read-model (Analytics Phase 1, schema v7):
+scans.result_json (source of truth, optionally encrypted)
+    └─► findings table (denormalized read-model, plaintext)
+            ← populated by SaveScanWithFindings (hot path)
+            ← populated by BackfillFindings goroutine (first-boot cold path)
 ```
+
+### 3.1a Findings Read-Model (Analytics Phase 1)
+
+The `findings` table is a denormalized read-model populated from `scans.result_json`. Unlike `scans` — which is the source of truth and is optionally encrypted at rest via AES-256-GCM — `findings` stores one row per `CryptoAsset` with columns extracted for fast SQL aggregation: `algorithm`, `key_size`, `pqc_status`, `migration_priority`, `not_after`, `subject`, `issuer`, `file_path`, `hostname`, `module`, `reachability`.
+
+**Two population paths:**
+
+1. **Hot path** — `PostgresStore.SaveScanWithFindings` (`pkg/store/findings.go`) atomically upserts the scan row and inserts all extracted findings inside a single `pgx.Tx`. `findings_extracted_at = NOW()` is set in the same transaction so the backfill goroutine skips this row.
+
+2. **Cold path / first-boot backfill** — `PostgresStore.BackfillFindings` (`pkg/store/backfill.go`) walks `scans WHERE findings_extracted_at IS NULL`, decrypts each blob, runs `ExtractFindings`, and bulk-inserts the rows via `ON CONFLICT (scan_id, finding_index) DO NOTHING`. Safe to re-run: marker + ON CONFLICT make it fully idempotent. Launched in `cmd/server.go` after migrations, bounded to 30 minutes, cancelled by `Server.Shutdown`.
+
+**Three Phase 1 aggregation queries** in `pkg/store/findings.go`:
+
+- `ListInventory` — `GROUP BY (algorithm, key_size)` with worst-PQC-status-first ordering
+- `ListExpiringCertificates` — `WHERE not_after IS NOT NULL` with a caller-supplied expiry window; already-expired certs always included
+- `ListTopPriorityFindings` — `ORDER BY migration_priority DESC LIMIT N`, excludes priority-0 findings
+
+All three share a `latest_scans AS (SELECT DISTINCT ON (hostname) id FROM scans WHERE org_id = $1 ORDER BY hostname, timestamp DESC)` CTE so the numbers reflect "currently deployed" crypto, not historical totals.
+
+**Extraction is a pure function.** `store.ExtractFindings(scan)` has no DB access and is shared by both the hot path and the backfill, so they produce identical rows. Finding IDs are derived deterministically via `uuid.NewSHA1(findingsNamespace, scanID/index)` so dropping and rebuilding the table yields stable IDs that external references (Phase 4 remediation tickets, audit entries, UI bookmarks) can pin on.
+
+**Encryption scope (see `docs/DEPLOYMENT_GUIDE.md §5c`):** when `REPORT_SERVER_DATA_ENCRYPTION_KEY` is set, only `scans.result_json` is encrypted — the `findings` projection stores the extracted columns as plaintext so they can be used in SQL predicates. This is a deliberate trade-off documented in the migration comment and the deployment guide.
+
+**Single-tenant mode:** when `scan.OrgID == ""` (no Guard, no JWT), the write path short-circuits findings insertion because `findings.org_id` is `UUID NOT NULL`. The scan itself persists; analytics views are simply empty. This is the intended scope for dev deployments.
 
 ### 3.2 Core Types
 

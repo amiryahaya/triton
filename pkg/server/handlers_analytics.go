@@ -89,3 +89,38 @@ func (s *Server) handleExpiringCertificates(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, http.StatusOK, rows)
 }
+
+// GET /api/v1/priority?limit=<N>
+//
+// Returns the top N findings by migration_priority descending,
+// filtered to the latest scan per hostname. Findings with priority 0
+// are excluded by the store query. limit missing → 20 (the UI
+// default), otherwise must be in [1, 1000] — the upper bound is a
+// DoS guard, not a hard product constraint.
+func (s *Server) handlePriorityFindings(w http.ResponseWriter, r *http.Request) {
+	if s.backfillInProgress.Load() {
+		w.Header().Set("X-Backfill-In-Progress", "true")
+	}
+	orgID := TenantFromContext(r.Context())
+
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 1000 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 1000")
+			return
+		}
+		limit = n
+	}
+
+	rows, err := s.store.ListTopPriorityFindings(r.Context(), orgID, limit)
+	if err != nil {
+		log.Printf("priority: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if rows == nil {
+		rows = []store.PriorityRow{}
+	}
+	writeJSON(w, http.StatusOK, rows)
+}

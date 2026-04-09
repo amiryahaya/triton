@@ -179,22 +179,3 @@ func loadFile(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// ResolveOutputDir applies the "relative to exe directory" rule:
-// absolute paths are returned unchanged, relative paths are joined
-// with the exe directory (NOT the shell cwd). An empty input
-// returns "<exe-dir>/reports" as the fool-proof default.
-func (c *Config) ResolveOutputDir() string {
-	exeDir := executableDir()
-	dir := c.OutputDir
-	if dir == "" {
-		dir = "reports"
-	}
-	if filepath.IsAbs(dir) {
-		return dir
-	}
-	if exeDir == "" {
-		// No exe dir (unlikely) — fall back to shell cwd.
-		return dir
-	}
-	return filepath.Join(exeDir, dir)
-}

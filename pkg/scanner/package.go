@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -27,12 +27,12 @@ var cryptoPackageKeywords = []string{
 }
 
 type PackageModule struct {
-	config  *config.Config
+	config  *scannerconfig.Config
 	mu      sync.Mutex
 	scanned bool
 }
 
-func NewPackageModule(cfg *config.Config) *PackageModule {
+func NewPackageModule(cfg *scannerconfig.Config) *PackageModule {
 	return &PackageModule{config: cfg}
 }
 

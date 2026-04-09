@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -19,7 +19,7 @@ import (
 type walkerConfig struct {
 	ctx          context.Context
 	target       model.ScanTarget
-	config       *config.Config
+	config       *scannerconfig.Config
 	matchFile    func(path string) bool
 	processFile  func(path string) error
 	filesScanned *int64 // atomic: every non-dir file visited (nil = disabled)
@@ -144,7 +144,7 @@ func hashFile(path string) (string, error) {
 }
 
 // shouldSkipDir checks if a directory should be excluded from scanning.
-func shouldSkipDir(path string, cfg *config.Config) bool {
+func shouldSkipDir(path string, cfg *scannerconfig.Config) bool {
 	if cfg == nil {
 		return false
 	}

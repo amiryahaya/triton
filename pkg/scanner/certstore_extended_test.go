@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -66,7 +66,7 @@ func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
 			"-----END CERTIFICATE-----", ""),
 		"\n", "")
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited(b64+"\n", nil)
 
 	findings := make(chan *model.Finding, 16)
@@ -91,7 +91,7 @@ func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
 
 func TestWindowsCertStore_EmptyOutput(t *testing.T) {
 	t.Parallel()
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited("", nil)
 
 	findings := make(chan *model.Finding, 8)
@@ -103,7 +103,7 @@ func TestWindowsCertStore_EmptyOutput(t *testing.T) {
 
 func TestWindowsCertStore_RunnerError(t *testing.T) {
 	t.Parallel()
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited("", errors.New("powershell not found"))
 
 	findings := make(chan *model.Finding, 8)
@@ -133,7 +133,7 @@ Entry type: trustedCertEntry
 
 ` + testPEMCert + `
 `
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited(keytoolOut, nil)
 
 	findings := make(chan *model.Finding, 16)
@@ -153,7 +153,7 @@ Entry type: trustedCertEntry
 
 func TestJavaCacerts_KeytoolMissing(t *testing.T) {
 	t.Parallel()
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited("", errors.New(`exec: "keytool": executable file not found in $PATH`))
 
 	findings := make(chan *model.Finding, 8)

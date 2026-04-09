@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -30,7 +30,7 @@ func fixturesDir() string {
 }
 
 func TestIntegrationEngineWithFixtures(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "quick",
 		Workers: 4,
 		ScanTargets: []model.ScanTarget{
@@ -88,7 +88,7 @@ func TestIntegrationEngineWithFixtures(t *testing.T) {
 
 func TestIntegrationCertificateScanFixtures(t *testing.T) {
 	certDir := filepath.Join(fixturesDir(), "certificates")
-	cfg := &config.Config{}
+	cfg := &scannerconfig.Config{}
 
 	m := NewCertificateModule(cfg)
 	findings := make(chan *model.Finding, 50)
@@ -116,7 +116,7 @@ func TestIntegrationCertificateScanFixtures(t *testing.T) {
 
 func TestIntegrationKeyScanFixtures(t *testing.T) {
 	keyDir := filepath.Join(fixturesDir(), "keys")
-	cfg := &config.Config{}
+	cfg := &scannerconfig.Config{}
 
 	m := NewKeyModule(cfg)
 	findings := make(chan *model.Finding, 50)
@@ -143,7 +143,7 @@ func TestIntegrationKeyScanFixtures(t *testing.T) {
 }
 
 func TestIntegrationProgressReporting(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "quick",
 		Workers: 2,
 		ScanTargets: []model.ScanTarget{
@@ -171,7 +171,7 @@ func TestIntegrationProgressReporting(t *testing.T) {
 }
 
 func TestShouldRunModuleWithFilter(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Modules: []string{"certificates"},
 		Workers: 2,
 	}
@@ -190,7 +190,7 @@ func TestIntegrationAllFileBasedScanners(t *testing.T) {
 	// Set up a mixed test directory with all scannable types
 	setupPhase2Fixtures(t, tmpDir)
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "standard",
 		Workers: 4,
 		ScanTargets: []model.ScanTarget{
@@ -241,7 +241,7 @@ func TestIntegrationPhase3ScriptAndWebApp(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupPhase3Fixtures(t, tmpDir)
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "standard",
 		Workers: 4,
 		ScanTargets: []model.ScanTarget{
@@ -282,7 +282,7 @@ func TestIntegrationPhase3AllModulesWithFixtures(t *testing.T) {
 	setupPhase2Fixtures(t, tmpDir)
 	setupPhase3Fixtures(t, tmpDir)
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "comprehensive",
 		Workers: 4,
 		Modules: []string{"certificates", "keys", "libraries", "binaries", "scripts", "webapp"},

@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/agentconfig"
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/agent"
@@ -560,8 +560,8 @@ func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig,
 	// tier permits. Otherwise a free-tier user who asked for
 	// standard would get quick modules at standard's depth — not
 	// obviously wrong but inconsistent with the banner.
-	cfg := config.Load(r.effectiveProfile)
-	cfg.DBUrl = config.DefaultDBUrl()
+	cfg := scannerconfig.Load(r.effectiveProfile)
+	cfg.DBUrl = scannerconfig.DefaultDBUrl()
 
 	// Guard filtering is still applied as a belt-and-braces step:
 	// it also drops the DB URL on free tier and narrows the module

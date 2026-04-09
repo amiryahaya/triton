@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -28,13 +28,13 @@ import (
 // trivially regex-able, and avoiding an XML parser keeps the
 // binary small and the scanner fast on large metadata blobs.
 type XMLDSigModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
-func NewXMLDSigModule(cfg *config.Config) *XMLDSigModule {
+func NewXMLDSigModule(cfg *scannerconfig.Config) *XMLDSigModule {
 	return &XMLDSigModule{config: cfg}
 }
 

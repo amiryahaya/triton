@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -50,13 +50,13 @@ type cryptoModule struct {
 
 // DepsModule scans Go module dependencies to classify crypto reachability.
 type DepsModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	analyzer    goModuleAnalyzer
 	lastScanned int64
 	lastMatched int64
 }
 
-func NewDepsModule(cfg *config.Config) *DepsModule {
+func NewDepsModule(cfg *scannerconfig.Config) *DepsModule {
 	return &DepsModule{
 		config:   cfg,
 		analyzer: &defaultAnalyzer{},

@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -33,14 +33,14 @@ import (
 // vendor is attached to asset.Purpose so the existing
 // aggregation pipeline groups them naturally.
 type ServiceMeshModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
 // NewServiceMeshModule wires a ServiceMeshModule with the engine config.
-func NewServiceMeshModule(cfg *config.Config) *ServiceMeshModule {
+func NewServiceMeshModule(cfg *scannerconfig.Config) *ServiceMeshModule {
 	return &ServiceMeshModule{config: cfg}
 }
 

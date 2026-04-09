@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/agent"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner"
@@ -19,7 +19,7 @@ import (
 
 // E1: RegisterDefaultModules → 16 workers → no data races
 func TestConcurrent_MultiModuleScan(t *testing.T) {
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	cfg.Workers = 16
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: fixturesDir(), Depth: 5},

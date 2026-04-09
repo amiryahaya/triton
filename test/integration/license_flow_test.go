@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/report"
@@ -115,10 +115,10 @@ func TestLicenseFlow_Standalone_ProGuard(t *testing.T) {
 	assert.Error(t, guard.EnforceFormat("sarif"))
 
 	// Assert FilterConfig preserves comprehensive
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	compProfile, _ := config.GetProfile("comprehensive")
+	compProfile, _ := scannerconfig.GetProfile("comprehensive")
 	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 }
 
@@ -148,11 +148,11 @@ func TestLicenseFlow_Standalone_EnterpriseGuard(t *testing.T) {
 	}
 
 	// Assert FilterConfig preserves everything
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	cfg.DBUrl = "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	compProfile, _ := config.GetProfile("comprehensive")
+	compProfile, _ := scannerconfig.GetProfile("comprehensive")
 	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 	assert.NotEmpty(t, cfg.DBUrl)
 }
@@ -168,7 +168,7 @@ func TestLicenseFlow_Standalone_FreeGuard(t *testing.T) {
 	assert.Equal(t, license.TierFree, guard.Tier())
 
 	// Assert FilterConfig restricts to free tier
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	cfg.DBUrl = "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "quick", cfg.Profile)
@@ -202,7 +202,7 @@ func TestLicenseFlow_Standalone_ScanPipeline(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 
 	// Load config and apply guard filtering
-	cfg := config.Load("standard")
+	cfg := scannerconfig.Load("standard")
 	guard.FilterConfig(cfg)
 
 	// Scan fixtures with fast modules
@@ -503,7 +503,7 @@ func TestLicenseFlow_FullCrossComponent(t *testing.T) {
 	assert.Equal(t, license.TierPro, guard.Tier())
 
 	// Phase A: Standalone scan with license-gated config
-	cfg := config.Load("standard")
+	cfg := scannerconfig.Load("standard")
 	guard.FilterConfig(cfg)
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: fixturesDir(), Depth: 5},

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*WebAppModule)(nil)
 
 func TestWebAppModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	assert.Equal(t, "webapp", m.Name())
 	assert.Equal(t, model.CategoryPassiveCode, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -26,7 +26,7 @@ func TestWebAppModuleInterface(t *testing.T) {
 
 func TestIsWebAppFile(t *testing.T) {
 	t.Parallel()
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 
 	// Should match web app files
 	assert.True(t, m.isWebAppFile("/path/to/app.php"))
@@ -69,7 +69,7 @@ openssl_sign($data, $signature, $privKey, OPENSSL_ALGO_SHA256);
 	err := os.WriteFile(filepath.Join(tmpDir, "api.php"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -115,7 +115,7 @@ public class CryptoExample {
 	err := os.WriteFile(filepath.Join(tmpDir, "CryptoExample.java"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -142,7 +142,7 @@ const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 	err := os.WriteFile(filepath.Join(tmpDir, "crypto.js"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -183,7 +183,7 @@ func main() {
 	require.NoError(t, err)
 
 	// Test the pattern matching directly
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	found, err := m.scanWebAppFile(goFile)
 	require.NoError(t, err)
 	require.NotEmpty(t, found, "should find crypto patterns in Go source")
@@ -202,7 +202,7 @@ var sha = SHA256.Create();
 	err := os.WriteFile(filepath.Join(tmpDir, "Crypto.cs"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -232,7 +232,7 @@ var dk = CryptoJS.PBKDF2("password", "salt", {keySize: 256/32});
 	err := os.WriteFile(filepath.Join(tmpDir, "crypto-js.js"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -274,7 +274,7 @@ void encrypt(void) {
 	err := os.WriteFile(filepath.Join(tmpDir, "crypto.c"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -312,7 +312,7 @@ let hash = CC_SHA256(data, CC_LONG(data.count), &digest)
 	err := os.WriteFile(filepath.Join(tmpDir, "Crypto.swift"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -347,7 +347,7 @@ var p384 = secp384r1;
 	err := os.WriteFile(filepath.Join(tmpDir, "ecc.js"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -383,7 +383,7 @@ SSLContext ctx = SSLContext.getInstance("TLSv1.3");
 	err := os.WriteFile(filepath.Join(tmpDir, "Auth.java"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -418,7 +418,7 @@ var dk = new Rfc2898DeriveBytes(password, salt, iterations);
 	err := os.WriteFile(filepath.Join(tmpDir, "Auth.cs"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -452,7 +452,7 @@ $result = array_sum([1, 2, 3]);
 	err := os.WriteFile(filepath.Join(tmpDir, "hello.php"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -471,7 +471,7 @@ func TestWebAppScanEmptyDir(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -497,7 +497,7 @@ $hash = hash('md5', $data);
 	err := os.WriteFile(filepath.Join(tmpDir, "legacy.php"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -522,7 +522,7 @@ $hash = hash('sha256', $data);
 `
 	os.WriteFile(filepath.Join(tmpDir, "test.php"), []byte(content), 0644)
 
-	m := NewWebAppModule(&config.Config{})
+	m := NewWebAppModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 

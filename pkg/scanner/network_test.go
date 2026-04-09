@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -16,7 +16,7 @@ var _ Module = (*NetworkModule)(nil)
 
 func TestNetworkModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewNetworkModule(&config.Config{})
+	m := NewNetworkModule(&scannerconfig.Config{})
 	assert.Equal(t, "network", m.Name())
 	assert.Equal(t, model.CategoryActiveNetwork, m.Category())
 	assert.Equal(t, model.TargetNetwork, m.ScanTargetType())
@@ -24,7 +24,7 @@ func TestNetworkModuleInterface(t *testing.T) {
 
 func TestParseListeningPorts(t *testing.T) {
 	t.Parallel()
-	m := NewNetworkModule(&config.Config{})
+	m := NewNetworkModule(&scannerconfig.Config{})
 
 	// Simulate lsof output for listening ports
 	output := `COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
@@ -99,7 +99,7 @@ func TestClassifyPort(t *testing.T) {
 
 func TestParseListeningPortsEmpty(t *testing.T) {
 	t.Parallel()
-	m := NewNetworkModule(&config.Config{})
+	m := NewNetworkModule(&scannerconfig.Config{})
 
 	findings := make(chan *model.Finding, 10)
 	err := m.parseLsofOutput(context.Background(), "", findings)
@@ -115,7 +115,7 @@ func TestParseListeningPortsEmpty(t *testing.T) {
 
 func TestParseListeningPortsContextCancellation(t *testing.T) {
 	t.Parallel()
-	m := NewNetworkModule(&config.Config{})
+	m := NewNetworkModule(&scannerconfig.Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -131,7 +131,7 @@ sshd      123 root    3u  IPv4  12345      0t0  TCP *:22 (LISTEN)
 
 func TestNetworkFindingPQCStatus(t *testing.T) {
 	t.Parallel()
-	m := NewNetworkModule(&config.Config{})
+	m := NewNetworkModule(&scannerconfig.Config{})
 
 	output := `COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
 sshd      123 root    3u  IPv4  12345      0t0  TCP *:22 (LISTEN)
@@ -149,7 +149,7 @@ sshd      123 root    3u  IPv4  12345      0t0  TCP *:22 (LISTEN)
 
 func TestParseSSOutput(t *testing.T) {
 	t.Parallel()
-	m := NewNetworkModule(&config.Config{})
+	m := NewNetworkModule(&scannerconfig.Config{})
 
 	// Simulate ss output
 	output := `State  Recv-Q  Send-Q   Local Address:Port    Peer Address:Port

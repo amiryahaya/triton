@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -22,13 +22,13 @@ import (
 // ContainerModule scans container configuration files (Dockerfiles, docker-compose,
 // Kubernetes manifests) for cryptographic references and insecure configurations.
 type ContainerModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
 }
 
-func NewContainerModule(cfg *config.Config) *ContainerModule {
+func NewContainerModule(cfg *scannerconfig.Config) *ContainerModule {
 	return &ContainerModule{config: cfg}
 }
 

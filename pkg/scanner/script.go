@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -101,7 +101,7 @@ var scriptCryptoPatterns = []CryptoPattern{
 
 // ScriptModule scans script files for crypto API usage patterns.
 type ScriptModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
@@ -109,7 +109,7 @@ type ScriptModule struct {
 
 func (m *ScriptModule) SetStore(s store.Store) { m.store = s }
 
-func NewScriptModule(cfg *config.Config) *ScriptModule {
+func NewScriptModule(cfg *scannerconfig.Config) *ScriptModule {
 	return &ScriptModule{config: cfg}
 }
 

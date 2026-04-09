@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 )
 
 func TestNewGuard_NoLicense(t *testing.T) {
@@ -151,7 +151,7 @@ func TestGuard_EnforceFormat_All_EnterpriseTier(t *testing.T) {
 func TestGuard_FilterConfig_FreeTier(t *testing.T) {
 	g := NewGuardFromToken("", nil) // free
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "standard",
 		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries"},
 	}
@@ -167,7 +167,7 @@ func TestGuard_FilterConfig_ProTier(t *testing.T) {
 	token := testToken(t, TierPro, priv)
 	g := NewGuardFromToken(token, pub)
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "comprehensive",
 		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries"},
 	}
@@ -181,7 +181,7 @@ func TestGuard_FilterConfig_ProTier(t *testing.T) {
 
 func TestGuard_FilterConfig_FreeTierClearsDBUrl(t *testing.T) {
 	g := NewGuardFromToken("", nil) // free
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "quick",
 		Modules: []string{"certificates", "keys", "packages"},
 		DBUrl:   "postgres://localhost:5434/triton?sslmode=disable",
@@ -196,7 +196,7 @@ func TestGuard_FilterConfig_ProTierKeepsDBUrl(t *testing.T) {
 	g := NewGuardFromToken(token, pub)
 
 	dbUrl := "postgres://localhost:5434/triton?sslmode=disable"
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		Profile: "standard",
 		Modules: []string{"certificates", "keys", "packages"},
 		DBUrl:   dbUrl,

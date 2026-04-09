@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*MailServerModule)(nil)
 
 func TestMailServerModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewMailServerModule(&config.Config{})
+	m := NewMailServerModule(&scannerconfig.Config{})
 	assert.Equal(t, "mail_server", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
@@ -61,7 +61,7 @@ smtpd_tls_cipher_suites = ALL:!EXPORT:LOW
 
 func TestParsePostfix_Strong(t *testing.T) {
 	t.Parallel()
-	m := NewMailServerModule(&config.Config{})
+	m := NewMailServerModule(&scannerconfig.Config{})
 	findings := m.parsePostfix("/etc/postfix/main.cf", []byte(postfixMainCfStrong))
 	require.NotEmpty(t, findings)
 
@@ -75,7 +75,7 @@ func TestParsePostfix_Strong(t *testing.T) {
 
 func TestParsePostfix_Weak(t *testing.T) {
 	t.Parallel()
-	m := NewMailServerModule(&config.Config{})
+	m := NewMailServerModule(&scannerconfig.Config{})
 	findings := m.parsePostfix("/etc/postfix/main.cf", []byte(postfixMainCfWeak))
 	require.NotEmpty(t, findings)
 
@@ -99,7 +99,7 @@ smtpd_tls_mandatory_protocols =
     !SSLv2, !SSLv3,
     !TLSv1, !TLSv1.1
 `
-	m := NewMailServerModule(&config.Config{})
+	m := NewMailServerModule(&scannerconfig.Config{})
 	findings := m.parsePostfix("/etc/postfix/main.cf", []byte(cfg))
 	require.NotEmpty(t, findings, "multi-line Postfix directive dropped")
 
@@ -118,7 +118,7 @@ mail._domainkey.corp.local corp.local:mail:/etc/dkim/corp.private
 
 func TestParseDKIMKeyTable(t *testing.T) {
 	t.Parallel()
-	m := NewMailServerModule(&config.Config{})
+	m := NewMailServerModule(&scannerconfig.Config{})
 	findings := m.parseDKIMKeyTable("/etc/opendkim/KeyTable", []byte(dkimKeyTable))
 	require.NotEmpty(t, findings)
 
@@ -145,7 +145,7 @@ func TestParseDKIMKeyTable(t *testing.T) {
 
 func TestParseDKIMKeyFile(t *testing.T) {
 	t.Parallel()
-	m := NewMailServerModule(&config.Config{})
+	m := NewMailServerModule(&scannerconfig.Config{})
 	findings := m.parseDKIMKeyFile("/etc/dkim/default.private")
 	require.NotEmpty(t, findings)
 	assert.Contains(t, findings[0].CryptoAsset.Purpose, "DKIM")
@@ -160,7 +160,7 @@ func TestMailServerModule_ScanWalk(t *testing.T) {
 	require.NoError(t, os.MkdirAll(postfixDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(postfixDir, "main.cf"), []byte(postfixMainCfStrong), 0o644))
 
-	m := NewMailServerModule(&config.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
+	m := NewMailServerModule(&scannerconfig.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
 	findings := make(chan *model.Finding, 32)
 	done := make(chan struct{})
 	var collected []*model.Finding

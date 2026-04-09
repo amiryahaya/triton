@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -19,7 +19,7 @@ var _ Module = (*AuthMaterialModule)(nil)
 
 func TestAuthMaterialModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	assert.Equal(t, "auth_material", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -120,7 +120,7 @@ func TestParseKeytab_StrongAES(t *testing.T) {
 	t.Parallel()
 	// enctype 18 = AES256-CTS-HMAC-SHA1-96 (safe)
 	blob := buildKeytabBlob(18)
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseKeytab("/etc/krb5.keytab", blob)
 	require.NotEmpty(t, findings)
 
@@ -139,7 +139,7 @@ func TestParseKeytab_WeakArcfour(t *testing.T) {
 	t.Parallel()
 	// enctype 23 = ARCFOUR-HMAC (RC4 — DEPRECATED)
 	blob := buildKeytabBlob(23)
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseKeytab("/etc/krb5.keytab", blob)
 	require.NotEmpty(t, findings)
 
@@ -160,7 +160,7 @@ func TestParseKeytab_WeakArcfour(t *testing.T) {
 // any corrupt length.
 func TestParseKeytab_CorruptInputNoPanic(t *testing.T) {
 	t.Parallel()
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 
 	// Header + a single 4-byte length field with all bits set
 	// (0xFFFFFFFF = INT32_MIN when signed-cast), followed by no
@@ -203,7 +203,7 @@ func TestParseKeytab_WeakDES(t *testing.T) {
 	t.Parallel()
 	// enctype 1 = DES-CBC-CRC (fundamentally broken)
 	blob := buildKeytabBlob(1)
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseKeytab("/etc/krb5.keytab", blob)
 	require.NotEmpty(t, findings)
 
@@ -231,7 +231,7 @@ uid:-::::1720000000::::Carol <carol@example.com>::::::::::0:
 
 func TestParseGPG_KeyList(t *testing.T) {
 	t.Parallel()
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseGPGList([]byte(gpgListOutput))
 	// Expect three pub keys: RSA-4096, DSA-1024, Ed25519
 	require.Len(t, findings, 3)
@@ -269,7 +269,7 @@ network={
 
 func TestParseWPASupplicant(t *testing.T) {
 	t.Parallel()
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseWPASupplicant("/etc/wpa_supplicant/wpa_supplicant.conf", []byte(wpaSupplicantConfig))
 	require.NotEmpty(t, findings)
 
@@ -291,7 +291,7 @@ func TestTor_DetectsHiddenService(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(hsDir, "hs_ed25519_secret_key"), []byte("magic"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(hsDir, "hostname"), []byte("abcdef.onion\n"), 0o600))
 
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseTorHiddenServiceKey(filepath.Join(hsDir, "hs_ed25519_secret_key"))
 	require.NotEmpty(t, findings)
 
@@ -305,7 +305,7 @@ func TestTor_DetectsHiddenService(t *testing.T) {
 
 func TestDNSSEC_KeyFileName(t *testing.T) {
 	t.Parallel()
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 
 	// K<name>+<algo>+<tag>.private — algo 8 = RSA-SHA256, 13 = ECDSA-P256, 15 = Ed25519
 	cases := map[string]string{
@@ -337,7 +337,7 @@ Environment="SOME_OTHER=value"
 
 func TestParseSystemdUnit(t *testing.T) {
 	t.Parallel()
-	m := NewAuthMaterialModule(&config.Config{})
+	m := NewAuthMaterialModule(&scannerconfig.Config{})
 	findings := m.parseSystemdUnit("/etc/systemd/system/myapp.service", []byte(systemdUnit))
 	require.NotEmpty(t, findings)
 

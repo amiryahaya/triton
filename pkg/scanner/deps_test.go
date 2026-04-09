@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -39,8 +39,8 @@ func (m *mockGoModuleAnalyzer) BuildImportGraph(ctx context.Context, moduleRoot 
 
 // --- Helper ---
 
-func depsTestConfig() *config.Config {
-	return &config.Config{
+func depsTestConfig() *scannerconfig.Config {
+	return &scannerconfig.Config{
 		Profile: "standard",
 		Workers: 4,
 		ScanTargets: []model.ScanTarget{

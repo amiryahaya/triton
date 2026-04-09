@@ -19,7 +19,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/crypto"
@@ -297,7 +297,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		format = "json"
 	}
 
-	cfg := config.Load(scanProfile)
+	cfg := scannerconfig.Load(scanProfile)
 	if len(modules) > 0 {
 		cfg.Modules = modules
 	}
@@ -333,7 +333,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if dbPath != "" {
 		cfg.DBUrl = dbPath
 	} else {
-		cfg.DBUrl = config.DefaultDBUrl()
+		cfg.DBUrl = scannerconfig.DefaultDBUrl()
 	}
 
 	// Apply licence-based config filtering (restricts modules for free tier).

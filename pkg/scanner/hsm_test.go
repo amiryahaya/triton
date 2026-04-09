@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -17,25 +17,25 @@ var _ Module = (*HSMModule)(nil)
 
 func TestHSMModule_Name(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	assert.Equal(t, "hsm", m.Name())
 }
 
 func TestHSMModule_Category(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryActiveRuntime, m.Category())
 }
 
 func TestHSMModule_ScanTargetType(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetHSM, m.ScanTargetType())
 }
 
 func TestHSMModule_ParseListSlots(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	output := `Available slots:
 Slot 0 (0x0): SoftHSM slot ID 0x0
@@ -66,7 +66,7 @@ Slot 1 (0x1): SoftHSM slot ID 0x1
 
 func TestHSMModule_ParseListObjects_RSA(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	output := `Private Key Object; RSA
   label:      my-rsa-key
@@ -95,7 +95,7 @@ Public Key Object; RSA 2048 bits
 
 func TestHSMModule_ParseListObjects_EC(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	output := `Private Key Object; EC
   label:      my-ec-key
@@ -120,7 +120,7 @@ Public Key Object; EC 256 bits
 
 func TestHSMModule_ParseListObjects_AES(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	output := `Secret Key Object; AES
   label:      my-aes-key
@@ -140,7 +140,7 @@ func TestHSMModule_ParseListObjects_AES(t *testing.T) {
 
 func TestHSMModule_ParseListObjects_Cert(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	output := `Certificate Object; type = X.509 cert
   label:      my-cert
@@ -159,7 +159,7 @@ func TestHSMModule_ParseListObjects_Cert(t *testing.T) {
 
 func TestHSMModule_ParseListMechanisms(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	output := `Supported mechanisms:
   RSA-PKCS, keySize={1024,4096}, sign, verify, decrypt, encrypt
@@ -188,7 +188,7 @@ func TestHSMModule_ParseListMechanisms(t *testing.T) {
 
 func TestHSMModule_NoPkcs11Tool(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("exec: pkcs11-tool: not found")
 	}
@@ -209,7 +209,7 @@ func TestHSMModule_NoPkcs11Tool(t *testing.T) {
 
 func TestHSMModule_NoModulesFound(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("not found")
 	}
@@ -230,7 +230,7 @@ func TestHSMModule_NoModulesFound(t *testing.T) {
 
 func TestHSMModule_ContextCancellation(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte(""), nil
 	}
@@ -250,7 +250,7 @@ func TestHSMModule_ContextCancellation(t *testing.T) {
 
 func TestHSMModule_FindingClassification(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	// Create a mock that returns RSA-2048 key
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -295,7 +295,7 @@ func TestHSMModule_FindingClassification(t *testing.T) {
 
 func TestHSMModule_MechanismClassification(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		for _, arg := range args {
@@ -338,7 +338,7 @@ func TestHSMModule_MechanismClassification(t *testing.T) {
 
 func TestHSMModule_ExplicitModule(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 
 	var cmdsRun []string
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -358,21 +358,21 @@ func TestHSMModule_ExplicitModule(t *testing.T) {
 
 func TestHSMModule_ParseListSlotsEmpty(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	slots := m.parseListSlots("")
 	assert.Empty(t, slots)
 }
 
 func TestHSMModule_ParseListObjectsEmpty(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	objects := m.parseListObjects("")
 	assert.Empty(t, objects)
 }
 
 func TestHSMModule_ParseListMechanismsEmpty(t *testing.T) {
 	t.Parallel()
-	m := NewHSMModule(&config.Config{})
+	m := NewHSMModule(&scannerconfig.Config{})
 	mechs := m.parseListMechanisms("")
 	assert.Empty(t, mechs)
 }

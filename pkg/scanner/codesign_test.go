@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -17,22 +17,22 @@ import (
 var _ Module = (*CodeSignModule)(nil)
 
 func TestCodeSignModule_Name(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 	assert.Equal(t, "codesign", m.Name())
 }
 
 func TestCodeSignModule_Category(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestCodeSignModule_ScanTargetType(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
 }
 
 func TestCodeSignModule_ParseMacOSVerify_Valid(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 
 	displayOut := `Executable=/usr/bin/curl
 Identifier=com.apple.curl
@@ -59,7 +59,7 @@ Signature size=4442`
 }
 
 func TestCodeSignModule_ParseMacOSVerify_Invalid(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 
 	findings := m.parseMacOSCodeSign(
 		"/usr/bin/bad",
@@ -92,7 +92,7 @@ Signature size=9023`
 }
 
 func TestCodeSignModule_ParseRPMVerify(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 
 	tests := []struct {
 		name     string
@@ -130,7 +130,7 @@ func TestCodeSignModule_ParseRPMVerify(t *testing.T) {
 }
 
 func TestCodeSignModule_ParseDpkgSig(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 
 	tests := []struct {
 		name     string
@@ -165,7 +165,7 @@ func TestCodeSignModule_ParseDpkgSig(t *testing.T) {
 }
 
 func TestCodeSignModule_UnsignedBinary(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 
 	findings := m.parseMacOSCodeSign(
 		"/usr/local/bin/custom",
@@ -184,7 +184,7 @@ func TestCodeSignModule_UnsignedBinary(t *testing.T) {
 
 func TestCodeSignModule_ContextCancellation(t *testing.T) {
 	m := &CodeSignModule{
-		config: &config.Config{MaxDepth: 1},
+		config: &scannerconfig.Config{MaxDepth: 1},
 		cmdRunner: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 			select {
 			case <-ctx.Done():
@@ -203,7 +203,7 @@ func TestCodeSignModule_ContextCancellation(t *testing.T) {
 }
 
 func TestCodeSignModule_PQCClassification(t *testing.T) {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 
 	displayOut := `Authority=Apple Root CA
 TeamIdentifier=APPLE

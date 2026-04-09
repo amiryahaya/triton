@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -27,19 +27,19 @@ var _ Module = (*LDAPModule)(nil)
 
 func TestLDAPModule_Name(t *testing.T) {
 	t.Parallel()
-	m := NewLDAPModule(&config.Config{})
+	m := NewLDAPModule(&scannerconfig.Config{})
 	assert.Equal(t, "ldap", m.Name())
 }
 
 func TestLDAPModule_Category(t *testing.T) {
 	t.Parallel()
-	m := NewLDAPModule(&config.Config{})
+	m := NewLDAPModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryActiveNetwork, m.Category())
 }
 
 func TestLDAPModule_ScanTargetType(t *testing.T) {
 	t.Parallel()
-	m := NewLDAPModule(&config.Config{})
+	m := NewLDAPModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetLDAP, m.ScanTargetType())
 }
 
@@ -160,7 +160,7 @@ func TestLDAPModule_ScanWithMockCerts(t *testing.T) {
 	}
 
 	m := &LDAPModule{
-		config: &config.Config{},
+		config: &scannerconfig.Config{},
 		dialFn: func(addr string) (ldapConn, error) { return mock, nil },
 	}
 
@@ -206,7 +206,7 @@ func TestLDAPModule_ScanCACerts(t *testing.T) {
 
 	// First call (userCertificate) returns empty, second call (cACertificate) returns CA cert
 	m := &LDAPModule{
-		config: &config.Config{},
+		config: &scannerconfig.Config{},
 		dialFn: func(addr string) (ldapConn, error) {
 			// Return a mock that changes behavior per search
 			return &dynamicMockLDAPConn{
@@ -270,7 +270,7 @@ func TestLDAPModule_NoCertsFound(t *testing.T) {
 	}
 
 	m := &LDAPModule{
-		config: &config.Config{},
+		config: &scannerconfig.Config{},
 		dialFn: func(addr string) (ldapConn, error) { return mock, nil },
 	}
 
@@ -291,7 +291,7 @@ func TestLDAPModule_NoCertsFound(t *testing.T) {
 func TestLDAPModule_ConnectionError(t *testing.T) {
 	t.Parallel()
 	m := &LDAPModule{
-		config: &config.Config{},
+		config: &scannerconfig.Config{},
 		dialFn: func(addr string) (ldapConn, error) {
 			return nil, fmt.Errorf("connection refused")
 		},
@@ -309,7 +309,7 @@ func TestLDAPModule_ConnectionError(t *testing.T) {
 func TestLDAPModule_ContextCancellation(t *testing.T) {
 	t.Parallel()
 	m := &LDAPModule{
-		config: &config.Config{},
+		config: &scannerconfig.Config{},
 		dialFn: func(addr string) (ldapConn, error) {
 			return &mockLDAPConn{}, nil
 		},
@@ -360,7 +360,7 @@ func TestLDAPModule_PQCClassification(t *testing.T) {
 	}
 
 	m := &LDAPModule{
-		config: &config.Config{},
+		config: &scannerconfig.Config{},
 		dialFn: func(addr string) (ldapConn, error) { return mock, nil },
 	}
 
@@ -383,7 +383,7 @@ func TestLDAPModule_PQCClassification(t *testing.T) {
 
 func TestLDAPModule_InputValidation(t *testing.T) {
 	t.Parallel()
-	m := NewLDAPModule(&config.Config{})
+	m := NewLDAPModule(&scannerconfig.Config{})
 
 	tests := []struct {
 		name   string

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*PasswordHashModule)(nil)
 
 func TestPasswordHashModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewPasswordHashModule(&config.Config{})
+	m := NewPasswordHashModule(&scannerconfig.Config{})
 	assert.Equal(t, "password_hash", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -59,7 +59,7 @@ bcrypter:$2y$10$bcryptSaltAndHashCombinedValueGoesHereXX:19000:0:99999:7:::
 
 func TestParseShadowFile(t *testing.T) {
 	t.Parallel()
-	m := NewPasswordHashModule(&config.Config{})
+	m := NewPasswordHashModule(&scannerconfig.Config{})
 	findings := m.parseShadow("/etc/shadow", []byte(shadowFile))
 
 	// Expect one finding per active user (root, admin, legacy, arcane,
@@ -99,7 +99,7 @@ bin:!:19000:0:99999:7:::
 daemon:!!:19000:0:99999:7:::
 empty::19000:0:99999:7:::
 `
-	m := NewPasswordHashModule(&config.Config{})
+	m := NewPasswordHashModule(&scannerconfig.Config{})
 	findings := m.parseShadow("/etc/shadow", []byte(locked))
 	assert.Empty(t, findings, "locked/empty accounts should not produce findings")
 }
@@ -120,7 +120,7 @@ password [success=1 default=ignore] pam_unix.so obscure md5
 
 func TestParsePAM_StrongSha512(t *testing.T) {
 	t.Parallel()
-	m := NewPasswordHashModule(&config.Config{})
+	m := NewPasswordHashModule(&scannerconfig.Config{})
 	findings := m.parsePAM("/etc/pam.d/system-auth", []byte(pamSystemAuth))
 	require.NotEmpty(t, findings)
 
@@ -130,7 +130,7 @@ func TestParsePAM_StrongSha512(t *testing.T) {
 
 func TestParsePAM_WeakMd5(t *testing.T) {
 	t.Parallel()
-	m := NewPasswordHashModule(&config.Config{})
+	m := NewPasswordHashModule(&scannerconfig.Config{})
 	findings := m.parsePAM("/etc/pam.d/common-password", []byte(pamCommonPasswordWeak))
 	require.NotEmpty(t, findings)
 
@@ -155,7 +155,7 @@ host    replication     replicator      10.0.1.0/24             password
 
 func TestParsePgHba(t *testing.T) {
 	t.Parallel()
-	m := NewPasswordHashModule(&config.Config{})
+	m := NewPasswordHashModule(&scannerconfig.Config{})
 	findings := m.parsePgHba("/etc/postgresql/15/main/pg_hba.conf", []byte(pgHbaMixed))
 	require.NotEmpty(t, findings)
 
@@ -186,7 +186,7 @@ func TestPasswordHashModule_ScanWalk(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pamDir, "system-auth"), []byte(pamSystemAuth), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDir, "pg_hba.conf"), []byte(pgHbaMixed), 0o644))
 
-	m := NewPasswordHashModule(&config.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
+	m := NewPasswordHashModule(&scannerconfig.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
 
 	findings := make(chan *model.Finding, 100)
 	done := make(chan struct{})

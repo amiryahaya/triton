@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -22,7 +22,7 @@ import (
 // ConfigModule scans configuration files for cryptographic settings.
 // Supports sshd_config, crypto-policies, and java.security.
 type ConfigModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
@@ -30,7 +30,7 @@ type ConfigModule struct {
 
 func (m *ConfigModule) SetStore(s store.Store) { m.store = s }
 
-func NewConfigModule(cfg *config.Config) *ConfigModule {
+func NewConfigModule(cfg *scannerconfig.Config) *ConfigModule {
 	return &ConfigModule{config: cfg}
 }
 

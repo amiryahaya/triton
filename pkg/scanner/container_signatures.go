@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -39,14 +39,14 @@ import (
 // because it requires registry credentials and network access we
 // don't want to assume the agent has.
 type ContainerSignaturesModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
 // NewContainerSignaturesModule wires the module to the engine config.
-func NewContainerSignaturesModule(cfg *config.Config) *ContainerSignaturesModule {
+func NewContainerSignaturesModule(cfg *scannerconfig.Config) *ContainerSignaturesModule {
 	return &ContainerSignaturesModule{config: cfg}
 }
 

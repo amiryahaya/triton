@@ -16,7 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -52,7 +52,7 @@ var sshKeyPrefixes = []struct {
 }
 
 type KeyModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
@@ -60,7 +60,7 @@ type KeyModule struct {
 
 func (m *KeyModule) SetStore(s store.Store) { m.store = s }
 
-func NewKeyModule(cfg *config.Config) *KeyModule {
+func NewKeyModule(cfg *scannerconfig.Config) *KeyModule {
 	return &KeyModule{config: cfg}
 }
 

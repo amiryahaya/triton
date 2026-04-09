@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -44,12 +44,12 @@ type discoveredDB struct {
 // DatabaseModule scans database instances for encryption settings,
 // TDE configuration, and SSL/TLS status.
 type DatabaseModule struct {
-	config    *config.Config
+	config    *scannerconfig.Config
 	cmdRunner cmdRunnerFunc
 }
 
 // NewDatabaseModule creates a new DatabaseModule.
-func NewDatabaseModule(cfg *config.Config) *DatabaseModule {
+func NewDatabaseModule(cfg *scannerconfig.Config) *DatabaseModule {
 	return &DatabaseModule{
 		config:    cfg,
 		cmdRunner: defaultCmdRunner,

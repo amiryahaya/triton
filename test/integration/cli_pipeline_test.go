@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
@@ -153,7 +153,7 @@ func TestCLI_LicenseGuardFreeFilters(t *testing.T) {
 	guard := license.NewGuardFromToken("", nil)
 	assert.Equal(t, license.TierFree, guard.Tier())
 
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 
 	// Free tier downgrades to quick profile
@@ -188,7 +188,7 @@ func TestCLI_AllReportsGenerated(t *testing.T) {
 
 // A11: Cancel mid-scan → clean shutdown, no goroutine leaks
 func TestCLI_ContextCancellation(t *testing.T) {
-	cfg := config.Load("standard")
+	cfg := scannerconfig.Load("standard")
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: fixturesDir(), Depth: 10},
 	}

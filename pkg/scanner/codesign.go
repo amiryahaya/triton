@@ -11,20 +11,20 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // CodeSignModule verifies code signing on executables, apps, and packages.
 type CodeSignModule struct {
-	config         *config.Config
+	config         *scannerconfig.Config
 	cmdRunner      cmdRunnerFunc
 	cmdRunCombined cmdRunnerFunc // for commands that write to stderr
 }
 
 // NewCodeSignModule creates a new CodeSignModule.
-func NewCodeSignModule(cfg *config.Config) *CodeSignModule {
+func NewCodeSignModule(cfg *scannerconfig.Config) *CodeSignModule {
 	return &CodeSignModule{
 		config:         cfg,
 		cmdRunner:      defaultCmdRunner,

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -20,7 +20,7 @@ var _ Module = (*WebServerModule)(nil)
 
 func TestWebServerModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	assert.Equal(t, "web_server", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -103,7 +103,7 @@ server {
 
 func TestParseNginx_Strong(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseNginx("/test/nginx.conf", []byte(nginxStrong))
 
 	// Should find: 2 protocols + 3 ciphers + 2 curves + 1 HSTS = 8 minimum
@@ -121,7 +121,7 @@ func TestParseNginx_Strong(t *testing.T) {
 
 func TestParseNginx_Weak(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseNginx("/test/nginx.conf", []byte(nginxWeak))
 
 	algos := collectAlgorithms(findings)
@@ -161,7 +161,7 @@ const apacheWeak = `
 
 func TestParseApache_Strong(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseApache("/test/ssl.conf", []byte(apacheStrong))
 
 	algos := collectAlgorithms(findings)
@@ -174,7 +174,7 @@ func TestParseApache_Strong(t *testing.T) {
 
 func TestParseApache_Weak(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseApache("/test/ssl.conf", []byte(apacheWeak))
 
 	algos := collectAlgorithms(findings)
@@ -205,7 +205,7 @@ frontend https
 
 func TestParseHaproxy(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseHaproxy("/test/haproxy.cfg", []byte(haproxyConfig))
 
 	require.NotEmpty(t, findings)
@@ -237,7 +237,7 @@ example.com {
 
 func TestParseCaddyfile(t *testing.T) {
 	t.Parallel()
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseCaddyfile("/test/Caddyfile", []byte(caddyfileConfig))
 
 	algos := collectAlgorithms(findings)
@@ -264,7 +264,7 @@ func TestParseApache_QuotedCipherSuite(t *testing.T) {
     SSLCipherSuite "!NULL:ECDHE+AESGCM:HIGH"
 </VirtualHost>
 `
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	findings := m.parseApache("/test/ssl.conf", []byte(apacheQuoted))
 	require.NotEmpty(t, findings)
 
@@ -292,7 +292,7 @@ server {
     ssl_protocols !;
 }
 `
-	m := NewWebServerModule(&config.Config{})
+	m := NewWebServerModule(&scannerconfig.Config{})
 	// Should not panic.
 	findings := m.parseNginx("/test/nginx.conf", []byte(degenerate))
 	// Any findings that did come back must be non-nil.
@@ -318,7 +318,7 @@ func TestWebServerModule_ScanWalk(t *testing.T) {
 	subPath := filepath.Join(nginxDir, "test.conf")
 	require.NoError(t, os.WriteFile(subPath, []byte(nginxStrong), 0o644))
 
-	cfg := &config.Config{MaxDepth: 5, MaxFileSize: 1024 * 1024}
+	cfg := &scannerconfig.Config{MaxDepth: 5, MaxFileSize: 1024 * 1024}
 	m := NewWebServerModule(cfg)
 
 	findings := make(chan *model.Finding, 100)

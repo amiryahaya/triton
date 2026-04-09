@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*XMLDSigModule)(nil)
 
 func TestXMLDSigModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewXMLDSigModule(&config.Config{})
+	m := NewXMLDSigModule(&scannerconfig.Config{})
 	assert.Equal(t, "xml_dsig", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
@@ -67,7 +67,7 @@ const samlMetadataWeak = `<?xml version="1.0"?>
 
 func TestParseXMLDSig_StrongSaml(t *testing.T) {
 	t.Parallel()
-	m := NewXMLDSigModule(&config.Config{})
+	m := NewXMLDSigModule(&scannerconfig.Config{})
 	findings := m.parseXMLDSig("/etc/shibboleth/idp-metadata.xml", []byte(samlMetadataStrong))
 	require.NotEmpty(t, findings)
 
@@ -79,7 +79,7 @@ func TestParseXMLDSig_StrongSaml(t *testing.T) {
 
 func TestParseXMLDSig_WeakSha1(t *testing.T) {
 	t.Parallel()
-	m := NewXMLDSigModule(&config.Config{})
+	m := NewXMLDSigModule(&scannerconfig.Config{})
 	findings := m.parseXMLDSig("/etc/shibboleth/idp-metadata.xml", []byte(samlMetadataWeak))
 	require.NotEmpty(t, findings)
 
@@ -92,7 +92,7 @@ func TestParseXMLDSig_WeakSha1(t *testing.T) {
 func TestXMLDSig_NoSignature(t *testing.T) {
 	t.Parallel()
 	// Plain XML with no <Signature> should produce zero findings.
-	m := NewXMLDSigModule(&config.Config{})
+	m := NewXMLDSigModule(&scannerconfig.Config{})
 	findings := m.parseXMLDSig("/etc/app/config.xml", []byte(`<?xml version="1.0"?><config><setting>value</setting></config>`))
 	assert.Empty(t, findings)
 }
@@ -104,7 +104,7 @@ func TestXMLDSigModule_ScanWalk(t *testing.T) {
 	require.NoError(t, os.MkdirAll(shibDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(shibDir, "idp-metadata.xml"), []byte(samlMetadataStrong), 0o644))
 
-	m := NewXMLDSigModule(&config.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
+	m := NewXMLDSigModule(&scannerconfig.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
 	findings := make(chan *model.Finding, 32)
 	done := make(chan struct{})
 	var collected []*model.Finding

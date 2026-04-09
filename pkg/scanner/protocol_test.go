@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ocsp"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -32,7 +32,7 @@ var _ Module = (*ProtocolModule)(nil)
 
 func TestProtocolModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	assert.Equal(t, "protocol", m.Name())
 	assert.Equal(t, model.CategoryActiveNetwork, m.Category())
 	assert.Equal(t, model.TargetNetwork, m.ScanTargetType())
@@ -68,7 +68,7 @@ func TestTLSProbeAgainstTestServer(t *testing.T) {
 
 	addr := listener.Addr().String()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{
 		Type:  model.TargetNetwork,
@@ -124,7 +124,7 @@ func TestTLSProbeExtractsCipherSuite(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -172,7 +172,7 @@ func TestTLSProbeExtractsCertificate(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -214,7 +214,7 @@ func TestTLSProbeTimeout(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -230,7 +230,7 @@ func TestTLSProbeTimeout(t *testing.T) {
 
 func TestTLSProbeNonExistentHost(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: "127.0.0.1:1"}
 
@@ -299,7 +299,7 @@ func TestTLSProbe_DeprecatedVersion(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -353,7 +353,7 @@ func TestTLSProbe_TLS12_NoVersionWarning(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -403,7 +403,7 @@ func TestValidateCertChain_SelfSigned(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -432,7 +432,7 @@ func TestValidateCertChain_SelfSigned(t *testing.T) {
 
 func TestValidateCertChain_ContextCancelled(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -477,7 +477,7 @@ func TestDetectSessionResumption_Supported(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -530,7 +530,7 @@ func TestDetectSessionResumption_NotSupported(t *testing.T) {
 		}
 	}()
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -567,7 +567,7 @@ func TestTLSProbe_FullChainPositions(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -609,7 +609,7 @@ func TestTLSProbe_ChainDepth(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -640,7 +640,7 @@ func TestTLSProbe_OCSPResponderExtracted(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -674,7 +674,7 @@ func TestTLSProbe_CRLDistPointsExtracted(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -710,7 +710,7 @@ func TestTLSProbe_SingleCertChain(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -822,7 +822,7 @@ func TestCheckOCSP_GoodStatus(t *testing.T) {
 	defer srv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: srv.Client(),
 	}
 
@@ -857,7 +857,7 @@ func TestCheckOCSP_RevokedStatus(t *testing.T) {
 	defer srv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: srv.Client(),
 	}
 
@@ -891,7 +891,7 @@ func TestCheckOCSP_Timeout(t *testing.T) {
 	defer srv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: &http.Client{Timeout: 100 * time.Millisecond},
 	}
 
@@ -906,7 +906,7 @@ func TestCheckOCSP_Timeout(t *testing.T) {
 
 func TestCheckOCSP_NoResponder(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 
 	cert := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
@@ -938,7 +938,7 @@ func TestCheckCRL_NotRevoked(t *testing.T) {
 	defer srv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: srv.Client(),
 	}
 
@@ -977,7 +977,7 @@ func TestCheckCRL_Revoked(t *testing.T) {
 	defer srv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: srv.Client(),
 	}
 
@@ -993,7 +993,7 @@ func TestCheckCRL_Revoked(t *testing.T) {
 func TestCheckCRL_FetchError(t *testing.T) {
 	t.Parallel()
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: &http.Client{Timeout: 100 * time.Millisecond},
 	}
 
@@ -1032,7 +1032,7 @@ func TestCheckRevocation_OCSPPreferred(t *testing.T) {
 	defer crlSrv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 
@@ -1090,7 +1090,7 @@ func TestCheckRevocation_FallbackToCRL(t *testing.T) {
 
 	// Use a transport that routes to both servers
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 
@@ -1114,7 +1114,7 @@ func TestCheckRevocation_FallbackToCRL(t *testing.T) {
 
 func TestCheckRevocation_ContextCancellation(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -1151,7 +1151,7 @@ func TestCheckRevocation_FindingEmission(t *testing.T) {
 	defer srv.Close()
 
 	m := &ProtocolModule{
-		config:     &config.Config{},
+		config:     &scannerconfig.Config{},
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 
@@ -1373,7 +1373,7 @@ func TestTLSProbe_KeyExchangeExtracted(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1412,7 +1412,7 @@ func TestTLSProbe_NoPFS_RSAKeyExchange(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1449,7 +1449,7 @@ func TestTLSProbe_TLS13_AlwaysPFS(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1510,7 +1510,7 @@ func TestEnhancedChainValidation_WeakSigAlgorithm(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1551,7 +1551,7 @@ func TestEnhancedChainValidation_ExpiringCert(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1591,7 +1591,7 @@ func TestEnhancedChainValidation_NotExpiringSoon(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1628,7 +1628,7 @@ func TestEnhancedChainValidation_AlreadyExpired(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1665,7 +1665,7 @@ func TestEnhancedChainValidation_SANExtraction(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: listener.Addr().String()}
 
@@ -1706,7 +1706,7 @@ func TestProbeVersionRange_TLS12Only(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1745,7 +1745,7 @@ func TestProbeVersionRange_TLS12And13(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1783,7 +1783,7 @@ func TestEnumerateCipherSuites_SingleCipher(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 100)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1828,7 +1828,7 @@ func TestEnumerateCipherSuites_MultipleCiphers(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1870,7 +1870,7 @@ func TestEnumerateCipherSuites_IncludesInsecure(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1917,7 +1917,7 @@ func TestCipherPreference_ServerOrder(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1956,7 +1956,7 @@ func TestCipherPreference_SingleCipher(t *testing.T) {
 
 	go acceptLoop(listener)
 
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1978,7 +1978,7 @@ func TestCipherPreference_SingleCipher(t *testing.T) {
 
 func TestProbeVersionRange_ContextCancelled(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1996,7 +1996,7 @@ func TestProbeVersionRange_ContextCancelled(t *testing.T) {
 
 func TestEnhancedChainValidation_ContextCancelled(t *testing.T) {
 	t.Parallel()
-	m := NewProtocolModule(&config.Config{})
+	m := NewProtocolModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())

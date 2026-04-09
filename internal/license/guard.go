@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 )
 
 // Guard enforces feature gating based on the resolved licence tier.
@@ -231,7 +231,7 @@ func (g *Guard) EnforceFeature(f Feature) error {
 
 // FilterConfig adjusts the config in-place to match the tier's allowed features.
 // This is the primary enforcement point — the scanner engine never knows about licensing.
-func (g *Guard) FilterConfig(cfg *config.Config) {
+func (g *Guard) FilterConfig(cfg *scannerconfig.Config) {
 	// Downgrade profile if not allowed
 	if !g.Allowed(profileFeature[cfg.Profile]) {
 		allowed := AllowedProfiles(g.tier)

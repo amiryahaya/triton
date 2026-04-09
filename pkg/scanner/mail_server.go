@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -33,13 +33,13 @@ import (
 // and EU NIS2 both call DKIM out explicitly as a PQC-transition
 // item, which makes this a direct compliance deliverable.
 type MailServerModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
-func NewMailServerModule(cfg *config.Config) *MailServerModule {
+func NewMailServerModule(cfg *scannerconfig.Config) *MailServerModule {
 	return &MailServerModule{config: cfg}
 }
 

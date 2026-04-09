@@ -17,14 +17,14 @@ import (
 	"github.com/google/uuid"
 	"software.sslmate.com/src/go-pkcs12"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
 type CertificateModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
@@ -32,7 +32,7 @@ type CertificateModule struct {
 
 func (m *CertificateModule) SetStore(s store.Store) { m.store = s }
 
-func NewCertificateModule(cfg *config.Config) *CertificateModule {
+func NewCertificateModule(cfg *scannerconfig.Config) *CertificateModule {
 	return &CertificateModule{config: cfg}
 }
 

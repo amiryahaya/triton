@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/ocsp"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -39,11 +39,11 @@ const revocationHTTPTimeout = 5 * time.Second
 // ProtocolModule performs active TLS handshake probing to extract cipher suites
 // and certificate information from network endpoints.
 type ProtocolModule struct {
-	config     *config.Config
+	config     *scannerconfig.Config
 	httpClient *http.Client // injectable for testing
 }
 
-func NewProtocolModule(cfg *config.Config) *ProtocolModule {
+func NewProtocolModule(cfg *scannerconfig.Config) *ProtocolModule {
 	return &ProtocolModule{
 		config: cfg,
 		httpClient: &http.Client{

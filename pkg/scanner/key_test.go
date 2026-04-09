@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -25,19 +25,19 @@ var _ Module = (*KeyModule)(nil)
 
 func TestKeyModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	assert.Equal(t, "keys", m.Name())
 }
 
 func TestKeyModuleCategory(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestKeyModuleScanTargetType(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
 }
 
@@ -55,7 +55,7 @@ KqlREQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -90,7 +90,7 @@ MIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJRrMtWPmWnK/vL0s3gJTo9Lnlw
 	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -108,7 +108,7 @@ MIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJRrMtWPmWnK/vL0s3gJTo9Lnlw
 
 func TestDetectKeyTypeAndAlgorithm(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 
 	tests := []struct {
 		name          string
@@ -148,7 +148,7 @@ oWQDYgAE0Y/ip/T8KBxmFnlPPGGZasFzBMk3FO3iKSrkk5vWsadRXsfrFWxEIBbK
 	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -175,7 +175,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgdata
 	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -201,7 +201,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -227,7 +227,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAdata
 	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -243,7 +243,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAdata
 
 func TestIsKeyFile(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 
 	// Should match
 	assert.True(t, m.isKeyFile("/path/to/server.key"))
@@ -288,7 +288,7 @@ MIIBkTCB+wIJALbHnMO4ZY3WMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
 	err := os.WriteFile(certFile, []byte(certContent), 0644)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -313,7 +313,7 @@ func TestRandomTextFileSkipped(t *testing.T) {
 	err := os.WriteFile(textFile, []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -330,7 +330,7 @@ func TestRandomTextFileSkipped(t *testing.T) {
 
 func TestKeyScanNonExistentDir(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/nonexistent", Depth: 1}
 
@@ -353,7 +353,7 @@ func TestKeyScanUnreadableFile(t *testing.T) {
 	err := os.WriteFile(keyFile, []byte("data"), 0000)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -388,7 +388,7 @@ func TestPKCS8RSAKeyDetection(t *testing.T) {
 	require.NoError(t, err)
 	f.Close()
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -420,7 +420,7 @@ func TestPKCS8ECKeyDetection(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Bytes})
 	f.Close()
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -452,7 +452,7 @@ func TestPKCS8Ed25519KeyDetection(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Bytes})
 	f.Close()
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -511,7 +511,7 @@ func TestSSHPublicKeyDetection(t *testing.T) {
 			err := os.WriteFile(keyFile, []byte(tt.content), 0644)
 			require.NoError(t, err)
 
-			m := NewKeyModule(&config.Config{})
+			m := NewKeyModule(&scannerconfig.Config{})
 			findings := make(chan *model.Finding, 10)
 			target := model.ScanTarget{Type: model.TargetFilesystem, Value: dir, Depth: 1}
 
@@ -540,7 +540,7 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... admin@server
 	err := os.WriteFile(keyFile, []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -571,7 +571,7 @@ func TestRSAKeySize(t *testing.T) {
 	})
 	f.Close()
 
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -588,7 +588,7 @@ func TestRSAKeySize(t *testing.T) {
 
 func TestIsKeyFileExtended(t *testing.T) {
 	t.Parallel()
-	m := NewKeyModule(&config.Config{})
+	m := NewKeyModule(&scannerconfig.Config{})
 
 	// New SSH file patterns
 	assert.True(t, m.isKeyFile("/home/user/.ssh/authorized_keys"))

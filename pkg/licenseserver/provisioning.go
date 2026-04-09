@@ -112,6 +112,14 @@ func (s *Server) ProvisionOrgWithAdmin(ctx context.Context, input ProvisionOrgIn
 	if provErr != nil {
 		log.Printf("provision: report server provisioning failed: %v", provErr)
 		s.rollbackOrg(ctx, org.ID)
+		// If the report server returned a specific HTTP status (e.g. 409
+		// for a duplicate email), propagate it so the handler can write a
+		// matching, actionable response. Unreachable/parse failures still
+		// collapse to 502.
+		var pErr *ProvisionError
+		if errors.As(provErr, &pErr) {
+			return nil, pErr.Status, fmt.Errorf("report server provisioning: %w", provErr)
+		}
 		return nil, 502, fmt.Errorf("report server provisioning: %w", provErr)
 	}
 

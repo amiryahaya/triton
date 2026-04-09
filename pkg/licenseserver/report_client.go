@@ -116,7 +116,19 @@ func (c *ReportAPIClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequ
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("provision failed: status %d: %s", resp.StatusCode, string(respBody))
+		// Parse the report server's {"error": "..."} body so callers can
+		// surface a specific message (e.g. "user with this email already
+		// exists") instead of an opaque "provision failed". Fall back to
+		// the raw body if the response isn't the expected JSON shape.
+		var parsed struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(respBody, &parsed)
+		return nil, &ProvisionError{
+			Status:  resp.StatusCode,
+			Message: parsed.Error,
+			Body:    string(respBody),
+		}
 	}
 
 	var out ProvisionOrgResponse
@@ -134,3 +146,22 @@ func (c *ReportAPIClient) ProvisionOrg(ctx context.Context, req ProvisionOrgRequ
 // Error sentinel callers can check for when they want to distinguish
 // "report server unreachable" from other failures.
 var ErrReportServerUnreachable = errors.New("report server unreachable")
+
+// ProvisionError is returned by ProvisionOrg when the report server
+// responds with a non-2xx status. It carries the HTTP status code so
+// callers can map it back into their own HTTP response, and the parsed
+// server-supplied error message so the UI can show actionable text
+// (e.g. "user with this email already exists") instead of a generic
+// "report server provisioning failed".
+type ProvisionError struct {
+	Status  int    // HTTP status from the report server
+	Message string // parsed from {"error": "..."} body if present, else ""
+	Body    string // raw response body (capped at 64 KB by the caller)
+}
+
+func (e *ProvisionError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("provision failed: status %d: %s", e.Status, e.Message)
+	}
+	return fmt.Sprintf("provision failed: status %d: %s", e.Status, e.Body)
+}

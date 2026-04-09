@@ -120,6 +120,58 @@ func TestReportAPIClient_ProvisionOrg_WrongKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 }
 
+// TestReportAPIClient_ProvisionOrg_DuplicateEmailReturnsTypedError
+// verifies that when the report server returns 409 with a structured
+// {"error": "..."} body, the client returns a *ProvisionError carrying
+// the status code AND the parsed message so upstream callers can
+// surface actionable text to the user instead of an opaque wrapper.
+func TestReportAPIClient_ProvisionOrg_DuplicateEmailReturnsTypedError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"user with this email already exists"}`))
+	}))
+	defer ts.Close()
+	client := NewReportAPIClient(ts.URL, "key")
+
+	_, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
+		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
+	})
+	require.Error(t, err)
+
+	var provErr *ProvisionError
+	require.ErrorAs(t, err, &provErr, "non-2xx must yield a *ProvisionError so upstream can branch on status")
+	assert.Equal(t, http.StatusConflict, provErr.Status)
+	assert.Equal(t, "user with this email already exists", provErr.Message,
+		"Message must be parsed from the {\"error\": \"...\"} body")
+	assert.Contains(t, err.Error(), "user with this email already exists")
+}
+
+// TestReportAPIClient_ProvisionOrg_NonJSONErrorBodyStillTyped verifies
+// that a non-2xx response whose body is NOT the expected JSON shape
+// still returns a *ProvisionError — just with an empty Message and the
+// raw body preserved. This guards the fallback path in the error
+// parser.
+func TestReportAPIClient_ProvisionOrg_NonJSONErrorBodyStillTyped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("something broke"))
+	}))
+	defer ts.Close()
+	client := NewReportAPIClient(ts.URL, "key")
+
+	_, err := client.ProvisionOrg(context.Background(), ProvisionOrgRequest{
+		ID: "x", Name: "y", AdminEmail: "a@b.c", AdminName: "A", AdminTempPassword: "correct-horse-battery",
+	})
+	require.Error(t, err)
+
+	var provErr *ProvisionError
+	require.ErrorAs(t, err, &provErr)
+	assert.Equal(t, http.StatusInternalServerError, provErr.Status)
+	assert.Empty(t, provErr.Message, "non-JSON body leaves Message empty")
+	assert.Equal(t, "something broke", provErr.Body)
+}
+
 func TestReportAPIClient_ProvisionOrg_ServerUnreachable(t *testing.T) {
 	// Point at a closed port — connection will be refused.
 	client := NewReportAPIClient("http://127.0.0.1:1", "any-key")

@@ -490,7 +490,19 @@ func TestCreateOrg_RollsBackOnProvisioningFailure(t *testing.T) {
 		"admin_name":  "Alice",
 	})
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+	// The report server returned 409 (duplicate email) — the license
+	// server must propagate that status faithfully instead of burying
+	// it behind an opaque 502, and the error body must include the
+	// report server's own message so the UI can show something
+	// actionable.
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	errMsg, _ := body["error"].(string)
+	assert.Contains(t, errMsg, "user with this email already exists",
+		"response must surface the report server's own message, not a generic 'provisioning failed'")
+	assert.Contains(t, errMsg, "admin_email",
+		"response must hint at the corrective action (pick a different admin_email)")
 
 	// License server should NOT have the org.
 	orgs, err := store.ListOrgs(t.Context())

@@ -103,9 +103,28 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		// Map service-layer status into HTTP. The service already logged
 		// the underlying error; we surface a user-facing message here.
 		var conflict *licensestore.ErrConflict
+		var provErr *ProvisionError
 		switch {
 		case errors.As(err, &conflict):
 			writeError(w, http.StatusConflict, conflict.Message)
+		case errors.Is(err, ErrReportServerUnreachable):
+			writeError(w, http.StatusBadGateway,
+				"cannot reach report server — check that it is running and TRITON_LICENSE_SERVER_REPORT_URL is correct")
+		case errors.As(err, &provErr):
+			// The report server responded but rejected the request.
+			// Surface its own error message so the operator can act on
+			// it (e.g. pick a different admin email on 409).
+			msg := provErr.Message
+			if msg == "" {
+				msg = http.StatusText(provErr.Status)
+			}
+			if provErr.Status == http.StatusConflict {
+				writeError(w, http.StatusConflict,
+					"report server rejected provisioning: "+msg+
+						" — choose a different admin_email, or remove the existing user on the report server")
+			} else {
+				writeError(w, provErr.Status, "report server rejected provisioning: "+msg)
+			}
 		case status == 503:
 			writeError(w, http.StatusServiceUnavailable, "report server not configured; cannot provision admin")
 		case status == 502:

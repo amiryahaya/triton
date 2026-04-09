@@ -169,11 +169,20 @@ func TestCertKeyInfo(t *testing.T) {
 func TestCertStoreModule_Scan_Integration(t *testing.T) {
 	// Integration test: runs the real OS cert store scan.
 	// Non-fatal if OS store is inaccessible (CI, sandboxed env).
+	//
+	// Bound the overall scan at 90s via context deadline. On
+	// CI runners with multiple JDKs, the Java cacerts discovery
+	// may invoke keytool several times; without this bound a
+	// single wedged keytool subprocess would stall the entire
+	// pkg/scanner test run against the 10-minute Go test
+	// timeout (observed in PR #12 first CI run).
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 500)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}
 
-	err := m.Scan(context.Background(), target, findings)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	err := m.Scan(ctx, target, findings)
 	close(findings)
 
 	// Scan should not error (returns nil even if store inaccessible)

@@ -99,6 +99,15 @@ const (
 	windowsRootStoreStdoutCap = 16 * 1024 * 1024
 )
 
+// Per-subprocess wall-clock deadlines. Subprocess calls
+// (`keytool`, PowerShell) should be near-instant on healthy
+// systems. A generous 30-second cap protects the agent from
+// a hung subprocess (e.g., keytool prompting on stdin when
+// the default password is wrong, or a misconfigured PowerShell
+// module waiting for user confirmation) without aborting
+// legitimate slow operations.
+const certstoreSubprocessTimeout = 30 * time.Second
+
 func (m *CertStoreModule) Name() string                         { return "certstore" }
 func (m *CertStoreModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *CertStoreModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
@@ -173,9 +182,13 @@ func (m *CertStoreModule) scanWindowsCertStore(ctx context.Context, findings cha
 	//
 	// Stdout is capped at windowsRootStoreStdoutCap via the
 	// limited runner so a hostile or misconfigured cert store
-	// cannot balloon the agent's heap (H2 review).
+	// cannot balloon the agent's heap (H2 review). Wall-clock
+	// capped at certstoreSubprocessTimeout so a wedged PowerShell
+	// session cannot stall the whole scan.
+	subCtx, cancel := context.WithTimeout(ctx, certstoreSubprocessTimeout)
+	defer cancel()
 	const script = `Get-ChildItem Cert:\LocalMachine\Root | ForEach-Object { [Convert]::ToBase64String($_.RawData) }`
-	out, err := m.cmdRunnerLimited(ctx, windowsRootStoreStdoutCap,
+	out, err := m.cmdRunnerLimited(subCtx, windowsRootStoreStdoutCap,
 		"powershell", "-NoProfile", "-Command", script)
 	if err != nil {
 		// PowerShell missing or the store inaccessible — emit zero
@@ -213,10 +226,21 @@ func (m *CertStoreModule) parseBase64DERList(ctx context.Context, data []byte, s
 	return nil
 }
 
+// maxCacertsKeystores caps the number of Java cacerts keystores
+// the discovery pass will return. Enterprise hosts rarely have
+// more than one or two JDK installs; CI runners can have 3-5
+// (multiple OpenJDK versions side-by-side). A cap prevents
+// per-subprocess timeouts from compounding into a multi-minute
+// total wall-clock cost.
+const maxCacertsKeystores = 4
+
 // discoverJavaCacerts walks the well-known JDK install locations
 // on every platform and returns the absolute paths of any cacerts
 // files that exist. Returns nil when no JDK is installed, which
 // makes Scan a zero-cost no-op on JDK-less hosts.
+//
+// Capped at maxCacertsKeystores results so a host with many
+// JDKs side-by-side doesn't balloon the scan time.
 func discoverJavaCacerts() []string {
 	var found []string
 
@@ -261,11 +285,17 @@ func discoverJavaCacerts() []string {
 	// lib/security/cacerts. Keeps the discovery cheap on deep
 	// trees while catching every canonical layout.
 	for _, root := range roots {
+		if len(found) >= maxCacertsKeystores {
+			break
+		}
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue
 		}
 		for _, entry := range entries {
+			if len(found) >= maxCacertsKeystores {
+				break
+			}
 			if !entry.IsDir() {
 				continue
 			}
@@ -311,8 +341,15 @@ func (m *CertStoreModule) scanJavaCacerts(ctx context.Context, path string, find
 	// keytool is in $JAVA_HOME/bin and usually on PATH when a JDK
 	// is installed. Stdout is capped at javaCacertsStdoutCap via
 	// the limited runner so a keystore with tens of thousands of
-	// entries cannot OOM the agent (H2 review).
-	out, err := m.cmdRunnerLimited(ctx, javaCacertsStdoutCap, "keytool",
+	// entries cannot OOM the agent (H2 review). Wall-clock capped
+	// at certstoreSubprocessTimeout so a keytool that wedges
+	// (e.g., waiting on interactive stdin because the default
+	// password was changed) cannot stall the whole scan — CI
+	// was hitting the 10-minute package timeout before this
+	// deadline was added.
+	subCtx, cancel := context.WithTimeout(ctx, certstoreSubprocessTimeout)
+	defer cancel()
+	out, err := m.cmdRunnerLimited(subCtx, javaCacertsStdoutCap, "keytool",
 		"-list", "-rfc",
 		"-keystore", path,
 		"-storepass", "changeit",

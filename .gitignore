@@ -193,3 +193,6 @@ test/e2e/playwright-report/
 /testserver
 /testlicenseserver
 /licenseserver
+
+# Git worktrees — isolated workspaces for parallel feature development
+.worktrees/

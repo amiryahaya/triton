@@ -345,3 +345,31 @@ LIMIT $2
 	}
 	return out, rows.Err()
 }
+
+// ListScansOrderedByTime returns all scan summaries for the given
+// org, sorted by timestamp ASCENDING. See the interface doc comment
+// in store.go for rationale. Analytics Phase 2.
+func (s *PostgresStore) ListScansOrderedByTime(ctx context.Context, orgID string) ([]ScanSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, hostname, timestamp, profile,
+		       total_findings, safe, transitional, deprecated, unsafe
+		FROM scans
+		WHERE org_id = $1
+		ORDER BY timestamp ASC
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("ListScansOrderedByTime: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ScanSummary, 0)
+	for rows.Next() {
+		var r ScanSummary
+		if err := rows.Scan(&r.ID, &r.Hostname, &r.Timestamp, &r.Profile,
+			&r.TotalFindings, &r.Safe, &r.Transitional, &r.Deprecated, &r.Unsafe); err != nil {
+			return nil, fmt.Errorf("ListScansOrderedByTime scan: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

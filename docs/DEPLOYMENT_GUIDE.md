@@ -821,3 +821,44 @@ Redeploy with a schema v6 binary. The report server will work without analytics 
 ### 13c. Single-tenant mode note
 
 In deployments with no Guard and no JWT (the default local dev mode), `TenantFromContext` returns the empty string. The analytics views won't show any data in this mode because the `findings` table's `org_id` column is `UUID NOT NULL` and requires a real tenant. Scans still persist correctly — the write path short-circuits findings insertion for single-tenant scans. Analytics are a feature of multi-tenant deployments.
+
+## 14. Executive Summary (Phase 2)
+
+Phase 2 extends the Overview dashboard (`#/`) with an executive summary block designed for a CISO audience. The block shows:
+
+- **Readiness percentage** — `safe_findings / total_findings × 100`, computed from the latest scan per host
+- **Trend direction** — improving / declining / stable, computed from monthly-bucketed historical scans
+- **Dual policy verdicts** — both NACSA-2030 and CNSA-2.0 built-in policies evaluated and displayed side-by-side
+- **Projected completion year** — pace-based estimate of when the org reaches its target readiness
+- **Top 5 blockers** — reused from Phase 1's `/api/v1/priority` endpoint
+- **Machine health tiers** — red/yellow/green rollup on the upgraded Machines stat card
+
+### 14a. Per-org configuration
+
+The projection math uses two display preferences that live on each organization row:
+
+| Column | Default | Meaning |
+|--------|---------|---------|
+| `executive_target_percent` | `80.0` | The "meaningfully ready" threshold used for projected completion |
+| `executive_deadline_year` | `2030` | The compliance anchor; projections <= this year are "on track", > this year are "behind schedule" |
+
+**Defaults** match Triton's primary audience (Malaysian government / NACSA-2030). No configuration is needed for deployments that accept the defaults.
+
+**Per-org override** — operators with different compliance targets modify the columns directly via SQL. Phase 2 does not include an admin UI for these settings; Phase 2.5 will add one. Example for a US defense contractor targeting CNSA-2.0 by 2035:
+
+```sql
+UPDATE organizations
+SET executive_target_percent = 95,
+    executive_deadline_year  = 2035
+WHERE name = 'US Defense Contractor';
+```
+
+After the UPDATE, the next `/api/v1/executive` request from that org sees the new values. No server restart needed.
+
+### 14b. What's hard-coded
+
+The three other tunables — flat-pace threshold (0.1%/month), regressing severity (red), and the 70-year projection cap — are hard-coded in `pkg/analytics/projection.go`. These are math plumbing, not user preferences; no deployment should need to tune them.
+
+### 14c. What happens on a fresh org
+
+An org with zero scans gets an "insufficient-history" projection status, empty top-blockers list, and zero-value machine health tiers. The dashboard still renders; chips show grey "insufficient" states. Once at least two scans across two calendar months exist, the trend and projection become computable.

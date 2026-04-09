@@ -38,8 +38,9 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, error) {
 	var org Organization
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, created_at, updated_at FROM organizations WHERE id = $1`, id,
-	).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.UpdatedAt)
+		`SELECT id, name, executive_target_percent, executive_deadline_year, created_at, updated_at
+		 FROM organizations WHERE id = $1`, id,
+	).Scan(&org.ID, &org.Name, &org.ExecutiveTargetPercent, &org.ExecutiveDeadlineYear, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "organization", ID: id}
@@ -51,7 +52,8 @@ func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, e
 
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, created_at, updated_at FROM organizations ORDER BY name LIMIT 1000`)
+		`SELECT id, name, executive_target_percent, executive_deadline_year, created_at, updated_at
+		 FROM organizations ORDER BY name LIMIT 1000`)
 	if err != nil {
 		return nil, fmt.Errorf("listing organizations: %w", err)
 	}
@@ -60,7 +62,7 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	orgs := []Organization{} // never return nil
 	for rows.Next() {
 		var o Organization
-		if err := rows.Scan(&o.ID, &o.Name, &o.CreatedAt, &o.UpdatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.ExecutiveTargetPercent, &o.ExecutiveDeadlineYear, &o.CreatedAt, &o.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning organization: %w", err)
 		}
 		orgs = append(orgs, o)

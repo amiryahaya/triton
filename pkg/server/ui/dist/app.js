@@ -532,47 +532,166 @@
   async function renderOverview() {
     content.innerHTML = '<div class="loading">Loading overview...</div>';
     try {
-      const agg = await api('/aggregate');
-      let html = `<h2>Organization Overview</h2>`;
+      // Parallel fetch — both idempotent GETs. Executive summary
+      // failure degrades gracefully: the existing Overview still
+      // renders from /aggregate.
+      const [agg, exec] = await Promise.all([
+        api('/aggregate'),
+        api('/executive').catch(function(e) {
+          console.warn('executive summary unavailable:', e);
+          return null;
+        }),
+      ]);
 
-      html += `<div class="card-grid">
-        <div class="card info"><div class="value">${escapeHtml(agg.machineCount)}</div><div class="label">Machines</div></div>
-        <div class="card info"><div class="value">${escapeHtml(agg.totalFindings)}</div><div class="label">Total Findings</div></div>
-        <div class="card safe"><div class="value">${escapeHtml(agg.safe)}</div><div class="label">Safe</div></div>
-        <div class="card transitional"><div class="value">${escapeHtml(agg.transitional)}</div><div class="label">Transitional</div></div>
-        <div class="card deprecated"><div class="value">${escapeHtml(agg.deprecated)}</div><div class="label">Deprecated</div></div>
-        <div class="card unsafe"><div class="value">${escapeHtml(agg.unsafe)}</div><div class="label">Unsafe</div></div>
-      </div>`;
-
-      html += `<div class="charts-row">
-        <div class="chart-box"><h3>PQC Status Distribution</h3><canvas id="donutChart" width="300" height="300"></canvas></div>
-        <div class="chart-box"><h3>Machines by Risk</h3><canvas id="barChart" width="400" height="300"></canvas></div>
-      </div>`;
-
-      // Machines table
-      if (agg.machines && agg.machines.length > 0) {
-        html += `<h3>Machines</h3><table>
-          <thead><tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>
-          <tbody>`;
-        for (const m of agg.machines) {
-          html += `<tr class="clickable-row" data-href="#/machines/${escapeHtml(m.hostname)}">
-            <td>${escapeHtml(m.hostname)}</td><td>${formatDate(m.timestamp)}</td>
-            <td>${escapeHtml(m.totalFindings)}</td>
-            <td>${escapeHtml(m.safe)}</td><td>${escapeHtml(m.transitional)}</td>
-            <td>${escapeHtml(m.deprecated)}</td><td>${escapeHtml(m.unsafe)}</td></tr>`;
-        }
-        html += `</tbody></table>`;
+      let html = '<h2>Organization Overview</h2>';
+      if (exec) {
+        html += renderExecSummaryBar(exec);
       }
+      html += renderStatCards(agg, exec ? exec.machineHealth : null);
+      html += renderChartsRow();
+      if (exec && exec.topBlockers && exec.topBlockers.length > 0) {
+        html += renderTopBlockers(exec.topBlockers);
+      }
+      html += renderMachinesTable(agg.machines);
 
       content.innerHTML = html;
       wireClickableRows();
-
-      // Charts
       renderDonutChart(agg);
       renderBarChart(agg);
-    } catch(e) {
-      content.innerHTML = `<div class="error">Failed to load: ${escapeHtml(e.message)}</div>`;
+      renderBackfillBanner(content);
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load: ' + escapeHtml(e.message) + '</div>';
     }
+  }
+
+  // renderExecSummaryBar renders the Analytics Phase 2 executive
+  // summary block: readiness headline, trend chip, two policy chips,
+  // projection text with status-specific color.
+  function renderExecSummaryBar(exec) {
+    const r = exec.readiness;
+    const t = exec.trend;
+    const p = exec.projection;
+
+    // Trend chip class based on direction.
+    let trendChipCls = 'exec-chip--trend-stable';
+    let trendLabel = 'stable';
+    if (t.direction === 'improving') {
+      trendChipCls = 'exec-chip--trend-improving';
+      trendLabel = '↗ improving · +' + t.deltaPercent.toFixed(1) + '%';
+    } else if (t.direction === 'declining') {
+      trendChipCls = 'exec-chip--trend-declining';
+      trendLabel = '↘ declining · ' + t.deltaPercent.toFixed(1) + '%';
+    } else if (t.direction === 'insufficient-history') {
+      trendChipCls = 'exec-chip--trend-stable';
+      trendLabel = 'insufficient history';
+    } else {
+      trendLabel = '→ stable';
+    }
+
+    // Two policy chips.
+    const policyChips = (exec.policyVerdicts || []).map(function(v) {
+      let cls = 'exec-chip--pass';
+      if (v.verdict === 'WARN') cls = 'exec-chip--warn';
+      else if (v.verdict === 'FAIL') cls = 'exec-chip--fail';
+      return '<span class="exec-chip ' + cls + '">' +
+        escapeHtml(v.policyLabel) + ': ' + escapeHtml(v.verdict) +
+        (v.violationCount > 0 ? ' · ' + v.violationCount + ' violations' : '') +
+        '</span>';
+    }).join('');
+
+    // Projection text with status class.
+    const projectionCls = 'exec-projection exec-projection--' + escapeHtml(p.status);
+
+    return '<div class="exec-summary-bar">' +
+      '<div class="exec-readiness">' +
+        '<div class="exec-label">Readiness</div>' +
+        '<div class="exec-value">' + r.percent.toFixed(1) + '%</div>' +
+      '</div>' +
+      '<span class="exec-chip ' + trendChipCls + '">' + trendLabel + '</span>' +
+      policyChips +
+      '<div class="' + projectionCls + '" title="Target ' + p.targetPercent +
+      '% by ' + p.deadlineYear + ' (org settings)">' +
+        escapeHtml(p.explanationText) +
+      '</div>' +
+    '</div>';
+  }
+
+  // renderStatCards renders the 6-card stat row. Machines card
+  // optionally shows the red/yellow/green tier breakdown when
+  // machineHealth is non-null.
+  function renderStatCards(agg, machineHealth) {
+    let machinesCard;
+    if (machineHealth) {
+      machinesCard = '<div class="card info">' +
+        '<div class="value">' + escapeHtml(agg.machineCount) + '</div>' +
+        '<div class="label">Machines' +
+          '<div class="machine-tiers">' +
+            '<span class="tier tier-red">' + machineHealth.red + '</span>' +
+            '<span class="tier tier-yellow">' + machineHealth.yellow + '</span>' +
+            '<span class="tier tier-green">' + machineHealth.green + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    } else {
+      machinesCard = '<div class="card info">' +
+        '<div class="value">' + escapeHtml(agg.machineCount) + '</div>' +
+        '<div class="label">Machines</div>' +
+      '</div>';
+    }
+
+    return '<div class="card-grid">' +
+      machinesCard +
+      '<div class="card info"><div class="value">' + escapeHtml(agg.totalFindings) + '</div><div class="label">Total Findings</div></div>' +
+      '<div class="card safe"><div class="value">' + escapeHtml(agg.safe) + '</div><div class="label">Safe</div></div>' +
+      '<div class="card transitional"><div class="value">' + escapeHtml(agg.transitional) + '</div><div class="label">Transitional</div></div>' +
+      '<div class="card deprecated"><div class="value">' + escapeHtml(agg.deprecated) + '</div><div class="label">Deprecated</div></div>' +
+      '<div class="card unsafe"><div class="value">' + escapeHtml(agg.unsafe) + '</div><div class="label">Unsafe</div></div>' +
+    '</div>';
+  }
+
+  // renderChartsRow emits the donut + bar chart canvases. Actual
+  // chart instances are attached by renderDonutChart / renderBarChart.
+  function renderChartsRow() {
+    return '<div class="charts-row">' +
+      '<div class="chart-box"><h3>PQC Status Distribution</h3><canvas id="donutChart" width="300" height="300"></canvas></div>' +
+      '<div class="chart-box"><h3>Machines by Risk</h3><canvas id="barChart" width="400" height="300"></canvas></div>' +
+    '</div>';
+  }
+
+  // renderTopBlockers renders the Analytics Phase 2 top-5 blockers
+  // strip with a "See all priorities" link to the Phase 1 priority view.
+  function renderTopBlockers(blockers) {
+    const chips = blockers.map(function(b) {
+      const algo = b.algorithm + (b.keySize ? '-' + b.keySize : '');
+      return '<span class="blocker-chip" title="' +
+        'Priority ' + b.priority + ' · ' + escapeHtml(b.module) + ' on ' + escapeHtml(b.hostname) + '">' +
+        '<span class="blocker-score">' + b.priority + '</span>' +
+        '<span class="blocker-algo">' + escapeHtml(algo) + '</span>' +
+      '</span>';
+    }).join('');
+
+    return '<div class="top-blockers-strip">' +
+      '<div class="top-blockers-label">Top priority blockers</div>' +
+      '<div class="top-blockers-list">' + chips + '</div>' +
+      '<a href="#/priority" class="top-blockers-more">See all priorities →</a>' +
+    '</div>';
+  }
+
+  // renderMachinesTable renders the existing machines table.
+  function renderMachinesTable(machines) {
+    if (!machines || machines.length === 0) return '';
+    let html = '<h3>Machines</h3><table>' +
+      '<thead><tr><th>Hostname</th><th>Last Scan</th><th>Findings</th><th>Safe</th><th>Trans.</th><th>Depr.</th><th>Unsafe</th></tr></thead>' +
+      '<tbody>';
+    for (const m of machines) {
+      html += '<tr class="clickable-row" data-href="#/machines/' + escapeHtml(m.hostname) + '">' +
+        '<td>' + escapeHtml(m.hostname) + '</td><td>' + formatDate(m.timestamp) + '</td>' +
+        '<td>' + escapeHtml(m.totalFindings) + '</td>' +
+        '<td>' + escapeHtml(m.safe) + '</td><td>' + escapeHtml(m.transitional) + '</td>' +
+        '<td>' + escapeHtml(m.deprecated) + '</td><td>' + escapeHtml(m.unsafe) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    return html;
   }
 
   function renderDonutChart(agg) {

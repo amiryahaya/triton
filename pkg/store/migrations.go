@@ -212,4 +212,24 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_scans_unbackfilled
 		ON scans (id)
 		WHERE findings_extracted_at IS NULL;`,
+
+	// Version 9: Executive summary display preferences per org (Analytics Phase 2).
+	//
+	// Two columns on the existing organizations table carry each
+	// org's compliance target percentage and deadline year. Defaults
+	// are chosen for Triton's primary audience (Malaysian government /
+	// NACSA-2030); orgs with different needs override per-org via
+	// direct SQL:
+	//
+	//   UPDATE organizations
+	//   SET executive_target_percent = 95,
+	//       executive_deadline_year  = 2035
+	//   WHERE name = 'US Defense Contractor';
+	//
+	// Phase 2.5 will add an admin form for org_admin to change these
+	// without SQL. See docs/plans/2026-04-10-analytics-phase-2-design.md §6.
+	`ALTER TABLE organizations
+		ADD COLUMN IF NOT EXISTS executive_target_percent NUMERIC(5,2) NOT NULL DEFAULT 80.0;
+	ALTER TABLE organizations
+		ADD COLUMN IF NOT EXISTS executive_deadline_year INTEGER NOT NULL DEFAULT 2030;`,
 }

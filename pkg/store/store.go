@@ -19,6 +19,15 @@ type ScanStore interface {
 	// ListScans returns scan summaries matching the given filter.
 	ListScans(ctx context.Context, filter ScanFilter) ([]ScanSummary, error)
 
+	// ListScansOrderedByTime returns all scan summaries for the given
+	// org, sorted by timestamp ASCENDING (oldest first). This is the
+	// chronological ordering required by pkg/analytics.ComputeOrgTrend.
+	// The existing ListScans returns newest-first, which is the right
+	// default for dashboards but wrong for trend math.
+	// Returns an empty slice (not nil) when the org has no scans.
+	// Analytics Phase 2.
+	ListScansOrderedByTime(ctx context.Context, orgID string) ([]ScanSummary, error)
+
 	// DeleteScan removes a scan result by ID.
 	// If orgID is non-empty, the scan must belong to that org (tenant isolation).
 	DeleteScan(ctx context.Context, id, orgID string) error
@@ -171,6 +180,89 @@ type ScanSummary struct {
 	Unsafe        int       `json:"unsafe"`
 }
 
+// TrendSummary describes an org-wide monthly-bucketed trend in
+// readiness over time. Returned as part of ExecutiveSummary by the
+// GET /api/v1/executive endpoint. Analytics Phase 2.
+type TrendSummary struct {
+	Direction     string            `json:"direction"`     // improving|declining|stable|insufficient-history
+	DeltaPercent  float64           `json:"deltaPercent"`  // first→last readiness delta, rounded to 1 decimal
+	MonthlyPoints []TrendMonthPoint `json:"monthlyPoints"` // chronologically sorted series; may be empty
+}
+
+// TrendMonthPoint is one calendar month's aggregate readiness across
+// all hosts that scanned during the month. The latest scan per host
+// per month is used to avoid scan-frequency bias (see
+// docs/plans/2026-04-10-analytics-phase-2-design.md §5.1).
+type TrendMonthPoint struct {
+	Month         string  `json:"month"`         // "2026-04" (YYYY-MM format)
+	Readiness     float64 `json:"readiness"`     // safe/(safe+trans+dep+unsafe) × 100, rounded to 1 decimal
+	TotalFindings int     `json:"totalFindings"` // sum across all hosts in this bucket
+}
+
+// ProjectionSummary is the pace-based "when will we reach X% at
+// current pace" estimate returned as part of ExecutiveSummary.
+// TargetPercent and DeadlineYear come from the org's
+// organizations.executive_target_percent and
+// organizations.executive_deadline_year columns (defaults 80/2030).
+// Analytics Phase 2.
+type ProjectionSummary struct {
+	Status          string  `json:"status"` // insufficient-history|already-complete|regressing|insufficient-movement|capped|on-track|behind-schedule
+	TargetPercent   float64 `json:"targetPercent"`
+	DeadlineYear    int     `json:"deadlineYear"`
+	PacePerMonth    float64 `json:"pacePerMonth"`    // readiness-points per calendar month, rounded to 1 decimal
+	ProjectedYear   int     `json:"projectedYear"`   // 0 when Status is non-computable
+	ExplanationText string  `json:"explanationText"` // server-composed human-readable sentence
+}
+
+// MachineHealthTiers is the red/yellow/green tier rollup of the
+// org's machines. Rules:
+//
+//	red    = has any UNSAFE finding
+//	yellow = no unsafe, has any DEPRECATED finding
+//	green  = only SAFE / TRANSITIONAL findings (including zero-finding machines)
+//
+// Returned as part of ExecutiveSummary by /api/v1/executive and
+// consumed by the upgraded Machines stat card on the Overview.
+// Analytics Phase 2.
+type MachineHealthTiers struct {
+	Red    int `json:"red"`
+	Yellow int `json:"yellow"`
+	Green  int `json:"green"`
+	Total  int `json:"total"` // = red + yellow + green, precomputed for the UI
+}
+
+// ReadinessSummary is the "PQC Readiness: N%" headline number for
+// the executive view. Analytics Phase 2.
+type ReadinessSummary struct {
+	Percent       float64 `json:"percent"` // rounded to 1 decimal
+	TotalFindings int     `json:"totalFindings"`
+	SafeFindings  int     `json:"safeFindings"`
+}
+
+// PolicyVerdictSummary is one built-in policy's aggregate verdict
+// across all latest scans in the org. The executive summary includes
+// one entry per built-in policy (NACSA-2030 and CNSA-2.0 in Phase 2).
+// Analytics Phase 2.
+type PolicyVerdictSummary struct {
+	PolicyName      string `json:"policyName"`      // "nacsa-2030" | "cnsa-2.0"
+	PolicyLabel     string `json:"policyLabel"`     // "NACSA-2030" | "CNSA-2.0"
+	Verdict         string `json:"verdict"`         // "PASS" | "WARN" | "FAIL"
+	ViolationCount  int    `json:"violationCount"`  // summed across all evaluated scans
+	FindingsChecked int    `json:"findingsChecked"` // summed across all evaluated scans
+}
+
+// ExecutiveSummary is the response body for GET /api/v1/executive.
+// Everything the upgraded Overview's executive block needs, in a
+// single round-trip. Analytics Phase 2.
+type ExecutiveSummary struct {
+	Readiness      ReadinessSummary       `json:"readiness"`
+	Trend          TrendSummary           `json:"trend"`
+	Projection     ProjectionSummary      `json:"projection"`
+	PolicyVerdicts []PolicyVerdictSummary `json:"policyVerdicts"`
+	TopBlockers    []PriorityRow          `json:"topBlockers"` // reuses Phase 1 type
+	MachineHealth  MachineHealthTiers     `json:"machineHealth"`
+}
+
 // ErrNotFound is returned when a requested resource does not exist.
 type ErrNotFound struct {
 	Resource string
@@ -192,13 +284,22 @@ func (e *ErrConflict) Error() string {
 }
 
 // Organization is a report-server mirror of an organization defined in
-// the license server. Only ID, Name, and timestamps are stored — contact
-// info and license details remain in the license server.
+// the license server. Only ID, Name, timestamps, and executive-summary
+// display preferences are stored — contact info and license details
+// remain in the license server.
+//
+// ExecutiveTargetPercent and ExecutiveDeadlineYear are display
+// preferences used by GET /api/v1/executive to compute the projected
+// completion status. Defaults are 80.0 and 2030 respectively. Each
+// org can override via direct SQL (Phase 2) or a future admin UI
+// (Phase 2.5). See docs/plans/2026-04-10-analytics-phase-2-design.md §6.
 type Organization struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID                     string    `json:"id"`
+	Name                   string    `json:"name"`
+	ExecutiveTargetPercent float64   `json:"executiveTargetPercent"`
+	ExecutiveDeadlineYear  int       `json:"executiveDeadlineYear"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 // User is a report-server org user. Distinct from licensestore.User by

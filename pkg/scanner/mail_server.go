@@ -182,6 +182,15 @@ var postfixTLSDirectives = map[string]string{
 // would parse as a directive with an empty value plus a
 // standalone `!SSLv3` line that has no `=` and gets dropped.
 // Sprint-review SF6 regression.
+//
+// Memory precondition (M3 review): this helper allocates a
+// `[]string` proportional to the number of lines in `data`.
+// Callers MUST ensure `data` has already been bounded by the
+// walker's MaxFileSize guard — `walkTarget` enforces this
+// automatically for any file that arrives via the standard
+// scanner dispatch path. Direct callers that skip walkTarget
+// would bypass the size check and risk an O(file size) slice
+// allocation. There are no such direct callers today.
 func joinPostfixContinuations(data []byte) []string {
 	var joined []string
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -263,26 +272,34 @@ func (m *MailServerModule) parseSendmail(path string, data []byte) []*model.Find
 	// Sendmail's config is opaque — we grep for TLS-related
 	// directives and emit a presence finding. A full parser is
 	// not worth the effort given how few sites still use it.
+	//
+	// Streamed via bufio.Scanner rather than strings.Split on
+	// the full file (H1 review): sendmail.cf can be 2-10 MB on
+	// active installations and a slurp-then-split path peaks at
+	// ~3× the file size in allocations.
 	var out []*model.Finding
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		lower := strings.ToLower(strings.TrimSpace(line))
-		if lower == "" || strings.HasPrefix(lower, "#") {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 0, 8*1024), 256*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		lower := strings.ToLower(line)
 		if strings.Contains(lower, "tls_srv_options") || strings.Contains(lower, "cipherlist") ||
 			strings.Contains(lower, "servercertfile") {
 			asset := &model.CryptoAsset{
 				ID:        uuid.Must(uuid.NewV7()).String(),
 				Function:  "Sendmail TLS directive",
 				Algorithm: "Sendmail-TLS",
-				Purpose:   "Sendmail TLS config: " + truncate(strings.TrimSpace(line), 80),
+				Purpose:   "Sendmail TLS config: " + truncate(line, 80),
 			}
 			crypto.ClassifyCryptoAsset(asset)
 			asset.Algorithm = "Sendmail-TLS"
 			out = append(out, mailFinding(path, asset))
 		}
 	}
+	logScannerErr(path, "sendmail", scanner.Err())
 	return out
 }
 

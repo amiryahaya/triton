@@ -36,11 +36,13 @@ hdVj1Z+zqamMxEfIc6GYiH46Zm82SO1fzDFD69IbkDZj0rjl2RBpb8ehvxKEPs9N
 /SSLdtPFbw==
 -----END CERTIFICATE-----`
 
-// stubRunner returns a cmdRunnerFunc that always produces the same
-// canned output regardless of arguments. Matches the pattern used by
-// codesign_extended_test.go.
-func stubRunner(output string, err error) cmdRunnerFunc {
-	return func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+// stubRunnerLimited returns a cmdRunnerLimitedFunc that ignores
+// the byte limit and always produces the canned output. Used by
+// certstore tests that exercise the Windows store + Java cacerts
+// paths, both of which go through the bounded runner after the
+// H2 review fix.
+func stubRunnerLimited(output string, err error) cmdRunnerLimitedFunc {
+	return func(_ context.Context, _ int64, _ string, _ ...string) ([]byte, error) {
 		return []byte(output), err
 	}
 }
@@ -64,7 +66,7 @@ func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
 		"\n", "")
 
 	m := NewCertStoreModule(&config.Config{})
-	m.cmdRunner = stubRunner(b64+"\n", nil)
+	m.cmdRunnerLimited = stubRunnerLimited(b64+"\n", nil)
 
 	findings := make(chan *model.Finding, 16)
 	err := m.scanWindowsCertStore(context.Background(), findings)
@@ -88,7 +90,7 @@ func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
 
 func TestWindowsCertStore_EmptyOutput(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
-	m.cmdRunner = stubRunner("", nil)
+	m.cmdRunnerLimited = stubRunnerLimited("", nil)
 
 	findings := make(chan *model.Finding, 8)
 	err := m.scanWindowsCertStore(context.Background(), findings)
@@ -99,7 +101,7 @@ func TestWindowsCertStore_EmptyOutput(t *testing.T) {
 
 func TestWindowsCertStore_RunnerError(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
-	m.cmdRunner = stubRunner("", errors.New("powershell not found"))
+	m.cmdRunnerLimited = stubRunnerLimited("", errors.New("powershell not found"))
 
 	findings := make(chan *model.Finding, 8)
 	// Errors must not propagate — a missing PowerShell should just
@@ -128,7 +130,7 @@ Entry type: trustedCertEntry
 ` + testPEMCert + `
 `
 	m := NewCertStoreModule(&config.Config{})
-	m.cmdRunner = stubRunner(keytoolOut, nil)
+	m.cmdRunnerLimited = stubRunnerLimited(keytoolOut, nil)
 
 	findings := make(chan *model.Finding, 16)
 	err := m.scanJavaCacerts(context.Background(), "/opt/jdk/lib/security/cacerts", findings)
@@ -147,7 +149,7 @@ Entry type: trustedCertEntry
 
 func TestJavaCacerts_KeytoolMissing(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
-	m.cmdRunner = stubRunner("", errors.New(`exec: "keytool": executable file not found in $PATH`))
+	m.cmdRunnerLimited = stubRunnerLimited("", errors.New(`exec: "keytool": executable file not found in $PATH`))
 
 	findings := make(chan *model.Finding, 8)
 	err := m.scanJavaCacerts(context.Background(), "/opt/jdk/lib/security/cacerts", findings)

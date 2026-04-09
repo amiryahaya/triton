@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,19 +33,71 @@ import (
 // The module uses an injectable cmdRunner so tests can feed canned
 // output for both the PowerShell and keytool code paths. Real
 // deployments get `defaultCmdRunner`.
+//
+// Memory safety (H2 review): PowerShell and keytool subprocesses
+// are invoked via `cmdRunnerLimited` with a hard byte cap on
+// stdout. A hostile or malformed keystore with hundreds of
+// thousands of entries could otherwise produce gigabytes of PEM
+// output; the agent must not OOM on adversarial input.
 type CertStoreModule struct {
-	config    *config.Config
-	cmdRunner cmdRunnerFunc
+	config           *config.Config
+	cmdRunner        cmdRunnerFunc
+	cmdRunnerLimited cmdRunnerLimitedFunc
+}
+
+// cmdRunnerLimitedFunc runs a subprocess and caps its stdout at
+// `limit` bytes, returning whatever fit in the cap on overflow.
+// Injectable for testing alongside cmdRunnerFunc.
+type cmdRunnerLimitedFunc func(ctx context.Context, limit int64, name string, args ...string) ([]byte, error)
+
+// defaultCmdRunnerLimited is the production implementation: it
+// pipes stdout through an io.LimitReader so the agent's memory
+// use is bounded regardless of what the subprocess emits.
+func defaultCmdRunnerLimited(ctx context.Context, limit int64, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	// Read up to `limit` bytes, then drain any excess in a
+	// bounded sink so the subprocess doesn't block forever on a
+	// full pipe buffer while we wait for it to exit.
+	out, readErr := io.ReadAll(io.LimitReader(stdout, limit))
+	_, _ = io.Copy(io.Discard, stdout)
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		return out, readErr
+	}
+	return out, waitErr
 }
 
 // NewCertStoreModule constructs a CertStoreModule wired to real
 // subprocess execution.
 func NewCertStoreModule(cfg *config.Config) *CertStoreModule {
 	return &CertStoreModule{
-		config:    cfg,
-		cmdRunner: defaultCmdRunner,
+		config:           cfg,
+		cmdRunner:        defaultCmdRunner,
+		cmdRunnerLimited: defaultCmdRunnerLimited,
 	}
 }
+
+// Per-subprocess stdout byte caps. Chosen so that realistic
+// enterprise keystores (a few thousand entries) fit comfortably
+// while hostile inputs are truncated before they balloon the
+// agent's heap.
+const (
+	// 32 MB ≈ 10k PEM certs (~3 KB each). A JDK cacerts ships
+	// with 150; an operator-managed keystore with a few thousand
+	// internal CAs fits. Adversarial keystores with 100k entries
+	// are truncated.
+	javaCacertsStdoutCap = 32 * 1024 * 1024
+	// 16 MB is enough for the LocalMachine\Root store (~200 CAs
+	// on a typical Windows install, ~5 KB per base64 DER line).
+	windowsRootStoreStdoutCap = 16 * 1024 * 1024
+)
 
 func (m *CertStoreModule) Name() string                         { return "certstore" }
 func (m *CertStoreModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
@@ -117,8 +170,13 @@ func (m *CertStoreModule) scanWindowsCertStore(ctx context.Context, findings cha
 	// The command enumerates the LocalMachine\Root store and emits
 	// one base64 DER per line. Using -NoProfile keeps startup fast
 	// (no $PROFILE load) and avoids any user-tuned PowerShell env.
+	//
+	// Stdout is capped at windowsRootStoreStdoutCap via the
+	// limited runner so a hostile or misconfigured cert store
+	// cannot balloon the agent's heap (H2 review).
 	const script = `Get-ChildItem Cert:\LocalMachine\Root | ForEach-Object { [Convert]::ToBase64String($_.RawData) }`
-	out, err := m.cmdRunner(ctx, "powershell", "-NoProfile", "-Command", script)
+	out, err := m.cmdRunnerLimited(ctx, windowsRootStoreStdoutCap,
+		"powershell", "-NoProfile", "-Command", script)
 	if err != nil {
 		// PowerShell missing or the store inaccessible — emit zero
 		// findings rather than failing the whole scan. This is the
@@ -251,8 +309,10 @@ func discoverJavaCacerts() []string {
 //     an env slice is a future enhancement.
 func (m *CertStoreModule) scanJavaCacerts(ctx context.Context, path string, findings chan<- *model.Finding) error {
 	// keytool is in $JAVA_HOME/bin and usually on PATH when a JDK
-	// is installed.
-	out, err := m.cmdRunner(ctx, "keytool",
+	// is installed. Stdout is capped at javaCacertsStdoutCap via
+	// the limited runner so a keystore with tens of thousands of
+	// entries cannot OOM the agent (H2 review).
+	out, err := m.cmdRunnerLimited(ctx, javaCacertsStdoutCap, "keytool",
 		"-list", "-rfc",
 		"-keystore", path,
 		"-storepass", "changeit",

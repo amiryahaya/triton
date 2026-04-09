@@ -52,7 +52,12 @@ func (m *CodeSignModule) checkGitSignature(ctx context.Context, ref string) []*m
 	// recent git versions. We try `verify-tag` first — if the
 	// input is a commit hash the runner will error and we return
 	// the toolMissing / unsigned path instead.
-	out, err := m.cmdRunner(ctx, "git", "tag", "-v", ref)
+	//
+	// M1 review — `--` end-of-options separator protects against
+	// a filesystem crawl picking up a git repo whose tag is
+	// named `-h`, `--exec`, or anything that git would otherwise
+	// interpret as a flag.
+	out, err := m.cmdRunner(ctx, "git", "tag", "-v", "--", ref)
 	output := string(out)
 
 	if err != nil && strings.Contains(err.Error(), "executable file not found") {

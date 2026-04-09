@@ -460,3 +460,72 @@ func TestDeleteScan_CascadesToFindings(t *testing.T) {
 	assert.Equal(t, 0, queryFindingsCount(t, s, scan.ID),
 		"ON DELETE CASCADE should have removed the findings rows")
 }
+
+// --- ListScansOrderedByTime tests (Analytics Phase 2) ---
+
+// TestListScansOrderedByTime_EmptyOrg verifies the method returns
+// an empty slice (not nil) for an org with no scans. Matches the
+// interface contract. Analytics Phase 2.
+func TestListScansOrderedByTime_EmptyOrg(t *testing.T) {
+	s := testStore(t)
+	got, err := s.ListScansOrderedByTime(context.Background(), testUUID("empty-time-org"))
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	// Confirm it's an empty slice, not nil.
+	assert.NotNil(t, got)
+}
+
+func TestListScansOrderedByTime_SortedAscending(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	orgID := testUUID("time-sorted-org")
+
+	// Create three scans with timestamps in reverse order — the
+	// method must return them sorted oldest-first.
+	t3 := testScanResult(testUUID("time-scan-3"), "host-3", "quick")
+	t3.OrgID = orgID
+	t3.Metadata.Timestamp = time.Now().UTC().Add(-1 * time.Hour)
+	require.NoError(t, s.SaveScan(ctx, t3))
+
+	t1 := testScanResult(testUUID("time-scan-1"), "host-1", "quick")
+	t1.OrgID = orgID
+	t1.Metadata.Timestamp = time.Now().UTC().Add(-3 * time.Hour)
+	require.NoError(t, s.SaveScan(ctx, t1))
+
+	t2 := testScanResult(testUUID("time-scan-2"), "host-2", "quick")
+	t2.OrgID = orgID
+	t2.Metadata.Timestamp = time.Now().UTC().Add(-2 * time.Hour)
+	require.NoError(t, s.SaveScan(ctx, t2))
+
+	got, err := s.ListScansOrderedByTime(ctx, orgID)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, "host-1", got[0].Hostname, "oldest scan first")
+	assert.Equal(t, "host-2", got[1].Hostname)
+	assert.Equal(t, "host-3", got[2].Hostname, "newest scan last")
+}
+
+func TestListScansOrderedByTime_TenantIsolation(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	orgA := testUUID("time-tenant-a")
+	orgB := testUUID("time-tenant-b")
+
+	scanA := testScanResult(testUUID("time-tenant-scan-a"), "host-a", "quick")
+	scanA.OrgID = orgA
+	require.NoError(t, s.SaveScan(ctx, scanA))
+
+	scanB := testScanResult(testUUID("time-tenant-scan-b"), "host-b", "quick")
+	scanB.OrgID = orgB
+	require.NoError(t, s.SaveScan(ctx, scanB))
+
+	rowsA, err := s.ListScansOrderedByTime(ctx, orgA)
+	require.NoError(t, err)
+	require.Len(t, rowsA, 1)
+	assert.Equal(t, "host-a", rowsA[0].Hostname)
+
+	rowsB, err := s.ListScansOrderedByTime(ctx, orgB)
+	require.NoError(t, err)
+	require.Len(t, rowsB, 1)
+	assert.Equal(t, "host-b", rowsB[0].Hostname)
+}

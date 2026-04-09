@@ -19,6 +19,15 @@ type ScanStore interface {
 	// ListScans returns scan summaries matching the given filter.
 	ListScans(ctx context.Context, filter ScanFilter) ([]ScanSummary, error)
 
+	// ListScansOrderedByTime returns all scan summaries for the given
+	// org, sorted by timestamp ASCENDING (oldest first). This is the
+	// chronological ordering required by pkg/analytics.ComputeOrgTrend.
+	// The existing ListScans returns newest-first, which is the right
+	// default for dashboards but wrong for trend math.
+	// Returns an empty slice (not nil) when the org has no scans.
+	// Analytics Phase 2.
+	ListScansOrderedByTime(ctx context.Context, orgID string) ([]ScanSummary, error)
+
 	// DeleteScan removes a scan result by ID.
 	// If orgID is non-empty, the scan must belong to that org (tenant isolation).
 	DeleteScan(ctx context.Context, id, orgID string) error
@@ -222,6 +231,38 @@ type MachineHealthTiers struct {
 	Total  int `json:"total"` // = red + yellow + green, precomputed for the UI
 }
 
+// ReadinessSummary is the "PQC Readiness: N%" headline number for
+// the executive view. Analytics Phase 2.
+type ReadinessSummary struct {
+	Percent       float64 `json:"percent"` // rounded to 1 decimal
+	TotalFindings int     `json:"totalFindings"`
+	SafeFindings  int     `json:"safeFindings"`
+}
+
+// PolicyVerdictSummary is one built-in policy's aggregate verdict
+// across all latest scans in the org. The executive summary includes
+// one entry per built-in policy (NACSA-2030 and CNSA-2.0 in Phase 2).
+// Analytics Phase 2.
+type PolicyVerdictSummary struct {
+	PolicyName      string `json:"policyName"`      // "nacsa-2030" | "cnsa-2.0"
+	PolicyLabel     string `json:"policyLabel"`     // "NACSA-2030" | "CNSA-2.0"
+	Verdict         string `json:"verdict"`         // "PASS" | "WARN" | "FAIL"
+	ViolationCount  int    `json:"violationCount"`  // summed across all evaluated scans
+	FindingsChecked int    `json:"findingsChecked"` // summed across all evaluated scans
+}
+
+// ExecutiveSummary is the response body for GET /api/v1/executive.
+// Everything the upgraded Overview's executive block needs, in a
+// single round-trip. Analytics Phase 2.
+type ExecutiveSummary struct {
+	Readiness      ReadinessSummary       `json:"readiness"`
+	Trend          TrendSummary           `json:"trend"`
+	Projection     ProjectionSummary      `json:"projection"`
+	PolicyVerdicts []PolicyVerdictSummary `json:"policyVerdicts"`
+	TopBlockers    []PriorityRow          `json:"topBlockers"` // reuses Phase 1 type
+	MachineHealth  MachineHealthTiers     `json:"machineHealth"`
+}
+
 // ErrNotFound is returned when a requested resource does not exist.
 type ErrNotFound struct {
 	Resource string
@@ -243,13 +284,22 @@ func (e *ErrConflict) Error() string {
 }
 
 // Organization is a report-server mirror of an organization defined in
-// the license server. Only ID, Name, and timestamps are stored — contact
-// info and license details remain in the license server.
+// the license server. Only ID, Name, timestamps, and executive-summary
+// display preferences are stored — contact info and license details
+// remain in the license server.
+//
+// ExecutiveTargetPercent and ExecutiveDeadlineYear are display
+// preferences used by GET /api/v1/executive to compute the projected
+// completion status. Defaults are 80.0 and 2030 respectively. Each
+// org can override via direct SQL (Phase 2) or a future admin UI
+// (Phase 2.5). See docs/plans/2026-04-10-analytics-phase-2-design.md §6.
 type Organization struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID                     string    `json:"id"`
+	Name                   string    `json:"name"`
+	ExecutiveTargetPercent float64   `json:"executiveTargetPercent"`
+	ExecutiveDeadlineYear  int       `json:"executiveDeadlineYear"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 // User is a report-server org user. Distinct from licensestore.User by

@@ -69,6 +69,49 @@ func TestGetOrgNotFound(t *testing.T) {
 	assert.ErrorAs(t, err, &nf)
 }
 
+// TestGetOrg_DefaultsExecutiveConfig verifies that a freshly-created
+// organization returns the default executive_target_percent (80) and
+// executive_deadline_year (2030) — the DEFAULT clauses on migration
+// v9 should kick in without any explicit value being set.
+// Analytics Phase 2.
+func TestGetOrg_DefaultsExecutiveConfig(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	org := makeReportOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	got, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 80.0, got.ExecutiveTargetPercent, "default target percent should be 80")
+	assert.Equal(t, 2030, got.ExecutiveDeadlineYear, "default deadline year should be 2030")
+}
+
+// TestUpdateOrg_ExecutiveConfigRoundtrips verifies that SQL-level
+// updates to the executive_target_percent / executive_deadline_year
+// columns are visible through GetOrg. This is the "Phase 2 SQL
+// override" path operators use before Phase 2.5 adds an admin UI.
+func TestUpdateOrg_ExecutiveConfigRoundtrips(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	org := makeReportOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	// Update via direct SQL — this is the Phase 2 override path.
+	_, err := s.pool.Exec(ctx, `
+		UPDATE organizations
+		SET executive_target_percent = $1, executive_deadline_year = $2
+		WHERE id = $3
+	`, 95.0, 2035, org.ID)
+	require.NoError(t, err)
+
+	got, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 95.0, got.ExecutiveTargetPercent)
+	assert.Equal(t, 2035, got.ExecutiveDeadlineYear)
+}
+
 func TestListOrgs(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()

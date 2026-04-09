@@ -148,6 +148,18 @@ var migrations = []string{
 	//
 	// Only findings with a non-nil CryptoAsset are extracted — non-crypto
 	// findings stay in the blob and are irrelevant to the analytics views.
+	//
+	// At-rest encryption scope (/pensive:full-review item B3, 2026-04-09):
+	// When REPORT_SERVER_DATA_ENCRYPTION_KEY is set, the AES-256-GCM
+	// envelope covers ONLY scans.result_json — NOT this findings table.
+	// Columns like subject, issuer, file_path, and hostname are stored
+	// as plaintext so they can be used in SQL predicates for the three
+	// analytics queries. Operators who require end-to-end encryption of
+	// certificate subjects or file paths must either (a) disable the
+	// findings table by reverting migration v7, (b) wrap the projection
+	// with pgcrypto / storage-layer TDE, or (c) accept the reduced scope.
+	// See docs/DEPLOYMENT_GUIDE.md §at-rest-encryption for the full
+	// operator-facing explanation.
 	`CREATE TABLE IF NOT EXISTS findings (
 		id                  UUID PRIMARY KEY,
 		scan_id             UUID NOT NULL REFERENCES scans(id) ON DELETE CASCADE,

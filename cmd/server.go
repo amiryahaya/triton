@@ -201,16 +201,24 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// findings_extracted_at marker makes this idempotent across restarts.
 	// 30-minute ceiling prevents a runaway loop from holding resources
 	// indefinitely. Panics are recovered so a corrupt row can't crash
-	// the whole server. See docs/plans/2026-04-09-analytics-phase-1-design.md §5.
+	// the whole server.
+	//
+	// Context is derived from srv.Context() (cancelled in Shutdown),
+	// and the WaitGroup is drained by Shutdown before cmd/server.go's
+	// deferred db.Close() runs — without both, the backfill would
+	// outlive the store pool and spray "pool closed" errors.
+	// /pensive:full-review action items B2 (2026-04-09).
 	srv.BackfillInProgress().Store(true)
+	srv.BackfillWG().Add(1)
 	go func() {
+		defer srv.BackfillWG().Done()
 		defer srv.BackfillInProgress().Store(false)
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("backfill: PANIC recovered: %v", r)
 			}
 		}()
-		bfCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		bfCtx, cancel := context.WithTimeout(srv.Context(), 30*time.Minute)
 		defer cancel()
 		if err := db.BackfillFindings(bfCtx); err != nil {
 			log.Printf("backfill: %v", err)

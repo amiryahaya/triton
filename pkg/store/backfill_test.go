@@ -110,6 +110,53 @@ func TestBackfillFindings_ContextCancellationAllowsResume(t *testing.T) {
 	assert.Equal(t, 0, unmarked)
 }
 
+// TestBackfillFindings_CorruptBlobMarkedAndCounted guards the
+// operationally critical "mark anyway + increment failed counter"
+// path from /pensive:full-review action item T1 (2026-04-09). A
+// scan whose result_json cannot be unmarshalled into a ScanResult
+// must be skipped (no findings inserted), marked as processed (so
+// the backfill doesn't retry it forever), AND counted as a failure
+// via the backfillScansFailed metric so operators can see it in
+// /api/v1/metrics.
+func TestBackfillFindings_CorruptBlobMarkedAndCounted(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	// Insert a scan row directly with a non-JSON result_json payload.
+	// This bypasses SaveScan which would JSON-marshal a valid
+	// ScanResult. We use raw SQL to write garbage bytes so the
+	// backfill's json.Unmarshal step will fail.
+	corruptScanID := testUUID("bf-corrupt")
+	orgID := testUUID("bf-corrupt-org")
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO scans (id, hostname, timestamp, profile, total_findings,
+		                   safe, transitional, deprecated, unsafe, result_json, org_id)
+		VALUES ($1, $2, NOW(), $3, 0, 0, 0, 0, 0, $4::jsonb, $5)
+	`, corruptScanID, "host-corrupt", "quick", `"not a scan result"`, orgID)
+	require.NoError(t, err)
+
+	// Reset counters for a deterministic assertion on THIS run.
+	s.backfillScansTotal.Store(0)
+	s.backfillScansFailed.Store(0)
+
+	// Run backfill — must NOT return an error (corrupt rows are
+	// non-fatal) and must mark the scan anyway.
+	require.NoError(t, s.BackfillFindings(ctx))
+
+	// No findings inserted for the corrupt scan.
+	assert.Equal(t, 0, queryFindingsCount(t, s, corruptScanID))
+
+	// Scan marked so next run skips it (prevents retry loop).
+	assert.True(t, queryScanBackfilled(t, s, corruptScanID),
+		"corrupt scan must be marked to prevent retry loop")
+
+	// Failed counter incremented so operators see the failure in
+	// /api/v1/metrics.
+	assert.Equal(t, uint64(1), s.backfillScansFailed.Load(),
+		"corrupt scan must increment the failed counter, not the success counter")
+	assert.Equal(t, uint64(0), s.backfillScansTotal.Load())
+}
+
 func TestBackfillFindings_CountersIncrement(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("bf-count-org")

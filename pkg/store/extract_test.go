@@ -151,3 +151,41 @@ func TestExtractFindings_ModuleNamePreserved(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "certificate", got[0].Module)
 }
+
+// TestExtractFindings_DeterministicIDs guards the rebuildability
+// contract: extracting the same scan twice must produce identical
+// Finding IDs, so dropping+rebuilding the findings table leaves
+// external references (Phase 4 remediation tickets, UI bookmarks)
+// intact. Related: /pensive:full-review action item B4 (2026-04-09).
+func TestExtractFindings_DeterministicIDs(t *testing.T) {
+	scan := scanWith("scan-deterministic-1", "org-x", "host-y",
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
+	)
+	first := ExtractFindings(scan)
+	second := ExtractFindings(scan)
+	require.Len(t, first, 2)
+	require.Len(t, second, 2)
+	assert.Equal(t, first[0].ID, second[0].ID, "same (scan, index) must yield same ID")
+	assert.Equal(t, first[1].ID, second[1].ID)
+	assert.NotEqual(t, first[0].ID, first[1].ID, "different findings in the same scan must have different IDs")
+}
+
+// TestExtractFindings_IDsDifferAcrossScans verifies that two
+// different scans with findings at the same index get distinct IDs.
+// Without this, a rebuild could collapse all "finding at index 0"
+// rows into one.
+func TestExtractFindings_IDsDifferAcrossScans(t *testing.T) {
+	scanA := scanWith("scan-A", "org", "host",
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA"}),
+	)
+	scanB := scanWith("scan-B", "org", "host",
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA"}),
+	)
+	gotA := ExtractFindings(scanA)
+	gotB := ExtractFindings(scanB)
+	require.Len(t, gotA, 1)
+	require.Len(t, gotB, 1)
+	assert.NotEqual(t, gotA[0].ID, gotB[0].ID,
+		"different scan IDs must produce different finding IDs at the same index")
+}

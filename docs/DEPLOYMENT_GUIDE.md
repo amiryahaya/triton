@@ -227,6 +227,16 @@ triton server --db "$TRITON_DB_URL"
 
 **Existing plaintext rows:** the encryptor transparently reads both encrypted and plaintext rows during the transition window. Once all rows are encrypted you can flip a check to enforce encrypted-only reads, but that is not the default.
 
+**⚠️ Encryption scope (Analytics Phase 1 onward):** the envelope covers **only** `scans.result_json`. The denormalized `findings` read-model table introduced by Analytics Phase 1 (schema v7) stores columns such as `subject`, `issuer`, `file_path`, `hostname`, `algorithm`, and `not_after` as **plaintext** so they can be used in SQL predicates for the three new aggregation queries (`/api/v1/inventory`, `/api/v1/certificates/expiring`, `/api/v1/priority`). An operator who enabled at-rest encryption for compliance reasons should be aware that the most interesting fields of a scan are projected beside the encrypted blob in cleartext.
+
+If you require end-to-end encryption of these fields, the current options are:
+
+1. **Accept the reduced scope** — document internally that at-rest encryption covers payload archival but not the analytics projection. Most deployments will choose this.
+2. **Revert migration v7** — `DROP TABLE findings; ALTER TABLE scans DROP COLUMN findings_extracted_at;` disables the analytics views entirely. The rest of Triton continues to function against the encrypted scan blobs.
+3. **Wrap the projection at the storage layer** — use PostgreSQL TDE (Transparent Data Encryption via a plugin like `pgcrypto` with indexable encrypted columns) or filesystem-level encryption on the data volume. Outside Triton's own code path.
+
+Tracked under `/pensive:full-review` item B3 (2026-04-09). Phase 2+ will revisit this if an operator requires column-level encryption of the findings projection.
+
 ### 5d. Running the report server
 
 **Binary directly:**

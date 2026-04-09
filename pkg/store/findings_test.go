@@ -100,6 +100,43 @@ func TestSaveScanWithFindings_SkipsNonCryptoFindings(t *testing.T) {
 	assert.Equal(t, 1, queryFindingsCount(t, s, scan.ID))
 }
 
+// TestSaveScanWithFindings_EmptyOrgIDSkipsFindings guards against the
+// single-tenant regression from /pensive:full-review action item B1
+// (2026-04-09). In deployments with no Guard and no JWT,
+// TenantFromContext returns "" and handleSubmitScan stamps
+// scan.OrgID = "". The scan row must still save (the scans.org_id
+// column is nullable), but findings cannot be inserted because
+// findings.org_id is UUID NOT NULL and the empty string fails the
+// UUID cast. The fix skips findings insertion entirely for no-org
+// scans — analytics views have no data for single-tenant dev
+// deployments anyway, which is the intended scope.
+func TestSaveScanWithFindings_EmptyOrgIDSkipsFindings(t *testing.T) {
+	s := testStore(t)
+
+	scan := testScanResult(testUUID("swf-single-tenant"), "host-single", "quick")
+	scan.OrgID = "" // explicitly single-tenant
+	scan.Findings = []model.Finding{
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+	}
+
+	// MUST NOT ERROR — the whole point of this test is that
+	// single-tenant submits keep working post-Phase-1.
+	require.NoError(t, s.SaveScanWithFindings(context.Background(), scan, ExtractFindings(scan)))
+
+	// Scan row persisted (retrievable via GetScan with empty orgID).
+	retrieved, err := s.GetScan(context.Background(), scan.ID, "")
+	require.NoError(t, err)
+	assert.Equal(t, scan.ID, retrieved.ID)
+
+	// Findings rows deliberately skipped.
+	assert.Equal(t, 0, queryFindingsCount(t, s, scan.ID),
+		"empty OrgID must skip the findings insert entirely, not error")
+
+	// Scan still marked as backfilled so the background goroutine
+	// won't re-attempt and re-fail on this row.
+	assert.True(t, queryScanBackfilled(t, s, scan.ID))
+}
+
 func TestSaveScanWithFindings_OnConflictSkipsDuplicates(t *testing.T) {
 	s := testStore(t)
 	orgID := testUUID("swf-org-3")

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -8,12 +9,26 @@ import (
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
+// findingsNamespace is the fixed UUID namespace used to derive
+// deterministic Finding IDs via uuid.NewSHA1. Any fixed UUID works —
+// this value is arbitrary but MUST NOT CHANGE, or every previously-
+// generated finding ID will become unreachable by downstream systems
+// (remediation tickets in Phase 4, audit references, UI bookmarks).
+// If you need to rotate it, add a schema migration that re-stamps IDs.
+var findingsNamespace = uuid.MustParse("019d7400-0000-7000-a000-000000000001")
+
 // ExtractFindings walks a ScanResult and produces one Finding row per
 // model.Finding whose CryptoAsset is non-nil. Pure function — no DB
-// access. Used by both the submit path (SaveScanWithFindings) and the
-// backfill goroutine (BackfillFindings) so they produce identical rows.
-// See docs/plans/2026-04-09-analytics-phase-1-design.md §6 for the
-// design rationale.
+// access, no clock reads beyond CreatedAt. Used by both the submit
+// path (SaveScanWithFindings) and the backfill goroutine
+// (BackfillFindings) so they produce identical rows.
+//
+// Finding IDs are derived DETERMINISTICALLY from (scan ID, finding
+// index) via uuid.NewSHA1. This is critical for the read-model
+// rebuildability claim: dropping and regenerating the findings table
+// must yield stable IDs so downstream systems (Phase 4 remediation,
+// audit entries, UI bookmarks) survive a backfill re-run. See the
+// /pensive:full-review action plan item B4 (2026-04-09).
 //
 // Field mapping from model.Finding / model.ScanResult:
 //
@@ -38,7 +53,7 @@ func ExtractFindings(scan *model.ScanResult) []Finding {
 		}
 		ca := f.CryptoAsset
 		out = append(out, Finding{
-			ID:                uuid.Must(uuid.NewV7()).String(),
+			ID:                findingID(scan.ID, i),
 			ScanID:            scan.ID,
 			OrgID:             scan.OrgID,
 			Hostname:          scan.Metadata.Hostname,
@@ -57,4 +72,13 @@ func ExtractFindings(scan *model.ScanResult) []Finding {
 		})
 	}
 	return out
+}
+
+// findingID derives a deterministic UUIDv5 from (scanID, findingIndex).
+// Stable across extraction runs, so dropping+rebuilding the findings
+// table via the backfill goroutine yields the same IDs external
+// systems already know. Not exported — callers should always go
+// through ExtractFindings.
+func findingID(scanID string, findingIndex int) string {
+	return uuid.NewSHA1(findingsNamespace, []byte(scanID+"/"+strconv.Itoa(findingIndex))).String()
 }

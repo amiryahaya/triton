@@ -92,6 +92,23 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 
 	// (2) Bulk-insert the findings. Idempotent via ON CONFLICT so
 	// retries or re-runs of the backfill are safe.
+	//
+	// Single-tenant safety net: in deployments with no Guard and no
+	// JWT, handleSubmitScan stamps scan.OrgID = "" (via
+	// TenantFromContext returning the empty zero-value). The scan row
+	// itself is fine — the column is nullable and we pass *string —
+	// but every finding row has org_id UUID NOT NULL, so passing ""
+	// would fail the insert with `invalid input syntax for type
+	// uuid`, rolling back the scan too. Skip findings insertion for
+	// no-org scans; analytics views have no data for single-tenant
+	// dev deployments anyway, which is the intended scope.
+	// See /pensive:full-review action item B1 (2026-04-09).
+	if scan.OrgID == "" {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit tx: %w", err)
+		}
+		return nil
+	}
 	if err := insertFindingsInTx(ctx, tx, findings); err != nil {
 		return fmt.Errorf("insert findings: %w", err)
 	}

@@ -114,6 +114,24 @@ func (e *Engine) RegisterDefaultModules() {
 	e.RegisterModule(NewWebServerModule(e.config))
 	e.RegisterModule(NewVPNModule(e.config))
 	e.RegisterModule(NewContainerSignaturesModule(e.config))
+
+	// Fast Wins sprint: password hashing posture and
+	// miscellaneous auth material (Kerberos keytabs, GPG keys,
+	// Tor v3 onion keys, DNSSEC zone-signing keys, 802.1X
+	// supplicant configs, systemd encrypted credentials).
+	// certstore gains Windows Root store + Java cacerts
+	// support via internal extensions (no new module).
+	e.RegisterModule(NewPasswordHashModule(e.config))
+	e.RegisterModule(NewAuthMaterialModule(e.config))
+
+	// Enterprise sprint: multi-language dependency reachability
+	// (Python/Node/Java), service mesh workload identity certs
+	// (Istio/Linkerd/Consul Connect), XML DSig (SAML IdP/SP
+	// metadata), mail server crypto (Postfix/Sendmail/Exim/DKIM).
+	e.RegisterModule(NewDepsEcosystemsModule(e.config))
+	e.RegisterModule(NewServiceMeshModule(e.config))
+	e.RegisterModule(NewXMLDSigModule(e.config))
+	e.RegisterModule(NewMailServerModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

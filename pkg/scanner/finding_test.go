@@ -10,6 +10,7 @@ import (
 )
 
 func TestNewFinding(t *testing.T) {
+	t.Parallel()
 	asset := &model.CryptoAsset{Algorithm: "AES-256"}
 	source := model.FindingSource{Type: "file", Path: "/test"}
 
@@ -27,6 +28,7 @@ func TestNewFinding(t *testing.T) {
 }
 
 func TestNewFinding_UniqueIDs(t *testing.T) {
+	t.Parallel()
 	source := model.FindingSource{Type: "file"}
 	f1 := newFinding("test", 1, source, nil, 0.5)
 	f2 := newFinding("test", 1, source, nil, 0.5)
@@ -34,6 +36,7 @@ func TestNewFinding_UniqueIDs(t *testing.T) {
 }
 
 func TestCategoryConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, 1, CategoryRuntime)
 	assert.Equal(t, 2, CategoryBinary)
 	assert.Equal(t, 3, CategoryLibrary)
@@ -46,6 +49,7 @@ func TestCategoryConstants(t *testing.T) {
 }
 
 func TestConfidenceConstants(t *testing.T) {
+	t.Parallel()
 	assert.Greater(t, ConfidenceDefinitive, ConfidenceHigh)
 	assert.Greater(t, ConfidenceHigh, ConfidenceMedium)
 	assert.Greater(t, ConfidenceMedium, ConfidenceMediumLow)

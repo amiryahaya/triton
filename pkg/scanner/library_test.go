@@ -17,6 +17,7 @@ import (
 var _ Module = (*LibraryModule)(nil)
 
 func TestLibraryModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewLibraryModule(&config.Config{})
 	assert.Equal(t, "libraries", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -24,6 +25,7 @@ func TestLibraryModuleInterface(t *testing.T) {
 }
 
 func TestIsLibraryFile(t *testing.T) {
+	t.Parallel()
 	m := NewLibraryModule(&config.Config{})
 
 	// Should match crypto libraries
@@ -54,6 +56,7 @@ func TestIsLibraryFile(t *testing.T) {
 }
 
 func TestLibraryScanFindsLibraries(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create fake library files
@@ -89,6 +92,7 @@ func TestLibraryScanFindsLibraries(t *testing.T) {
 }
 
 func TestLibraryFindingShape(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	libFile := filepath.Join(tmpDir, "libcrypto.so.3")
@@ -118,6 +122,7 @@ func TestLibraryFindingShape(t *testing.T) {
 }
 
 func TestExtractVersionFromFilename(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		filename string
 		expected string
@@ -138,6 +143,7 @@ func TestExtractVersionFromFilename(t *testing.T) {
 }
 
 func TestLibraryVersionInFinding(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Versioned library filename
@@ -160,6 +166,7 @@ func TestLibraryVersionInFinding(t *testing.T) {
 }
 
 func TestLibraryVersionBasedClassification(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Old OpenSSL — should be DEPRECATED (version 1.0.2)
@@ -201,6 +208,7 @@ func TestLibraryVersionBasedClassification(t *testing.T) {
 }
 
 func TestLibraryScanEmptyDir(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	m := NewLibraryModule(&config.Config{})
@@ -219,6 +227,7 @@ func TestLibraryScanEmptyDir(t *testing.T) {
 }
 
 func TestLibraryScanContextCancellation(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "libcrypto.so"), []byte("fake"), 0644)
 
@@ -234,6 +243,7 @@ func TestLibraryScanContextCancellation(t *testing.T) {
 }
 
 func TestLibraryScanSubdirectories(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create library in a subdirectory

@@ -54,10 +54,14 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 22 modules:
-	// 19 historical + web_server (Sprint A1) + vpn (Sprint A3)
-	// + container_signatures (Sprint C1).
-	assert.Len(t, eng.modules, 22)
+	// Should register all 28 modules:
+	// 19 historical + web_server + vpn + container_signatures
+	// (previous sprint) + password_hash + auth_material (Fast
+	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
+	// + mail_server (Enterprise sprint). certstore Windows/Java
+	// cacerts + codesign git verify were added as extensions,
+	// not new modules.
+	assert.Len(t, eng.modules, 28)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -99,6 +103,17 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.True(t, names["web_server"])
 	assert.True(t, names["vpn"])
 	assert.True(t, names["container_signatures"])
+
+	// Fast Wins sprint — password hash posture + auth material.
+	assert.True(t, names["password_hash"])
+	assert.True(t, names["auth_material"])
+
+	// Enterprise sprint — multi-language deps, service mesh,
+	// XML DSig, mail server crypto.
+	assert.True(t, names["deps_ecosystems"])
+	assert.True(t, names["service_mesh"])
+	assert.True(t, names["xml_dsig"])
+	assert.True(t, names["mail_server"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

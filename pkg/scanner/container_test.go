@@ -14,6 +14,7 @@ import (
 )
 
 func TestContainerModule_Name(t *testing.T) {
+	t.Parallel()
 	m := NewContainerModule(nil)
 	assert.Equal(t, "containers", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -21,6 +22,7 @@ func TestContainerModule_Name(t *testing.T) {
 }
 
 func TestContainerModule_ScanDockerfile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	dockerfile := filepath.Join(dir, "Dockerfile")
@@ -57,6 +59,7 @@ RUN openssl genrsa -aes256 -out ca-key.pem 4096
 }
 
 func TestContainerModule_ScanDockerCompose(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	compose := filepath.Join(dir, "docker-compose.yml")
@@ -91,6 +94,7 @@ services:
 }
 
 func TestContainerModule_InsecureProtocol(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	dockerfile := filepath.Join(dir, "Dockerfile")
@@ -126,6 +130,7 @@ ENV SSL_PROTOCOLS=SSLv3
 }
 
 func TestContainerModule_NoMatchingFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create a non-container file
@@ -150,6 +155,7 @@ func TestContainerModule_NoMatchingFiles(t *testing.T) {
 }
 
 func TestIsContainerFile(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path     string
 		expected bool
@@ -173,6 +179,7 @@ func TestIsContainerFile(t *testing.T) {
 }
 
 func TestExtractAlgorithm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -194,6 +201,7 @@ func TestExtractAlgorithm(t *testing.T) {
 }
 
 func TestContainerModule_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	dockerfile := filepath.Join(dir, "Dockerfile")

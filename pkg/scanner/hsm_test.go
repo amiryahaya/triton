@@ -16,21 +16,25 @@ import (
 var _ Module = (*HSMModule)(nil)
 
 func TestHSMModule_Name(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	assert.Equal(t, "hsm", m.Name())
 }
 
 func TestHSMModule_Category(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	assert.Equal(t, model.CategoryActiveRuntime, m.Category())
 }
 
 func TestHSMModule_ScanTargetType(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	assert.Equal(t, model.TargetHSM, m.ScanTargetType())
 }
 
 func TestHSMModule_ParseListSlots(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	output := `Available slots:
@@ -61,6 +65,7 @@ Slot 1 (0x1): SoftHSM slot ID 0x1
 }
 
 func TestHSMModule_ParseListObjects_RSA(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	output := `Private Key Object; RSA
@@ -89,6 +94,7 @@ Public Key Object; RSA 2048 bits
 }
 
 func TestHSMModule_ParseListObjects_EC(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	output := `Private Key Object; EC
@@ -113,6 +119,7 @@ Public Key Object; EC 256 bits
 }
 
 func TestHSMModule_ParseListObjects_AES(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	output := `Secret Key Object; AES
@@ -132,6 +139,7 @@ func TestHSMModule_ParseListObjects_AES(t *testing.T) {
 }
 
 func TestHSMModule_ParseListObjects_Cert(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	output := `Certificate Object; type = X.509 cert
@@ -150,6 +158,7 @@ func TestHSMModule_ParseListObjects_Cert(t *testing.T) {
 }
 
 func TestHSMModule_ParseListMechanisms(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	output := `Supported mechanisms:
@@ -178,6 +187,7 @@ func TestHSMModule_ParseListMechanisms(t *testing.T) {
 }
 
 func TestHSMModule_NoPkcs11Tool(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("exec: pkcs11-tool: not found")
@@ -198,6 +208,7 @@ func TestHSMModule_NoPkcs11Tool(t *testing.T) {
 }
 
 func TestHSMModule_NoModulesFound(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("not found")
@@ -218,6 +229,7 @@ func TestHSMModule_NoModulesFound(t *testing.T) {
 }
 
 func TestHSMModule_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte(""), nil
@@ -237,6 +249,7 @@ func TestHSMModule_ContextCancellation(t *testing.T) {
 }
 
 func TestHSMModule_FindingClassification(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	// Create a mock that returns RSA-2048 key
@@ -281,6 +294,7 @@ func TestHSMModule_FindingClassification(t *testing.T) {
 }
 
 func TestHSMModule_MechanismClassification(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -323,6 +337,7 @@ func TestHSMModule_MechanismClassification(t *testing.T) {
 }
 
 func TestHSMModule_ExplicitModule(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 
 	var cmdsRun []string
@@ -342,24 +357,28 @@ func TestHSMModule_ExplicitModule(t *testing.T) {
 }
 
 func TestHSMModule_ParseListSlotsEmpty(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	slots := m.parseListSlots("")
 	assert.Empty(t, slots)
 }
 
 func TestHSMModule_ParseListObjectsEmpty(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	objects := m.parseListObjects("")
 	assert.Empty(t, objects)
 }
 
 func TestHSMModule_ParseListMechanismsEmpty(t *testing.T) {
+	t.Parallel()
 	m := NewHSMModule(&config.Config{})
 	mechs := m.parseListMechanisms("")
 	assert.Empty(t, mechs)
 }
 
 func TestNormalizeHSMAlgorithm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string

@@ -35,7 +35,7 @@ func TestCertStoreModule_ParsePEMCerts_RSA(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), pemData, findings)
+	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -57,7 +57,7 @@ func TestCertStoreModule_ParsePEMCerts_ECDSA(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), pemData, findings)
+	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -77,7 +77,7 @@ func TestCertStoreModule_ParsePEMCerts_Ed25519(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), pemData, findings)
+	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -99,7 +99,7 @@ func TestCertStoreModule_ParsePEMCerts_Multiple(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), combined, findings)
+	err := m.parsePEMCerts(context.Background(), combined, "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -115,7 +115,7 @@ func TestCertStoreModule_ParsePEMCerts_Empty(t *testing.T) {
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 50)
 
-	err := m.parsePEMCerts(context.Background(), []byte("not a pem"), findings)
+	err := m.parsePEMCerts(context.Background(), []byte("not a pem"), "test", "OS certificate store", findings)
 	require.NoError(t, err)
 	close(findings)
 
@@ -135,7 +135,7 @@ func TestCertStoreModule_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	findings := make(chan *model.Finding, 50)
-	err := m.parsePEMCerts(ctx, pemData, findings)
+	err := m.parsePEMCerts(ctx, pemData, "test", "OS certificate store", findings)
 	close(findings)
 
 	assert.ErrorIs(t, err, context.Canceled)
@@ -169,11 +169,20 @@ func TestCertKeyInfo(t *testing.T) {
 func TestCertStoreModule_Scan_Integration(t *testing.T) {
 	// Integration test: runs the real OS cert store scan.
 	// Non-fatal if OS store is inaccessible (CI, sandboxed env).
+	//
+	// Bound the overall scan at 90s via context deadline. On
+	// CI runners with multiple JDKs, the Java cacerts discovery
+	// may invoke keytool several times; without this bound a
+	// single wedged keytool subprocess would stall the entire
+	// pkg/scanner test run against the 10-minute Go test
+	// timeout (observed in PR #12 first CI run).
 	m := NewCertStoreModule(&config.Config{})
 	findings := make(chan *model.Finding, 500)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}
 
-	err := m.Scan(context.Background(), target, findings)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	err := m.Scan(ctx, target, findings)
 	close(findings)
 
 	// Scan should not error (returns nil even if store inaccessible)
@@ -188,15 +197,20 @@ func TestCertStoreModule_Scan_Integration(t *testing.T) {
 		t.Skip("OS certificate store not accessible or empty — skipping integration assertions")
 	}
 
-	// Verify all findings have correct module and category
+	// Verify all findings have correct module and category.
+	// Source.Path may now be either a synthetic "os:certstore:<os>"
+	// label (for OS native stores) OR a real filesystem path to a
+	// Java cacerts keystore we auto-discovered — both valid.
+	// Function likewise can be "OS certificate store" or
+	// "Java cacerts keystore".
 	for _, f := range results {
 		assert.Equal(t, "certstore", f.Module)
 		assert.Equal(t, 2, f.Category)
-		assert.Equal(t, "os:certstore", f.Source.Path)
+		assert.NotEmpty(t, f.Source.Path, "source path should be set")
 		require.NotNil(t, f.CryptoAsset)
 		assert.NotEmpty(t, f.CryptoAsset.Algorithm)
 		assert.NotEmpty(t, f.CryptoAsset.PQCStatus)
-		assert.Equal(t, "OS certificate store", f.CryptoAsset.Function)
+		assert.NotEmpty(t, f.CryptoAsset.Function)
 	}
 }
 

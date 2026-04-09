@@ -7,6 +7,7 @@ import (
 )
 
 func TestLiteralPatternMatch(t *testing.T) {
+	t.Parallel()
 	p := lit("hashlib.sha256", "SHA-256", "Hash function", "api-call")
 
 	assert.True(t, p.Match("import hashlib; h = hashlib.sha256(data)"))
@@ -17,6 +18,7 @@ func TestLiteralPatternMatch(t *testing.T) {
 }
 
 func TestRegexPatternMatch(t *testing.T) {
+	t.Parallel()
 	p := rx(`(?i)AES[-_]?256[-_]?GCM`, "AES-256-GCM", "Symmetric encryption", "string")
 
 	assert.True(t, p.Match("using AES-256-GCM cipher"))
@@ -27,6 +29,7 @@ func TestRegexPatternMatch(t *testing.T) {
 }
 
 func TestPatternHelperFields(t *testing.T) {
+	t.Parallel()
 	l := lit("test", "ALGO", "Function", "import")
 	assert.Equal(t, "test", l.Literal)
 	assert.Equal(t, "ALGO", l.Algorithm)

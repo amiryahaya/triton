@@ -51,7 +51,21 @@ var profiles = map[string]ScanProfile{
 		// profile because TLS posture and VPN crypto are
 		// expected coverage for any compliance-driven scan,
 		// not deep-dive territory.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn"},
+		//
+		// Fast Wins sprint — password_hash joins standard
+		// because /etc/shadow and pg_hba.conf are the #1
+		// compliance-audit targets after certificates. Auth
+		// material stays in comprehensive only (Kerberos /
+		// GPG / Tor / DNSSEC are niche per host).
+		//
+		// Enterprise sprint — deps_ecosystems joins standard
+		// because multi-language dep reachability is the
+		// defining enterprise pitch; mail_server joins because
+		// email infrastructure is on every Linux host and nobody
+		// else scans it. service_mesh and xml_dsig stay in
+		// comprehensive only — they're niche per host and cheap
+		// to skip when not present.
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn", "password_hash", "deps_ecosystems", "mail_server"},
 		Depth:   10,
 		Workers: 8,
 	},
@@ -63,7 +77,11 @@ var profiles = map[string]ScanProfile{
 		// comprehensive profile. Codesign already runs here
 		// and now picks up Authenticode (.exe/.dll/.msi) and
 		// JAR (.jar/.war/.ear) artifacts via the C2 extension.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures"},
+		//
+		// Fast Wins sprint — password_hash + auth_material
+		// cover every remaining canonical auth-material surface
+		// on Linux/BSD hosts.
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},

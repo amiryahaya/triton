@@ -8,9 +8,9 @@ An enterprise-grade, cross-platform CLI + server tool for generating Software Bi
 
 ## Features
 
-- **19 scanner modules across 9 CBOM categories** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, configs, network services, protocol probing, containers, cert stores, databases, HSM, LDAP, code signing, dependency reachability
+- **28 scanner modules across 9 CBOM categories + enterprise infrastructure** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, configs, network services, protocol probing, containers, cert stores (incl. Windows Root store + Java cacerts), databases, HSM, LDAP, code signing (incl. Windows Authenticode + JAR + git tags), dependency reachability (Go + Python + Node + Java), web server TLS (nginx/Apache/haproxy/Caddy), VPN (IPsec/WireGuard/OpenVPN), container supply chain (cosign/Notary/K8s SA tokens), service mesh mTLS (Istio/Linkerd/Consul), password hashing posture (/etc/shadow/PAM/pg_hba), auth material (Kerberos keytabs/GPG/Tor/DNSSEC/802.1X), XML DSig/SAML, mail server crypto (Postfix/Sendmail/DKIM)
 - **Static + active scanning** — passive file/code analysis plus runtime process inspection and active TLS/network probing
-- **Dependency crypto reachability** — Go module import graph analysis classifying crypto as direct, transitive, or unreachable
+- **Multi-language dependency reachability** — Go, Python, Node.js, and Java crypto library inventory from lockfiles/manifests; Go additionally gets full import graph classification (direct/transitive/unreachable)
 - **PQC algorithm detection** — ML-KEM, ML-DSA, SLH-DSA OID recognition in X.509 certificates, including hybrid/composite certs
 - **PQC classification** — every cryptographic asset rated SAFE / TRANSITIONAL / DEPRECATED / UNSAFE
 - **NACSA PQC framework** — Malaysian compliance labels (Patuh / Dalam Peralihan / Tidak Patuh / Perlu Tindakan Segera)
@@ -85,7 +85,9 @@ make build
 
 ## Scanning Categories
 
-Triton covers all 9 CBOM categories with 19 scanner modules:
+Triton covers all 9 CBOM categories plus enterprise infrastructure with **28 scanner modules**:
+
+### CBOM Core (19 modules)
 
 | # | Category | Type | Module(s) | Description |
 |---|----------|------|-----------|-------------|
@@ -93,7 +95,7 @@ Triton covers all 9 CBOM categories with 19 scanner modules:
 | 2 | Binaries on disk | Passive/File | `binary` | Executables with crypto patterns |
 | 3 | Cryptographic libraries | Passive/File | `library` | libcrypto, libssl, mbedtls, etc. |
 | 4 | Kernel modules | Passive/File | `kernel` | Crypto in `.ko` files (Linux) |
-| 5 | Certificates & keys | Passive/File | `certificates`, `keys`, `certstore` | PEM/DER/PKCS certs, private keys, OS cert stores |
+| 5 | Certificates & keys | Passive/File | `certificates`, `keys`, `certstore` | PEM/DER/PKCS certs, private keys, SSH host keys, OS cert stores (Linux / macOS / **Windows Root store** / **Java cacerts**) |
 | 6 | Executable scripts | Passive/Code | `scripts` | Crypto calls in `.py`, `.sh`, `.rb`, etc. |
 | 7 | Web applications | Passive/Code | `webapp` | Crypto patterns in `.php`, `.js`, `.go`, `.java` |
 | 8 | Configuration files | Passive/File | `configs` | sshd_config, crypto-policies, java.security |
@@ -102,18 +104,34 @@ Triton covers all 9 CBOM categories with 19 scanner modules:
 | — | Packages | Passive/System | `packages` | OS package manager crypto inventory |
 | — | Containers | Passive/File | `container` | Dockerfile, compose, Kubernetes config scanning |
 | — | Databases | Passive/File | `database` | Database crypto configuration scanning |
-| — | HSM/PKCS#11 | Passive/File | `hsm` | Hardware security module detection |
+| — | HSM/PKCS#11 | Active | `hsm` | Hardware security module detection |
 | — | LDAP | Active/Network | `ldap` | LDAP/AD crypto configuration scanning |
-| — | Code signing | Passive/File | `codesign` | Code signing certificate detection |
-| — | Dependencies | Passive/Code | `deps` | Go module crypto reachability analysis |
+| — | Code signing | Passive/File | `codesign` | macOS codesign, Linux RPM/deb, **Windows Authenticode** (osslsigncode), **JAR/WAR/EAR** (jarsigner), **git tag signatures** |
+| — | Go dependencies | Passive/Code | `deps` | Go module import graph analysis (direct/transitive/unreachable classification) |
+
+### Enterprise Infrastructure (9 modules)
+
+| Module | Type | Description |
+|--------|------|-------------|
+| `web_server` | Passive/File | **nginx, Apache, haproxy, Caddy** TLS configs — `ssl_protocols`, `ssl_ciphers`, ECDH curves, HSTS |
+| `vpn` | Passive/File | **strongSwan IPsec, WireGuard, OpenVPN** — IKE proposals, DH groups, PFS, cipher lists, TLS min version, `tls-groups` ECDH curves |
+| `container_signatures` | Passive/File | **cosign / Sigstore** keys + metadata, **Docker Notary** v1 trust store, **Kubernetes service account JWTs** (header inspection, payload never serialized), **K8s encryption-at-rest provider config** (with identity-first PLAINTEXT warning) |
+| `service_mesh` | Passive/File | **Istio, Linkerd, Consul Connect** workload identity certs — vendor-tagged so reports aggregate per mesh |
+| `password_hash` | Passive/File | **/etc/shadow** per-user hash algorithm (MD5-crypt / SHA-256 / SHA-512 / bcrypt / yescrypt / Argon2 / DES-crypt), **PAM** stack policy, **pg_hba.conf** PostgreSQL auth methods |
+| `auth_material` | Passive/File | **Kerberos keytabs** (RFC 3961 enctype decoder, detects legacy DES / RC4), **GPG keyrings** (RFC 4880 pubkey algos), **802.1X** wpa_supplicant / NetworkManager, **Tor v3** hidden service Ed25519 keys, **DNSSEC** BIND zone-signing keys, **systemd** encrypted credentials |
+| `deps_ecosystems` | Passive/File | **Python** (requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock), **Node** (package.json, package-lock.json, yarn.lock), **Java** (pom.xml, build.gradle, build.gradle.kts, gradle.lockfile) crypto library inventory |
+| `xml_dsig` | Passive/File | **SAML IdP/SP metadata** and signed XML — extracts `<SignatureMethod>` + `<DigestMethod>` algorithm URIs from the xmldsig-core namespace |
+| `mail_server` | Passive/File | **Postfix** (main.cf smtpd_tls_* with multi-line continuations), **Sendmail**, **Exim**, **OpenDKIM** KeyTable + SignatureAlgorithm, **DKIM** private key file presence |
+
+> **Security note:** sensitive key material is NEVER serialized into findings. WireGuard PrivateKey, K8s SA token bodies, /etc/shadow hash values, DKIM key bytes, and Kerberos keyblock contents are all redacted at the parser layer — only metadata (algorithm, principal name, file path, owner) reaches the report.
 
 ## Scan Profiles
 
 | Profile | Modules | Depth | Workers | Use Case |
 |---------|---------|-------|---------|----------|
 | `quick` | certificates, keys, packages (3 modules) | 3 | 4 | Fast check of critical crypto assets |
-| `standard` | + libraries, binaries, scripts, webapp, configs, containers, certstore, database, deps (12 modules) | 10 | 8 | Balanced system assessment |
-| `comprehensive` | All 19 modules (+ kernel, processes, network, protocol, hsm, ldap, codesign) | Unlimited | 16 | Full audit including network probing |
+| `standard` | certificates, keys, packages, libraries, binaries, scripts, webapp, configs, containers, certstore, database, deps, web_server, vpn, password_hash, deps_ecosystems, mail_server (17 modules) | 10 | 8 | Balanced system + infrastructure + multi-language dependency assessment |
+| `comprehensive` | All 28 modules (+ kernel, processes, network, protocol, hsm, ldap, codesign, container_signatures, auth_material, service_mesh, xml_dsig) | Unlimited | 16 | Full audit including network probing, supply chain, service mesh, SAML, Kerberos, etc. |
 
 ## Output Formats
 
@@ -189,7 +207,7 @@ Triton includes two built-in compliance policies. Without `--policy`, Triton sca
 │  └─ triton license show/verify                                   │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │  Scanner Engine (concurrent, semaphore-based) — 19 modules │  │
+│  │  Scanner Engine (concurrent, semaphore-based) — 28 modules │  │
 │  │                                                            │  │
 │  │  Passive/File       Passive/Code  Active       Specialized │  │
 │  │  ├─ certificates    ├─ scripts    ├─ process   ├─ database │  │
@@ -231,7 +249,7 @@ triton/
 │   ├── license/            # Ed25519 licence system (token, guard, tier, keygen)
 │   └── version/            # Version (set via ldflags at build time)
 ├── pkg/
-│   ├── scanner/            # Engine + 19 scanner modules
+│   ├── scanner/            # Engine + 28 scanner modules
 │   ├── crypto/             # PQC registry, OID detection, NACSA, CNSA 2.0, CAMM
 │   ├── model/              # Data model (ScanResult, System, Finding, CryptoAsset)
 │   ├── report/             # Excel, CycloneDX 1.7 CBOM, HTML, SARIF generators
@@ -334,6 +352,34 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 - [x] Centralized license server with org-based seat pool management
 - [x] Online validation with 7-day offline fallback grace period
 - [x] Admin web UI (dashboard, org/license/activation management, audit log)
+
+### v3.1 Coverage + Supply Chain (Released)
+
+- [x] **Web server TLS configs** — nginx, Apache, haproxy, Caddy `ssl_protocols`, `ssl_ciphers`, ECDH curves, HSTS
+- [x] **VPN scanner** — strongSwan IPsec, WireGuard, OpenVPN cipher/protocol/PFS inventory (incl. OpenVPN `tls-groups` ECDH curve classification)
+- [x] **Container supply chain** — cosign/Sigstore keys + TUF root, Docker Notary v1 trust store, Kubernetes service account JWT header inspection, K8s encryption-at-rest provider walker with identity-first PLAINTEXT warning
+- [x] **Authenticode** — cross-platform PE (.exe/.dll/.msi/.sys/.cab) signature verification via `osslsigncode`
+- [x] **JAR signing** — .jar/.war/.ear signature verification via `jarsigner`
+- [x] **SSH server host keys** — `/etc/ssh/ssh_host_*_key` matcher extension
+
+### v3.2 Fast Wins + Enterprise Coverage (This Release)
+
+- [x] **Windows Root cert store** — via PowerShell `Get-ChildItem Cert:\LocalMachine\Root` with bounded subprocess stdout
+- [x] **Java cacerts keystore** — auto-discovery across JAVA_HOME/JDK_HOME/OS-specific roots + `keytool -list -rfc`
+- [x] **Password hash posture** — /etc/shadow per-user algorithm detection, PAM stack policy, pg_hba.conf PostgreSQL auth methods
+- [x] **Kerberos keytabs** — binary parser (RFC 3961 enctypes; detects legacy DES/RC4-arcfour)
+- [x] **GPG keyrings** — `gpg --list-keys --with-colons` parser covering RFC 4880 pubkey algorithms
+- [x] **802.1X / Wi-Fi auth** — wpa_supplicant.conf + NetworkManager .nmconnection (EAP-TLS/TTLS/PEAP classification)
+- [x] **Tor v3 hidden service keys** — Ed25519 signing key detection
+- [x] **DNSSEC zone-signing keys** — BIND `K*.private` filename → algorithm mapping
+- [x] **systemd encrypted credentials** — `LoadCredentialEncrypted=` / `SetCredentialEncrypted=` detection
+- [x] **Git tag + commit signatures** — `git tag -v` GPG/SSH output parser
+- [x] **Multi-language dep reachability** — Python (requirements.txt, pyproject.toml, Pipfile.lock, poetry.lock), Node (package.json, package-lock.json, yarn.lock), Java (pom.xml with `<dependencyManagement>` stripping, build.gradle, build.gradle.kts)
+- [x] **Service mesh mTLS** — Istio, Linkerd, Consul Connect workload identity cert detection
+- [x] **XML DSig / SAML** — xmldsig-core SignatureMethod + DigestMethod algorithm extraction from SAML IdP/SP metadata
+- [x] **Mail server crypto** — Postfix (multi-line continuations supported), Sendmail, Exim TLS configs + OpenDKIM KeyTable + DKIM private key files
+- [x] **Memory-safe subprocess handling** — bounded stdout (32 MB Java cacerts, 16 MB Windows Root store) via `io.LimitReader`
+- [x] **Adversarial-input hardening** — keytab parser uint32 arithmetic with bounds checks; all regex non-backtracking (Go RE2)
 - [x] `triton license activate/deactivate` CLI commands
 - [x] SHA-3-256 machine fingerprinting (upgraded from SHA-256)
 - [x] PostgreSQL-backed license store with serializable seat enforcement
@@ -349,7 +395,7 @@ Triton uses a 3-tier licence system. Without a licence key, Triton runs in **fre
 |---------|------|-----|------------|
 | Profile: quick | Yes | Yes | Yes |
 | Profile: standard/comprehensive | — | Yes | Yes |
-| Scanner modules | 3 | All 19 | All 19 |
+| Scanner modules | 3 | All 28 | All 28 |
 | Format: JSON | Yes | Yes | Yes |
 | Format: CDX, HTML, XLSX | — | Yes | Yes |
 | Format: SARIF | — | — | Yes |

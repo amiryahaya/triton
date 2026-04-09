@@ -17,6 +17,7 @@ import (
 var _ Module = (*ScriptModule)(nil)
 
 func TestScriptModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewScriptModule(&config.Config{})
 	assert.Equal(t, "scripts", m.Name())
 	assert.Equal(t, model.CategoryPassiveCode, m.Category())
@@ -24,6 +25,7 @@ func TestScriptModuleInterface(t *testing.T) {
 }
 
 func TestIsScriptFile(t *testing.T) {
+	t.Parallel()
 	m := NewScriptModule(&config.Config{})
 
 	// Should match script files
@@ -48,6 +50,7 @@ func TestIsScriptFile(t *testing.T) {
 }
 
 func TestScriptScanPythonCrypto(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/usr/bin/env python3
@@ -87,6 +90,7 @@ key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 }
 
 func TestScriptScanShellCrypto(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/bin/bash
@@ -114,6 +118,7 @@ openssl dgst -sha256 -sign key.pem -out signature.bin data.txt
 }
 
 func TestScriptScanPerlCrypto(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	perlContent := `#!/usr/bin/perl
@@ -149,6 +154,7 @@ my $rsa = Crypt::OpenSSL::RSA->generate_key(2048);
 }
 
 func TestScriptScanRubyCrypto(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `require 'openssl'
@@ -185,6 +191,7 @@ hmac = OpenSSL::HMAC.hexdigest("SHA256", key, data)
 }
 
 func TestScriptScanPowerShell(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `# PowerShell crypto script
@@ -220,6 +227,7 @@ $sha = [System.Security.Cryptography.SHA256CryptoServiceProvider]::new()
 }
 
 func TestScriptScanBatch(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `@echo off
@@ -248,6 +256,7 @@ cipher /e /s:C:\Secure
 }
 
 func TestScriptScanPythonKDF(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/usr/bin/env python3
@@ -288,6 +297,7 @@ ctx = ssl.create_default_context()
 }
 
 func TestScriptScanNoCrypto(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/bin/bash
@@ -315,6 +325,7 @@ date +%Y-%m-%d
 }
 
 func TestScriptScanDeduplication(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/bin/bash
@@ -346,6 +357,7 @@ openssl enc -aes-256-cbc -in file3.txt -out enc3.txt
 }
 
 func TestScriptFindingHasPQCStatus(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/bin/bash
@@ -373,6 +385,7 @@ openssl enc -aes-256-cbc -in plain.txt -out enc.txt
 }
 
 func TestScriptScanEmptyDir(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	m := NewScriptModule(&config.Config{})
@@ -391,6 +404,7 @@ func TestScriptScanEmptyDir(t *testing.T) {
 }
 
 func TestScriptScanContextCancellation(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "test.py"), []byte("import hashlib"), 0644)
 
@@ -406,6 +420,7 @@ func TestScriptScanContextCancellation(t *testing.T) {
 }
 
 func TestScriptDetectionMethodPopulated(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#!/usr/bin/env python3

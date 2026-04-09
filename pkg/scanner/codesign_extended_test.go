@@ -14,6 +14,7 @@ import (
 // --- isCodeSignCandidate (extended) ---
 
 func TestIsCodeSignCandidate_Authenticode(t *testing.T) {
+	t.Parallel()
 	// PE artifacts should be candidates on every platform —
 	// osslsigncode runs cross-platform.
 	for _, ext := range []string{".exe", ".dll", ".msi", ".sys", ".cab"} {
@@ -22,6 +23,7 @@ func TestIsCodeSignCandidate_Authenticode(t *testing.T) {
 }
 
 func TestIsCodeSignCandidate_JAR(t *testing.T) {
+	t.Parallel()
 	for _, ext := range []string{".jar", ".war", ".ear"} {
 		assert.True(t, isCodeSignCandidate("/path/to/file"+ext), "%s should be candidate", ext)
 	}
@@ -59,6 +61,7 @@ Failed
 `
 
 func TestParseAuthenticode_Signed(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte(osslsigncodeSignedOutput), nil
 	})
@@ -83,6 +86,7 @@ func TestParseAuthenticode_Signed(t *testing.T) {
 }
 
 func TestParseAuthenticode_Unsigned(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte(osslsigncodeUnsignedOutput), errors.New("exit status 1")
 	})
@@ -125,6 +129,7 @@ jar is unsigned.
 `
 
 func TestParseJARSign_Signed(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte(jarsignerVerifiedOutput), nil
 	})
@@ -149,6 +154,7 @@ func TestParseJARSign_Signed(t *testing.T) {
 }
 
 func TestParseJARSign_Unsigned(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte(jarsignerUnsignedOutput), nil
 	})

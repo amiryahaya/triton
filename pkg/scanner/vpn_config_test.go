@@ -14,6 +14,7 @@ import (
 var _ Module = (*VPNModule)(nil)
 
 func TestVPNModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewVPNModule(&config.Config{})
 	assert.Equal(t, "vpn", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -23,6 +24,7 @@ func TestVPNModule_Interface(t *testing.T) {
 // --- Matcher ---
 
 func TestIsVPNConfigFile(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/etc/ipsec.conf":                       true,
 		"/etc/strongswan/ipsec.conf":            true,
@@ -69,6 +71,7 @@ conn legacy
 `
 
 func TestParseIPsec_Strong(t *testing.T) {
+	t.Parallel()
 	m := NewVPNModule(&config.Config{})
 	findings := m.parseIPsec("/etc/ipsec.conf", []byte(ipsecStrong))
 	require.NotEmpty(t, findings)
@@ -97,6 +100,7 @@ func TestParseIPsec_Strong(t *testing.T) {
 }
 
 func TestParseIPsec_Weak(t *testing.T) {
+	t.Parallel()
 	m := NewVPNModule(&config.Config{})
 	findings := m.parseIPsec("/etc/ipsec.conf", []byte(ipsecWeak))
 	require.NotEmpty(t, findings)
@@ -135,6 +139,7 @@ PersistentKeepalive = 25
 `
 
 func TestParseWireGuard(t *testing.T) {
+	t.Parallel()
 	m := NewVPNModule(&config.Config{})
 	findings := m.parseWireGuard("/etc/wireguard/wg0.conf", []byte(wireguardConfig))
 	require.NotEmpty(t, findings)
@@ -201,6 +206,7 @@ tls-version-min 1.0
 `
 
 func TestParseOpenVPN_Strong(t *testing.T) {
+	t.Parallel()
 	m := NewVPNModule(&config.Config{})
 	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(openvpnStrong))
 	require.NotEmpty(t, findings)
@@ -227,6 +233,7 @@ func TestParseOpenVPN_Strong(t *testing.T) {
 // so the vpnAlgoTokenMap entries for secp*/prime256v1 were dead
 // code and OpenVPN ECDH curve names produced zero findings.
 func TestParseOpenVPN_TLSGroups(t *testing.T) {
+	t.Parallel()
 	const cfg = `
 client
 remote vpn.example.com 1194
@@ -263,6 +270,7 @@ tls-groups secp384r1:X25519:prime256v1
 // as a PFS-disabled finding (the B3 defensive refactor turned
 // this path into an appendNonNil call; ensure it still fires).
 func TestParseIPsec_PFSDisabled(t *testing.T) {
+	t.Parallel()
 	const cfg = `
 conn weak
     keyexchange=ikev2
@@ -282,6 +290,7 @@ conn weak
 }
 
 func TestParseOpenVPN_Weak(t *testing.T) {
+	t.Parallel()
 	m := NewVPNModule(&config.Config{})
 	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(openvpnWeak))
 	require.NotEmpty(t, findings)

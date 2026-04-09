@@ -13,6 +13,7 @@ import (
 )
 
 func TestCertPublicKeyInfo_RSA(t *testing.T) {
+	t.Parallel()
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	cert := &x509.Certificate{PublicKey: &key.PublicKey}
 	algo, size := certPublicKeyInfo(cert)
@@ -21,6 +22,7 @@ func TestCertPublicKeyInfo_RSA(t *testing.T) {
 }
 
 func TestCertPublicKeyInfo_ECDSA_P256(t *testing.T) {
+	t.Parallel()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	cert := &x509.Certificate{PublicKey: &key.PublicKey}
 	algo, size := certPublicKeyInfo(cert)
@@ -29,6 +31,7 @@ func TestCertPublicKeyInfo_ECDSA_P256(t *testing.T) {
 }
 
 func TestCertPublicKeyInfo_ECDSA_P384(t *testing.T) {
+	t.Parallel()
 	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	cert := &x509.Certificate{PublicKey: &key.PublicKey}
 	algo, size := certPublicKeyInfo(cert)
@@ -37,6 +40,7 @@ func TestCertPublicKeyInfo_ECDSA_P384(t *testing.T) {
 }
 
 func TestCertPublicKeyInfo_Ed25519(t *testing.T) {
+	t.Parallel()
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	cert := &x509.Certificate{PublicKey: pub}
 	algo, size := certPublicKeyInfo(cert)
@@ -45,6 +49,7 @@ func TestCertPublicKeyInfo_Ed25519(t *testing.T) {
 }
 
 func TestCertPublicKeyInfo_UnknownKeyType(t *testing.T) {
+	t.Parallel()
 	// Use a raw int as public key — simulates unknown key type
 	cert := &x509.Certificate{
 		PublicKey:          42,

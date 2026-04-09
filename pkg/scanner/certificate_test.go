@@ -31,6 +31,7 @@ import (
 var _ Module = (*CertificateModule)(nil)
 
 func TestCertificateModuleInterface(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{}
 	m := NewCertificateModule(cfg)
 
@@ -38,16 +39,19 @@ func TestCertificateModuleInterface(t *testing.T) {
 }
 
 func TestCertificateModuleCategory(t *testing.T) {
+	t.Parallel()
 	m := NewCertificateModule(&config.Config{})
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestCertificateModuleScanTargetType(t *testing.T) {
+	t.Parallel()
 	m := NewCertificateModule(&config.Config{})
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
 }
 
 func TestParsePEMCertificate(t *testing.T) {
+	t.Parallel()
 	// Generate a self-signed RSA certificate in memory
 	tmpDir := t.TempDir()
 
@@ -97,6 +101,7 @@ func TestParsePEMCertificate(t *testing.T) {
 }
 
 func TestCertificateFindingShape(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -135,6 +140,7 @@ func TestCertificateFindingShape(t *testing.T) {
 }
 
 func TestParseRSACertificate(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -172,6 +178,7 @@ func TestParseRSACertificate(t *testing.T) {
 }
 
 func TestParseEd25519Certificate(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	edPub, edPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -209,6 +216,7 @@ func TestParseEd25519Certificate(t *testing.T) {
 }
 
 func TestParseDERCertificate(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -244,6 +252,7 @@ func TestParseDERCertificate(t *testing.T) {
 }
 
 func TestCertificatePQCClassification(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -278,6 +287,7 @@ func TestCertificatePQCClassification(t *testing.T) {
 }
 
 func TestIsCertificateFile(t *testing.T) {
+	t.Parallel()
 	m := NewCertificateModule(&config.Config{})
 
 	assert.True(t, m.isCertificateFile("/etc/ssl/cert.pem"))
@@ -291,6 +301,7 @@ func TestIsCertificateFile(t *testing.T) {
 }
 
 func TestScanNonExistentDirectory(t *testing.T) {
+	t.Parallel()
 	m := NewCertificateModule(&config.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/nonexistent/path", Depth: 1}
@@ -309,6 +320,7 @@ func TestScanNonExistentDirectory(t *testing.T) {
 }
 
 func TestScanContextCancelled(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a cert file
@@ -339,6 +351,7 @@ func TestScanContextCancelled(t *testing.T) {
 }
 
 func TestParseCertificateFileInvalidPEM(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Write a file with .pem extension but not a valid certificate
@@ -362,6 +375,7 @@ func TestParseCertificateFileInvalidPEM(t *testing.T) {
 }
 
 func TestParsePKCS12Certificate(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a PKCS#12 file with a self-signed cert
@@ -411,6 +425,7 @@ func TestParsePKCS12Certificate(t *testing.T) {
 }
 
 func TestParsePFXCertificate(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -454,6 +469,7 @@ func TestParsePFXCertificate(t *testing.T) {
 }
 
 func TestParseJKSFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a minimal JKS file with magic bytes
@@ -488,6 +504,7 @@ func TestParseJKSFile(t *testing.T) {
 }
 
 func TestBuildPQCAlgorithmName_UnknownCert(t *testing.T) {
+	t.Parallel()
 	// When x509.ParseCertificate encounters a PQC cert, the public key algorithm
 	// is Unknown. This test verifies the OID fallback path works by parsing
 	// a real RSA cert (which Go does understand) and checking the extractors work.
@@ -529,6 +546,7 @@ func TestBuildPQCAlgorithmName_UnknownCert(t *testing.T) {
 }
 
 func TestDetectHybridCert(t *testing.T) {
+	t.Parallel()
 	// Test detectHybridCert returns false for standard RSA cert
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -553,6 +571,7 @@ func TestDetectHybridCert(t *testing.T) {
 }
 
 func TestIsCertificateFileExtended(t *testing.T) {
+	t.Parallel()
 	m := NewCertificateModule(&config.Config{})
 
 	// New extensions added in Phase 2
@@ -569,6 +588,7 @@ func TestIsCertificateFileExtended(t *testing.T) {
 // --- PQC Algorithm Name & Hybrid Detection Tests ---
 
 func TestBuildPQCAlgorithmName_FallbackToOID(t *testing.T) {
+	t.Parallel()
 	// Create a real RSA cert, then forge its PublicKeyAlgorithm to Unknown
 	// to exercise the OID fallback path.
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -597,6 +617,7 @@ func TestBuildPQCAlgorithmName_FallbackToOID(t *testing.T) {
 }
 
 func TestBuildPQCAlgorithmName_SyntheticPQCCert(t *testing.T) {
+	t.Parallel()
 	// Build synthetic DER with ML-DSA-44 signature OID and ML-KEM-768 pubkey OID
 	mlkemOID := "2.16.840.1.101.3.4.4.2"  // ML-KEM-768
 	mldsaOID := "2.16.840.1.101.3.4.3.17" // ML-DSA-44
@@ -616,6 +637,7 @@ func TestBuildPQCAlgorithmName_SyntheticPQCCert(t *testing.T) {
 }
 
 func TestBuildPQCAlgorithmName_UnknownOID(t *testing.T) {
+	t.Parallel()
 	// Build synthetic DER with unrecognized OIDs
 	unknownOID := "1.2.3.4.5.6.7.8.9"
 	certDER := buildSyntheticCertDERForScanner(t, unknownOID, unknownOID)
@@ -632,6 +654,7 @@ func TestBuildPQCAlgorithmName_UnknownOID(t *testing.T) {
 }
 
 func TestDetectHybridCert_Composite(t *testing.T) {
+	t.Parallel()
 	compositeOID := "2.16.840.1.114027.80.8.1.1" // ML-DSA-44-RSA-2048
 	rsaPubKeyOID := "1.2.840.113549.1.1.1"
 	certDER := buildSyntheticCertDERForScanner(t, compositeOID, rsaPubKeyOID)
@@ -651,6 +674,7 @@ func TestDetectHybridCert_Composite(t *testing.T) {
 }
 
 func TestDetectHybridCert_NonComposite(t *testing.T) {
+	t.Parallel()
 	// Standard RSA cert
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -674,6 +698,7 @@ func TestDetectHybridCert_NonComposite(t *testing.T) {
 }
 
 func TestDetectHybridCert_CompositePubKey(t *testing.T) {
+	t.Parallel()
 	// Non-composite signature but composite public key OID
 	rsaSigOID := "1.2.840.113549.1.1.11"
 	compositePKOID := "2.16.840.1.114027.80.8.1.9" // ML-DSA-65-ECDSA-P384

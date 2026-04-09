@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -16,22 +16,22 @@ import (
 var _ Module = (*DatabaseModule)(nil)
 
 func TestDatabaseModule_Name(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	assert.Equal(t, "database", m.Name())
 }
 
 func TestDatabaseModule_Category(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryActiveRuntime, m.Category())
 }
 
 func TestDatabaseModule_ScanTargetType(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetDatabase, m.ScanTargetType())
 }
 
 func TestDatabaseModule_ParsePostgresSSL(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `ssl|on
 ssl_ciphers|HIGH:MEDIUM:+3DES:!aNULL
@@ -58,7 +58,7 @@ password_encryption|scram-sha-256`
 }
 
 func TestDatabaseModule_ParsePostgresExtensions(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `pgcrypto|1.3
 pg_tde|1.0
@@ -80,7 +80,7 @@ pgsodium|3.1.9`
 }
 
 func TestDatabaseModule_ParsePostgresSSLStatus(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `t|TLSv1.3|TLS_AES_256_GCM_SHA384|256`
 
@@ -97,7 +97,7 @@ func TestDatabaseModule_ParsePostgresSSLStatus(t *testing.T) {
 }
 
 func TestDatabaseModule_ParseMySQLEncryption(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `have_ssl	YES
 ssl_cipher	TLS_AES_256_GCM_SHA384
@@ -118,7 +118,7 @@ default_table_encryption	ON`
 }
 
 func TestDatabaseModule_ParseMySQLTablespaces(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `innodb_system	innodb_system	Y
 test/customers	test/customers	Y`
@@ -135,7 +135,7 @@ test/customers	test/customers	Y`
 }
 
 func TestDatabaseModule_ParseSQLServerTDE(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `master	3	AES	256
 tempdb	3	AES	256
@@ -157,7 +157,7 @@ myapp	3	TRIPLE_DES	168`
 }
 
 func TestDatabaseModule_ParseOracleTDE(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	walletOutput := `/opt/oracle/wallet	OPEN	AUTOLOGIN`
 	columnOutput := `CUSTOMERS	SSN	AES256
@@ -180,7 +180,7 @@ EMPLOYEES	SALARY	AES192`
 }
 
 func TestDatabaseModule_AutoDiscovery(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	pgrepOutput := `1234 /usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/16/main
 5678 /usr/sbin/mysqld --basedir=/usr`
@@ -197,7 +197,7 @@ func TestDatabaseModule_AutoDiscovery(t *testing.T) {
 }
 
 func TestDatabaseModule_PostgresConfigFile(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	pgConf := `# PostgreSQL configuration
 listen_addresses = '*'
@@ -224,7 +224,7 @@ password_encryption = scram-sha-256
 }
 
 func TestDatabaseModule_MySQLConfigFile(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	myConf := `[mysqld]
 ssl-ca=/etc/mysql/certs/ca.pem
@@ -250,7 +250,7 @@ default_table_encryption=ON
 }
 
 func TestDatabaseModule_NoDBsRunning(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte(""), nil
 	}
@@ -270,7 +270,7 @@ func TestDatabaseModule_NoDBsRunning(t *testing.T) {
 }
 
 func TestDatabaseModule_ContextCancellation(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte("1234 /usr/sbin/postgres -D /var/lib/postgresql/16/main"), nil
 	}
@@ -290,7 +290,7 @@ func TestDatabaseModule_ContextCancellation(t *testing.T) {
 }
 
 func TestDatabaseModule_FindingClassification(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	// Parse settings that produce classifiable algorithms
 	output := `ssl_min_protocol_version|TLSv1.2`
@@ -303,7 +303,7 @@ func TestDatabaseModule_FindingClassification(t *testing.T) {
 }
 
 func TestDatabaseModule_ExplicitTarget(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	// Track which commands were run
 	var cmdsRun []string
@@ -326,7 +326,7 @@ func TestDatabaseModule_ExplicitTarget(t *testing.T) {
 }
 
 func TestDatabaseModule_ParseProcessDiscovery_SQLServer(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `9876 /opt/mssql/bin/sqlservr --accept-eula`
 
@@ -336,7 +336,7 @@ func TestDatabaseModule_ParseProcessDiscovery_SQLServer(t *testing.T) {
 }
 
 func TestDatabaseModule_ParseProcessDiscovery_Oracle(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `5555 /u01/app/oracle/product/19.0.0/dbhome_1/bin/oracle_instance`
 
@@ -346,7 +346,7 @@ func TestDatabaseModule_ParseProcessDiscovery_Oracle(t *testing.T) {
 }
 
 func TestDatabaseModule_PostgresSSLOff(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 
 	output := `ssl|off
 password_encryption|md5`
@@ -396,7 +396,7 @@ func TestSafeHostPort(t *testing.T) {
 }
 
 func TestDatabaseModule_MalformedTarget(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte(""), nil
 	}
@@ -416,7 +416,7 @@ func TestDatabaseModule_MalformedTarget(t *testing.T) {
 }
 
 func TestDatabaseModule_NoPgrepMatches(t *testing.T) {
-	m := NewDatabaseModule(&config.Config{})
+	m := NewDatabaseModule(&scannerconfig.Config{})
 	m.cmdRunner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("exit status 1")
 	}

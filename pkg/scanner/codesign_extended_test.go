@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 )
 
 // --- isCodeSignCandidate (extended) ---
@@ -173,7 +173,7 @@ func TestParseJARSign_Unsigned(t *testing.T) {
 // --- Test helper ---
 
 func newCodeSignModuleWithRunner(runner cmdRunnerFunc) *CodeSignModule {
-	m := NewCodeSignModule(&config.Config{})
+	m := NewCodeSignModule(&scannerconfig.Config{})
 	m.cmdRunner = runner
 	m.cmdRunCombined = runner
 	return m

@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -30,14 +30,14 @@ import (
 // without including the value, because storing key material in
 // scan output would itself be a compliance failure.
 type VPNModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
 // NewVPNModule constructs a VPNModule wired to the engine config.
-func NewVPNModule(cfg *config.Config) *VPNModule {
+func NewVPNModule(cfg *scannerconfig.Config) *VPNModule {
 	return &VPNModule{config: cfg}
 }
 

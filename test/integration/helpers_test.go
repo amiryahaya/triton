@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner"
@@ -153,7 +153,7 @@ func requireServerWithGuard(t *testing.T, tier license.Tier) (string, *store.Pos
 // scanFixtures runs a real scan against test/fixtures/ with the given profile and modules.
 func scanFixtures(t *testing.T, profile string, mods []string) *model.ScanResult {
 	t.Helper()
-	cfg := config.Load(profile)
+	cfg := scannerconfig.Load(profile)
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: fixturesDir(), Depth: 5},
 	}

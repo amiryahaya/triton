@@ -15,9 +15,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/auth"
-	"github.com/amiryahaya/triton/internal/config"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/mailer"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -49,7 +49,7 @@ func init() {
 func runServer(_ *cobra.Command, _ []string) error {
 	dbUrlVal := serverDB
 	if dbUrlVal == "" {
-		dbUrlVal = config.DefaultDBUrl()
+		dbUrlVal = scannerconfig.DefaultDBUrl()
 	}
 
 	ctx := context.Background()

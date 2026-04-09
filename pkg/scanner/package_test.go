@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -15,22 +15,22 @@ import (
 var _ Module = (*PackageModule)(nil)
 
 func TestPackageModuleInterface(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 	assert.Equal(t, "packages", m.Name())
 }
 
 func TestPackageModuleCategory(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestPackageModuleScanTargetType(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
 }
 
 func TestParsePackageOutputFiltered(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	// openssl is crypto-related, curl and git are not
 	output := "openssl 3.2.0\ncurl 8.4.0\ngit 2.43.0\nlibsodium 1.0.19\n"
@@ -52,7 +52,7 @@ func TestParsePackageOutputFiltered(t *testing.T) {
 }
 
 func TestPackageFindingShape(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	findings := make(chan *model.Finding, 10)
 	err := m.parsePackageOutput(context.Background(), "openssl 3.2.0\n", "brew", findings)
@@ -93,7 +93,7 @@ func TestIsCryptoPackage(t *testing.T) {
 }
 
 func TestParsePackageEmptyOutput(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	findings := make(chan *model.Finding, 10)
 	err := m.parsePackageOutput(context.Background(), "", "brew", findings)
@@ -108,7 +108,7 @@ func TestParsePackageEmptyOutput(t *testing.T) {
 }
 
 func TestParsePackageContextCancellation(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -122,7 +122,7 @@ func TestParsePackageContextCancellation(t *testing.T) {
 }
 
 func TestPackageScanOnlyRunsOnce(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	targets := []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: "/etc", Depth: 3},
@@ -156,7 +156,7 @@ func TestPackageScanOnlyRunsOnce(t *testing.T) {
 }
 
 func TestPackageVersionBasedClassification(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	output := "openssl 1.0.2u\nlibsodium 1.0.19\nopenssl 3.2.0\n"
 	findings := make(chan *model.Finding, 10)
@@ -182,7 +182,7 @@ func TestPackageVersionBasedClassification(t *testing.T) {
 }
 
 func TestPackageFindingCategory(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	findings := make(chan *model.Finding, 10)
 	err := m.parsePackageOutput(context.Background(), "openssl 3.2.0\n", "brew", findings)
@@ -195,7 +195,7 @@ func TestPackageFindingCategory(t *testing.T) {
 }
 
 func TestPackageScanRetriesAfterFailure(t *testing.T) {
-	cfg := &config.Config{Modules: []string{"packages"}}
+	cfg := &scannerconfig.Config{Modules: []string{"packages"}}
 	m := NewPackageModule(cfg)
 
 	// First call with cancelled context — the platform scan functions swallow
@@ -224,7 +224,7 @@ func TestPackageScanRetriesAfterFailure(t *testing.T) {
 }
 
 func TestMultipleCryptoPackages(t *testing.T) {
-	m := NewPackageModule(&config.Config{})
+	m := NewPackageModule(&scannerconfig.Config{})
 
 	output := `openssl 3.2.0
 libssl3 3.0.13

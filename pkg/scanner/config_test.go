@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*ConfigModule)(nil)
 
 func TestConfigModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	assert.Equal(t, "configs", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -26,7 +26,7 @@ func TestConfigModuleInterface(t *testing.T) {
 
 func TestIsConfigFile(t *testing.T) {
 	t.Parallel()
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 
 	assert.True(t, m.isConfigFile("/etc/ssh/sshd_config"))
 	assert.True(t, m.isConfigFile("/etc/ssh/ssh_config"))
@@ -51,7 +51,7 @@ HostKeyAlgorithms ssh-ed25519,rsa-sha2-512
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -100,7 +100,7 @@ Port 22
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -125,7 +125,7 @@ jdk.certpath.disabledAlgorithms=MD2, MD5
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -160,7 +160,7 @@ func TestParseJavaSecurityMultiline(t *testing.T) {
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -189,7 +189,7 @@ func TestParseCryptoPolicies(t *testing.T) {
 	err = os.WriteFile(policyFile, []byte("FUTURE\n"), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -217,7 +217,7 @@ func TestParseCryptoPolicies_FIPS(t *testing.T) {
 	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("FIPS\n"), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -246,7 +246,7 @@ func TestParseCryptoPolicies_DEFAULT(t *testing.T) {
 	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("DEFAULT\n"), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -275,7 +275,7 @@ func TestParseCryptoPolicies_LEGACY(t *testing.T) {
 	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("LEGACY\n"), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -304,7 +304,7 @@ func TestParseCryptoPolicies_Unknown(t *testing.T) {
 	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte("CUSTOM:PQC-HYBRID\n"), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -332,7 +332,7 @@ func TestParseCryptoPolicies_Empty(t *testing.T) {
 	err = os.WriteFile(filepath.Join(policyDir, "current"), []byte(""), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -365,7 +365,7 @@ key_type = ecdsa
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 
 	// Verify isConfigFile matches
 	assert.True(t, m.isConfigFile(renewalConf), "should match letsencrypt renewal.conf")
@@ -396,7 +396,7 @@ rsa-key-size = 4096
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := m.parseCertbotConfig(renewalConf)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "RSA-4096", findings[0].CryptoAsset.Algorithm)
@@ -417,7 +417,7 @@ key_type = ecdsa
 `), 0644)
 	require.NoError(t, err)
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	assert.True(t, m.isConfigFile(domainConf), "should match domain.conf under letsencrypt/renewal/")
 
 	findings := m.parseCertbotConfig(domainConf)
@@ -447,7 +447,7 @@ func TestScanFixtureConfigs(t *testing.T) {
 		t.Skip("Fixture files not found")
 	}
 
-	m := NewConfigModule(&config.Config{})
+	m := NewConfigModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: fixtureDir, Depth: 1}
 

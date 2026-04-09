@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -35,14 +35,14 @@ import (
 // of the header to extract the enctype and principal name, then
 // stop.
 type AuthMaterialModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
 // NewAuthMaterialModule wires an AuthMaterialModule with the engine config.
-func NewAuthMaterialModule(cfg *config.Config) *AuthMaterialModule {
+func NewAuthMaterialModule(cfg *scannerconfig.Config) *AuthMaterialModule {
 	return &AuthMaterialModule{config: cfg}
 }
 

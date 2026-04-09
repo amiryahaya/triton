@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -17,7 +17,7 @@ import (
 var _ Module = (*BinaryModule)(nil)
 
 func TestBinaryModuleInterface(t *testing.T) {
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	assert.Equal(t, "binaries", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -162,7 +162,7 @@ func TestBinaryScanWithFakeELF(t *testing.T) {
 	err := os.WriteFile(binFile, data, 0755)
 	require.NoError(t, err)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -200,7 +200,7 @@ func TestBinaryScanWithFakeMachO(t *testing.T) {
 	err := os.WriteFile(binFile, data, 0755)
 	require.NoError(t, err)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -235,7 +235,7 @@ func TestBinaryScanWithFakePE(t *testing.T) {
 	err := os.WriteFile(binFile, data, 0755)
 	require.NoError(t, err)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -267,7 +267,7 @@ func TestBinaryScanSkipsNonBinaries(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("AES-256 RSA-2048"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "script.sh"), []byte("#!/bin/bash\nopenssl"), 0755)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -293,7 +293,7 @@ func TestBinaryScanNoCryptoPatterns(t *testing.T) {
 
 	os.WriteFile(filepath.Join(tmpDir, "no-crypto"), data, 0755)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -323,7 +323,7 @@ func TestBinaryScanDeduplication(t *testing.T) {
 
 	os.WriteFile(filepath.Join(tmpDir, "dedup-test"), data, 0755)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -341,7 +341,7 @@ func TestBinaryScanDeduplication(t *testing.T) {
 func TestBinaryScanEmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -516,7 +516,7 @@ func TestBinaryScan_SymbolFindings_HigherConfidence(t *testing.T) {
 	err := os.WriteFile(binFile, data, 0755)
 	require.NoError(t, err)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings, err := m.scanBinaryFile(binFile)
 	require.NoError(t, err)
 
@@ -543,7 +543,7 @@ func TestBinaryScan_LibraryVersionFinding(t *testing.T) {
 	err := os.WriteFile(binFile, data, 0755)
 	require.NoError(t, err)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings, err := m.scanBinaryFile(binFile)
 	require.NoError(t, err)
 
@@ -569,7 +569,7 @@ func TestBinaryScanDetectionMethodSet(t *testing.T) {
 
 	os.WriteFile(filepath.Join(tmpDir, "kdf-binary"), data, 0755)
 
-	m := NewBinaryModule(&config.Config{})
+	m := NewBinaryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 

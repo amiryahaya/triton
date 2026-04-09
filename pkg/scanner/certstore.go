@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -40,7 +40,7 @@ import (
 // thousands of entries could otherwise produce gigabytes of PEM
 // output; the agent must not OOM on adversarial input.
 type CertStoreModule struct {
-	config           *config.Config
+	config           *scannerconfig.Config
 	cmdRunner        cmdRunnerFunc
 	cmdRunnerLimited cmdRunnerLimitedFunc
 }
@@ -76,7 +76,7 @@ func defaultCmdRunnerLimited(ctx context.Context, limit int64, name string, args
 
 // NewCertStoreModule constructs a CertStoreModule wired to real
 // subprocess execution.
-func NewCertStoreModule(cfg *config.Config) *CertStoreModule {
+func NewCertStoreModule(cfg *scannerconfig.Config) *CertStoreModule {
 	return &CertStoreModule{
 		config:           cfg,
 		cmdRunner:        defaultCmdRunner,

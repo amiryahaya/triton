@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -37,14 +37,14 @@ import (
 // metadata the source file exposes (username, database name). No
 // salt, no digest, no way to recover the plaintext.
 type PasswordHashModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
 // NewPasswordHashModule wires a PasswordHashModule with the engine config.
-func NewPasswordHashModule(cfg *config.Config) *PasswordHashModule {
+func NewPasswordHashModule(cfg *scannerconfig.Config) *PasswordHashModule {
 	return &PasswordHashModule{config: cfg}
 }
 

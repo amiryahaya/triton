@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/report"
@@ -65,7 +65,7 @@ func TestLicenseTier_FreeTierFilterConfig(t *testing.T) {
 
 	assert.Equal(t, license.TierFree, guard.Tier())
 
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 
 	// Free tier downgrades to quick
@@ -90,14 +90,14 @@ func TestLicenseTier_ProTierFilterConfig(t *testing.T) {
 
 	assert.Equal(t, license.TierPro, guard.Tier())
 
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 
 	// Pro tier preserves comprehensive profile
 	assert.Equal(t, "comprehensive", cfg.Profile)
 
 	// Pro tier allows all modules (nil from AllowedModules = no filtering)
-	compProfile, _ := config.GetProfile("comprehensive")
+	compProfile, _ := scannerconfig.GetProfile("comprehensive")
 	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules), "pro tier should keep all modules")
 
 	// Pro tier blocks SARIF format
@@ -143,9 +143,9 @@ func TestLicenseTier_EnterpriseTierUnlocksEverything(t *testing.T) {
 	}
 
 	// All modules preserved
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
-	compProfile, _ := config.GetProfile("comprehensive")
+	compProfile, _ := scannerconfig.GetProfile("comprehensive")
 	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 
 	// Seats and org correct
@@ -221,7 +221,7 @@ func TestLicenseTier_ExpiredTokenDegradesToFree(t *testing.T) {
 	assert.Nil(t, guard.License())
 
 	// Config downgraded
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "quick", cfg.Profile)
 	assert.Len(t, cfg.Modules, 3)
@@ -277,7 +277,7 @@ func TestLicenseTier_ProScanPipeline(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 
 	// Load comprehensive and apply guard filtering
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "comprehensive", cfg.Profile) // Pro allows comprehensive
 
@@ -326,7 +326,7 @@ func TestLicenseTier_EnterpriseScanPipelineWithSARIF(t *testing.T) {
 	token, pub := generateTestToken(t, license.TierEnterprise, "EntCorp", 500, 365)
 	guard := license.NewGuardFromToken(token, pub)
 
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 
 	// Scan fixtures
@@ -468,7 +468,7 @@ func TestLicenseTier_FreeTierClearsDBUrl(t *testing.T) {
 	token, pub := generateTestToken(t, license.TierFree, "FreeOrg", 1, 365)
 	guard := license.NewGuardFromToken(token, pub)
 
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	cfg.DBUrl = "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
 
 	guard.FilterConfig(cfg)
@@ -484,7 +484,7 @@ func TestLicenseTier_ProTierPreservesDBUrl(t *testing.T) {
 	guard := license.NewGuardFromToken(token, pub)
 
 	dbURL := "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
-	cfg := config.Load("standard")
+	cfg := scannerconfig.Load("standard")
 	cfg.DBUrl = dbURL
 
 	guard.FilterConfig(cfg)
@@ -516,7 +516,7 @@ func TestLicenseTier_MachineMismatchDegradesToFreePipeline(t *testing.T) {
 	assert.Equal(t, license.TierFree, guard.Tier(), "machine mismatch should degrade to free")
 
 	// Full pipeline: config should be restricted to free tier
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	cfg.DBUrl = "postgres://localhost:5434/triton?sslmode=disable"
 	guard.FilterConfig(cfg)
 
@@ -553,13 +553,13 @@ func TestLicenseTier_MachineMatchSucceedsPipeline(t *testing.T) {
 	assert.Equal(t, license.TierEnterprise, guard.Tier(), "matching machine should preserve tier")
 
 	// Full pipeline: config should be unrestricted
-	cfg := config.Load("comprehensive")
+	cfg := scannerconfig.Load("comprehensive")
 	dbURL := "postgres://localhost:5434/triton?sslmode=disable"
 	cfg.DBUrl = dbURL
 	guard.FilterConfig(cfg)
 
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	compProfile, _ := config.GetProfile("comprehensive")
+	compProfile, _ := scannerconfig.GetProfile("comprehensive")
 	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
 	assert.Equal(t, dbURL, cfg.DBUrl, "enterprise should keep DBUrl")
 

@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -62,12 +62,12 @@ var pkcs11ModulePaths = map[string][]string{
 // HSMModule scans Hardware Security Modules via PKCS#11 for keys,
 // certificates, and supported cryptographic mechanisms.
 type HSMModule struct {
-	config    *config.Config
+	config    *scannerconfig.Config
 	cmdRunner cmdRunnerFunc
 }
 
 // NewHSMModule creates a new HSMModule.
-func NewHSMModule(cfg *config.Config) *HSMModule {
+func NewHSMModule(cfg *scannerconfig.Config) *HSMModule {
 	return &HSMModule{
 		config:    cfg,
 		cmdRunner: defaultCmdRunner,

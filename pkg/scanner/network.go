@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -48,10 +48,10 @@ var ssPortRegex = regexp.MustCompile(`^\S+\s+\d+\s+\d+\s+\S+:(\d+)\s+`)
 
 // NetworkModule scans for listening network services that use cryptographic protocols.
 type NetworkModule struct {
-	config *config.Config
+	config *scannerconfig.Config
 }
 
-func NewNetworkModule(cfg *config.Config) *NetworkModule {
+func NewNetworkModule(cfg *scannerconfig.Config) *NetworkModule {
 	return &NetworkModule{config: cfg}
 }
 

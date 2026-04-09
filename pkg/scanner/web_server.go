@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -39,14 +39,14 @@ func logScannerErr(path, parser string, err error) {
 // resilient to vendor-specific syntax we don't recognize. Anything
 // we don't understand is silently skipped, never an error.
 type WebServerModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
 }
 
 // NewWebServerModule wires a WebServerModule with the engine config.
-func NewWebServerModule(cfg *config.Config) *WebServerModule {
+func NewWebServerModule(cfg *scannerconfig.Config) *WebServerModule {
 	return &WebServerModule{config: cfg}
 }
 

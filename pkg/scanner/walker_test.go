@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -57,7 +57,7 @@ func TestWalkTargetDepthEnforcement(t *testing.T) {
 					Value: tmpDir,
 					Depth: tt.depth,
 				},
-				config:    &config.Config{},
+				config:    &scannerconfig.Config{},
 				matchFile: func(path string) bool { return filepath.Ext(path) == ".pem" },
 				processFile: func(path string) error {
 					found = append(found, path)
@@ -89,7 +89,7 @@ func TestWalkTargetMaxFileSize(t *testing.T) {
 			Value: tmpDir,
 			Depth: -1,
 		},
-		config: &config.Config{
+		config: &scannerconfig.Config{
 			MaxFileSize: 500, // Only files under 500 bytes
 		},
 		matchFile: func(path string) bool { return true },
@@ -119,7 +119,7 @@ func TestWalkTargetExcludePatterns(t *testing.T) {
 			Value: tmpDir,
 			Depth: -1,
 		},
-		config: &config.Config{
+		config: &scannerconfig.Config{
 			ExcludePatterns: []string{".git"},
 		},
 		matchFile: func(path string) bool { return filepath.Ext(path) == ".pem" },
@@ -136,7 +136,7 @@ func TestWalkTargetExcludePatterns(t *testing.T) {
 
 func TestShouldSkipDir(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		ExcludePatterns: []string{".git", "node_modules", "/proc"},
 	}
 
@@ -165,7 +165,7 @@ func TestWalkerFileCounters(t *testing.T) {
 			Value: tmpDir,
 			Depth: -1,
 		},
-		config:       &config.Config{},
+		config:       &scannerconfig.Config{},
 		matchFile:    func(path string) bool { return filepath.Ext(path) == ".pem" },
 		processFile:  func(path string) error { return nil },
 		filesScanned: &scanned,
@@ -190,7 +190,7 @@ func TestWalkerFileCountersNil(t *testing.T) {
 			Value: tmpDir,
 			Depth: -1,
 		},
-		config:    &config.Config{},
+		config:    &scannerconfig.Config{},
 		matchFile: func(path string) bool { return true },
 		processFile: func(path string) error {
 			found = append(found, path)

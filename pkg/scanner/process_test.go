@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -15,14 +15,14 @@ import (
 var _ Module = (*ProcessModule)(nil)
 
 func TestProcessModuleInterface(t *testing.T) {
-	m := NewProcessModule(&config.Config{})
+	m := NewProcessModule(&scannerconfig.Config{})
 	assert.Equal(t, "processes", m.Name())
 	assert.Equal(t, model.CategoryActiveRuntime, m.Category())
 	assert.Equal(t, model.TargetProcess, m.ScanTargetType())
 }
 
 func TestParseProcessOutput(t *testing.T) {
-	m := NewProcessModule(&config.Config{})
+	m := NewProcessModule(&scannerconfig.Config{})
 
 	// Simulate ps output with crypto-related processes
 	output := `  PID COMMAND
@@ -61,7 +61,7 @@ func TestParseProcessOutput(t *testing.T) {
 }
 
 func TestParseProcessOutputWithLibraries(t *testing.T) {
-	m := NewProcessModule(&config.Config{})
+	m := NewProcessModule(&scannerconfig.Config{})
 
 	// Output with linked libraries
 	output := `  PID COMMAND
@@ -115,7 +115,7 @@ func TestIsCryptoProcess(t *testing.T) {
 }
 
 func TestParseProcessOutputEmpty(t *testing.T) {
-	m := NewProcessModule(&config.Config{})
+	m := NewProcessModule(&scannerconfig.Config{})
 
 	findings := make(chan *model.Finding, 10)
 	err := m.parseProcessOutput(context.Background(), "", findings)
@@ -130,7 +130,7 @@ func TestParseProcessOutputEmpty(t *testing.T) {
 }
 
 func TestParseProcessOutputContextCancellation(t *testing.T) {
-	m := NewProcessModule(&config.Config{})
+	m := NewProcessModule(&scannerconfig.Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -147,7 +147,7 @@ func TestParseProcessOutputContextCancellation(t *testing.T) {
 }
 
 func TestProcessFindingPQCStatus(t *testing.T) {
-	m := NewProcessModule(&config.Config{})
+	m := NewProcessModule(&scannerconfig.Config{})
 
 	output := `  PID COMMAND
   123 /usr/sbin/sshd -D

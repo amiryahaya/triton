@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"sort"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -238,7 +238,7 @@ func CheckGoTLS() CheckResult {
 
 // RunDoctorChecks runs all readiness checks for the given profile.
 func RunDoctorChecks(profile string) *DoctorReport {
-	cfg := config.Load(profile)
+	cfg := scannerconfig.Load(profile)
 
 	report := &DoctorReport{
 		Platform: runtime.GOOS + "/" + runtime.GOARCH,

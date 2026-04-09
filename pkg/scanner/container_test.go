@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -34,7 +34,7 @@ RUN openssl genrsa -aes256 -out ca-key.pem 4096
 `
 	require.NoError(t, os.WriteFile(dockerfile, []byte(content), 0o644))
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		ScanTargets: []model.ScanTarget{{Type: model.TargetFilesystem, Value: dir, Depth: 3}},
 	}
 	m := NewContainerModule(cfg)
@@ -75,7 +75,7 @@ services:
 `
 	require.NoError(t, os.WriteFile(compose, []byte(content), 0o644))
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		ScanTargets: []model.ScanTarget{{Type: model.TargetFilesystem, Value: dir, Depth: 3}},
 	}
 	m := NewContainerModule(cfg)
@@ -103,7 +103,7 @@ ENV SSL_PROTOCOLS=SSLv3
 `
 	require.NoError(t, os.WriteFile(dockerfile, []byte(content), 0o644))
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		ScanTargets: []model.ScanTarget{{Type: model.TargetFilesystem, Value: dir, Depth: 3}},
 	}
 	m := NewContainerModule(cfg)
@@ -136,7 +136,7 @@ func TestContainerModule_NoMatchingFiles(t *testing.T) {
 	// Create a non-container file
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hello"), 0o644))
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		ScanTargets: []model.ScanTarget{{Type: model.TargetFilesystem, Value: dir, Depth: 3}},
 	}
 	m := NewContainerModule(cfg)
@@ -210,7 +210,7 @@ COPY server.crt /etc/ssl/certs/server.crt
 `
 	require.NoError(t, os.WriteFile(dockerfile, []byte(content), 0o644))
 
-	cfg := &config.Config{
+	cfg := &scannerconfig.Config{
 		ScanTargets: []model.ScanTarget{{Type: model.TargetFilesystem, Value: dir, Depth: 3}},
 	}
 	m := NewContainerModule(cfg)

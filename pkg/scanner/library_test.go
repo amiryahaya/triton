@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*LibraryModule)(nil)
 
 func TestLibraryModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	assert.Equal(t, "libraries", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -26,7 +26,7 @@ func TestLibraryModuleInterface(t *testing.T) {
 
 func TestIsLibraryFile(t *testing.T) {
 	t.Parallel()
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 
 	// Should match crypto libraries
 	assert.True(t, m.isLibraryFile("/usr/lib/libcrypto.so.1.1"))
@@ -75,7 +75,7 @@ func TestLibraryScanFindsLibraries(t *testing.T) {
 	// Also create a non-crypto library
 	os.WriteFile(filepath.Join(tmpDir, "libpthread.so"), []byte("fake"), 0644)
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -99,7 +99,7 @@ func TestLibraryFindingShape(t *testing.T) {
 	err := os.WriteFile(libFile, []byte("fake"), 0644)
 	require.NoError(t, err)
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -151,7 +151,7 @@ func TestLibraryVersionInFinding(t *testing.T) {
 	err := os.WriteFile(libFile, []byte("fake"), 0644)
 	require.NoError(t, err)
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -183,7 +183,7 @@ func TestLibraryVersionBasedClassification(t *testing.T) {
 	// libgnutls — should be TRANSITIONAL (version 30 > minMajor 3)
 	os.WriteFile(filepath.Join(tmpDir, "libgnutls.so.30"), []byte("fake"), 0644)
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -211,7 +211,7 @@ func TestLibraryScanEmptyDir(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -234,7 +234,7 @@ func TestLibraryScanContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -251,7 +251,7 @@ func TestLibraryScanSubdirectories(t *testing.T) {
 	os.MkdirAll(subDir, 0755)
 	os.WriteFile(filepath.Join(subDir, "libgcrypt.so.20"), []byte("fake"), 0644)
 
-	m := NewLibraryModule(&config.Config{})
+	m := NewLibraryModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 

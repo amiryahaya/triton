@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*ContainerSignaturesModule)(nil)
 
 func TestContainerSignaturesModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	assert.Equal(t, "container_signatures", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -59,7 +59,7 @@ func TestParseCosignPub(t *testing.T) {
 	path := filepath.Join(tmp, "cosign.pub")
 	require.NoError(t, os.WriteFile(path, []byte(cosignPubKey), 0o644))
 
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseCosignKey(path, []byte(cosignPubKey))
 	require.NotEmpty(t, findings)
 
@@ -101,7 +101,7 @@ func TestParseK8sServiceAccountToken(t *testing.T) {
 	rs256 := makeFakeJWT(t, "RS256")
 	require.NoError(t, os.WriteFile(tokenPath, []byte(rs256), 0o644))
 
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseK8sToken(tokenPath, []byte(rs256))
 	require.NotEmpty(t, findings)
 
@@ -118,7 +118,7 @@ func TestParseK8sServiceAccountToken(t *testing.T) {
 
 func TestParseK8sServiceAccountToken_MalformedJWT(t *testing.T) {
 	t.Parallel()
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	// Not a JWT — three random tokens but the first isn't valid base64.
 	findings := m.parseK8sToken("/run/secrets/kubernetes.io/serviceaccount/token", []byte("not.a.jwt"))
 	// Malformed → no findings, but no panic either.
@@ -157,7 +157,7 @@ resources:
 
 func TestParseK8sEncryptionConfig_Strong(t *testing.T) {
 	t.Parallel()
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(k8sEncryptionConfigStrong))
 	require.NotEmpty(t, findings)
 
@@ -185,7 +185,7 @@ func TestParseK8sEncryptionConfig_Strong(t *testing.T) {
 // names (aescbc/aesgcm/secretbox/kms/identity) produce findings.
 func TestParseK8sEncryptionConfig_NoNestedKeyFalsePositives(t *testing.T) {
 	t.Parallel()
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(k8sEncryptionConfigStrong))
 
 	// Every finding must have a provider-style algorithm name.
@@ -229,7 +229,7 @@ resources:
             - name: key2
               secret: c2VjcmV0
 `
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(multiResource))
 	require.NotEmpty(t, findings)
 
@@ -264,7 +264,7 @@ resources:
               secret: c2VjcmV0
       - identity: {}
 `
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(cfg))
 	require.NotEmpty(t, findings, "inline comment on providers: line should not silence the walker")
 
@@ -283,7 +283,7 @@ func TestParseK8sEncryptionConfig_IdentityFirst(t *testing.T) {
 	// When `identity` is the FIRST provider for a resource, no
 	// encryption-at-rest is applied — this is a critical
 	// misconfiguration that the scanner must surface.
-	m := NewContainerSignaturesModule(&config.Config{})
+	m := NewContainerSignaturesModule(&scannerconfig.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(k8sEncryptionConfigWeak))
 	require.NotEmpty(t, findings)
 

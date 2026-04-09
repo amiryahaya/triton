@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -36,7 +36,7 @@ type StoreAware interface {
 
 // Engine orchestrates concurrent module execution and finding collection.
 type Engine struct {
-	config  *config.Config
+	config  *scannerconfig.Config
 	modules []Module
 	store   store.Store
 }
@@ -51,7 +51,7 @@ type Progress struct {
 }
 
 // New creates a new Engine with an empty module list.
-func New(cfg *config.Config) *Engine {
+func New(cfg *scannerconfig.Config) *Engine {
 	return &Engine{
 		config: cfg,
 	}

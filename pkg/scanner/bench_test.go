@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -28,7 +28,7 @@ func BenchmarkCertificateScan(b *testing.B) {
 		writeBenchCert(b, tmpDir, i)
 	}
 
-	cfg := &config.Config{MaxFileSize: 10 * 1024 * 1024}
+	cfg := &scannerconfig.Config{MaxFileSize: 10 * 1024 * 1024}
 	m := NewCertificateModule(cfg)
 	target := model.ScanTarget{
 		Type:  model.TargetFilesystem,
@@ -64,7 +64,7 @@ func BenchmarkKeyScan(b *testing.B) {
 		os.WriteFile(filepath.Join(tmpDir, "key-"+string(rune('a'+i))+".pem"), keyPEM, 0600)
 	}
 
-	cfg := &config.Config{MaxFileSize: 10 * 1024 * 1024}
+	cfg := &scannerconfig.Config{MaxFileSize: 10 * 1024 * 1024}
 	m := NewKeyModule(cfg)
 	target := model.ScanTarget{
 		Type:  model.TargetFilesystem,
@@ -96,7 +96,7 @@ func BenchmarkWalker(b *testing.B) {
 		}
 	}
 
-	cfg := &config.Config{}
+	cfg := &scannerconfig.Config{}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

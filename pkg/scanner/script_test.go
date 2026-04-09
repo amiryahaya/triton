@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*ScriptModule)(nil)
 
 func TestScriptModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	assert.Equal(t, "scripts", m.Name())
 	assert.Equal(t, model.CategoryPassiveCode, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -26,7 +26,7 @@ func TestScriptModuleInterface(t *testing.T) {
 
 func TestIsScriptFile(t *testing.T) {
 	t.Parallel()
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 
 	// Should match script files
 	assert.True(t, m.isScriptFile("/path/to/script.py"))
@@ -64,7 +64,7 @@ key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 	err := os.WriteFile(filepath.Join(tmpDir, "crypto.py"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -101,7 +101,7 @@ openssl dgst -sha256 -sign key.pem -out signature.bin data.txt
 	err := os.WriteFile(filepath.Join(tmpDir, "deploy.sh"), []byte(content), 0755)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -130,7 +130,7 @@ my $rsa = Crypt::OpenSSL::RSA->generate_key(2048);
 	err := os.WriteFile(filepath.Join(tmpDir, "encrypt.pl"), []byte(perlContent), 0644)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -168,7 +168,7 @@ hmac = OpenSSL::HMAC.hexdigest("SHA256", key, data)
 	err := os.WriteFile(filepath.Join(tmpDir, "crypto.rb"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -203,7 +203,7 @@ $sha = [System.Security.Cryptography.SHA256CryptoServiceProvider]::new()
 	err := os.WriteFile(filepath.Join(tmpDir, "crypto.ps1"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -238,7 +238,7 @@ cipher /e /s:C:\Secure
 	err := os.WriteFile(filepath.Join(tmpDir, "verify.bat"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -272,7 +272,7 @@ ctx = ssl.create_default_context()
 	err := os.WriteFile(filepath.Join(tmpDir, "kdf.py"), []byte(content), 0644)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -308,7 +308,7 @@ date +%Y-%m-%d
 	err := os.WriteFile(filepath.Join(tmpDir, "simple.sh"), []byte(content), 0755)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -336,7 +336,7 @@ openssl enc -aes-256-cbc -in file3.txt -out enc3.txt
 	err := os.WriteFile(filepath.Join(tmpDir, "repeated.sh"), []byte(content), 0755)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -366,7 +366,7 @@ openssl enc -aes-256-cbc -in plain.txt -out enc.txt
 	err := os.WriteFile(filepath.Join(tmpDir, "test.sh"), []byte(content), 0755)
 	require.NoError(t, err)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -388,7 +388,7 @@ func TestScriptScanEmptyDir(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -411,7 +411,7 @@ func TestScriptScanContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -428,7 +428,7 @@ h = hashlib.sha256(b"test")
 `
 	os.WriteFile(filepath.Join(tmpDir, "test.py"), []byte(content), 0644)
 
-	m := NewScriptModule(&config.Config{})
+	m := NewScriptModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 

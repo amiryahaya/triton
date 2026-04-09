@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/ulikunitz/xz"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -23,7 +23,7 @@ var _ Module = (*KernelModule)(nil)
 
 func TestKernelModuleInterface(t *testing.T) {
 	t.Parallel()
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	assert.Equal(t, "kernel", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -35,7 +35,7 @@ func TestKernelModuleGracefulSkipOnNonLinux(t *testing.T) {
 		t.Skip("This test is for non-Linux systems")
 	}
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/lib/modules", Depth: 5}
 
@@ -52,7 +52,7 @@ func TestKernelModuleGracefulSkipOnNonLinux(t *testing.T) {
 
 func TestIsKernelModule(t *testing.T) {
 	t.Parallel()
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 
 	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/aes_generic.ko"))
 	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/sha256.ko.xz"))
@@ -90,7 +90,7 @@ func TestKernelModuleScanWithFakeModules(t *testing.T) {
 	netData = append(netData, []byte("network driver module")...)
 	os.WriteFile(filepath.Join(cryptoDir, "net_driver.ko"), netData, 0644)
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5}
 
@@ -130,7 +130,7 @@ func TestKernelModuleScanEmptyDir(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -155,7 +155,7 @@ func TestKernelModuleScanNoCryptoInModule(t *testing.T) {
 	data = append(data, []byte("just a regular kernel module with no crypto")...)
 	os.WriteFile(filepath.Join(tmpDir, "regular.ko"), data, 0644)
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -193,7 +193,7 @@ func TestKernelModuleScanCompressedGz(t *testing.T) {
 	require.NoError(t, gw.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "aes_generic.ko.gz"), buf.Bytes(), 0644))
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -230,7 +230,7 @@ func TestKernelModuleScanCompressedXz(t *testing.T) {
 	require.NoError(t, xw.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "sha256.ko.xz"), buf.Bytes(), 0644))
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -267,7 +267,7 @@ func TestKernelModuleScanCompressedZst(t *testing.T) {
 	require.NoError(t, zw.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "ecb.ko.zst"), buf.Bytes(), 0644))
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -300,7 +300,7 @@ func TestKernelModuleScanCorruptCompressedFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.xz"), garbage, 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "corrupt.ko.zst"), garbage, 0644))
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -326,7 +326,7 @@ func TestKernelModuleScanEmptyCompressedFile(t *testing.T) {
 	require.NoError(t, gw.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "empty.ko.gz"), buf.Bytes(), 0644))
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -353,7 +353,7 @@ func TestKernelModuleScanMixedFileTypes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.conf"), payload, 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "module.ko.bak"), payload, 0644))
 
-	m := NewKernelModule(&config.Config{})
+	m := NewKernelModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 20)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 

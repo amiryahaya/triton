@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/diff"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner"
@@ -24,7 +24,7 @@ import (
 
 // F1: Non-existent path → no crash, empty findings
 func TestError_ScanInvalidTarget(t *testing.T) {
-	cfg := config.Load("quick")
+	cfg := scannerconfig.Load("quick")
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: "/nonexistent/path/that/does/not/exist", Depth: 3},
 	}
@@ -84,7 +84,7 @@ func TestError_MalformedJSON(t *testing.T) {
 
 // F5: Cancel after first module → partial results, clean return
 func TestError_ContextCancelMidScan(t *testing.T) {
-	cfg := config.Load("standard")
+	cfg := scannerconfig.Load("standard")
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: fixturesDir(), Depth: 10},
 	}

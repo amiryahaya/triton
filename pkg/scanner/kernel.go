@@ -16,7 +16,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -27,7 +27,7 @@ import (
 // Not safe for concurrent Scan calls on the same instance — the engine
 // guarantees each module is called sequentially per target.
 type KernelModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
@@ -35,7 +35,7 @@ type KernelModule struct {
 
 func (m *KernelModule) SetStore(s store.Store) { m.store = s }
 
-func NewKernelModule(cfg *config.Config) *KernelModule {
+func NewKernelModule(cfg *scannerconfig.Config) *KernelModule {
 	return &KernelModule{config: cfg}
 }
 

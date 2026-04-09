@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"software.sslmate.com/src/go-pkcs12"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -32,7 +32,7 @@ var _ Module = (*CertificateModule)(nil)
 
 func TestCertificateModuleInterface(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{}
+	cfg := &scannerconfig.Config{}
 	m := NewCertificateModule(cfg)
 
 	assert.Equal(t, "certificates", m.Name())
@@ -40,13 +40,13 @@ func TestCertificateModuleInterface(t *testing.T) {
 
 func TestCertificateModuleCategory(t *testing.T) {
 	t.Parallel()
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestCertificateModuleScanTargetType(t *testing.T) {
 	t.Parallel()
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
 }
 
@@ -76,7 +76,7 @@ func TestParsePEMCertificate(t *testing.T) {
 	f.Close()
 
 	// Scan the temp dir
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -123,7 +123,7 @@ func TestCertificateFindingShape(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	f.Close()
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -162,7 +162,7 @@ func TestParseRSACertificate(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	f.Close()
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -200,7 +200,7 @@ func TestParseEd25519Certificate(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	f.Close()
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -237,7 +237,7 @@ func TestParseDERCertificate(t *testing.T) {
 	err = os.WriteFile(certFile, certDER, 0644)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -269,7 +269,7 @@ func TestCertificatePQCClassification(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	f.Close()
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 3}
 
@@ -288,7 +288,7 @@ func TestCertificatePQCClassification(t *testing.T) {
 
 func TestIsCertificateFile(t *testing.T) {
 	t.Parallel()
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 
 	assert.True(t, m.isCertificateFile("/etc/ssl/cert.pem"))
 	assert.True(t, m.isCertificateFile("/etc/ssl/cert.crt"))
@@ -302,7 +302,7 @@ func TestIsCertificateFile(t *testing.T) {
 
 func TestScanNonExistentDirectory(t *testing.T) {
 	t.Parallel()
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/nonexistent/path", Depth: 1}
 
@@ -340,7 +340,7 @@ func TestScanContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -359,7 +359,7 @@ func TestParseCertificateFileInvalidPEM(t *testing.T) {
 	err := os.WriteFile(certFile, []byte("not a certificate"), 0644)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -403,7 +403,7 @@ func TestParsePKCS12Certificate(t *testing.T) {
 	err = os.WriteFile(p12File, p12Data, 0644)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -451,7 +451,7 @@ func TestParsePFXCertificate(t *testing.T) {
 	err = os.WriteFile(pfxFile, p12Data, 0644)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -483,7 +483,7 @@ func TestParseJKSFile(t *testing.T) {
 	err := os.WriteFile(jksFile, jksData, 0644)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -529,7 +529,7 @@ func TestBuildPQCAlgorithmName_UnknownCert(t *testing.T) {
 	pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	f.Close()
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
 
@@ -564,7 +564,7 @@ func TestDetectHybridCert(t *testing.T) {
 	cert, err := x509.ParseCertificate(certDER)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	isHybrid, components := m.detectHybridCert(cert)
 	assert.False(t, isHybrid)
 	assert.Nil(t, components)
@@ -572,7 +572,7 @@ func TestDetectHybridCert(t *testing.T) {
 
 func TestIsCertificateFileExtended(t *testing.T) {
 	t.Parallel()
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 
 	// New extensions added in Phase 2
 	assert.True(t, m.isCertificateFile("/path/to/keystore.p12"))
@@ -609,7 +609,7 @@ func TestBuildPQCAlgorithmName_FallbackToOID(t *testing.T) {
 	// Force Unknown algorithm to exercise the PQC fallback
 	cert.PublicKeyAlgorithm = x509.UnknownPublicKeyAlgorithm
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	algoName := m.buildPQCAlgorithmName(cert)
 
 	// The OID extractor should find RSA public key OID and resolve it
@@ -629,7 +629,7 @@ func TestBuildPQCAlgorithmName_SyntheticPQCCert(t *testing.T) {
 		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
 	}
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	algoName := m.buildPQCAlgorithmName(cert)
 
 	// Should resolve via public key OID first → ML-KEM-768
@@ -647,7 +647,7 @@ func TestBuildPQCAlgorithmName_UnknownOID(t *testing.T) {
 		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
 	}
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	algoName := m.buildPQCAlgorithmName(cert)
 
 	assert.Equal(t, "Unknown", algoName)
@@ -664,7 +664,7 @@ func TestDetectHybridCert_Composite(t *testing.T) {
 		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
 	}
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	isHybrid, components := m.detectHybridCert(cert)
 
 	assert.True(t, isHybrid, "composite OID should be detected as hybrid")
@@ -690,7 +690,7 @@ func TestDetectHybridCert_NonComposite(t *testing.T) {
 	cert, err := x509.ParseCertificate(certDER)
 	require.NoError(t, err)
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	isHybrid, components := m.detectHybridCert(cert)
 
 	assert.False(t, isHybrid)
@@ -709,7 +709,7 @@ func TestDetectHybridCert_CompositePubKey(t *testing.T) {
 		PublicKeyAlgorithm: x509.UnknownPublicKeyAlgorithm,
 	}
 
-	m := NewCertificateModule(&config.Config{})
+	m := NewCertificateModule(&scannerconfig.Config{})
 	isHybrid, components := m.detectHybridCert(cert)
 
 	assert.True(t, isHybrid, "composite pubkey OID should be detected")

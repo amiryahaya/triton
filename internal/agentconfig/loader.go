@@ -55,16 +55,38 @@ type Config struct {
 	// runtime.
 	Profile string `yaml:"profile"`
 
-	// OutputDir is where local reports land when ReportServer is
-	// empty. Interpreted relative to the exe directory when not
-	// absolute, so `./reports` means "<exe-dir>/reports" regardless
-	// of the shell's cwd. When empty, defaults to "./reports".
+	// OutputDir is where local reports land. When ReportServer is
+	// empty, this is the sole output destination. When ReportServer
+	// is set, this path is still resolved but only used if AlsoLocal
+	// is true (tee mode). Interpreted relative to the exe directory
+	// when not absolute, so `./reports` means "<exe-dir>/reports"
+	// regardless of the shell's cwd. When empty, defaults to
+	// "./reports".
 	OutputDir string `yaml:"output_dir"`
 
 	// Formats restricts which report formats are written locally.
 	// Nil or empty means "every format the licence tier allows".
-	// Ignored when ReportServer is set.
+	// Ignored when ReportServer is set AND AlsoLocal is false.
 	Formats []string `yaml:"formats"`
+
+	// AlsoLocal enables "tee" mode: when ReportServer is set, the
+	// agent ALSO writes the scan to OutputDir in addition to
+	// submitting it to the server. Defaults to false — existing
+	// agents with no `also_local` in their yaml keep the same
+	// server-only behavior. When true, local writes run before
+	// submission, and local-write failures degrade to warnings
+	// (the server submit is authoritative). Useful for:
+	//
+	//   - Operators who want a local audit copy of every scan
+	//     alongside central submission
+	//   - Regulated environments requiring an on-host forensic
+	//     artifact that never leaves the endpoint
+	//   - Operators moving from local-only to server-mode who
+	//     want both paths exercised during transition
+	//
+	// Corresponds to the CLI flag `--also-local`. Flag wins over
+	// yaml when explicitly set on the command line.
+	AlsoLocal bool `yaml:"also_local"`
 
 	// loadedFrom records the absolute path the Config was read from.
 	// Empty when the loader returned the zero-value default (no
@@ -177,24 +199,4 @@ func loadFile(path string) (*Config, error) {
 	cfg.ReportServer = strings.TrimSpace(cfg.ReportServer)
 	cfg.Profile = strings.TrimSpace(cfg.Profile)
 	return &cfg, nil
-}
-
-// ResolveOutputDir applies the "relative to exe directory" rule:
-// absolute paths are returned unchanged, relative paths are joined
-// with the exe directory (NOT the shell cwd). An empty input
-// returns "<exe-dir>/reports" as the fool-proof default.
-func (c *Config) ResolveOutputDir() string {
-	exeDir := executableDir()
-	dir := c.OutputDir
-	if dir == "" {
-		dir = "reports"
-	}
-	if filepath.IsAbs(dir) {
-		return dir
-	}
-	if exeDir == "" {
-		// No exe dir (unlikely) — fall back to shell cwd.
-		return dir
-	}
-	return filepath.Join(exeDir, dir)
 }

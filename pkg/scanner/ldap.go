@@ -14,7 +14,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -41,12 +41,12 @@ type ldapTarget struct {
 // LDAPModule scans LDAP directories for certificates stored in
 // userCertificate;binary and cACertificate;binary attributes.
 type LDAPModule struct {
-	config *config.Config
+	config *scannerconfig.Config
 	dialFn ldapDialFunc
 }
 
 // NewLDAPModule creates a new LDAPModule with production LDAP dialer.
-func NewLDAPModule(cfg *config.Config) *LDAPModule {
+func NewLDAPModule(cfg *scannerconfig.Config) *LDAPModule {
 	return &LDAPModule{
 		config: cfg,
 		dialFn: defaultLDAPDial,

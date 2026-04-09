@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -40,10 +40,10 @@ var cryptoProcessKeywords = []struct {
 
 // ProcessModule scans running processes for crypto-related binaries and library linkage.
 type ProcessModule struct {
-	config *config.Config
+	config *scannerconfig.Config
 }
 
-func NewProcessModule(cfg *config.Config) *ProcessModule {
+func NewProcessModule(cfg *scannerconfig.Config) *ProcessModule {
 	return &ProcessModule{config: cfg}
 }
 

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -15,7 +15,7 @@ var _ Module = (*VPNModule)(nil)
 
 func TestVPNModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	assert.Equal(t, "vpn", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
@@ -72,7 +72,7 @@ conn legacy
 
 func TestParseIPsec_Strong(t *testing.T) {
 	t.Parallel()
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseIPsec("/etc/ipsec.conf", []byte(ipsecStrong))
 	require.NotEmpty(t, findings)
 
@@ -101,7 +101,7 @@ func TestParseIPsec_Strong(t *testing.T) {
 
 func TestParseIPsec_Weak(t *testing.T) {
 	t.Parallel()
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseIPsec("/etc/ipsec.conf", []byte(ipsecWeak))
 	require.NotEmpty(t, findings)
 
@@ -140,7 +140,7 @@ PersistentKeepalive = 25
 
 func TestParseWireGuard(t *testing.T) {
 	t.Parallel()
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseWireGuard("/etc/wireguard/wg0.conf", []byte(wireguardConfig))
 	require.NotEmpty(t, findings)
 
@@ -207,7 +207,7 @@ tls-version-min 1.0
 
 func TestParseOpenVPN_Strong(t *testing.T) {
 	t.Parallel()
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(openvpnStrong))
 	require.NotEmpty(t, findings)
 
@@ -239,7 +239,7 @@ client
 remote vpn.example.com 1194
 tls-groups secp384r1:X25519:prime256v1
 `
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(cfg))
 	require.NotEmpty(t, findings)
 
@@ -277,7 +277,7 @@ conn weak
     ike=aes256-sha256-modp2048
     pfs=no
 `
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseIPsec("/etc/ipsec.conf", []byte(cfg))
 
 	hasDisabled := false
@@ -291,7 +291,7 @@ conn weak
 
 func TestParseOpenVPN_Weak(t *testing.T) {
 	t.Parallel()
-	m := NewVPNModule(&config.Config{})
+	m := NewVPNModule(&scannerconfig.Config{})
 	findings := m.parseOpenVPN("/etc/openvpn/client.ovpn", []byte(openvpnWeak))
 	require.NotEmpty(t, findings)
 

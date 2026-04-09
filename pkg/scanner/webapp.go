@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -137,7 +137,7 @@ var webAppCryptoPatterns = []CryptoPattern{
 
 // WebAppModule scans web application source files for crypto API usage patterns.
 type WebAppModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
@@ -145,7 +145,7 @@ type WebAppModule struct {
 
 func (m *WebAppModule) SetStore(s store.Store) { m.store = s }
 
-func NewWebAppModule(cfg *config.Config) *WebAppModule {
+func NewWebAppModule(cfg *scannerconfig.Config) *WebAppModule {
 	return &WebAppModule{config: cfg}
 }
 

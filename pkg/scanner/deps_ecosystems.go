@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -39,7 +39,7 @@ import (
 // the "does it actually reach a weak primitive at runtime" follow-
 // up comes later.
 type DepsEcosystemsModule struct {
-	config      *config.Config
+	config      *scannerconfig.Config
 	store       store.Store
 	lastScanned int64
 	lastMatched int64
@@ -47,7 +47,7 @@ type DepsEcosystemsModule struct {
 
 // NewDepsEcosystemsModule wires a DepsEcosystemsModule with the
 // engine config.
-func NewDepsEcosystemsModule(cfg *config.Config) *DepsEcosystemsModule {
+func NewDepsEcosystemsModule(cfg *scannerconfig.Config) *DepsEcosystemsModule {
 	return &DepsEcosystemsModule{config: cfg}
 }
 

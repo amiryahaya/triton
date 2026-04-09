@@ -58,7 +58,11 @@ func TestSubmit_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// This test uses a manual httptest handler that decodes the body
+	// as plaintext JSON — opt out of compression so it doesn't have
+	// to decode gzip. Compression has its own dedicated tests below.
 	client := New(server.URL)
+	client.CompressSubmissions = false
 	resp, err := client.Submit(context.Background(), testScanResult())
 	require.NoError(t, err)
 
@@ -92,7 +96,11 @@ func TestSubmit_NoAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// This test doesn't decode the body so compression would work
+	// too — but opt out for consistency with the other header-only
+	// tests. The dedicated compression tests cover the on-path.
 	client := New(server.URL)
+	client.CompressSubmissions = false
 	resp, err := client.Submit(context.Background(), testScanResult())
 	require.NoError(t, err)
 	assert.Equal(t, "saved", resp.Status)
@@ -136,10 +144,16 @@ func TestSubmit_ConnectionRefused(t *testing.T) {
 // fastRetryClient is a test helper that collapses the retry backoff
 // to near-zero so retry-path tests don't take tens of seconds. Tests
 // must assert on attempt counts / outcomes, not on wall-clock timing.
+//
+// Also disables CompressSubmissions so tests using manual httptest
+// handlers don't have to decode gzip. A dedicated compression test
+// covers the on-path; every OTHER test is testing retry logic,
+// headers, or status codes, not the wire format.
 func fastRetryClient(serverURL string) *Client {
 	c := New(serverURL)
 	c.RetryInitialBackoff = 1 * time.Millisecond
 	c.RetryMaxAttempts = 3
+	c.CompressSubmissions = false
 	return c
 }
 

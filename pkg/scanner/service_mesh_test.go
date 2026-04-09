@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -18,7 +18,7 @@ var _ Module = (*ServiceMeshModule)(nil)
 
 func TestServiceMeshModule_Interface(t *testing.T) {
 	t.Parallel()
-	m := NewServiceMeshModule(&config.Config{})
+	m := NewServiceMeshModule(&scannerconfig.Config{})
 	assert.Equal(t, "service_mesh", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
@@ -63,7 +63,7 @@ func TestServiceMeshModule_ScanWalk(t *testing.T) {
 	require.NoError(t, os.MkdirAll(istioDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(istioDir, "cert-chain.pem"), []byte(testPEMCert), 0o644))
 
-	m := NewServiceMeshModule(&config.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
+	m := NewServiceMeshModule(&scannerconfig.Config{MaxDepth: 10, MaxFileSize: 1024 * 1024})
 
 	findings := make(chan *model.Finding, 32)
 	done := make(chan struct{})

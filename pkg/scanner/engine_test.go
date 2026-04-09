@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
-func testConfig() *config.Config {
-	return &config.Config{
+func testConfig() *scannerconfig.Config {
+	return &scannerconfig.Config{
 		Profile: "quick",
 		Workers: 4,
 		ScanTargets: []model.ScanTarget{
@@ -353,7 +353,7 @@ func TestScanResultMetadata(t *testing.T) {
 	assert.True(t, result.Metadata.Duration > 0)
 }
 
-func testConfigWithMetrics() *config.Config {
+func testConfigWithMetrics() *scannerconfig.Config {
 	cfg := testConfig()
 	cfg.Metrics = true
 	return cfg

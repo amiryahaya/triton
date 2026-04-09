@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -32,7 +32,7 @@ func TestCertStoreModule_ParsePEMCerts_RSA(t *testing.T) {
 	// Generate a self-signed RSA certificate
 	pemData := generateCertStorePEM(t, "RSA", 2048)
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
@@ -54,7 +54,7 @@ func TestCertStoreModule_ParsePEMCerts_RSA(t *testing.T) {
 func TestCertStoreModule_ParsePEMCerts_ECDSA(t *testing.T) {
 	pemData := generateCertStorePEM(t, "ECDSA", 256)
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
@@ -74,7 +74,7 @@ func TestCertStoreModule_ParsePEMCerts_ECDSA(t *testing.T) {
 func TestCertStoreModule_ParsePEMCerts_Ed25519(t *testing.T) {
 	pemData := generateCertStorePEM(t, "Ed25519", 0)
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	err := m.parsePEMCerts(context.Background(), pemData, "test", "OS certificate store", findings)
@@ -96,7 +96,7 @@ func TestCertStoreModule_ParsePEMCerts_Multiple(t *testing.T) {
 	cert2 := generateCertStorePEM(t, "ECDSA", 384)
 	combined := append(cert1, cert2...)
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	err := m.parsePEMCerts(context.Background(), combined, "test", "OS certificate store", findings)
@@ -112,7 +112,7 @@ func TestCertStoreModule_ParsePEMCerts_Multiple(t *testing.T) {
 }
 
 func TestCertStoreModule_ParsePEMCerts_Empty(t *testing.T) {
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 
 	err := m.parsePEMCerts(context.Background(), []byte("not a pem"), "test", "OS certificate store", findings)
@@ -130,7 +130,7 @@ func TestCertStoreModule_ParsePEMCerts_Empty(t *testing.T) {
 func TestCertStoreModule_ContextCancellation(t *testing.T) {
 	pemData := generateCertStorePEM(t, "RSA", 2048)
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -176,7 +176,7 @@ func TestCertStoreModule_Scan_Integration(t *testing.T) {
 	// single wedged keytool subprocess would stall the entire
 	// pkg/scanner test run against the 10-minute Go test
 	// timeout (observed in PR #12 first CI run).
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 500)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}
 
@@ -218,7 +218,7 @@ func TestCertStoreModule_Scan_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	m := NewCertStoreModule(&config.Config{})
+	m := NewCertStoreModule(&scannerconfig.Config{})
 	findings := make(chan *model.Finding, 50)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/"}
 

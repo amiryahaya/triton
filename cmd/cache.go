@@ -7,14 +7,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/amiryahaya/triton/internal/config"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
 func openStore() (store.Store, error) {
 	url := dbPath
 	if url == "" {
-		url = config.DefaultDBUrl()
+		url = scannerconfig.DefaultDBUrl()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

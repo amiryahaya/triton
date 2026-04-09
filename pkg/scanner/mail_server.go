@@ -170,12 +170,44 @@ var postfixTLSDirectives = map[string]string{
 	"smtp_tls_cipher_suites":        "Postfix outbound cipher list",
 }
 
-func (m *MailServerModule) parsePostfix(path string, data []byte) []*model.Finding {
-	var out []*model.Finding
+// joinPostfixContinuations merges Postfix main.cf continuation
+// lines into their parent directive. Postfix allows a value to
+// span multiple lines when the continuation lines start with
+// whitespace (spaces or tabs). Without this join, a directive
+// like:
+//
+//	smtpd_tls_mandatory_protocols =
+//	    !SSLv2, !SSLv3
+//
+// would parse as a directive with an empty value plus a
+// standalone `!SSLv3` line that has no `=` and gets dropped.
+// Sprint-review SF6 regression.
+func joinPostfixContinuations(data []byte) []string {
+	var joined []string
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 8*1024), 256*1024)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		raw := scanner.Text()
+		if raw == "" || strings.HasPrefix(strings.TrimSpace(raw), "#") {
+			joined = append(joined, raw)
+			continue
+		}
+		// Leading whitespace means this line is a continuation
+		// of the previous one.
+		if len(joined) > 0 && (strings.HasPrefix(raw, " ") || strings.HasPrefix(raw, "\t")) {
+			joined[len(joined)-1] += " " + strings.TrimSpace(raw)
+			continue
+		}
+		joined = append(joined, raw)
+	}
+	return joined
+}
+
+func (m *MailServerModule) parsePostfix(path string, data []byte) []*model.Finding {
+	var out []*model.Finding
+	lines := joinPostfixContinuations(data)
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -211,7 +243,6 @@ func (m *MailServerModule) parsePostfix(path string, data []byte) []*model.Findi
 			out = append(out, mailFinding(path, asset))
 		}
 	}
-	logScannerErr(path, "postfix", scanner.Err())
 	return out
 }
 

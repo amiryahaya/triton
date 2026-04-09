@@ -387,11 +387,27 @@ var javaCryptoArtifacts = map[string]string{
 // single-line / multi-line split the test uses.
 var javaPomDepRE = regexp.MustCompile(`(?s)<groupId>\s*([^<\s]+)\s*</groupId>\s*<artifactId>\s*([^<\s]+)\s*</artifactId>`)
 
+// javaPomDepMgmtRE matches the entire <dependencyManagement>…
+// </dependencyManagement> block so we can strip it before the
+// real dependency scan. DM entries declare version CONSTRAINTS,
+// not active dependencies — a BouncyCastle entry under
+// dependencyManagement is NOT a direct reference. Sprint-review
+// SF3 regression.
+var javaPomDepMgmtRE = regexp.MustCompile(`(?s)<dependencyManagement>.*?</dependencyManagement>`)
+
+// javaPomPluginMgmtRE does the same for <pluginManagement>.
+var javaPomPluginMgmtRE = regexp.MustCompile(`(?s)<pluginManagement>.*?</pluginManagement>`)
+
 func (m *DepsEcosystemsModule) parseJavaPomXML(path string, data []byte) []*model.Finding {
 	var out []*model.Finding
 	seen := make(map[string]bool)
 
-	matches := javaPomDepRE.FindAllSubmatch(data, -1)
+	// Strip management blocks before applying the dependency
+	// regex so version-only constraints don't produce findings.
+	cleaned := javaPomDepMgmtRE.ReplaceAll(data, []byte(""))
+	cleaned = javaPomPluginMgmtRE.ReplaceAll(cleaned, []byte(""))
+
+	matches := javaPomDepRE.FindAllSubmatch(cleaned, -1)
 	for _, match := range matches {
 		group := string(match[1])
 		artifact := string(match[2])

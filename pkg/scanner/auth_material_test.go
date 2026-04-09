@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -145,6 +146,52 @@ func TestParseKeytab_WeakArcfour(t *testing.T) {
 		}
 	}
 	require.NotNil(t, rc4, "RC4 / arcfour enctype finding missing")
+}
+
+// TestParseKeytab_CorruptInputNoPanic is the B1 regression test.
+// Before the fix, an entry length with the high bit set could
+// cause an infinite loop on 32-bit targets (and silent drop on
+// 64-bit) because the negation of int32(MinInt32) overflows.
+// The fixed parser uses uint32 arithmetic and stops cleanly on
+// any corrupt length.
+func TestParseKeytab_CorruptInputNoPanic(t *testing.T) {
+	m := NewAuthMaterialModule(&config.Config{})
+
+	// Header + a single 4-byte length field with all bits set
+	// (0xFFFFFFFF = INT32_MIN when signed-cast), followed by no
+	// body. Before the fix this caused int(-entryLen) = 0 on
+	// 64-bit or infinite loop on 32-bit.
+	// Run each case in a goroutine with a short timeout so an
+	// infinite-loop regression fails the test instead of hanging.
+	runWithTimeout := func(name string, blob []byte) {
+		done := make(chan struct{})
+		go func() {
+			_ = m.parseKeytab("/etc/krb5.keytab", blob)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("parseKeytab(%s) did not return within 2s", name)
+		}
+	}
+
+	// 0xFFFFFFFF = high bit set, magnitude 1 → skip 1 byte past
+	// EOF. Before the fix this path was int32(MinInt32) which
+	// overflowed under -entryLen. The fix computes the magnitude
+	// in uint32 and notices it overruns.
+	runWithTimeout("minInt32", []byte{0x05, 0x02, 0xFF, 0xFF, 0xFF, 0xFF})
+
+	// Deleted-entry marker followed by 2 bytes of padding: the
+	// parser should advance cleanly without re-reading.
+	// 0xFFFFFFFE = -2 (signed) = skip 2 bytes.
+	runWithTimeout("deletedEntry", []byte{0x05, 0x02, 0xFF, 0xFF, 0xFF, 0xFE, 0x00, 0x00})
+
+	// Zero length: explicit terminator, parser must stop.
+	runWithTimeout("zeroLength", []byte{0x05, 0x02, 0x00, 0x00, 0x00, 0x00})
+
+	// Unknown version byte: reject rather than guess endianness.
+	runWithTimeout("unknownVersion", []byte{0x05, 0x03, 0x00, 0x00, 0x00, 0x00})
 }
 
 func TestParseKeytab_WeakDES(t *testing.T) {

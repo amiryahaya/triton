@@ -201,6 +201,19 @@ var keytabEnctype = map[uint16]string{
 // The parser is deliberately conservative — any byte past the
 // declared entry length is skipped rather than re-interpreted,
 // so a corrupted file stops parsing cleanly without panicking.
+//
+// Safety notes from sprint review (B1):
+//
+//   - entry length is read as uint32 and compared against the
+//     high bit for the "deleted entry" encoding rather than
+//     cast to int32 (which overflows on MinInt32 and is
+//     architecture-dependent on 32-bit Go).
+//   - the magnitude of a deleted-entry skip is computed in
+//     uint32 arithmetic (two's-complement negation) before
+//     being safely widened to int — this cannot overflow on
+//     any GOARCH and cannot produce a negative int.
+//   - version byte 1 is explicitly checked for 0x01 or 0x02;
+//     any other value rejects the file.
 func (m *AuthMaterialModule) parseKeytab(path string, data []byte) []*model.Finding {
 	if len(data) < 2 {
 		return nil
@@ -210,31 +223,41 @@ func (m *AuthMaterialModule) parseKeytab(path string, data []byte) []*model.Find
 	if data[0] != 0x05 {
 		return nil
 	}
-	bigEndian := data[1] == 0x02
 	order := binary.ByteOrder(binary.BigEndian)
-	if !bigEndian {
+	switch data[1] {
+	case 0x02:
+		// big-endian (v2)
+	case 0x01:
 		order = binary.LittleEndian
+	default:
+		// Unknown version byte — reject rather than guess.
+		return nil
 	}
 
 	var out []*model.Finding
 	pos := 2
 	for pos+4 <= len(data) {
-		entryLen := int32(order.Uint32(data[pos : pos+4]))
+		rawLen := order.Uint32(data[pos : pos+4])
 		pos += 4
-		if entryLen <= 0 {
-			// Negative length = deleted entry; positive length of
-			// zero is corrupt; either way, skip.
-			if entryLen < 0 {
-				skip := int(-entryLen)
-				if pos+skip > len(data) {
-					break
-				}
-				pos += skip
-				continue
-			}
+		if rawLen == 0 {
+			// Explicit terminator (or corrupt zero-length entry);
+			// stop walking either way.
 			break
 		}
-		if pos+int(entryLen) > len(data) {
+		// RFC: the high bit indicates a deleted-entry slot whose
+		// body should be skipped. Compute the magnitude in uint32
+		// to avoid the int32(-entryLen) overflow that reviewer
+		// B1 flagged as an infinite-loop vector on 32-bit Go.
+		if rawLen&0x80000000 != 0 {
+			skip := ^rawLen + 1 // two's-complement magnitude (uint32)
+			if skip == 0 || uint64(pos)+uint64(skip) > uint64(len(data)) {
+				break
+			}
+			pos += int(skip)
+			continue
+		}
+		entryLen := rawLen // safe: high bit is 0, fits in int on every arch
+		if uint64(pos)+uint64(entryLen) > uint64(len(data)) {
 			break
 		}
 		entry := data[pos : pos+int(entryLen)]

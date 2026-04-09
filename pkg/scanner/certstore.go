@@ -233,11 +233,25 @@ func discoverJavaCacerts() []string {
 // contains header noise (keystore type, alias names, etc.) which
 // parsePEMCerts safely ignores because it only looks for
 // CERTIFICATE blocks.
+//
+// Sprint review B2: the `changeit` password appears on the
+// command line and is therefore visible in `/proc/<pid>/cmdline`
+// for the lifetime of the subprocess. That is ACCEPTABLE here
+// because:
+//
+//  1. `changeit` is the publicly documented Oracle default
+//     password for every JDK's cacerts since 1996 — it is not a
+//     secret and leaks no information about operator-set values.
+//  2. If the operator has changed the password, keytool exits
+//     non-zero, we treat it as a soft skip, and no keystore
+//     data is exposed.
+//  3. The alternative (`-storepass:env VAR`) would require
+//     setting an env var on the subprocess, which cmdRunnerFunc
+//     doesn't support today. Refactoring cmdRunnerFunc to take
+//     an env slice is a future enhancement.
 func (m *CertStoreModule) scanJavaCacerts(ctx context.Context, path string, findings chan<- *model.Finding) error {
 	// keytool is in $JAVA_HOME/bin and usually on PATH when a JDK
-	// is installed. -storepass changeit is the documented default
-	// for cacerts; operators who changed it will see zero findings
-	// (keytool exits non-zero), same tolerance as the other paths.
+	// is installed.
 	out, err := m.cmdRunner(ctx, "keytool",
 		"-list", "-rfc",
 		"-keystore", path,

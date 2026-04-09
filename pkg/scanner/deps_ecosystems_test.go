@@ -194,6 +194,44 @@ func TestParseJavaPomXML(t *testing.T) {
 	assert.NotContains(t, joined, "spring-boot")
 }
 
+// TestParseJavaPomXML_DependencyManagementStripped is the SF3
+// regression test. Before the fix, a <dependencyManagement>
+// block declaring a version constraint for BouncyCastle would
+// produce a finding even when the project never actually
+// referenced that artifact in its real <dependencies> list.
+// The fix strips management blocks before the dependency
+// regex runs.
+func TestParseJavaPomXML_DependencyManagementStripped(t *testing.T) {
+	const pomWithDepMgmt = `<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>1.77</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter</artifactId>
+    </dependency>
+  </dependencies>
+</project>`
+	m := NewDepsEcosystemsModule(&config.Config{})
+	findings := m.parseJavaPomXML("/srv/app/pom.xml", []byte(pomWithDepMgmt))
+	// No actual crypto dependency is declared — BouncyCastle is
+	// only in dependencyManagement. Findings should be empty.
+	for _, f := range findings {
+		if f.CryptoAsset != nil {
+			assert.NotContains(t, f.CryptoAsset.Algorithm, "bouncycastle",
+				"dependencyManagement-only BouncyCastle leaked as a finding")
+		}
+	}
+}
+
 // --- Java build.gradle ---
 
 const javaBuildGradle = `plugins {

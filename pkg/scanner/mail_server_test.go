@@ -82,6 +82,29 @@ func TestParsePostfix_Weak(t *testing.T) {
 	assert.Contains(t, joined, "TLS 1.0")
 }
 
+// TestParsePostfix_MultiLineContinuation is the SF6 regression.
+// Before the fix, a directive split across lines produced a
+// finding for the name line (empty value) and silently dropped
+// the continuation line (no `=` → no match). The fix joins
+// whitespace-led continuation lines into their parent directive
+// before the directive parser runs.
+func TestParsePostfix_MultiLineContinuation(t *testing.T) {
+	const cfg = `# Multi-line Postfix directive
+smtpd_tls_mandatory_protocols =
+    !SSLv2, !SSLv3,
+    !TLSv1, !TLSv1.1
+`
+	m := NewMailServerModule(&config.Config{})
+	findings := m.parsePostfix("/etc/postfix/main.cf", []byte(cfg))
+	require.NotEmpty(t, findings, "multi-line Postfix directive dropped")
+
+	algos := collectAlgorithms(findings)
+	joined := strings.Join(algos, " ")
+	assert.Contains(t, joined, "SSL 3.0")
+	assert.Contains(t, joined, "TLS 1.0")
+	assert.Contains(t, joined, "TLS 1.1")
+}
+
 // --- DKIM ---
 
 const dkimKeyTable = `default._domainkey.example.com example.com:default:/etc/dkim/default.private

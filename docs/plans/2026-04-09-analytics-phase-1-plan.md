@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠️ PLAN CORRECTIONS (2026-04-09, during execution):** Several tasks were authored with incorrect assumptions about the real `pkg/model` and `pkg/store` APIs. Corrections for Tasks 1.1, 1.2, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.12, 1.13, 2.1, 3.1, 4.1, and 4.2 live in **Appendix A** at the bottom of this document. **When implementing any of those tasks, use the Appendix A version verbatim and IGNORE the corresponding inline code above.** Affected tasks are marked with ⚠️ next to their heading. Tasks not in Appendix A are unaffected.
+
 **Goal:** Ship three new read-only analytical views (Crypto Inventory, Expiring Certificates, Migration Priority) in the report server, backed by a denormalized `findings` read-model table with auto-backfill on first boot.
 
 **Architecture:** New `findings` PostgreSQL table populated transactionally on scan submit and retroactively via a first-boot background goroutine. Three new aggregation endpoints (filtered to latest-scan-per-host) serve three new UI views under a new "Analytics" sidebar section. Three Prometheus metrics expose backfill progress.
@@ -3416,3 +3418,1484 @@ Return the PR URL.
 - **Type consistency** — `Finding`, `InventoryRow`, `ExpiringCertRow`, `PriorityRow`, `SaveScanWithFindings`, `ListInventory`, `ListExpiringCertificates`, `ListTopPriorityFindings` are used identically across all tasks ✓
 - **File paths** — every task specifies exact paths (`pkg/store/...`, `pkg/server/...`, `pkg/server/ui/dist/...`, `test/e2e/...`, `docs/...`) ✓
 - **Commands** — every test run command includes the `TRITON_TEST_DB_URL` env var override because the project's test DB is on port 5435 (per MEMORY.md) ✓
+
+---
+
+# Appendix A — Plan Corrections (authored during execution)
+
+## Why this exists
+
+When execution began on 2026-04-09, the first implementer subagent discovered that several tasks referenced `pkg/model` and `pkg/store` APIs that didn't exist as specified in the plan. The plan was written assuming field shapes and helper function names without cross-checking them against the actual source. A validation pass was run and the affected tasks are corrected here.
+
+**Affected tasks:** 1.1, 1.2, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.12, 1.13, 2.1, 3.1, 4.1, 4.2.
+
+**Root causes found:**
+
+1. `model.ScanResult.Hostname` doesn't exist — hostname is at `ScanResult.Metadata.Hostname`.
+2. `model.ScanResult.Metadata.Profile` doesn't exist — it's `Metadata.ScanProfile`.
+3. `model.Finding.FilePath` and `model.Finding.LineNumber` don't exist — file path is at `Finding.Source.Path`; no line-number field exists anywhere in the model.
+4. `model.Finding.Category` is a `ModuleCategory int` enum (4 coarse values), not a string — trying to set `Category: "key"` in a struct literal doesn't compile. The scanner **module name** (`Finding.Module`) is the granular drill-down field, and `Category` is deliberately not stored in the findings table.
+5. `marshalScanPayload()` and `maybeDecrypt()` helpers referenced by the plan don't exist — the actual pattern in `pkg/store/postgres.go::SaveScan` uses `json.Marshal(result)` followed by `s.loadEncryptor().Encrypt(blob)` (or `Decrypt` on read), both inline.
+6. `scan.Summary.TotalCryptoAssets` exists but `SaveScan` uses `scan.Summary.TotalFindings` for the `total_findings` column — match that.
+7. `pgx.BeginFunc` works but isn't the codebase's idiom — `s.pool.BeginTx(ctx, pgx.TxOptions{})` + defer Rollback + explicit Commit is (see `pkg/licensestore/postgres.go:325`).
+8. `testScanResult` has **two different signatures** depending on package:
+   - `pkg/store/store_test.go:55`: `testScanResult(id, hostname, profile string)` — 3 args, does NOT set OrgID
+   - `pkg/server/server_test.go:217`: `testScanResult(id, hostname string)` — 2 args, DOES set `OrgID: testOrgID` (the constant `"00000000-0000-0000-0000-000000000abc"`)
+9. `testUUID` has **two different signatures**:
+   - `pkg/store/store_test.go:24`: `testUUID(name string) string` — deterministic UUIDv5 from name
+   - `pkg/server/server_test.go:31`: `testUUID(n int) string` — deterministic from int
+10. Downstream consequences of dropping `Category` and `LineNumber` from `Finding`/`PriorityRow`: SQL queries, scan-row targets, UI render functions, and several test assertions all need updating.
+
+## A.1 — Task 1.1 corrected `Finding` and `PriorityRow`
+
+**Status:** ✅ Already applied to `pkg/store/types.go` during validation pass.
+
+The `Finding` struct drops `Category string` and `LineNumber int`. The `PriorityRow` struct drops `Category string` and `LineNumber int`.
+
+Correct `Finding`:
+
+```go
+// Finding is the denormalized per-finding row stored in the findings
+// table. Populated from model.Finding.CryptoAsset during extraction;
+// findings without a crypto asset are skipped.
+//
+// Field mapping from model.Finding:
+//   - Hostname comes from model.ScanResult.Metadata.Hostname
+//   - FilePath comes from model.Finding.Source.Path (empty for non-file sources)
+//   - Module is the scanner module name ("certificate", "library", "deps", ...)
+//     and is the primary drill-down discriminator. model.Finding.Category
+//     (a coarse ModuleCategory enum) is intentionally NOT stored — Module
+//     carries the granular information Phase 1 views care about.
+type Finding struct {
+	ID                string
+	ScanID            string
+	OrgID             string
+	Hostname          string
+	FindingIndex      int
+	Module            string
+	FilePath          string
+	Algorithm         string
+	KeySize           int
+	PQCStatus         string
+	MigrationPriority int
+	NotAfter          *time.Time
+	Subject           string
+	Issuer            string
+	Reachability      string
+	CreatedAt         time.Time
+}
+```
+
+Correct `PriorityRow`:
+
+```go
+// PriorityRow is one row in the Migration Priority view.
+//
+// Module is the scanner module name ("certificate", "library", ...);
+// we don't store a separate "category" field — the coarse
+// ModuleCategory enum from the model package wasn't useful for
+// drill-down, and Module carries the granular information.
+type PriorityRow struct {
+	FindingID string `json:"findingId"`
+	Priority  int    `json:"priority"`
+	Algorithm string `json:"algorithm"`
+	KeySize   int    `json:"keySize,omitempty"`
+	PQCStatus string `json:"pqcStatus"`
+	Module    string `json:"module"`
+	Hostname  string `json:"hostname"`
+	FilePath  string `json:"filePath,omitempty"`
+}
+```
+
+`InventoryRow` and `ExpiringCertRow` are unchanged from the original Task 1.1.
+
+## A.2 — Task 1.2 corrected migration v7
+
+**Status:** ✅ Already applied to `pkg/store/migrations.go` during validation pass.
+
+Drop `category TEXT NOT NULL` and `line_number INTEGER NOT NULL DEFAULT 0` from the `findings` table definition. The rest of the migration is unchanged.
+
+Correct CREATE TABLE:
+
+```sql
+CREATE TABLE IF NOT EXISTS findings (
+    id                  UUID PRIMARY KEY,
+    scan_id             UUID NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+    org_id              UUID NOT NULL,
+    hostname            TEXT NOT NULL,
+    finding_index       INTEGER NOT NULL,
+    module              TEXT NOT NULL,
+    file_path           TEXT NOT NULL DEFAULT '',
+    algorithm           TEXT NOT NULL,
+    key_size            INTEGER NOT NULL DEFAULT 0,
+    pqc_status          TEXT NOT NULL DEFAULT '',
+    migration_priority  INTEGER NOT NULL DEFAULT 0,
+    not_after           TIMESTAMPTZ,
+    subject             TEXT NOT NULL DEFAULT '',
+    issuer              TEXT NOT NULL DEFAULT '',
+    reachability        TEXT NOT NULL DEFAULT '',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (scan_id, finding_index)
+);
+```
+
+Indexes + `ALTER TABLE scans ADD COLUMN IF NOT EXISTS findings_extracted_at TIMESTAMPTZ;` are unchanged.
+
+## A.4 — Task 1.4 corrected ExtractFindings
+
+**Status:** ✅ Already applied to `pkg/store/extract.go` and `extract_test.go` during validation pass.
+
+Correct `pkg/store/extract.go`:
+
+```go
+package store
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+// ExtractFindings walks a ScanResult and produces one Finding row per
+// model.Finding whose CryptoAsset is non-nil. Pure function — no DB
+// access. Used by both the submit path (SaveScanWithFindings) and the
+// backfill goroutine (BackfillFindings) so they produce identical rows.
+//
+// Field mapping from model.Finding / model.ScanResult:
+//
+//	Hostname ← scan.Metadata.Hostname
+//	FilePath ← f.Source.Path
+//	Module   ← f.Module
+//	(CryptoAsset fields map 1:1 from ca)
+//
+// model.Finding.Category (a coarse ModuleCategory enum) is NOT stored —
+// the scanner module name is the granular drill-down discriminator for
+// Phase 1 views.
+func ExtractFindings(scan *model.ScanResult) []Finding {
+	if scan == nil || len(scan.Findings) == 0 {
+		return nil
+	}
+	out := make([]Finding, 0, len(scan.Findings))
+	now := time.Now().UTC()
+	for i := range scan.Findings {
+		f := &scan.Findings[i]
+		if f.CryptoAsset == nil {
+			continue
+		}
+		ca := f.CryptoAsset
+		out = append(out, Finding{
+			ID:                uuid.Must(uuid.NewV7()).String(),
+			ScanID:            scan.ID,
+			OrgID:             scan.OrgID,
+			Hostname:          scan.Metadata.Hostname,
+			FindingIndex:      i,
+			Module:            f.Module,
+			FilePath:          f.Source.Path,
+			Algorithm:         ca.Algorithm,
+			KeySize:           ca.KeySize,
+			PQCStatus:         ca.PQCStatus,
+			MigrationPriority: ca.MigrationPriority,
+			NotAfter:          ca.NotAfter,
+			Subject:           ca.Subject,
+			Issuer:            ca.Issuer,
+			Reachability:      ca.Reachability,
+			CreatedAt:         now,
+		})
+	}
+	return out
+}
+```
+
+The test file `pkg/store/extract_test.go` uses helper functions `scanWith`, `cryptoFinding`, and `plainFinding` to keep individual test bodies short. It's been checked into the working tree directly; see the git diff for the exact content.
+
+## A.5 — Task 1.5 corrected SaveScanWithFindings
+
+Major rewrite due to several bugs in the original: `marshalScanPayload` helper doesn't exist, `scan.Hostname`/`scan.Metadata.Profile`/`scan.Summary.TotalCryptoAssets` field references were wrong, column count was 18 instead of 16, and the pgx transaction idiom should match the rest of the codebase.
+
+### Correct `pkg/store/findings.go`
+
+```go
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+// SaveScanWithFindings atomically creates a scan row and inserts the
+// extracted crypto findings into the findings table. Marks the scan
+// as backfilled on success so the background goroutine skips it.
+//
+// Replaces SaveScan on the hot-path write; SaveScan remains for legacy
+// call sites. See docs/plans/2026-04-09-analytics-phase-1-design.md §6.
+func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.ScanResult, findings []Finding) error {
+	if scan == nil {
+		return fmt.Errorf("cannot save nil scan result")
+	}
+	if scan.ID == "" {
+		return fmt.Errorf("scan result must have an ID")
+	}
+
+	// Marshal + encrypt the blob using the same pattern as SaveScan.
+	blob, err := json.Marshal(scan)
+	if err != nil {
+		return fmt.Errorf("marshalling scan result: %w", err)
+	}
+	if enc := s.loadEncryptor(); enc != nil {
+		encrypted, encErr := enc.Encrypt(blob)
+		if encErr != nil {
+			return fmt.Errorf("encrypting scan result: %w", encErr)
+		}
+		blob = encrypted
+	}
+
+	var orgID *string
+	if scan.OrgID != "" {
+		orgID = &scan.OrgID
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// (1) Upsert the scan row. Column list matches SaveScan's insert plus
+	// the new findings_extracted_at marker (set to NOW() so the backfill
+	// goroutine skips this row).
+	_, err = tx.Exec(ctx, `
+		INSERT INTO scans
+		  (id, hostname, timestamp, profile,
+		   total_findings, safe, transitional, deprecated, unsafe,
+		   result_json, org_id, findings_extracted_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		ON CONFLICT (id) DO UPDATE SET
+		  hostname = EXCLUDED.hostname,
+		  timestamp = EXCLUDED.timestamp,
+		  profile = EXCLUDED.profile,
+		  total_findings = EXCLUDED.total_findings,
+		  safe = EXCLUDED.safe,
+		  transitional = EXCLUDED.transitional,
+		  deprecated = EXCLUDED.deprecated,
+		  unsafe = EXCLUDED.unsafe,
+		  result_json = EXCLUDED.result_json,
+		  org_id = EXCLUDED.org_id,
+		  findings_extracted_at = EXCLUDED.findings_extracted_at
+	`,
+		scan.ID,
+		scan.Metadata.Hostname,
+		scan.Metadata.Timestamp.UTC(),
+		scan.Metadata.ScanProfile,
+		scan.Summary.TotalFindings,
+		scan.Summary.Safe,
+		scan.Summary.Transitional,
+		scan.Summary.Deprecated,
+		scan.Summary.Unsafe,
+		blob,
+		orgID,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert scan: %w", err)
+	}
+
+	// (2) Bulk-insert the findings. Idempotent via ON CONFLICT so retries
+	// or re-runs of the backfill are safe.
+	if err := insertFindingsInTx(ctx, tx, findings); err != nil {
+		return fmt.Errorf("insert findings: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// insertFindingsInTx bulk-inserts findings using chunked VALUES lists
+// to avoid the pgx parameter limit (65535). 1000 rows × 16 cols = 16000
+// params per chunk keeps us well under the limit.
+func insertFindingsInTx(ctx context.Context, tx pgx.Tx, findings []Finding) error {
+	if len(findings) == 0 {
+		return nil
+	}
+	const chunkSize = 1000
+	for start := 0; start < len(findings); start += chunkSize {
+		end := start + chunkSize
+		if end > len(findings) {
+			end = len(findings)
+		}
+		if err := insertFindingsChunk(ctx, tx, findings[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// insertFindingsChunk inserts up to 1000 finding rows in a single
+// statement. Column count: 16.
+func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error {
+	const cols = 16
+	args := make([]any, 0, len(chunk)*cols)
+	valueStrs := make([]string, 0, len(chunk))
+	for i, f := range chunk {
+		base := i * cols
+		valueStrs = append(valueStrs, fmt.Sprintf(
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
+			base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16,
+		))
+		args = append(args,
+			f.ID, f.ScanID, f.OrgID, f.Hostname, f.FindingIndex,
+			f.Module, f.FilePath,
+			f.Algorithm, f.KeySize, f.PQCStatus, f.MigrationPriority,
+			f.NotAfter, f.Subject, f.Issuer, f.Reachability, f.CreatedAt,
+		)
+	}
+
+	sql := `INSERT INTO findings (
+		id, scan_id, org_id, hostname, finding_index,
+		module, file_path,
+		algorithm, key_size, pqc_status, migration_priority,
+		not_after, subject, issuer, reachability, created_at
+	) VALUES ` + strings.Join(valueStrs, ",") + `
+	ON CONFLICT (scan_id, finding_index) DO NOTHING`
+
+	_, err := tx.Exec(ctx, sql, args...)
+	return err
+}
+```
+
+### Correct `pkg/store/findings_test.go` (foundation for Tasks 1.5–1.8)
+
+```go
+//go:build integration
+
+package store
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+// saveScan is a shared test helper that creates a scan with the given
+// ID/hostname/profile/orgID, runs ExtractFindings, and calls
+// SaveScanWithFindings. It replaces the scan's pre-seeded findings
+// entirely with the supplied list.
+func saveScan(t *testing.T, s *PostgresStore, id, hostname, orgID string, findings ...model.Finding) *model.ScanResult {
+	t.Helper()
+	scan := testScanResult(id, hostname, "quick")
+	scan.OrgID = orgID
+	scan.Findings = findings
+	require.NoError(t, s.SaveScanWithFindings(context.Background(), scan, ExtractFindings(scan)))
+	return scan
+}
+
+func cryptoF(module, path string, ca *model.CryptoAsset) model.Finding {
+	return model.Finding{
+		Module:      module,
+		Source:      model.FindingSource{Type: "file", Path: path},
+		CryptoAsset: ca,
+	}
+}
+
+// queryFindingsCount counts findings rows for a scan. Uses the
+// package-private pool directly so it's only available to tests in
+// the pkg/store package.
+func queryFindingsCount(t *testing.T, s *PostgresStore, scanID string) int {
+	t.Helper()
+	var count int
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM findings WHERE scan_id = $1`, scanID).Scan(&count)
+	require.NoError(t, err)
+	return count
+}
+
+// queryScanBackfilled returns true if the scan row has findings_extracted_at set.
+func queryScanBackfilled(t *testing.T, s *PostgresStore, scanID string) bool {
+	t.Helper()
+	var markedAt *time.Time
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT findings_extracted_at FROM scans WHERE id = $1`, scanID).Scan(&markedAt)
+	require.NoError(t, err)
+	return markedAt != nil
+}
+
+// --- SaveScanWithFindings ---
+
+func TestSaveScanWithFindings_StoresScanAndFindings(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("swf-org")
+
+	scan := saveScan(t, s, testUUID("swf-1"), "host-1", orgID,
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE", MigrationPriority: 10}),
+	)
+
+	// Scan row exists
+	retrieved, err := s.GetScan(context.Background(), scan.ID, orgID)
+	require.NoError(t, err)
+	assert.Equal(t, scan.ID, retrieved.ID)
+
+	// Findings rows exist
+	assert.Equal(t, 2, queryFindingsCount(t, s, scan.ID))
+
+	// Scan marked backfilled
+	assert.True(t, queryScanBackfilled(t, s, scan.ID))
+}
+
+func TestSaveScanWithFindings_SkipsNonCryptoFindings(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("swf-org-2")
+
+	scan := saveScan(t, s, testUUID("swf-2"), "host-2", orgID,
+		model.Finding{Module: "file", Source: model.FindingSource{Path: "/plain"}}, // non-crypto, skipped
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+	)
+	assert.Equal(t, 1, queryFindingsCount(t, s, scan.ID))
+}
+
+func TestSaveScanWithFindings_OnConflictSkipsDuplicateRows(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("swf-org-3")
+
+	scan := testScanResult(testUUID("swf-3"), "host-3", "quick")
+	scan.OrgID = orgID
+	scan.Findings = []model.Finding{
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+	}
+	extracted := ExtractFindings(scan)
+
+	// First save
+	require.NoError(t, s.SaveScanWithFindings(context.Background(), scan, extracted))
+	// Second save with the SAME extracted rows — ON CONFLICT DO NOTHING
+	// should absorb the duplicate (same scan_id + finding_index).
+	require.NoError(t, s.SaveScanWithFindings(context.Background(), scan, extracted))
+
+	assert.Equal(t, 1, queryFindingsCount(t, s, scan.ID))
+}
+```
+
+## A.6 — Task 1.6 corrected ListInventory tests
+
+Store-package tests use `testScanResult(id, hostname, profile)` (3-arg, no OrgID set) + `testUUID(name string)` (string arg). They must set `scan.OrgID` manually.
+
+### Append to `pkg/store/findings_test.go`
+
+```go
+// --- ListInventory ---
+
+func TestListInventory_EmptyOrg(t *testing.T) {
+	s := testStore(t)
+	rows, err := s.ListInventory(context.Background(), testUUID("empty-org"))
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestListInventory_SingleFinding(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("inv-org")
+	scan := saveScan(t, s, testUUID("inv-1"), "host-1", orgID,
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+	)
+	_ = scan
+
+	rows, err := s.ListInventory(context.Background(), orgID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "RSA", rows[0].Algorithm)
+	assert.Equal(t, 2048, rows[0].KeySize)
+	assert.Equal(t, "DEPRECATED", rows[0].PQCStatus)
+	assert.Equal(t, 1, rows[0].Instances)
+	assert.Equal(t, 1, rows[0].Machines)
+	assert.Equal(t, 80, rows[0].MaxPriority)
+}
+
+func TestListInventory_GroupsByAlgorithmAndSize(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("inv-grp")
+	_ = saveScan(t, s, testUUID("inv-grp-1"), "host-1", orgID,
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 75}),
+		cryptoF("key", "/c", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE", MigrationPriority: 0}),
+	)
+
+	rows, err := s.ListInventory(context.Background(), orgID)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+
+	rsa2048 := findInventoryRow(rows, "RSA", 2048)
+	require.NotNil(t, rsa2048)
+	assert.Equal(t, 2, rsa2048.Instances)
+	assert.Equal(t, 1, rsa2048.Machines)
+	assert.Equal(t, 80, rsa2048.MaxPriority)
+
+	rsa4096 := findInventoryRow(rows, "RSA", 4096)
+	require.NotNil(t, rsa4096)
+	assert.Equal(t, "SAFE", rsa4096.PQCStatus)
+}
+
+func TestListInventory_TenantIsolation(t *testing.T) {
+	s := testStore(t)
+	orgA := testUUID("inv-tenant-a")
+	orgB := testUUID("inv-tenant-b")
+
+	_ = saveScan(t, s, testUUID("inv-tenant-scan-a"), "host-a", orgA,
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED"}),
+	)
+	_ = saveScan(t, s, testUUID("inv-tenant-scan-b"), "host-b", orgB,
+		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE"}),
+	)
+
+	rowsA, err := s.ListInventory(context.Background(), orgA)
+	require.NoError(t, err)
+	require.Len(t, rowsA, 1)
+	assert.Equal(t, "RSA", rowsA[0].Algorithm)
+
+	rowsB, err := s.ListInventory(context.Background(), orgB)
+	require.NoError(t, err)
+	require.Len(t, rowsB, 1)
+	assert.Equal(t, "AES", rowsB[0].Algorithm)
+}
+
+func TestListInventory_LatestScanPerHostOnly(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("inv-latest")
+
+	// Old scan: RSA-1024 (stale)
+	oldScan := testScanResult(testUUID("inv-latest-old"), "host-1", "quick")
+	oldScan.OrgID = orgID
+	oldScan.Metadata.Timestamp = time.Now().UTC().Add(-48 * time.Hour)
+	oldScan.Findings = []model.Finding{
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 1024, PQCStatus: "UNSAFE"}),
+	}
+	require.NoError(t, s.SaveScanWithFindings(context.Background(), oldScan, ExtractFindings(oldScan)))
+
+	// New scan: upgraded to RSA-4096
+	newScan := testScanResult(testUUID("inv-latest-new"), "host-1", "quick")
+	newScan.OrgID = orgID
+	newScan.Metadata.Timestamp = time.Now().UTC()
+	newScan.Findings = []model.Finding{
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE"}),
+	}
+	require.NoError(t, s.SaveScanWithFindings(context.Background(), newScan, ExtractFindings(newScan)))
+
+	rows, err := s.ListInventory(context.Background(), orgID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "only the latest scan per host counts")
+	assert.Equal(t, 4096, rows[0].KeySize)
+}
+
+// findInventoryRow locates a row by (algorithm, keySize).
+func findInventoryRow(rows []InventoryRow, algo string, size int) *InventoryRow {
+	for i := range rows {
+		if rows[i].Algorithm == algo && rows[i].KeySize == size {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+```
+
+The `ListInventory` implementation in `findings.go` (SQL query) is unchanged from the original Task 1.6 — append it per the plan's code block.
+
+## A.7 — Task 1.7 corrected ListExpiringCertificates tests
+
+Same test setup corrections as A.6. Query implementation unchanged.
+
+### Append to `pkg/store/findings_test.go`
+
+```go
+// --- ListExpiringCertificates ---
+
+func TestListExpiringCerts_EmptyOrg(t *testing.T) {
+	s := testStore(t)
+	rows, err := s.ListExpiringCertificates(context.Background(), testUUID("cert-empty"), 90*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestListExpiringCerts_WithinWindow(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("cert-window")
+	in30 := time.Now().UTC().Add(30 * 24 * time.Hour)
+	in200 := time.Now().UTC().Add(200 * 24 * time.Hour)
+
+	_ = saveScan(t, s, testUUID("cert-win-1"), "host-1", orgID,
+		cryptoF("certificate", "/soon.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in30, Subject: "CN=soon"}),
+		cryptoF("certificate", "/later.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in200, Subject: "CN=later"}),
+	)
+
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "only the 30-day cert is inside the 90-day window")
+	assert.Equal(t, "CN=soon", rows[0].Subject)
+}
+
+func TestListExpiringCerts_AlreadyExpiredAlwaysIncluded(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("cert-expired")
+	expired := time.Now().UTC().Add(-10 * 24 * time.Hour)
+
+	_ = saveScan(t, s, testUUID("cert-expired-1"), "host-1", orgID,
+		cryptoF("certificate", "/dead.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &expired, Subject: "CN=dead"}),
+	)
+
+	// Even a 1-hour window includes already-expired certs.
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 1*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "CN=dead", rows[0].Subject)
+	assert.True(t, rows[0].DaysRemaining < 0)
+	assert.Equal(t, "expired", rows[0].Status)
+}
+
+func TestListExpiringCerts_NullNotAfterExcluded(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("cert-null")
+	_ = saveScan(t, s, testUUID("cert-null-1"), "host-1", orgID,
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}), // no NotAfter
+	)
+
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestListExpiringCerts_SortedAscending(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("cert-sort")
+	in15 := time.Now().UTC().Add(15 * 24 * time.Hour)
+	in45 := time.Now().UTC().Add(45 * 24 * time.Hour)
+	in5 := time.Now().UTC().Add(5 * 24 * time.Hour)
+
+	_ = saveScan(t, s, testUUID("cert-sort-1"), "host-1", orgID,
+		cryptoF("certificate", "/15.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in15, Subject: "CN=fifteen"}),
+		cryptoF("certificate", "/45.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in45, Subject: "CN=forty-five"}),
+		cryptoF("certificate", "/5.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in5, Subject: "CN=five"}),
+	)
+
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	assert.Equal(t, "CN=five", rows[0].Subject)
+	assert.Equal(t, "CN=fifteen", rows[1].Subject)
+	assert.Equal(t, "CN=forty-five", rows[2].Subject)
+}
+
+func TestListExpiringCerts_LargeWithinReturnsFuture(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("cert-all")
+	inYear := time.Now().UTC().Add(400 * 24 * time.Hour)
+
+	_ = saveScan(t, s, testUUID("cert-all-1"), "host-1", orgID,
+		cryptoF("certificate", "/far.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &inYear, Subject: "CN=far"}),
+	)
+
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 100*365*24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "CN=far", rows[0].Subject)
+}
+```
+
+Implementation (append to `findings.go`) — unchanged from the original Task 1.7 code block.
+
+## A.8 — Task 1.8 corrected ListTopPriorityFindings
+
+Drop `f.line_number` from SELECT + scan target. PriorityRow has no `Category` field. Test setup uses `saveScan` helper.
+
+### `ListTopPriorityFindings` implementation (append to `findings.go`)
+
+```go
+// ListTopPriorityFindings returns the top N findings by
+// migration_priority descending, filtered to the latest scan per
+// hostname. limit=0 is treated as limit=20.
+func (s *PostgresStore) ListTopPriorityFindings(ctx context.Context, orgID string, limit int) ([]PriorityRow, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	const q = `
+WITH latest_scans AS (
+    SELECT DISTINCT ON (hostname) id
+    FROM scans
+    WHERE org_id = $1
+    ORDER BY hostname, timestamp DESC
+)
+SELECT f.id, f.migration_priority, f.algorithm, f.key_size, f.pqc_status,
+       f.module, f.hostname, f.file_path
+FROM findings f
+WHERE f.org_id = $1
+  AND f.scan_id IN (SELECT id FROM latest_scans)
+  AND f.migration_priority > 0
+ORDER BY f.migration_priority DESC
+LIMIT $2
+`
+	rows, err := s.pool.Query(ctx, q, orgID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ListTopPriorityFindings query: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]PriorityRow, 0)
+	for rows.Next() {
+		var r PriorityRow
+		if err := rows.Scan(&r.FindingID, &r.Priority, &r.Algorithm, &r.KeySize, &r.PQCStatus,
+			&r.Module, &r.Hostname, &r.FilePath); err != nil {
+			return nil, fmt.Errorf("ListTopPriorityFindings scan: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+```
+
+### Priority tests (append to `findings_test.go`)
+
+```go
+// --- ListTopPriorityFindings ---
+
+func TestListPriority_EmptyOrg(t *testing.T) {
+	s := testStore(t)
+	rows, err := s.ListTopPriorityFindings(context.Background(), testUUID("prio-empty"), 20)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestListPriority_SortedDescending(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("prio-sort")
+	_ = saveScan(t, s, testUUID("prio-sort-1"), "host-1", orgID,
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
+		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "MD5", MigrationPriority: 95}),
+		cryptoF("key", "/c", &model.CryptoAsset{Algorithm: "SHA-1", MigrationPriority: 80}),
+	)
+
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	assert.Equal(t, 95, rows[0].Priority)
+	assert.Equal(t, 80, rows[1].Priority)
+	assert.Equal(t, 50, rows[2].Priority)
+}
+
+func TestListPriority_LimitRespected(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("prio-limit")
+	findings := make([]model.Finding, 0, 30)
+	for i := 0; i < 30; i++ {
+		findings = append(findings, cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
+	}
+	_ = saveScan(t, s, testUUID("prio-limit-1"), "host-1", orgID, findings...)
+
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 10)
+	require.NoError(t, err)
+	assert.Len(t, rows, 10)
+
+	rowsAll, err := s.ListTopPriorityFindings(context.Background(), orgID, 100)
+	require.NoError(t, err)
+	assert.Len(t, rowsAll, 30)
+}
+
+func TestListPriority_ExcludesZeroPriority(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("prio-zero")
+	_ = saveScan(t, s, testUUID("prio-zero-1"), "host-1", orgID,
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "AES", MigrationPriority: 0}),
+		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
+	)
+
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "RSA", rows[0].Algorithm)
+}
+
+func TestListPriority_LimitZeroDefaultsTo20(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("prio-default")
+	findings := make([]model.Finding, 0, 25)
+	for i := 0; i < 25; i++ {
+		findings = append(findings, cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
+	}
+	_ = saveScan(t, s, testUUID("prio-default-1"), "host-1", orgID, findings...)
+
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 0)
+	require.NoError(t, err)
+	assert.Len(t, rows, 20)
+}
+```
+
+## A.9 — Task 1.9 corrected BackfillFindings
+
+`maybeDecrypt` doesn't exist — use `s.loadEncryptor().Decrypt(blob)` pattern from existing `GetScan`. Also use `pool.BeginTx` instead of `pgx.BeginFunc`.
+
+### Correct `pkg/store/backfill.go`
+
+```go
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+// BackfillFindings walks every scan row where findings_extracted_at
+// IS NULL, unpacks result_json, extracts crypto findings, inserts them,
+// and sets the marker. Safe to call repeatedly. Safe to interrupt mid-
+// run — next call resumes from the next unprocessed scan.
+//
+// Intended to be called once from cmd/server.go after migrations run,
+// in a goroutine so it doesn't block the HTTP listener. On per-scan
+// failure the scan is MARKED anyway so we don't retry forever on a
+// corrupt blob.
+//
+// See docs/plans/2026-04-09-analytics-phase-1-design.md §5.
+func (s *PostgresStore) BackfillFindings(ctx context.Context) error {
+	const batchSize = 100
+	total := 0
+	start := time.Now()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			log.Printf("backfill: context cancelled after %d scans: %v", total, err)
+			return nil
+		}
+
+		scans, err := s.selectUnbackfilledScans(ctx, batchSize)
+		if err != nil {
+			return fmt.Errorf("backfill: select unbackfilled: %w", err)
+		}
+		if len(scans) == 0 {
+			log.Printf("backfill: done — processed %d scans in %s", total, time.Since(start))
+			return nil
+		}
+
+		for _, scanID := range scans {
+			if err := ctx.Err(); err != nil {
+				log.Printf("backfill: context cancelled mid-batch after %d scans", total)
+				return nil
+			}
+			if err := s.extractAndInsertOneScan(ctx, scanID); err != nil {
+				log.Printf("backfill: scan %s failed: %v — marking as processed anyway", scanID, err)
+				s.backfillScansFailed.Add(1)
+			} else {
+				s.backfillScansTotal.Add(1)
+			}
+			if err := s.markScanBackfilled(ctx, scanID); err != nil {
+				return fmt.Errorf("backfill: mark scan %s: %w", scanID, err)
+			}
+			total++
+		}
+		log.Printf("backfill: progress — %d scans processed", total)
+	}
+}
+
+// selectUnbackfilledScans returns up to `limit` scan IDs whose
+// findings_extracted_at is NULL. Ordered by ID for determinism.
+func (s *PostgresStore) selectUnbackfilledScans(ctx context.Context, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id FROM scans
+		WHERE findings_extracted_at IS NULL
+		ORDER BY id
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]string, 0, limit)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// extractAndInsertOneScan fetches a scan, decrypts + unmarshals the
+// blob, runs ExtractFindings, and bulk-inserts the result inside a
+// transaction.
+func (s *PostgresStore) extractAndInsertOneScan(ctx context.Context, scanID string) error {
+	// (1) Fetch the raw blob + the row-level org_id/hostname. The
+	// latter two are needed because scans persisted via SaveScan may
+	// not have them populated inside result_json.
+	var (
+		blob     []byte
+		orgID    string
+		hostname string
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT result_json, COALESCE(org_id::text, ''), hostname
+		FROM scans WHERE id = $1
+	`, scanID).Scan(&blob, &orgID, &hostname)
+	if err != nil {
+		return fmt.Errorf("fetch scan: %w", err)
+	}
+
+	// (2) Decrypt if configured. No-op when encryptor is nil.
+	if enc := s.loadEncryptor(); enc != nil {
+		decrypted, decErr := enc.Decrypt(blob)
+		if decErr != nil {
+			return fmt.Errorf("decrypt scan: %w", decErr)
+		}
+		blob = decrypted
+	}
+
+	// (3) Unmarshal.
+	var scan model.ScanResult
+	if err := json.Unmarshal(blob, &scan); err != nil {
+		return fmt.Errorf("unmarshal scan: %w", err)
+	}
+
+	// (4) Rehydrate row-level fields so ExtractFindings gets the right
+	// values — the persisted blob may have empty OrgID/Hostname.
+	scan.ID = scanID
+	if scan.OrgID == "" {
+		scan.OrgID = orgID
+	}
+	if scan.Metadata.Hostname == "" {
+		scan.Metadata.Hostname = hostname
+	}
+
+	findings := ExtractFindings(&scan)
+	if len(findings) == 0 {
+		return nil // scan had no crypto findings, still valid
+	}
+
+	// (5) Bulk insert inside a transaction so partial inserts don't
+	// leak if any row fails.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := insertFindingsInTx(ctx, tx, findings); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// markScanBackfilled sets findings_extracted_at = NOW() for the given scan.
+func (s *PostgresStore) markScanBackfilled(ctx context.Context, scanID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE scans SET findings_extracted_at = NOW() WHERE id = $1`, scanID)
+	return err
+}
+```
+
+Add the atomic counters to `PostgresStore` in `pkg/store/postgres.go`:
+
+```go
+import "sync/atomic"  // add if not already present
+
+type PostgresStore struct {
+    // ... existing fields ...
+
+    // Backfill counters — read by the metrics handler, written by
+    // BackfillFindings. Lock-free atomics so the metrics scrape path
+    // costs nothing. Analytics Phase 1.
+    backfillScansTotal  atomic.Uint64
+    backfillScansFailed atomic.Uint64
+}
+
+// BackfillScansTotal returns the running count of scans successfully
+// processed by the findings backfill loop. Analytics Phase 1.
+func (s *PostgresStore) BackfillScansTotal() uint64 {
+	return s.backfillScansTotal.Load()
+}
+
+// BackfillScansFailed returns the running count of scans that failed
+// extraction and were marked to skip. Analytics Phase 1.
+func (s *PostgresStore) BackfillScansFailed() uint64 {
+	return s.backfillScansFailed.Load()
+}
+```
+
+### Backfill tests (`pkg/store/backfill_test.go`)
+
+```go
+//go:build integration
+
+package store
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+func TestBackfillFindings_EmptyDB(t *testing.T) {
+	s := testStore(t)
+	err := s.BackfillFindings(context.Background())
+	assert.NoError(t, err)
+}
+
+func TestBackfillFindings_PopulatesUnmarkedScans(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("bf-org")
+
+	scan := testScanResult(testUUID("bf-1"), "host-1", "quick")
+	scan.OrgID = orgID
+	scan.Findings = []model.Finding{
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+	}
+	// Save via the LEGACY path so findings_extracted_at stays NULL.
+	require.NoError(t, s.SaveScan(context.Background(), scan))
+	_, err := s.pool.Exec(context.Background(),
+		`UPDATE scans SET findings_extracted_at = NULL WHERE id = $1`, scan.ID)
+	require.NoError(t, err)
+
+	require.NoError(t, s.BackfillFindings(context.Background()))
+
+	assert.Equal(t, 1, queryFindingsCount(t, s, scan.ID))
+	assert.True(t, queryScanBackfilled(t, s, scan.ID))
+}
+
+func TestBackfillFindings_SkipsAlreadyMarked(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("bf-skip-org")
+
+	scan := saveScan(t, s, testUUID("bf-skip"), "host-1", orgID,
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+	)
+	countBefore := queryFindingsCount(t, s, scan.ID)
+
+	require.NoError(t, s.BackfillFindings(context.Background()))
+	countAfter := queryFindingsCount(t, s, scan.ID)
+	assert.Equal(t, countBefore, countAfter,
+		"backfill must not re-insert findings for already-marked scans")
+}
+
+func TestBackfillFindings_Idempotent(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("bf-idem-org")
+
+	scan := testScanResult(testUUID("bf-idem"), "host-1", "quick")
+	scan.OrgID = orgID
+	scan.Findings = []model.Finding{
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+	}
+	require.NoError(t, s.SaveScan(context.Background(), scan))
+	_, _ = s.pool.Exec(context.Background(),
+		`UPDATE scans SET findings_extracted_at = NULL WHERE id = $1`, scan.ID)
+
+	require.NoError(t, s.BackfillFindings(context.Background()))
+	// Clear marker and re-run — ON CONFLICT DO NOTHING keeps it safe.
+	_, _ = s.pool.Exec(context.Background(),
+		`UPDATE scans SET findings_extracted_at = NULL WHERE id = $1`, scan.ID)
+	require.NoError(t, s.BackfillFindings(context.Background()))
+
+	assert.Equal(t, 1, queryFindingsCount(t, s, scan.ID))
+}
+
+func TestBackfillFindings_ContextCancellationAllowsResume(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("bf-resume-org")
+
+	for i := 0; i < 3; i++ {
+		scan := testScanResult(testUUID("bf-resume-"+string(rune('a'+i))), "host-"+string(rune('a'+i)), "quick")
+		scan.OrgID = orgID
+		scan.Findings = []model.Finding{
+			cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+		}
+		require.NoError(t, s.SaveScan(context.Background(), scan))
+		_, _ = s.pool.Exec(context.Background(),
+			`UPDATE scans SET findings_extracted_at = NULL WHERE id = $1`, scan.ID)
+	}
+
+	// Cancel immediately — zero scans processed, no panic.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = s.BackfillFindings(cancelled)
+
+	// Resume — all should be processed.
+	require.NoError(t, s.BackfillFindings(context.Background()))
+
+	var unmarked int
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM scans WHERE org_id = $1 AND findings_extracted_at IS NULL`,
+		orgID).Scan(&unmarked)
+	require.NoError(t, err)
+	assert.Equal(t, 0, unmarked)
+}
+
+func TestBackfillFindings_CountersIncrement(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("bf-count-org")
+
+	scan := testScanResult(testUUID("bf-count"), "host-1", "quick")
+	scan.OrgID = orgID
+	scan.Findings = []model.Finding{
+		cryptoF("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+	}
+	require.NoError(t, s.SaveScan(context.Background(), scan))
+	_, _ = s.pool.Exec(context.Background(),
+		`UPDATE scans SET findings_extracted_at = NULL WHERE id = $1`, scan.ID)
+
+	// Counters are package-level on PostgresStore; reset for the test.
+	s.backfillScansTotal.Store(0)
+	s.backfillScansFailed.Store(0)
+
+	require.NoError(t, s.BackfillFindings(context.Background()))
+
+	assert.Equal(t, uint64(1), s.backfillScansTotal.Load())
+	assert.Equal(t, uint64(0), s.backfillScansFailed.Load())
+}
+```
+
+## A.12 — Task 1.12 moved to pkg/store
+
+The original Task 1.12 put the cascade test in pkg/server, but it needs the `queryFindingsCount` helper which is package-private in pkg/store. Move the test to `pkg/store/findings_test.go` — the cascade is a DB property, not a handler property, so a store-level test is more direct anyway.
+
+### Append to `pkg/store/findings_test.go`
+
+```go
+// --- DeleteScan cascade ---
+
+func TestDeleteScan_CascadesToFindings(t *testing.T) {
+	s := testStore(t)
+	orgID := testUUID("cascade-org")
+
+	scan := saveScan(t, s, testUUID("cascade-1"), "host-1", orgID,
+		cryptoF("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048}),
+		cryptoF("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
+	)
+	require.Equal(t, 2, queryFindingsCount(t, s, scan.ID))
+
+	// Use the existing DeleteScan method.
+	require.NoError(t, s.DeleteScan(context.Background(), scan.ID, orgID))
+
+	assert.Equal(t, 0, queryFindingsCount(t, s, scan.ID),
+		"ON DELETE CASCADE should have removed the findings rows")
+}
+```
+
+The handler-level `handleDeleteScan` test is dropped — the cascade is fully exercised at the store level and the handler just calls through.
+
+## A.13 — Task 1.13 store import in handlers_metrics.go
+
+The Prometheus metrics snippet uses `s.store.(*store.PostgresStore)` type assertion, which requires the `store` package to be imported in `pkg/server/handlers_metrics.go`. The import is not present today (only `pkg/server/server.go` imports it). Add it:
+
+```go
+import (
+    // ... existing imports ...
+    "github.com/amiryahaya/triton/pkg/store"
+)
+```
+
+The metrics snippet body is otherwise unchanged from the original Task 1.13.
+
+## A.2.1 — Task 2.1 corrected handleInventory tests
+
+Server-package tests use `testServerWithJWT(t)` + `createOrgUser(t, db, ...)` + `testScanResult(id, hostname)` (2-arg, server-pkg signature) + `testUUID(n int)` (server-pkg signature, int arg). Override `scan.OrgID = org.ID` after calling `testScanResult` so it matches the tenant created by `createOrgUser`.
+
+### Correct `pkg/server/handlers_analytics_test.go` — inventory tests
+
+```go
+//go:build integration
+
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/store"
+)
+
+// cryptoFinding is a handler-test helper that builds a file-sourced
+// crypto finding. Mirrors the store-pkg helper but lives here so
+// handler tests don't depend on store internals.
+func cryptoFinding(module, path string, ca *model.CryptoAsset) model.Finding {
+	return model.Finding{
+		Module:      module,
+		Source:      model.FindingSource{Type: "file", Path: path},
+		CryptoAsset: ca,
+	}
+}
+
+func TestHandleInventory_EmptyReturns200(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/inventory", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.InventoryRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Empty(t, rows)
+}
+
+func TestHandleInventory_PopulatedReturnsRows(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	scan := testScanResult(testUUID(1), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = []model.Finding{
+		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/inventory", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.InventoryRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	require.Len(t, rows, 1)
+	assert.Equal(t, "RSA", rows[0].Algorithm)
+	assert.Equal(t, 2048, rows[0].KeySize)
+}
+
+func TestHandleInventory_NoJWTReturns401(t *testing.T) {
+	srv, _ := testServerWithJWT(t)
+	w := authReq(t, srv, http.MethodGet, "/api/v1/inventory", "", nil)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandleInventory_BackfillHeaderWhenInProgress(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	srv.BackfillInProgress().Store(true)
+	defer srv.BackfillInProgress().Store(false)
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/inventory", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "true", w.Header().Get("X-Backfill-In-Progress"))
+}
+```
+
+## A.3.1 — Task 3.1 corrected handleExpiringCertificates tests
+
+Same test-helper corrections as A.2.1. Append to `pkg/server/handlers_analytics_test.go`:
+
+```go
+func TestHandleExpiringCerts_DefaultWindow(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	in30 := time.Now().UTC().Add(30 * 24 * time.Hour)
+	in200 := time.Now().UTC().Add(200 * 24 * time.Hour)
+
+	scan := testScanResult(testUUID(2), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = []model.Finding{
+		cryptoFinding("certificate", "/soon.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in30, Subject: "CN=soon"}),
+		cryptoFinding("certificate", "/later.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in200, Subject: "CN=later"}),
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/certificates/expiring", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.ExpiringCertRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Len(t, rows, 1, "default 90-day window excludes the 200-day cert")
+}
+
+func TestHandleExpiringCerts_WithinAll(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	in500 := time.Now().UTC().Add(500 * 24 * time.Hour)
+	scan := testScanResult(testUUID(3), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = []model.Finding{
+		cryptoFinding("certificate", "/far.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in500, Subject: "CN=far"}),
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/certificates/expiring?within=all", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.ExpiringCertRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Len(t, rows, 1)
+}
+
+func TestHandleExpiringCerts_InvalidWithin(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	for _, param := range []string{"abc", "-1", "5000"} {
+		t.Run(param, func(t *testing.T) {
+			w := authReq(t, srv, http.MethodGet, "/api/v1/certificates/expiring?within="+param, token, nil)
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
+}
+```
+
+Add `"time"` to the imports at the top of `handlers_analytics_test.go`.
+
+## A.4.1 — Task 4.1 corrected handlePriority tests
+
+Same helper corrections. PriorityRow has no Category/LineNumber — test assertions must not reference them. Append to `pkg/server/handlers_analytics_test.go`:
+
+```go
+func TestHandlePriority_DefaultLimit(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	scan := testScanResult(testUUID(4), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = nil
+	for i := 0; i < 25; i++ {
+		scan.Findings = append(scan.Findings,
+			cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/priority", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.PriorityRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Len(t, rows, 20)
+}
+
+func TestHandlePriority_CustomLimit(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	scan := testScanResult(testUUID(5), "host-1")
+	scan.OrgID = org.ID
+	scan.Findings = nil
+	for i := 0; i < 10; i++ {
+		scan.Findings = append(scan.Findings,
+			cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50 + i}))
+	}
+	require.NoError(t, db.SaveScanWithFindings(context.Background(), scan, store.ExtractFindings(scan)))
+
+	w := authReq(t, srv, http.MethodGet, "/api/v1/priority?limit=5", token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rows []store.PriorityRow
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&rows))
+	assert.Len(t, rows, 5)
+}
+
+func TestHandlePriority_InvalidLimit(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	_, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	for _, param := range []string{"0", "-1", "1001", "abc"} {
+		t.Run(param, func(t *testing.T) {
+			w := authReq(t, srv, http.MethodGet, "/api/v1/priority?limit="+param, token, nil)
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
+}
+```
+
+## A.4.2 — Task 4.2 corrected renderPriority UI
+
+The original JS referenced `row.category` and `row.lineNumber` which are no longer on PriorityRow. Drop the Category column from the table, simplify Location to just `row.filePath`.
+
+### Correct `renderPriority` function (replaces the version in Task 4.2)
+
+```js
+  async function renderPriority() {
+    content.innerHTML = '<div class="loading">Loading priority findings...</div>';
+    try {
+      const rows = await api('/priority?limit=20');
+
+      let critical = 0, high = 0, medium = 0;
+      for (const r of rows) {
+        if (r.priority >= 80) critical++;
+        else if (r.priority >= 60) high++;
+        else if (r.priority >= 40) medium++;
+      }
+
+      let html = `<h2>Migration Priority</h2>
+        <p class="subtitle">Top findings to fix first, ranked by migration priority score (latest scan per host).</p>
+        <div class="card-grid">
+          <div class="card unsafe"><div class="value">${critical}</div><div class="label">Critical (≥80)</div></div>
+          <div class="card deprecated"><div class="value">${high}</div><div class="label">High (60–79)</div></div>
+          <div class="card transitional"><div class="value">${medium}</div><div class="label">Medium (40–59)</div></div>
+          <div class="card info"><div class="value">${rows.length}</div><div class="label">Shown (top 20)</div></div>
+        </div>`;
+
+      if (rows.length === 0) {
+        html += `<div class="empty-state">No priority findings yet — run a scan.</div>`;
+      } else {
+        html += `<table class="analytics-table">
+          <thead><tr>
+            <th class="num">Score</th><th>Algorithm</th><th>Module</th>
+            <th>Host</th><th>Location</th><th>Status</th>
+          </tr></thead><tbody>`;
+        for (const row of rows) {
+          const algo = row.algorithm + (row.keySize ? '-' + row.keySize : '');
+          const loc = row.filePath || '—';
+          html += `<tr>
+            <td class="num">${escapeHtml(row.priority)}</td>
+            <td>${escapeHtml(algo)}</td>
+            <td>${escapeHtml(row.module)}</td>
+            <td>${escapeHtml(row.hostname)}</td>
+            <td><code>${escapeHtml(loc)}</code></td>
+            <td>${badge(row.pqcStatus)}</td>
+          </tr>`;
+        }
+        html += `</tbody></table>`;
+      }
+
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+    } catch (e) {
+      content.innerHTML = `<div class="error">Failed to load priority findings: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+```
+
+Key differences from Task 4.2's original:
+- Column header `Category` → `Module`
+- Drop the `row.lineNumber` concatenation — just show `row.filePath`
+- `row.category` removed everywhere
+
+---
+
+**End of Appendix A.** Back to the original plan body above for Tasks 1.10, 1.11, 1.14, 2.2–2.6, 3.2–3.4, 4.3–4.5 — those remain unchanged.
+

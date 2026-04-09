@@ -432,6 +432,11 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/reports/{id}/{format}", s.handleGenerateReport)
 		r.Get("/aggregate", s.handleAggregate)
 
+		// Analytics Phase 1 — three new aggregation endpoints backed
+		// by the denormalized findings table. All three are tenant-
+		// scoped via the surrounding RequireTenant middleware.
+		r.Get("/inventory", s.handleInventory)
+
 		// Destructive operations require org_admin (Arch #7 from
 		// Phase 2 review). org_user can read but cannot delete scans.
 		r.Group(func(r chi.Router) {

@@ -36,6 +36,15 @@
     },
   };
 
+  // Analytics Phase 1 — backfill banner state. The api() helper syncs
+  // backfillState.inProgress from the X-Backfill-In-Progress response
+  // header whenever an analytics endpoint is called. The state is
+  // read by renderBackfillBanner() which prepends a cyan notice to
+  // any analytics view while backfill is running, and auto-clears
+  // once the header stops being set.
+  const backfillState = { inProgress: false };
+  const ANALYTICS_PATHS = ['/inventory', '/certificates', '/priority'];
+
   // API helper. Injects Authorization header from stored JWT, handles
   // 401 by clearing the token and showing the login screen.
   // method/body are optional (defaults to GET).
@@ -52,6 +61,12 @@
       headers,
       body: opts.body || undefined,
     });
+    // Sync backfill state on every analytics response. Done BEFORE
+    // 401 handling so a 401 bounce still updates the flag (unlikely
+    // to matter in practice but cheap and consistent).
+    if (ANALYTICS_PATHS.some(p => path.startsWith(p))) {
+      backfillState.inProgress = resp.headers.get('X-Backfill-In-Progress') === 'true';
+    }
     if (resp.status === 401) {
       auth.clearToken();
       location.hash = '#/login';
@@ -67,6 +82,21 @@
     }
     if (resp.status === 204) return null;
     return resp.json();
+  }
+
+  // renderBackfillBanner prepends a cyan "still populating historical
+  // data" banner to the given container if the most recent analytics
+  // response advertised X-Backfill-In-Progress: true. Zero effect
+  // once backfill finishes — the next api() call clears the flag.
+  function renderBackfillBanner(containerEl) {
+    if (!backfillState.inProgress) return;
+    containerEl.insertAdjacentHTML('afterbegin',
+      '<div class="backfill-banner">' +
+        '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">' +
+          '<circle cx="7" cy="7" r="5" stroke-dasharray="20 8"/>' +
+        '</svg>' +
+        '<span>Triton is still populating historical scan data — this view may be incomplete. Refresh in a moment for more.</span>' +
+      '</div>');
   }
 
   // Dark theme chart colors matching CSS variables
@@ -187,6 +217,9 @@
       case 'login': renderLogin(); break;
       case 'change-password': renderChangePassword(); break;
       case 'users': param ? renderUserDetail(param) : renderUsers(); break;
+      case 'inventory': renderInventory(); break;
+      case 'certificates': renderCertificates(); break;
+      case 'priority': renderPriority(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;
@@ -986,6 +1019,48 @@
       el.innerHTML = `<div class="error">Trend failed: ${escapeHtml(e.message)}</div>`;
     }
   };
+
+  // ─── Analytics Phase 1 views ────────────────────────────────────────
+
+  async function renderInventory() {
+    content.innerHTML = '<div class="loading">Loading crypto inventory...</div>';
+    try {
+      const rows = await api('/inventory');
+      let html = '<h2>Crypto Inventory</h2>' +
+        '<p class="subtitle">Aggregated by algorithm and key size across all machines in your organization (latest scan per host).</p>';
+      if (!rows || rows.length === 0) {
+        html += '<div class="empty-state">No findings yet — run a scan to see your crypto inventory.</div>';
+      } else {
+        html += '<table class="analytics-table"><thead><tr>' +
+          '<th>Algorithm</th><th>Size</th><th>Status</th>' +
+          '<th class="num">Instances</th><th class="num">Machines</th><th class="num">Max Priority</th>' +
+          '</tr></thead><tbody>';
+        for (const row of rows) {
+          html += '<tr>' +
+            '<td>' + escapeHtml(row.algorithm) + '</td>' +
+            '<td>' + (row.keySize > 0 ? escapeHtml(row.keySize) : '—') + '</td>' +
+            '<td>' + badge(row.pqcStatus) + '</td>' +
+            '<td class="num">' + escapeHtml(row.instances) + '</td>' +
+            '<td class="num">' + escapeHtml(row.machines) + '</td>' +
+            '<td class="num">' + (row.maxPriority > 0 ? escapeHtml(row.maxPriority) : '—') + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load inventory: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  // Stubs — implemented in commits 3 and 4.
+  async function renderCertificates() {
+    content.innerHTML = '<h2>Expiring Certificates</h2><div class="empty-state">Coming soon.</div>';
+  }
+  async function renderPriority() {
+    content.innerHTML = '<h2>Migration Priority</h2><div class="empty-state">Coming soon.</div>';
+  }
 
   // Init
   // The renderOverview() initial call will hit the API. In single-tenant

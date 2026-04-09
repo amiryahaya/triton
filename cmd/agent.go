@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -198,18 +199,17 @@ func resolveAgentConfig(cmd *cobra.Command) (*resolvedAgentConfig, error) {
 	// else fall back to agent.yaml. cobra's Changed() distinguishes
 	// "user passed --also-local=false" from "user didn't touch the
 	// flag" so yaml-set true can be overridden by an explicit CLI
-	// false without being overridden by the default false. cmd may
-	// be nil in tests that exercise resolveAgentConfig in isolation
-	// — in that case we fall back to the package global, which
-	// tests can set directly.
+	// false without being overridden by the default false.
+	//
+	// Tests that call resolveAgentConfig in isolation must pass a
+	// real *cobra.Command with the --also-local flag declared (see
+	// newAgentTestCmd in agent_tee_test.go). This keeps the
+	// resolution semantics identical between production and tests —
+	// no special-case "cmd == nil" branch with its own merge rules
+	// that can drift from the prod path.
 	alsoLocal := fileCfg.AlsoLocal
 	if cmd != nil && cmd.Flags().Changed("also-local") {
 		alsoLocal = agentAlsoLocal
-	} else if cmd == nil {
-		// No cobra command — use the package-global directly so
-		// tests that set agentAlsoLocal = true still behave as
-		// though the flag was explicitly set.
-		alsoLocal = agentAlsoLocal || fileCfg.AlsoLocal
 	}
 
 	return &resolvedAgentConfig{
@@ -645,7 +645,7 @@ func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig,
 		}
 	}
 
-	return dispatchScanResult(ctx, r, client, scan)
+	return dispatchScanResult(ctx, r, client, scan, os.Stderr)
 }
 
 // dispatchScanResult decides where a completed scan goes, based on
@@ -666,7 +666,16 @@ func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig,
 // destination in server mode — if it fails the scan is effectively
 // lost for tenant reporting — so a local-write error must not abort
 // the submit. We log the local failure as a warning and proceed.
-func dispatchScanResult(ctx context.Context, r *resolvedAgentConfig, client *agent.Client, scan *model.ScanResult) error {
+//
+// warnOut receives operator-visible warnings (currently just the
+// tee-mode soft-fail notice). Production passes os.Stderr; tests
+// pass a bytes.Buffer so they can assert the warning was emitted
+// without racing on a global os.Stderr swap.
+func dispatchScanResult(ctx context.Context, r *resolvedAgentConfig, client *agent.Client, scan *model.ScanResult, warnOut io.Writer) error {
+	if warnOut == nil {
+		warnOut = os.Stderr
+	}
+
 	// Local-only mode: no server configured.
 	if client == nil {
 		return writeLocalReports(r, scan)
@@ -676,7 +685,7 @@ func dispatchScanResult(ctx context.Context, r *resolvedAgentConfig, client *age
 	// server submit if it fails.
 	if r.alsoLocal {
 		if err := writeLocalReports(r, scan); err != nil {
-			fmt.Fprintf(os.Stderr,
+			_, _ = fmt.Fprintf(warnOut,
 				"Warning: local report write failed (continuing with server submit): %v\n",
 				err)
 		}

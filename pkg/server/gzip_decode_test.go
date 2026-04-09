@@ -126,6 +126,64 @@ func TestGzipDecode_EmptyBody(t *testing.T) {
 // request alone. The handler then receives the body as-is and
 // must handle the encoding itself — we don't claim to decode
 // every encoding, only gzip.
+// TestGzipDecode_RejectsDecompressedBomb pins the B1 defense: a
+// small gzip payload that decompresses past the cap must surface
+// as an error from the body reader rather than quietly flooding
+// the downstream handler's buffer. This runs BEFORE any auth
+// middleware in the real route, so an unauthenticated attacker
+// cannot exhaust server memory via a few-KB bomb.
+func TestGzipDecode_RejectsDecompressedBomb(t *testing.T) {
+	// Build a gzip payload whose decompressed size is just over
+	// the cap. A stream of zeros compresses extremely well, so
+	// maxDecompressedRequestBody+1024 plaintext bytes becomes a
+	// few-KB payload on the wire.
+	plainSize := int64(maxDecompressedRequestBody) + 1024
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	buf := make([]byte, 64*1024)
+	remaining := plainSize
+	for remaining > 0 {
+		n := int64(len(buf))
+		if n > remaining {
+			n = remaining
+		}
+		_, err := gz.Write(buf[:n])
+		require.NoError(t, err)
+		remaining -= n
+	}
+	require.NoError(t, gz.Close())
+
+	require.Less(t, compressed.Len(), 1024*1024,
+		"the test payload should be small on the wire — otherwise we're not actually testing the amplification defense")
+
+	// Handler that reads the entire body and reports any read error.
+	var readErr error
+	var bytesRead int
+	bombHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		bytesRead = len(b)
+		readErr = err
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/test", &compressed)
+	req.Header.Set("Content-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+
+	GzipDecodeMiddleware(bombHandler).ServeHTTP(rec, req)
+
+	require.Error(t, readErr, "body reader must surface a size-limit error once the cap is crossed")
+	var limitErr decompressedSizeLimitError
+	require.ErrorAs(t, readErr, &limitErr,
+		"error type must be decompressedSizeLimitError so callers can translate to 413")
+	assert.LessOrEqual(t, int64(bytesRead), int64(maxDecompressedRequestBody)+1,
+		"no more than the cap+1 bytes should reach the handler's read buffer")
+}
+
 func TestGzipDecode_OtherEncodingPassesThrough(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/test",
 		strings.NewReader("opaque payload"))

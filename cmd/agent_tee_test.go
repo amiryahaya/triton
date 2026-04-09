@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,12 +11,31 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/pkg/agent"
 	"github.com/amiryahaya/triton/pkg/model"
 )
+
+// newAgentTestCmd builds a throwaway cobra command carrying only the
+// flags resolveAgentConfig inspects. Tests use it to exercise the
+// prod code path (cmd.Flags().Changed) without standing up the real
+// root command — which would drag in the scanner engine and every
+// other subcommand.
+//
+// If flagSet is true, the helper marks --also-local as explicitly set
+// on the command line so cobra reports Changed("also-local") == true.
+func newAgentTestCmd(t *testing.T, flagSet bool) *cobra.Command {
+	t.Helper()
+	c := &cobra.Command{Use: "agent"}
+	c.Flags().BoolVar(&agentAlsoLocal, "also-local", false, "")
+	if flagSet {
+		require.NoError(t, c.Flags().Set("also-local", "true"))
+	}
+	return c
+}
 
 // --- resolveAgentConfig: alsoLocal field ---
 
@@ -29,12 +50,12 @@ func TestResolveAgentConfig_AlsoLocal_FromYAML(t *testing.T) {
 	agentConfigDir = dir
 	t.Cleanup(func() { agentConfigDir = "" })
 
-	// Make sure the package-global CLI flag is false so the
-	// yaml value is the only source.
+	// Flag NOT set on the command line — yaml is the only source.
 	agentAlsoLocal = false
 	t.Cleanup(func() { agentAlsoLocal = false })
+	cmd := newAgentTestCmd(t, false)
 
-	r, err := resolveAgentConfig(nil)
+	r, err := resolveAgentConfig(cmd)
 	require.NoError(t, err)
 	assert.True(t, r.alsoLocal, "agent.yaml also_local:true should propagate to resolvedAgentConfig")
 }
@@ -50,13 +71,42 @@ func TestResolveAgentConfig_AlsoLocal_FlagOverridesYAMLFalse(t *testing.T) {
 	agentConfigDir = dir
 	t.Cleanup(func() { agentConfigDir = "" })
 
-	// Simulate --also-local (flag-only path, no yaml value).
-	agentAlsoLocal = true
+	// Simulate --also-local on the command line (flag-only path,
+	// yaml does not set also_local).
 	t.Cleanup(func() { agentAlsoLocal = false })
+	cmd := newAgentTestCmd(t, true)
 
-	r, err := resolveAgentConfig(nil)
+	r, err := resolveAgentConfig(cmd)
 	require.NoError(t, err)
 	assert.True(t, r.alsoLocal, "CLI --also-local must enable tee mode even when yaml omits it")
+}
+
+// TestResolveAgentConfig_AlsoLocal_FlagFalseOverridesYAMLTrue
+// pins the SF1 fix: --also-local=false on the command line must
+// override also_local:true in agent.yaml. Prior to the fix the
+// cmd==nil branch used OR-logic and this override was impossible
+// from tests. Now resolution runs the same cobra.Changed() path
+// in both tests and production.
+func TestResolveAgentConfig_AlsoLocal_FlagFalseOverridesYAMLTrue(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "agent.yaml"),
+		[]byte("report_server: http://example/\nalso_local: true\n"),
+		0o600,
+	))
+	t.Setenv("HOME", t.TempDir())
+	agentConfigDir = dir
+	t.Cleanup(func() { agentConfigDir = "" })
+
+	// Build a command that explicitly sets --also-local=false.
+	c := &cobra.Command{Use: "agent"}
+	c.Flags().BoolVar(&agentAlsoLocal, "also-local", false, "")
+	require.NoError(t, c.Flags().Set("also-local", "false"))
+	t.Cleanup(func() { agentAlsoLocal = false })
+
+	r, err := resolveAgentConfig(c)
+	require.NoError(t, err)
+	assert.False(t, r.alsoLocal, "CLI --also-local=false must override yaml also_local:true")
 }
 
 func TestResolveAgentConfig_AlsoLocal_DefaultFalse(t *testing.T) {
@@ -65,8 +115,9 @@ func TestResolveAgentConfig_AlsoLocal_DefaultFalse(t *testing.T) {
 	agentConfigDir = emptyDir
 	t.Cleanup(func() { agentConfigDir = "" })
 	agentAlsoLocal = false
+	cmd := newAgentTestCmd(t, false)
 
-	r, err := resolveAgentConfig(nil)
+	r, err := resolveAgentConfig(cmd)
 	require.NoError(t, err)
 	assert.False(t, r.alsoLocal, "no flag, no yaml → tee mode off")
 }
@@ -99,7 +150,7 @@ func TestDispatchScanResult_LocalOnly(t *testing.T) {
 		effectiveFormats: []string{"json"},
 	}
 
-	err := dispatchScanResult(context.Background(), r, nil, dispatchTestScan())
+	err := dispatchScanResult(context.Background(), r, nil, dispatchTestScan(), io.Discard)
 	require.NoError(t, err)
 
 	// One timestamped subdir should exist under tmp.
@@ -135,7 +186,7 @@ func TestDispatchScanResult_ServerOnly(t *testing.T) {
 	client := agent.New(srv.URL)
 	client.RetryMaxAttempts = 1 // keep tests fast
 
-	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan())
+	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan(), io.Discard)
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&submitCalls), "server should receive exactly one submission")
@@ -174,7 +225,7 @@ func TestDispatchScanResult_TeeBothSucceed(t *testing.T) {
 	client := agent.New(srv.URL)
 	client.RetryMaxAttempts = 1
 
-	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan())
+	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan(), io.Discard)
 	require.NoError(t, err, "tee mode with both paths succeeding should return nil")
 
 	// Server must have received the submission.
@@ -226,25 +277,18 @@ func TestDispatchScanResult_TeeLocalFailsServerSucceeds(t *testing.T) {
 	client := agent.New(srv.URL)
 	client.RetryMaxAttempts = 1
 
-	// Capture stderr so we can confirm the warning was logged
-	// without requiring operator eyes on the test output.
-	oldStderr := os.Stderr
-	rPipe, wPipe, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stderr = wPipe
-	defer func() { os.Stderr = oldStderr }()
+	// Capture the warning via an injected writer rather than
+	// swapping os.Stderr — the global swap is racy under -race
+	// because any other goroutine writing to os.Stderr concurrently
+	// (e.g. the go test runner's internal logging) touches the same
+	// global.
+	var warnBuf bytes.Buffer
 
-	err = dispatchScanResult(context.Background(), r, client, dispatchTestScan())
+	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan(), &warnBuf)
 	require.NoError(t, err, "tee mode with local failure + server success must NOT return an error")
 
-	// Close writer and read the captured stderr.
-	_ = wPipe.Close()
-	captured := make([]byte, 4096)
-	n, _ := rPipe.Read(captured)
-	stderrOut := string(captured[:n])
-
-	assert.Contains(t, stderrOut, "Warning: local report write failed",
-		"local-failure warning must reach stderr so operators can diagnose")
+	assert.Contains(t, warnBuf.String(), "Warning: local report write failed",
+		"local-failure warning must be emitted so operators can diagnose")
 	assert.Equal(t, int32(1), atomic.LoadInt32(&submitCalls),
 		"server submission must proceed even when local write failed")
 }
@@ -268,7 +312,7 @@ func TestDispatchScanResult_TeeServerFails(t *testing.T) {
 	client := agent.New(srv.URL)
 	client.RetryMaxAttempts = 1 // don't wait for backoff
 
-	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan())
+	err := dispatchScanResult(context.Background(), r, client, dispatchTestScan(), io.Discard)
 	require.Error(t, err, "server-submit failure must propagate even if local write succeeded")
 	assert.Contains(t, err.Error(), "submit failed")
 

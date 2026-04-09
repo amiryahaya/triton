@@ -171,6 +171,57 @@ type ScanSummary struct {
 	Unsafe        int       `json:"unsafe"`
 }
 
+// TrendSummary describes an org-wide monthly-bucketed trend in
+// readiness over time. Returned as part of ExecutiveSummary by the
+// GET /api/v1/executive endpoint. Analytics Phase 2.
+type TrendSummary struct {
+	Direction     string            `json:"direction"`     // improving|declining|stable|insufficient-history
+	DeltaPercent  float64           `json:"deltaPercent"`  // first→last readiness delta, rounded to 1 decimal
+	MonthlyPoints []TrendMonthPoint `json:"monthlyPoints"` // chronologically sorted series; may be empty
+}
+
+// TrendMonthPoint is one calendar month's aggregate readiness across
+// all hosts that scanned during the month. The latest scan per host
+// per month is used to avoid scan-frequency bias (see
+// docs/plans/2026-04-10-analytics-phase-2-design.md §5.1).
+type TrendMonthPoint struct {
+	Month         string  `json:"month"`         // "2026-04" (YYYY-MM format)
+	Readiness     float64 `json:"readiness"`     // safe/(safe+trans+dep+unsafe) × 100, rounded to 1 decimal
+	TotalFindings int     `json:"totalFindings"` // sum across all hosts in this bucket
+}
+
+// ProjectionSummary is the pace-based "when will we reach X% at
+// current pace" estimate returned as part of ExecutiveSummary.
+// TargetPercent and DeadlineYear come from the org's
+// organizations.executive_target_percent and
+// organizations.executive_deadline_year columns (defaults 80/2030).
+// Analytics Phase 2.
+type ProjectionSummary struct {
+	Status          string  `json:"status"` // insufficient-history|already-complete|regressing|insufficient-movement|capped|on-track|behind-schedule
+	TargetPercent   float64 `json:"targetPercent"`
+	DeadlineYear    int     `json:"deadlineYear"`
+	PacePerMonth    float64 `json:"pacePerMonth"`    // readiness-points per calendar month, rounded to 1 decimal
+	ProjectedYear   int     `json:"projectedYear"`   // 0 when Status is non-computable
+	ExplanationText string  `json:"explanationText"` // server-composed human-readable sentence
+}
+
+// MachineHealthTiers is the red/yellow/green tier rollup of the
+// org's machines. Rules:
+//
+//	red    = has any UNSAFE finding
+//	yellow = no unsafe, has any DEPRECATED finding
+//	green  = only SAFE / TRANSITIONAL findings (including zero-finding machines)
+//
+// Returned as part of ExecutiveSummary by /api/v1/executive and
+// consumed by the upgraded Machines stat card on the Overview.
+// Analytics Phase 2.
+type MachineHealthTiers struct {
+	Red    int `json:"red"`
+	Yellow int `json:"yellow"`
+	Green  int `json:"green"`
+	Total  int `json:"total"` // = red + yellow + green, precomputed for the UI
+}
+
 // ErrNotFound is returned when a requested resource does not exist.
 type ErrNotFound struct {
 	Resource string

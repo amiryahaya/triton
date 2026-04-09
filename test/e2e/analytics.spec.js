@@ -163,3 +163,45 @@ test.describe('Analytics — Migration Priority view', () => {
     await expect(page.locator('h2', { hasText: 'Migration Priority' })).toBeVisible();
   });
 });
+
+test.describe('Overview — executive summary block (Phase 2)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/ui/#/');
+    // Wait for overview to load (card-grid is a reliable anchor).
+    await page.waitForSelector('.card-grid', { timeout: 10_000 });
+  });
+
+  test('renders the executive summary bar', async ({ page }) => {
+    const bar = page.locator('.exec-summary-bar');
+    await expect(bar).toBeVisible();
+    await expect(bar.locator('.exec-readiness')).toBeVisible();
+    await expect(bar.locator('.exec-value')).toBeVisible();
+  });
+
+  test('renders both NACSA-2030 and CNSA-2.0 policy chips', async ({ page }) => {
+    const nacsa = page.locator('.exec-chip', { hasText: 'NACSA-2030' });
+    const cnsa = page.locator('.exec-chip', { hasText: 'CNSA-2.0' });
+    await expect(nacsa).toBeVisible();
+    await expect(cnsa).toBeVisible();
+  });
+
+  test('upgraded Machines stat card includes tier badges', async ({ page }) => {
+    const machinesCard = page.locator('.card.info').first();
+    await expect(machinesCard.locator('.machine-tiers')).toBeVisible();
+    await expect(machinesCard.locator('.tier.tier-red')).toBeVisible();
+    await expect(machinesCard.locator('.tier.tier-yellow')).toBeVisible();
+    await expect(machinesCard.locator('.tier.tier-green')).toBeVisible();
+  });
+
+  test('top priority blockers strip appears when populated', async ({ page }) => {
+    // global-setup seeds scans with crypto findings. Either the strip
+    // appears (when there are blockers) or it's absent (fresh org).
+    // Count-based assertion avoids failing on legitimate empty-state.
+    const strip = page.locator('.top-blockers-strip');
+    const count = await strip.count();
+    if (count > 0) {
+      await expect(strip.locator('.top-blockers-label')).toHaveText('Top priority blockers');
+      await expect(strip.locator('.top-blockers-more')).toHaveAttribute('href', '#/priority');
+    }
+  });
+});

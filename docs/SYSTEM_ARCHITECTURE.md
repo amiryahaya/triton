@@ -165,6 +165,20 @@ All three share a `latest_scans AS (SELECT DISTINCT ON (hostname) id FROM scans 
 
 **Single-tenant mode:** when `scan.OrgID == ""` (no Guard, no JWT), the write path short-circuits findings insertion because `findings.org_id` is `UUID NOT NULL`. The scan itself persists; analytics views are simply empty. This is the intended scope for dev deployments.
 
+### 3.1b pkg/analytics — pure-math analytics helpers (Phase 2)
+
+The `pkg/analytics` package contains pure functions that turn raw scan data into executive-summary insights. No database access, no HTTP, no background goroutines — just math. Trivially unit-testable without fixtures or mocks.
+
+Three public functions serve the `GET /api/v1/executive` endpoint:
+
+- **`ComputeOrgTrend(scans []store.ScanSummary) TrendSummary`** — groups scans by (month, hostname), keeps the latest per key, sums per-month aggregates, classifies as improving/declining/stable via a ±1% threshold. Also emits a `MonthlyPoints` series for future sparkline rendering.
+- **`ComputeProjection(trend, targetPercent, deadlineYear) ProjectionSummary`** — pace-based "when will we reach target% at current pace" with seven status enum values. Reads per-org `executive_target_percent` and `executive_deadline_year` from the organizations table.
+- **`ComputeMachineHealth(machines []store.ScanSummary) MachineHealthTiers`** — red/yellow/green rollup with strict "any unsafe = red" rule.
+
+Also exports `LatestByHostname` — a simple dedup helper used by the executive handler to narrow a historical slice to "currently deployed" state.
+
+Package owns its own math but does NOT depend on `pkg/diff/Trend.Direction()`, which computes a per-host trend. The ±1% threshold logic is duplicated intentionally (8 lines) rather than extracting a shared helper — two call sites doesn't yet justify the abstraction.
+
 ### 3.2 Core Types
 
 #### ScanResult — Top-Level Container

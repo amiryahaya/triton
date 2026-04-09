@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // GET /api/v1/metrics — Phase 5 Sprint 3 B4.
@@ -68,6 +70,35 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintln(&body, "# HELP triton_go_memstats_gc_runs Total number of completed GC cycles.")
 	fmt.Fprintln(&body, "# TYPE triton_go_memstats_gc_runs counter")
 	fmt.Fprintf(&body, "triton_go_memstats_gc_runs %d\n", memStats.NumGC)
+
+	// Analytics Phase 1 — backfill observability. The counters live on
+	// the PostgresStore; the in-progress flag lives on the Server.
+	// Type assertion to *store.PostgresStore keeps the Store interface
+	// untouched. If the test harness uses a non-Postgres store, the
+	// counter metrics appear as 0 (which is semantically correct —
+	// there's no backfill goroutine running against a non-Postgres
+	// store either).
+	var bfScansTotal, bfScansFailed uint64
+	if pg, ok := s.store.(*store.PostgresStore); ok {
+		bfScansTotal = pg.BackfillScansTotal()
+		bfScansFailed = pg.BackfillScansFailed()
+	}
+	var bfInProgress int
+	if s.backfillInProgress.Load() {
+		bfInProgress = 1
+	}
+
+	fmt.Fprintln(&body, "# HELP triton_backfill_scans_processed_total Scans processed by the findings backfill loop.")
+	fmt.Fprintln(&body, "# TYPE triton_backfill_scans_processed_total counter")
+	fmt.Fprintf(&body, "triton_backfill_scans_processed_total %d\n", bfScansTotal)
+
+	fmt.Fprintln(&body, "# HELP triton_backfill_scans_failed_total Scans that failed extraction and were marked to skip.")
+	fmt.Fprintln(&body, "# TYPE triton_backfill_scans_failed_total counter")
+	fmt.Fprintf(&body, "triton_backfill_scans_failed_total %d\n", bfScansFailed)
+
+	fmt.Fprintln(&body, "# HELP triton_backfill_in_progress 1 if the first-boot backfill goroutine is running, 0 otherwise.")
+	fmt.Fprintln(&body, "# TYPE triton_backfill_in_progress gauge")
+	fmt.Fprintf(&body, "triton_backfill_in_progress %d\n", bfInProgress)
 
 	// Single Write — ignore error intentionally; a broken pipe on
 	// the scraper side is not actionable from the handler and

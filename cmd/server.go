@@ -196,6 +196,35 @@ func runServer(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("initializing server: %w", err)
 	}
 
+	// Analytics Phase 1 — kick off the one-shot findings-table backfill
+	// in the background. Runs once per process start; the scan-level
+	// findings_extracted_at marker makes this idempotent across restarts.
+	// 30-minute ceiling prevents a runaway loop from holding resources
+	// indefinitely. Panics are recovered so a corrupt row can't crash
+	// the whole server.
+	//
+	// Context is derived from srv.Context() (cancelled in Shutdown),
+	// and the WaitGroup is drained by Shutdown before cmd/server.go's
+	// deferred db.Close() runs — without both, the backfill would
+	// outlive the store pool and spray "pool closed" errors.
+	// /pensive:full-review action items B2 (2026-04-09).
+	srv.BackfillInProgress().Store(true)
+	srv.BackfillWG().Add(1)
+	go func() {
+		defer srv.BackfillWG().Done()
+		defer srv.BackfillInProgress().Store(false)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("backfill: PANIC recovered: %v", r)
+			}
+		}()
+		bfCtx, cancel := context.WithTimeout(srv.Context(), 30*time.Minute)
+		defer cancel()
+		if err := db.BackfillFindings(bfCtx); err != nil {
+			log.Printf("backfill: %v", err)
+		}
+	}()
+
 	// Graceful shutdown.
 	errCh := make(chan error, 1)
 	go func() {

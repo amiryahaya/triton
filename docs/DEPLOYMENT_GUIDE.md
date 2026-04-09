@@ -227,6 +227,16 @@ triton server --db "$TRITON_DB_URL"
 
 **Existing plaintext rows:** the encryptor transparently reads both encrypted and plaintext rows during the transition window. Once all rows are encrypted you can flip a check to enforce encrypted-only reads, but that is not the default.
 
+**⚠️ Encryption scope (Analytics Phase 1 onward):** the envelope covers **only** `scans.result_json`. The denormalized `findings` read-model table introduced by Analytics Phase 1 (schema v7) stores columns such as `subject`, `issuer`, `file_path`, `hostname`, `algorithm`, and `not_after` as **plaintext** so they can be used in SQL predicates for the three new aggregation queries (`/api/v1/inventory`, `/api/v1/certificates/expiring`, `/api/v1/priority`). An operator who enabled at-rest encryption for compliance reasons should be aware that the most interesting fields of a scan are projected beside the encrypted blob in cleartext.
+
+If you require end-to-end encryption of these fields, the current options are:
+
+1. **Accept the reduced scope** — document internally that at-rest encryption covers payload archival but not the analytics projection. Most deployments will choose this.
+2. **Revert migration v7** — `DROP TABLE findings; ALTER TABLE scans DROP COLUMN findings_extracted_at;` disables the analytics views entirely. The rest of Triton continues to function against the encrypted scan blobs.
+3. **Wrap the projection at the storage layer** — use PostgreSQL TDE (Transparent Data Encryption via a plugin like `pgcrypto` with indexable encrypted columns) or filesystem-level encryption on the data volume. Outside Triton's own code path.
+
+Tracked under `/pensive:full-review` item B3 (2026-04-09). Phase 2+ will revisit this if an operator requires column-level encryption of the findings projection.
+
 ### 5d. Running the report server
 
 **Binary directly:**
@@ -765,3 +775,49 @@ Large scan submissions (>10MB findings sections) may need adjusted timeouts — 
 ### Request throttling
 
 Both servers apply `middleware.Throttle(100)` — up to 100 concurrent requests. Heavier load should stagger agent scan intervals or horizontally scale (noting the rate-limiter split-brain trade-off in ADR 0001).
+
+## 13. Analytics Dashboard (Phase 1)
+
+The report server's web UI includes three analytical views under a new "Analytics" sidebar section, shipped as Analytics Phase 1:
+
+- **Crypto Inventory** (`#/inventory`) — aggregated by `(algorithm, key_size)` across the org, filtered to the latest scan per host. Answers "what crypto is currently deployed?"
+- **Expiring Certificates** (`#/certificates`) — certs sorted by soonest expiry, with 30/90/180-day filter chips. Default window is 90 days. Already-expired certs are always included regardless of the filter.
+- **Migration Priority** (`#/priority`) — top 20 findings by `migration_priority` score, read-only. Summary cards break down by criticality (≥80 critical, 60–79 high, 40–59 medium).
+
+All three views read from a new denormalized `findings` table (schema v7) that is populated on every scan submit transactionally alongside the scan row. For historical data, a first-boot background goroutine walks `scans.result_json`, extracts crypto findings, and marks each scan via the new `findings_extracted_at` column. The goroutine runs once per process start, is bounded to 30 minutes, and is idempotent across restarts — dropping the findings table and clearing `findings_extracted_at` triggers a fresh extraction without data loss.
+
+### 13a. Backfill observability
+
+Three Prometheus metrics expose backfill progress via `/api/v1/metrics`:
+
+- `triton_backfill_scans_processed_total` — counter of successfully processed scans
+- `triton_backfill_scans_failed_total` — counter of scans that failed extraction and were marked to skip (check logs for causes — typically corrupt or unreadable `result_json` blobs)
+- `triton_backfill_in_progress` — gauge, 1 while the goroutine is running, 0 otherwise
+
+While backfill is in progress, the three analytics API responses include an `X-Backfill-In-Progress: true` header and the UI shows an inline cyan banner on the affected views. The banner auto-clears when the header stops being sent.
+
+### 13b. Recovery runbook
+
+The `findings` table is a **read-model** over `scans.result_json`. Dropping or truncating it loses nothing permanent — it can always be rebuilt from the scan blobs.
+
+**If the findings table has stale or wrong data (e.g., mid-flight bug wrote bad rows):**
+
+```sql
+TRUNCATE findings;
+UPDATE scans SET findings_extracted_at = NULL;
+```
+
+Restart the report server — the backfill goroutine re-runs automatically and repopulates the table from `scans.result_json`.
+
+**If the schema itself needs to be rolled back (worst case — v7 misbehaving in production):**
+
+```sql
+DROP TABLE findings;
+ALTER TABLE scans DROP COLUMN findings_extracted_at;
+```
+
+Redeploy with a schema v6 binary. The report server will work without analytics views until v7 is re-applied.
+
+### 13c. Single-tenant mode note
+
+In deployments with no Guard and no JWT (the default local dev mode), `TenantFromContext` returns the empty string. The analytics views won't show any data in this mode because the `findings` table's `org_id` column is `UUID NOT NULL` and requires a real tenant. Scans still persist correctly — the write path short-circuits findings insertion for single-tenant scans. Analytics are a feature of multi-tenant deployments.

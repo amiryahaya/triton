@@ -36,6 +36,10 @@ func TestMetrics_ExposesExpectedSeries(t *testing.T) {
 		"triton_go_memstats_alloc_bytes",
 		"triton_go_memstats_sys_bytes",
 		"triton_go_memstats_gc_runs",
+		// Analytics Phase 1 — backfill observability.
+		"triton_backfill_scans_processed_total",
+		"triton_backfill_scans_failed_total",
+		"triton_backfill_in_progress",
 	}
 	for _, series := range expected {
 		// Each series must appear with both a HELP comment and a
@@ -45,6 +49,28 @@ func TestMetrics_ExposesExpectedSeries(t *testing.T) {
 		assert.True(t, strings.Contains(body, "# TYPE "+series),
 			"missing TYPE declaration for %s", series)
 	}
+}
+
+// TestMetrics_BackfillFlagReflectsState verifies that the
+// triton_backfill_in_progress gauge emits 1 when the Server's
+// backfillInProgress atomic flag is set and 0 otherwise. This is the
+// signal the UI uses to decide whether to show the X-Backfill-In-
+// Progress banner on analytics views.
+func TestMetrics_BackfillFlagReflectsState(t *testing.T) {
+	srv, _ := testServer(t)
+
+	// Flag unset — expect "triton_backfill_in_progress 0".
+	w := authReq(t, srv, http.MethodGet, "/api/v1/metrics", "", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "triton_backfill_in_progress 0")
+
+	// Set the flag, scrape again, expect "1".
+	srv.BackfillInProgress().Store(true)
+	defer srv.BackfillInProgress().Store(false)
+
+	w2 := authReq(t, srv, http.MethodGet, "/api/v1/metrics", "", nil)
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), "triton_backfill_in_progress 1")
 }
 
 // TestMetrics_PublicAccess verifies that the metrics endpoint is

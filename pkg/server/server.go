@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -118,6 +119,49 @@ type Server struct {
 	// in front of the JWTAuth session+user lookups. Nil when
 	// SessionCacheSize is zero; JWTAuth handles the nil receiver.
 	sessionCache *sessioncache.SessionCache
+
+	// backfillInProgress is set to true while the first-boot findings
+	// backfill goroutine is running. Analytics handlers read this to
+	// emit the X-Backfill-In-Progress header so the UI can show a
+	// banner. Analytics Phase 1 — zero cost on the hot path via atomic.
+	backfillInProgress atomic.Bool
+
+	// backfillWG tracks the first-boot findings backfill goroutine so
+	// Shutdown can drain it before the store pool is closed. Without
+	// this, a long-running backfill would keep making queries against
+	// the closed pool after Shutdown returns, spraying "pool closed"
+	// errors into the log until the goroutine's timeout expired.
+	// Analytics Phase 1 — /pensive:full-review action item B2.
+	backfillWG sync.WaitGroup
+}
+
+// BackfillInProgress exposes the atomic flag so cmd/server.go can flip
+// it around the backfill goroutine. Handlers read it directly via
+// s.backfillInProgress.Load(). Analytics Phase 1.
+func (s *Server) BackfillInProgress() *atomic.Bool {
+	return &s.backfillInProgress
+}
+
+// Context returns the server's base context. It is cancelled when
+// Shutdown is called, providing a clean cancellation signal for
+// background workers launched from cmd/server.go (currently: the
+// Phase 1 analytics backfill goroutine). Callers should derive their
+// own timeouts from this, e.g.:
+//
+//	bfCtx, cancel := context.WithTimeout(srv.Context(), 30*time.Minute)
+//	defer cancel()
+//
+// Analytics Phase 1 — /pensive:full-review action item B2.
+func (s *Server) Context() context.Context {
+	return s.ctx
+}
+
+// BackfillWG exposes the backfill WaitGroup so cmd/server.go can
+// register its goroutine and Shutdown can drain it. Callers MUST
+// Add(1) before launching the goroutine and Done() inside the
+// goroutine's defer block. Analytics Phase 1.
+func (s *Server) BackfillWG() *sync.WaitGroup {
+	return &s.backfillWG
 }
 
 // auditSemDepth is the max number of concurrent writeAudit
@@ -418,6 +462,13 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/reports/{id}/{format}", s.handleGenerateReport)
 		r.Get("/aggregate", s.handleAggregate)
 
+		// Analytics Phase 1 — three new aggregation endpoints backed
+		// by the denormalized findings table. All three are tenant-
+		// scoped via the surrounding RequireTenant middleware.
+		r.Get("/inventory", s.handleInventory)
+		r.Get("/certificates/expiring", s.handleExpiringCertificates)
+		r.Get("/priority", s.handlePriorityFindings)
+
 		// Destructive operations require org_admin (Arch #7 from
 		// Phase 2 review). org_user can read but cannot delete scans.
 		r.Group(func(r chi.Router) {
@@ -468,9 +519,29 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-auditDone:
-		return nil
+		// continue to backfill drain
 	case <-ctx.Done():
 		log.Printf("shutdown: audit drain deadline exceeded; some events may have been lost")
+		return ctx.Err()
+	}
+
+	// Drain the analytics backfill goroutine (Phase 1). s.cancel()
+	// above cancelled s.ctx, so any backfill goroutine derived from
+	// it is already unwinding. Waiting here ensures the goroutine
+	// finishes BEFORE cmd/server.go's deferred db.Close() fires —
+	// without this, a long backfill would spray "pool closed"
+	// errors into the log after Shutdown returns.
+	// /pensive:full-review action item B2.
+	backfillDone := make(chan struct{})
+	go func() {
+		s.backfillWG.Wait()
+		close(backfillDone)
+	}()
+	select {
+	case <-backfillDone:
+		return nil
+	case <-ctx.Done():
+		log.Printf("shutdown: backfill drain deadline exceeded; goroutine will finish against a closing pool")
 		return ctx.Err()
 	}
 }

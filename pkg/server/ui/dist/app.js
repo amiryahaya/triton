@@ -36,6 +36,15 @@
     },
   };
 
+  // Analytics Phase 1 — backfill banner state. The api() helper syncs
+  // backfillState.inProgress from the X-Backfill-In-Progress response
+  // header whenever an analytics endpoint is called. The state is
+  // read by renderBackfillBanner() which prepends a cyan notice to
+  // any analytics view while backfill is running, and auto-clears
+  // once the header stops being set.
+  const backfillState = { inProgress: false };
+  const ANALYTICS_PATHS = ['/inventory', '/certificates', '/priority'];
+
   // API helper. Injects Authorization header from stored JWT, handles
   // 401 by clearing the token and showing the login screen.
   // method/body are optional (defaults to GET).
@@ -52,6 +61,12 @@
       headers,
       body: opts.body || undefined,
     });
+    // Sync backfill state on every analytics response. Done BEFORE
+    // 401 handling so a 401 bounce still updates the flag (unlikely
+    // to matter in practice but cheap and consistent).
+    if (ANALYTICS_PATHS.some(p => path.startsWith(p))) {
+      backfillState.inProgress = resp.headers.get('X-Backfill-In-Progress') === 'true';
+    }
     if (resp.status === 401) {
       auth.clearToken();
       location.hash = '#/login';
@@ -67,6 +82,21 @@
     }
     if (resp.status === 204) return null;
     return resp.json();
+  }
+
+  // renderBackfillBanner prepends a cyan "still populating historical
+  // data" banner to the given container if the most recent analytics
+  // response advertised X-Backfill-In-Progress: true. Zero effect
+  // once backfill finishes — the next api() call clears the flag.
+  function renderBackfillBanner(containerEl) {
+    if (!backfillState.inProgress) return;
+    containerEl.insertAdjacentHTML('afterbegin',
+      '<div class="backfill-banner">' +
+        '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">' +
+          '<circle cx="7" cy="7" r="5" stroke-dasharray="20 8"/>' +
+        '</svg>' +
+        '<span>Triton is still populating historical scan data — this view may be incomplete. Refresh in a moment for more.</span>' +
+      '</div>');
   }
 
   // Dark theme chart colors matching CSS variables
@@ -187,6 +217,9 @@
       case 'login': renderLogin(); break;
       case 'change-password': renderChangePassword(); break;
       case 'users': param ? renderUserDetail(param) : renderUsers(); break;
+      case 'inventory': renderInventory(); break;
+      case 'certificates': renderCertificates(); break;
+      case 'priority': renderPriority(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;
@@ -986,6 +1019,168 @@
       el.innerHTML = `<div class="error">Trend failed: ${escapeHtml(e.message)}</div>`;
     }
   };
+
+  // ─── Analytics Phase 1 views ────────────────────────────────────────
+
+  async function renderInventory() {
+    content.innerHTML = '<div class="loading">Loading crypto inventory...</div>';
+    try {
+      const rows = await api('/inventory');
+      let html = '<h2>Crypto Inventory</h2>' +
+        '<p class="subtitle">Aggregated by algorithm and key size across all machines in your organization (latest scan per host).</p>';
+      if (!rows || rows.length === 0) {
+        html += '<div class="empty-state">No findings yet — run a scan to see your crypto inventory.</div>';
+      } else {
+        html += '<table class="analytics-table"><thead><tr>' +
+          '<th>Algorithm</th><th>Size</th><th>Status</th>' +
+          '<th class="num">Instances</th><th class="num">Machines</th><th class="num">Max Priority</th>' +
+          '</tr></thead><tbody>';
+        for (const row of rows) {
+          html += '<tr>' +
+            '<td>' + escapeHtml(row.algorithm) + '</td>' +
+            '<td>' + (row.keySize > 0 ? escapeHtml(row.keySize) : '—') + '</td>' +
+            '<td>' + badge(row.pqcStatus) + '</td>' +
+            '<td class="num">' + escapeHtml(row.instances) + '</td>' +
+            '<td class="num">' + escapeHtml(row.machines) + '</td>' +
+            '<td class="num">' + (row.maxPriority > 0 ? escapeHtml(row.maxPriority) : '—') + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load inventory: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  // certFilterDays is the currently-selected window for the
+  // Expiring Certificates view. Persisted in module state so filter
+  // chip clicks don't require a full re-render of the chrome.
+  let certFilterDays = 90;
+
+  async function renderCertificates() {
+    content.innerHTML = '<div class="loading">Loading certificates...</div>';
+    try {
+      const param = certFilterDays === 'all' ? 'all' : String(certFilterDays);
+      const rows = await api('/certificates/expiring?within=' + param);
+
+      // Summary counts computed from the rows we just fetched. Note
+      // these reflect only what the current window returned — to see
+      // a wider view, click the "All" chip which broadens the query.
+      let expired = 0, urgent = 0, warning = 0;
+      for (const r of rows) {
+        if (r.daysRemaining < 0) expired++;
+        else if (r.daysRemaining <= 30) urgent++;
+        else if (r.daysRemaining <= 90) warning++;
+      }
+
+      let html = '<h2>Expiring Certificates</h2>' +
+        '<p class="subtitle">Latest-scan certificates sorted by soonest expiry. Already-expired certs are always included regardless of the filter.</p>' +
+        '<div class="summary-chips">' +
+          '<div class="summary-chip critical"><strong>' + expired + '</strong> expired</div>' +
+          '<div class="summary-chip urgent"><strong>' + urgent + '</strong> within 30 days</div>' +
+          '<div class="summary-chip warning"><strong>' + warning + '</strong> within 90 days</div>' +
+          '<div class="summary-chip"><strong>' + rows.length + '</strong> shown</div>' +
+        '</div>' +
+        '<div class="form-row" style="gap:8px;margin-bottom:12px">' +
+          ['30', '90', '180', 'all'].map(function(d) {
+            const active = String(certFilterDays) === d;
+            const label = d === 'all' ? 'All' : d + ' days';
+            return '<button class="btn" data-window="' + d + '" style="opacity:' + (active ? '1' : '0.6') + '">' + label + '</button>';
+          }).join('') +
+        '</div>';
+
+      if (rows.length === 0) {
+        html += '<div class="empty-state">No certificates match this filter.</div>';
+      } else {
+        html += '<table class="analytics-table"><thead><tr>' +
+          '<th>Subject</th><th>Host</th><th>Algorithm</th>' +
+          '<th class="num">Expires in</th><th>Status</th>' +
+          '</tr></thead><tbody>';
+        for (const row of rows) {
+          const days = row.daysRemaining;
+          const daysText = days < 0 ? 'expired ' + (-days) + 'd ago' : days + ' days';
+          const algo = row.algorithm + (row.keySize ? '-' + row.keySize : '');
+          html += '<tr>' +
+            '<td>' + escapeHtml(row.subject) + '</td>' +
+            '<td>' + escapeHtml(row.hostname) + '</td>' +
+            '<td>' + escapeHtml(algo) + '</td>' +
+            '<td class="num">' + escapeHtml(daysText) + '</td>' +
+            '<td>' + badge(row.status) + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+
+      // Wire up filter chip buttons. Each click updates the module-
+      // level certFilterDays and re-renders. The selected chip stays
+      // highlighted via opacity = 1.
+      $$('button[data-window]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const v = btn.dataset.window;
+          certFilterDays = v === 'all' ? 'all' : parseInt(v, 10);
+          renderCertificates();
+        });
+      });
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load certificates: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  async function renderPriority() {
+    content.innerHTML = '<div class="loading">Loading priority findings...</div>';
+    try {
+      const rows = await api('/priority?limit=20');
+
+      // Bucket counts for the summary cards.
+      let critical = 0, high = 0, medium = 0;
+      for (const r of rows) {
+        if (r.priority >= 80) critical++;
+        else if (r.priority >= 60) high++;
+        else if (r.priority >= 40) medium++;
+      }
+
+      let html = '<h2>Migration Priority</h2>' +
+        '<p class="subtitle">Top findings to fix first, ranked by migration priority score (latest scan per host, top 20).</p>' +
+        '<div class="card-grid">' +
+          '<div class="card unsafe"><div class="value">' + critical + '</div><div class="label">Critical (≥80)</div></div>' +
+          '<div class="card deprecated"><div class="value">' + high + '</div><div class="label">High (60–79)</div></div>' +
+          '<div class="card transitional"><div class="value">' + medium + '</div><div class="label">Medium (40–59)</div></div>' +
+          '<div class="card info"><div class="value">' + rows.length + '</div><div class="label">Shown</div></div>' +
+        '</div>';
+
+      if (rows.length === 0) {
+        html += '<div class="empty-state">No priority findings yet — run a scan.</div>';
+      } else {
+        html += '<table class="analytics-table"><thead><tr>' +
+          '<th class="num">Score</th><th>Algorithm</th><th>Module</th>' +
+          '<th>Host</th><th>Location</th><th>Status</th>' +
+          '</tr></thead><tbody>';
+        for (const row of rows) {
+          const algo = row.algorithm + (row.keySize ? '-' + row.keySize : '');
+          const loc = row.filePath || '—';
+          html += '<tr>' +
+            '<td class="num">' + escapeHtml(row.priority) + '</td>' +
+            '<td>' + escapeHtml(algo) + '</td>' +
+            '<td>' + escapeHtml(row.module) + '</td>' +
+            '<td>' + escapeHtml(row.hostname) + '</td>' +
+            '<td><code>' + escapeHtml(loc) + '</code></td>' +
+            '<td>' + badge(row.pqcStatus) + '</td>' +
+            '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+
+      content.innerHTML = html;
+      renderBackfillBanner(content);
+    } catch (e) {
+      content.innerHTML = '<div class="error">Failed to load priority findings: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
 
   // Init
   // The renderOverview() initial call will hit the API. In single-tenant

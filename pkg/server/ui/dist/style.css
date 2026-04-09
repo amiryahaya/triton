@@ -835,3 +835,92 @@ td[colspan] {
   background: rgba(34, 211, 238, 0.12);
   color: #22d3ee;
 }
+
+/* ============================================================
+   Analytics Phase 1 — shared styles for Inventory, Certificates,
+   and Priority views.
+   ============================================================ */
+
+.nav-section-label {
+  padding: 16px 14px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.backfill-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  border-radius: 8px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  color: #22d3ee;
+  font-size: 13px;
+}
+.backfill-banner svg {
+  flex-shrink: 0;
+  animation: analytics-spin 2s linear infinite;
+}
+@keyframes analytics-spin {
+  to { transform: rotate(360deg); }
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.analytics-table th {
+  background: rgba(148, 163, 184, 0.08);
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+.analytics-table td {
+  padding: 10px 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+}
+.analytics-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.analytics-table tr.clickable-row:hover {
+  background: rgba(148, 163, 184, 0.04);
+  cursor: pointer;
+}
+
+.empty-state {
+  padding: 40px 24px;
+  text-align: center;
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.04);
+  border-radius: 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.1);
+}
+
+.summary-chips {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.summary-chip {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: rgba(148, 163, 184, 0.08);
+  color: #94a3b8;
+}
+.summary-chip strong { color: #e2e8f0; }
+.summary-chip.critical { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+.summary-chip.critical strong { color: #f87171; }
+.summary-chip.urgent   { background: rgba(251, 146, 60, 0.15); color: #fb923c; }
+.summary-chip.urgent strong { color: #fb923c; }
+.summary-chip.warning  { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.summary-chip.warning strong { color: #fbbf24; }

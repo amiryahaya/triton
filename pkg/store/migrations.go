@@ -137,4 +137,48 @@ var migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
 	CREATE INDEX IF NOT EXISTS idx_audit_events_org_id ON audit_events(org_id);
 	CREATE INDEX IF NOT EXISTS idx_audit_events_actor_id ON audit_events(actor_id);`,
+
+	// Version 7: Denormalized findings read-model (Analytics Phase 1).
+	//
+	// Extracts per-finding crypto data from scans.result_json into a
+	// queryable table. scans remains the source of truth; findings is a
+	// rebuildable read-model populated on scan submit (inline via
+	// SaveScanWithFindings) and for existing rows via the first-boot
+	// backfill (pkg/store/backfill.go).
+	//
+	// Only findings with a non-nil CryptoAsset are extracted — non-crypto
+	// findings stay in the blob and are irrelevant to the analytics views.
+	`CREATE TABLE IF NOT EXISTS findings (
+		id                  UUID PRIMARY KEY,
+		scan_id             UUID NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+		org_id              UUID NOT NULL,
+		hostname            TEXT NOT NULL,
+		finding_index       INTEGER NOT NULL,
+		module              TEXT NOT NULL,
+		file_path           TEXT NOT NULL DEFAULT '',
+		algorithm           TEXT NOT NULL,
+		key_size            INTEGER NOT NULL DEFAULT 0,
+		pqc_status          TEXT NOT NULL DEFAULT '',
+		migration_priority  INTEGER NOT NULL DEFAULT 0,
+		not_after           TIMESTAMPTZ,
+		subject             TEXT NOT NULL DEFAULT '',
+		issuer              TEXT NOT NULL DEFAULT '',
+		reachability        TEXT NOT NULL DEFAULT '',
+		created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (scan_id, finding_index)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_findings_org_algorithm
+		ON findings (org_id, algorithm, key_size);
+
+	CREATE INDEX IF NOT EXISTS idx_findings_org_not_after
+		ON findings (org_id, not_after)
+		WHERE not_after IS NOT NULL;
+
+	CREATE INDEX IF NOT EXISTS idx_findings_org_priority
+		ON findings (org_id, migration_priority DESC);
+
+	CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings (scan_id);
+
+	ALTER TABLE scans ADD COLUMN IF NOT EXISTS findings_extracted_at TIMESTAMPTZ;`,
 }

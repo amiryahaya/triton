@@ -80,7 +80,12 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 	}
 	result.OrgID = tenantOrg
 
-	if err := s.store.SaveScan(r.Context(), &result); err != nil {
+	// Analytics Phase 1 — persist the scan AND extract findings into
+	// the denormalized read-model in a single transaction. The marker
+	// column on the scan row ensures the first-boot backfill goroutine
+	// won't double-process this scan.
+	findings := store.ExtractFindings(&result)
+	if err := s.store.SaveScanWithFindings(r.Context(), &result, findings); err != nil {
 		log.Printf("save scan error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return

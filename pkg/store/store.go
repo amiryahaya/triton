@@ -94,6 +94,30 @@ type Store interface {
 	SessionStore
 	AuditStore
 
+	// SaveScanWithFindings atomically stores a scan and inserts its
+	// extracted crypto findings. Marks the scan as backfilled on success
+	// so the background goroutine skips it.
+	SaveScanWithFindings(ctx context.Context, scan *model.ScanResult, findings []Finding) error
+
+	// ListInventory aggregates findings into (algorithm, key_size) rows
+	// for the given org, filtered to the latest scan per hostname.
+	// Sorted by worst PQC status first, then instances descending.
+	// Returns an empty slice (not nil) when there are no findings.
+	ListInventory(ctx context.Context, orgID string) ([]InventoryRow, error)
+
+	// ListExpiringCertificates returns findings with not_after set,
+	// filtered to the latest scan per hostname, expiring within the
+	// given duration from now. Already-expired certs are ALWAYS
+	// included regardless of the window. Callers wanting "all future
+	// expiries" pass a large duration (e.g. 100 years).
+	ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration) ([]ExpiringCertRow, error)
+
+	// ListTopPriorityFindings returns the top N findings by
+	// migration_priority descending, filtered to the latest scan per
+	// hostname. Findings with priority 0 are excluded. limit=0 is
+	// treated as limit=20.
+	ListTopPriorityFindings(ctx context.Context, orgID string, limit int) ([]PriorityRow, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }

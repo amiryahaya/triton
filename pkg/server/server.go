@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -118,6 +119,19 @@ type Server struct {
 	// in front of the JWTAuth session+user lookups. Nil when
 	// SessionCacheSize is zero; JWTAuth handles the nil receiver.
 	sessionCache *sessioncache.SessionCache
+
+	// backfillInProgress is set to true while the first-boot findings
+	// backfill goroutine is running. Analytics handlers read this to
+	// emit the X-Backfill-In-Progress header so the UI can show a
+	// banner. Analytics Phase 1 — zero cost on the hot path via atomic.
+	backfillInProgress atomic.Bool
+}
+
+// BackfillInProgress exposes the atomic flag so cmd/server.go can flip
+// it around the backfill goroutine. Handlers read it directly via
+// s.backfillInProgress.Load(). Analytics Phase 1.
+func (s *Server) BackfillInProgress() *atomic.Bool {
+	return &s.backfillInProgress
 }
 
 // auditSemDepth is the max number of concurrent writeAudit

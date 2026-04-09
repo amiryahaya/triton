@@ -18,6 +18,24 @@ import (
 type PostgresStore struct {
 	pool      *pgxpool.Pool
 	encryptor atomic.Pointer[Encryptor] // optional; nil load = no at-rest encryption
+
+	// Backfill counters — read by the metrics handler, written by
+	// BackfillFindings. Lock-free atomics so the metrics scrape path
+	// costs nothing on every request. Analytics Phase 1.
+	backfillScansTotal  atomic.Uint64
+	backfillScansFailed atomic.Uint64
+}
+
+// BackfillScansTotal returns the running count of scans successfully
+// processed by the findings backfill loop. Analytics Phase 1.
+func (s *PostgresStore) BackfillScansTotal() uint64 {
+	return s.backfillScansTotal.Load()
+}
+
+// BackfillScansFailed returns the running count of scans that failed
+// extraction and were marked to skip (e.g. corrupt blobs). Analytics Phase 1.
+func (s *PostgresStore) BackfillScansFailed() uint64 {
+	return s.backfillScansFailed.Load()
 }
 
 // SetEncryptor enables at-rest AES-256-GCM encryption for the scans

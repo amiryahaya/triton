@@ -56,6 +56,15 @@ func (s *PostgresStore) BackfillFindings(ctx context.Context) error {
 
 		scans, err := s.selectUnbackfilledScans(ctx, batchSize)
 		if err != nil {
+			// Same graceful-cancellation handling as the per-scan
+			// loop below: if the context expired while the batch
+			// query was running, return nil instead of wrapping
+			// the context error as a fatal failure.
+			// /pensive:full-review T4 timeout test fix (round 2).
+			if ctx.Err() != nil {
+				log.Printf("backfill: context cancelled during select after %d scans", processed)
+				return nil
+			}
 			return fmt.Errorf("backfill: select unbackfilled: %w", err)
 		}
 		if len(scans) == 0 {

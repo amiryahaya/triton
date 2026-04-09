@@ -31,6 +31,7 @@ import (
 var _ Module = (*ProtocolModule)(nil)
 
 func TestProtocolModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 	assert.Equal(t, "protocol", m.Name())
 	assert.Equal(t, model.CategoryActiveNetwork, m.Category())
@@ -38,6 +39,7 @@ func TestProtocolModuleInterface(t *testing.T) {
 }
 
 func TestTLSProbeAgainstTestServer(t *testing.T) {
+	t.Parallel()
 	// Start a TLS test server
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
@@ -97,6 +99,7 @@ func TestTLSProbeAgainstTestServer(t *testing.T) {
 }
 
 func TestTLSProbeExtractsCipherSuite(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -145,6 +148,7 @@ func TestTLSProbeExtractsCipherSuite(t *testing.T) {
 }
 
 func TestTLSProbeExtractsCertificate(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -192,6 +196,7 @@ func TestTLSProbeExtractsCertificate(t *testing.T) {
 }
 
 func TestTLSProbeTimeout(t *testing.T) {
+	t.Parallel()
 	// Create a listener that accepts but never completes TLS handshake
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -224,6 +229,7 @@ func TestTLSProbeTimeout(t *testing.T) {
 }
 
 func TestTLSProbeNonExistentHost(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetNetwork, Value: "127.0.0.1:1"}
@@ -245,6 +251,7 @@ func TestTLSProbeNonExistentHost(t *testing.T) {
 }
 
 func TestCipherSuiteToAlgorithm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		suite    uint16
 		wantAlgo string
@@ -265,6 +272,7 @@ func TestCipherSuiteToAlgorithm(t *testing.T) {
 }
 
 func TestTLSProbe_DeprecatedVersion(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -320,6 +328,7 @@ func TestTLSProbe_DeprecatedVersion(t *testing.T) {
 }
 
 func TestTLSProbe_TLS12_NoVersionWarning(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -369,6 +378,7 @@ func TestTLSProbe_TLS12_NoVersionWarning(t *testing.T) {
 }
 
 func TestValidateCertChain_SelfSigned(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -421,6 +431,7 @@ func TestValidateCertChain_SelfSigned(t *testing.T) {
 }
 
 func TestValidateCertChain_ContextCancelled(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 	findings := make(chan *model.Finding, 10)
 
@@ -439,6 +450,7 @@ func TestValidateCertChain_ContextCancelled(t *testing.T) {
 }
 
 func TestDetectSessionResumption_Supported(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -490,6 +502,7 @@ func TestDetectSessionResumption_Supported(t *testing.T) {
 }
 
 func TestDetectSessionResumption_NotSupported(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -542,6 +555,7 @@ func TestDetectSessionResumption_NotSupported(t *testing.T) {
 }
 
 func TestTLSProbe_FullChainPositions(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -583,6 +597,7 @@ func TestTLSProbe_FullChainPositions(t *testing.T) {
 }
 
 func TestTLSProbe_ChainDepth(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -613,6 +628,7 @@ func TestTLSProbe_ChainDepth(t *testing.T) {
 }
 
 func TestTLSProbe_OCSPResponderExtracted(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -646,6 +662,7 @@ func TestTLSProbe_OCSPResponderExtracted(t *testing.T) {
 }
 
 func TestTLSProbe_CRLDistPointsExtracted(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
@@ -679,6 +696,7 @@ func TestTLSProbe_CRLDistPointsExtracted(t *testing.T) {
 }
 
 func TestTLSProbe_SingleCertChain(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -712,6 +730,7 @@ func TestTLSProbe_SingleCertChain(t *testing.T) {
 }
 
 func TestChainPosition_Helper(t *testing.T) {
+	t.Parallel()
 	// Test the chainPosition helper directly
 	// Self-signed CA: RawIssuer == RawSubject
 	caIssuer := pkix.Name{CommonName: "Test CA"}
@@ -783,6 +802,7 @@ func acceptLoop(listener net.Listener) {
 // --- Sprint 2: OCSP/CRL Revocation Tests ---
 
 func TestCheckOCSP_GoodStatus(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	// Mock OCSP responder returning Good
@@ -817,6 +837,7 @@ func TestCheckOCSP_GoodStatus(t *testing.T) {
 }
 
 func TestCheckOCSP_RevokedStatus(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -850,12 +871,20 @@ func TestCheckOCSP_RevokedStatus(t *testing.T) {
 }
 
 func TestCheckOCSP_Timeout(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
+	// Handler hangs for 2s max; client timeout is 100ms so the
+	// test verifies the client gives up. Previously this was
+	// 30 seconds — which meant srv.Close() blocked waiting on
+	// the handler goroutine for the full 30s if the server-side
+	// context cancellation was slow (observed as a 30s per-test
+	// cost on CI, pushing scanner package total over 10 min).
+	// 2s is still plenty longer than the 100ms client deadline.
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
-		case <-time.After(30 * time.Second):
+		case <-time.After(2 * time.Second):
 		}
 	}))
 	srv.Start()
@@ -876,6 +905,7 @@ func TestCheckOCSP_Timeout(t *testing.T) {
 }
 
 func TestCheckOCSP_NoResponder(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 
 	cert := &x509.Certificate{
@@ -889,6 +919,7 @@ func TestCheckOCSP_NoResponder(t *testing.T) {
 }
 
 func TestCheckCRL_NotRevoked(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	// Create an empty CRL (no revoked certs)
@@ -921,6 +952,7 @@ func TestCheckCRL_NotRevoked(t *testing.T) {
 }
 
 func TestCheckCRL_Revoked(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	// Create CRL with the leaf cert's serial revoked
@@ -959,6 +991,7 @@ func TestCheckCRL_Revoked(t *testing.T) {
 }
 
 func TestCheckCRL_FetchError(t *testing.T) {
+	t.Parallel()
 	m := &ProtocolModule{
 		config:     &config.Config{},
 		httpClient: &http.Client{Timeout: 100 * time.Millisecond},
@@ -974,6 +1007,7 @@ func TestCheckCRL_FetchError(t *testing.T) {
 }
 
 func TestCheckRevocation_OCSPPreferred(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	ocspCalled := false
@@ -1031,6 +1065,7 @@ func TestCheckRevocation_OCSPPreferred(t *testing.T) {
 }
 
 func TestCheckRevocation_FallbackToCRL(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	// OCSP responder (broken)
@@ -1078,6 +1113,7 @@ func TestCheckRevocation_FallbackToCRL(t *testing.T) {
 }
 
 func TestCheckRevocation_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1100,6 +1136,7 @@ func TestCheckRevocation_ContextCancellation(t *testing.T) {
 }
 
 func TestCheckRevocation_FindingEmission(t *testing.T) {
+	t.Parallel()
 	chain := generateTestCertChain(t)
 
 	// OCSP responder returning Good
@@ -1266,6 +1303,7 @@ func generateTestCertChain(t *testing.T) testCertChain {
 // --- Phase 13: Enhanced TLS Probing Tests ---
 
 func TestCipherSuiteKeyExchange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		suite   string
@@ -1292,6 +1330,7 @@ func TestCipherSuiteKeyExchange(t *testing.T) {
 }
 
 func TestIsWeakSignatureAlgorithm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		algo x509.SignatureAlgorithm
 		weak bool
@@ -1317,6 +1356,7 @@ func TestIsWeakSignatureAlgorithm(t *testing.T) {
 }
 
 func TestTLSProbe_KeyExchangeExtracted(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1355,6 +1395,7 @@ func TestTLSProbe_KeyExchangeExtracted(t *testing.T) {
 }
 
 func TestTLSProbe_NoPFS_RSAKeyExchange(t *testing.T) {
+	t.Parallel()
 	// Need an RSA cert for RSA key exchange cipher suites
 	rsaCert, rsaKey := generateTestRSACert(t)
 	tlsCert, err := tls.X509KeyPair(rsaCert, rsaKey)
@@ -1393,6 +1434,7 @@ func TestTLSProbe_NoPFS_RSAKeyExchange(t *testing.T) {
 }
 
 func TestTLSProbe_TLS13_AlwaysPFS(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1429,6 +1471,7 @@ func TestTLSProbe_TLS13_AlwaysPFS(t *testing.T) {
 }
 
 func TestSigAlgoToPQCAlgorithm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		algo x509.SignatureAlgorithm
 		want string
@@ -1451,6 +1494,7 @@ func TestSigAlgoToPQCAlgorithm(t *testing.T) {
 }
 
 func TestEnhancedChainValidation_WeakSigAlgorithm(t *testing.T) {
+	t.Parallel()
 	// Create a cert with SHA-1 signature
 	certPEM, keyPEM := generateTestCertWithSigAlgo(t, x509.SHA1WithRSA)
 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -1490,6 +1534,7 @@ func TestEnhancedChainValidation_WeakSigAlgorithm(t *testing.T) {
 }
 
 func TestEnhancedChainValidation_ExpiringCert(t *testing.T) {
+	t.Parallel()
 	// Cert expiring in 15 days
 	notAfter := time.Now().Add(15 * 24 * time.Hour)
 	certPEM, keyPEM := generateTestCertWithExpiry(t, notAfter)
@@ -1529,6 +1574,7 @@ func TestEnhancedChainValidation_ExpiringCert(t *testing.T) {
 }
 
 func TestEnhancedChainValidation_NotExpiringSoon(t *testing.T) {
+	t.Parallel()
 	// Cert valid for 365 days — no warning
 	notAfter := time.Now().Add(365 * 24 * time.Hour)
 	certPEM, keyPEM := generateTestCertWithExpiry(t, notAfter)
@@ -1565,6 +1611,7 @@ func TestEnhancedChainValidation_NotExpiringSoon(t *testing.T) {
 }
 
 func TestEnhancedChainValidation_AlreadyExpired(t *testing.T) {
+	t.Parallel()
 	// Already expired cert — chain validation handles it, no expiry WARNING
 	notAfter := time.Now().Add(-1 * time.Hour)
 	certPEM, keyPEM := generateTestCertWithExpiry(t, notAfter)
@@ -1601,6 +1648,7 @@ func TestEnhancedChainValidation_AlreadyExpired(t *testing.T) {
 }
 
 func TestEnhancedChainValidation_SANExtraction(t *testing.T) {
+	t.Parallel()
 	dnsNames := []string{"example.com", "*.example.com"}
 	ips := []net.IP{net.ParseIP("10.0.0.1"), net.ParseIP("192.168.1.1")}
 	certPEM, keyPEM := generateTestCertWithSANs(t, dnsNames, ips)
@@ -1643,6 +1691,7 @@ func TestEnhancedChainValidation_SANExtraction(t *testing.T) {
 }
 
 func TestProbeVersionRange_TLS12Only(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1681,6 +1730,7 @@ func TestProbeVersionRange_TLS12Only(t *testing.T) {
 }
 
 func TestProbeVersionRange_TLS12And13(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1717,6 +1767,7 @@ func TestProbeVersionRange_TLS12And13(t *testing.T) {
 }
 
 func TestEnumerateCipherSuites_SingleCipher(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1757,6 +1808,7 @@ func TestEnumerateCipherSuites_SingleCipher(t *testing.T) {
 }
 
 func TestEnumerateCipherSuites_MultipleCiphers(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1798,6 +1850,7 @@ func TestEnumerateCipherSuites_MultipleCiphers(t *testing.T) {
 }
 
 func TestEnumerateCipherSuites_IncludesInsecure(t *testing.T) {
+	t.Parallel()
 	rsaCert, rsaKey := generateTestRSACert(t)
 	tlsCert, err := tls.X509KeyPair(rsaCert, rsaKey)
 	require.NoError(t, err)
@@ -1842,6 +1895,7 @@ func TestEnumerateCipherSuites_IncludesInsecure(t *testing.T) {
 }
 
 func TestCipherPreference_ServerOrder(t *testing.T) {
+	t.Parallel()
 	rsaCert, rsaKey := generateTestRSACert(t)
 	tlsCert, err := tls.X509KeyPair(rsaCert, rsaKey)
 	require.NoError(t, err)
@@ -1886,6 +1940,7 @@ func TestCipherPreference_ServerOrder(t *testing.T) {
 }
 
 func TestCipherPreference_SingleCipher(t *testing.T) {
+	t.Parallel()
 	cert, key := generateTestCert(t)
 	tlsCert, err := tls.X509KeyPair(cert, key)
 	require.NoError(t, err)
@@ -1922,6 +1977,7 @@ func TestCipherPreference_SingleCipher(t *testing.T) {
 }
 
 func TestProbeVersionRange_ContextCancelled(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 	findings := make(chan *model.Finding, 10)
 
@@ -1939,6 +1995,7 @@ func TestProbeVersionRange_ContextCancelled(t *testing.T) {
 }
 
 func TestEnhancedChainValidation_ContextCancelled(t *testing.T) {
+	t.Parallel()
 	m := NewProtocolModule(&config.Config{})
 	findings := make(chan *model.Finding, 10)
 

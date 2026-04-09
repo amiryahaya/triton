@@ -50,6 +50,7 @@ Release v1.2.5 (unsigned release)
 `
 
 func TestCheckGitSignature_GPG_Good(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte(gitVerifyOutputGood), nil
 	})
@@ -67,6 +68,7 @@ func TestCheckGitSignature_GPG_Good(t *testing.T) {
 }
 
 func TestCheckGitSignature_SSH_Good(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return []byte(gitVerifyOutputSSH), nil
 	})
@@ -83,6 +85,7 @@ func TestCheckGitSignature_SSH_Good(t *testing.T) {
 }
 
 func TestCheckGitSignature_Unsigned(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		// git exits with status 1 for unsigned tags, writing the
 		// tag body to stdout with no signature block.
@@ -101,6 +104,7 @@ func TestCheckGitSignature_Unsigned(t *testing.T) {
 }
 
 func TestCheckGitSignature_ToolMissing(t *testing.T) {
+	t.Parallel()
 	m := newCodeSignModuleWithRunner(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return nil, errors.New(`exec: "git": executable file not found in $PATH`)
 	})

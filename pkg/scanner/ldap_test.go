@@ -26,21 +26,25 @@ import (
 var _ Module = (*LDAPModule)(nil)
 
 func TestLDAPModule_Name(t *testing.T) {
+	t.Parallel()
 	m := NewLDAPModule(&config.Config{})
 	assert.Equal(t, "ldap", m.Name())
 }
 
 func TestLDAPModule_Category(t *testing.T) {
+	t.Parallel()
 	m := NewLDAPModule(&config.Config{})
 	assert.Equal(t, model.CategoryActiveNetwork, m.Category())
 }
 
 func TestLDAPModule_ScanTargetType(t *testing.T) {
+	t.Parallel()
 	m := NewLDAPModule(&config.Config{})
 	assert.Equal(t, model.TargetLDAP, m.ScanTargetType())
 }
 
 func TestLDAPModule_ParseTarget(t *testing.T) {
+	t.Parallel()
 	lt, err := parseLDAPTarget("ldap://ldap.example.com:389/dc=example,dc=com")
 	require.NoError(t, err)
 	assert.Equal(t, "ldap", lt.scheme)
@@ -50,6 +54,7 @@ func TestLDAPModule_ParseTarget(t *testing.T) {
 }
 
 func TestLDAPModule_ParseTarget_LDAPS(t *testing.T) {
+	t.Parallel()
 	lt, err := parseLDAPTarget("ldaps://ldap.example.com:636/dc=example,dc=com")
 	require.NoError(t, err)
 	assert.Equal(t, "ldaps", lt.scheme)
@@ -58,6 +63,7 @@ func TestLDAPModule_ParseTarget_LDAPS(t *testing.T) {
 }
 
 func TestLDAPModule_ParseTarget_DefaultPort(t *testing.T) {
+	t.Parallel()
 	lt, err := parseLDAPTarget("ldap://ldap.example.com/dc=example,dc=com")
 	require.NoError(t, err)
 	assert.Equal(t, "ldap.example.com:389", lt.host)
@@ -68,12 +74,14 @@ func TestLDAPModule_ParseTarget_DefaultPort(t *testing.T) {
 }
 
 func TestLDAPModule_ParseTarget_StartTLS(t *testing.T) {
+	t.Parallel()
 	lt, err := parseLDAPTarget("ldap://ldap.example.com:389/dc=example,dc=com?starttls")
 	require.NoError(t, err)
 	assert.True(t, lt.startTLS)
 }
 
 func TestLDAPModule_ParseTarget_Invalid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		target string
@@ -132,6 +140,7 @@ func generateTestCertDER(t *testing.T) []byte {
 }
 
 func TestLDAPModule_ScanWithMockCerts(t *testing.T) {
+	t.Parallel()
 	certDER := generateTestCertDER(t)
 
 	mock := &mockLDAPConn{
@@ -180,6 +189,7 @@ func TestLDAPModule_ScanWithMockCerts(t *testing.T) {
 }
 
 func TestLDAPModule_ScanCACerts(t *testing.T) {
+	t.Parallel()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
@@ -252,6 +262,7 @@ func (m *dynamicMockLDAPConn) Search(req *ldap.SearchRequest) (*ldap.SearchResul
 }
 
 func TestLDAPModule_NoCertsFound(t *testing.T) {
+	t.Parallel()
 	mock := &mockLDAPConn{
 		searchResult: &ldap.SearchResult{
 			Entries: []*ldap.Entry{},
@@ -278,6 +289,7 @@ func TestLDAPModule_NoCertsFound(t *testing.T) {
 }
 
 func TestLDAPModule_ConnectionError(t *testing.T) {
+	t.Parallel()
 	m := &LDAPModule{
 		config: &config.Config{},
 		dialFn: func(addr string) (ldapConn, error) {
@@ -295,6 +307,7 @@ func TestLDAPModule_ConnectionError(t *testing.T) {
 }
 
 func TestLDAPModule_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	m := &LDAPModule{
 		config: &config.Config{},
 		dialFn: func(addr string) (ldapConn, error) {
@@ -315,6 +328,7 @@ func TestLDAPModule_ContextCancellation(t *testing.T) {
 }
 
 func TestLDAPModule_PQCClassification(t *testing.T) {
+	t.Parallel()
 	// Create an RSA-2048 cert (should be TRANSITIONAL)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -368,6 +382,7 @@ func TestLDAPModule_PQCClassification(t *testing.T) {
 }
 
 func TestLDAPModule_InputValidation(t *testing.T) {
+	t.Parallel()
 	m := NewLDAPModule(&config.Config{})
 
 	tests := []struct {

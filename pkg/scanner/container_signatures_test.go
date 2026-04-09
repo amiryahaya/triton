@@ -17,6 +17,7 @@ import (
 var _ Module = (*ContainerSignaturesModule)(nil)
 
 func TestContainerSignaturesModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewContainerSignaturesModule(&config.Config{})
 	assert.Equal(t, "container_signatures", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -26,6 +27,7 @@ func TestContainerSignaturesModule_Interface(t *testing.T) {
 // --- Matcher ---
 
 func TestIsContainerSignatureFile(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/home/user/cosign.pub":                               true,
 		"/srv/build/cosign.key":                               true,
@@ -52,6 +54,7 @@ abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZab
 -----END PUBLIC KEY-----`
 
 func TestParseCosignPub(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "cosign.pub")
 	require.NoError(t, os.WriteFile(path, []byte(cosignPubKey), 0o644))
@@ -89,6 +92,7 @@ func makeFakeJWT(t *testing.T, alg string) string {
 }
 
 func TestParseK8sServiceAccountToken(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	tokenDir := filepath.Join(tmp, "var", "run", "secrets", "kubernetes.io", "serviceaccount")
 	require.NoError(t, os.MkdirAll(tokenDir, 0o755))
@@ -113,6 +117,7 @@ func TestParseK8sServiceAccountToken(t *testing.T) {
 }
 
 func TestParseK8sServiceAccountToken_MalformedJWT(t *testing.T) {
+	t.Parallel()
 	m := NewContainerSignaturesModule(&config.Config{})
 	// Not a JWT — three random tokens but the first isn't valid base64.
 	findings := m.parseK8sToken("/run/secrets/kubernetes.io/serviceaccount/token", []byte("not.a.jwt"))
@@ -151,6 +156,7 @@ resources:
 `
 
 func TestParseK8sEncryptionConfig_Strong(t *testing.T) {
+	t.Parallel()
 	m := NewContainerSignaturesModule(&config.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(k8sEncryptionConfigStrong))
 	require.NotEmpty(t, findings)
@@ -178,6 +184,7 @@ func TestParseK8sEncryptionConfig_Strong(t *testing.T) {
 // aescbc.keys: block. With the fix, only top-level provider
 // names (aescbc/aesgcm/secretbox/kms/identity) produce findings.
 func TestParseK8sEncryptionConfig_NoNestedKeyFalsePositives(t *testing.T) {
+	t.Parallel()
 	m := NewContainerSignaturesModule(&config.Config{})
 	findings := m.parseK8sEncryptionConfig("/etc/kubernetes/encryption-config.yaml", []byte(k8sEncryptionConfigStrong))
 
@@ -200,6 +207,7 @@ func TestParseK8sEncryptionConfig_NoNestedKeyFalsePositives(t *testing.T) {
 // provider in the SECOND block is flagged correctly based on
 // its position within its own providers list.
 func TestParseK8sEncryptionConfig_MultiResource(t *testing.T) {
+	t.Parallel()
 	const multiResource = `
 apiVersion: apiserver.config.k8s.io/v1
 kind: EncryptionConfiguration
@@ -242,6 +250,7 @@ resources:
 // the parser never entered the block and the whole config was
 // silently skipped.
 func TestParseK8sEncryptionConfig_ProvidersWithInlineComment(t *testing.T) {
+	t.Parallel()
 	const cfg = `
 apiVersion: apiserver.config.k8s.io/v1
 kind: EncryptionConfiguration
@@ -270,6 +279,7 @@ resources:
 }
 
 func TestParseK8sEncryptionConfig_IdentityFirst(t *testing.T) {
+	t.Parallel()
 	// When `identity` is the FIRST provider for a resource, no
 	// encryption-at-rest is applied — this is a critical
 	// misconfiguration that the scanner must surface.

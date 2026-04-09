@@ -17,12 +17,14 @@ import (
 var _ Module = (*XMLDSigModule)(nil)
 
 func TestXMLDSigModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewXMLDSigModule(&config.Config{})
 	assert.Equal(t, "xml_dsig", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestIsXMLDSigCandidate(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/etc/shibboleth/idp-metadata.xml":     true,
 		"/opt/saml/sp-metadata.xml":            true,
@@ -64,6 +66,7 @@ const samlMetadataWeak = `<?xml version="1.0"?>
 </EntityDescriptor>`
 
 func TestParseXMLDSig_StrongSaml(t *testing.T) {
+	t.Parallel()
 	m := NewXMLDSigModule(&config.Config{})
 	findings := m.parseXMLDSig("/etc/shibboleth/idp-metadata.xml", []byte(samlMetadataStrong))
 	require.NotEmpty(t, findings)
@@ -75,6 +78,7 @@ func TestParseXMLDSig_StrongSaml(t *testing.T) {
 }
 
 func TestParseXMLDSig_WeakSha1(t *testing.T) {
+	t.Parallel()
 	m := NewXMLDSigModule(&config.Config{})
 	findings := m.parseXMLDSig("/etc/shibboleth/idp-metadata.xml", []byte(samlMetadataWeak))
 	require.NotEmpty(t, findings)
@@ -86,6 +90,7 @@ func TestParseXMLDSig_WeakSha1(t *testing.T) {
 }
 
 func TestXMLDSig_NoSignature(t *testing.T) {
+	t.Parallel()
 	// Plain XML with no <Signature> should produce zero findings.
 	m := NewXMLDSigModule(&config.Config{})
 	findings := m.parseXMLDSig("/etc/app/config.xml", []byte(`<?xml version="1.0"?><config><setting>value</setting></config>`))
@@ -93,6 +98,7 @@ func TestXMLDSig_NoSignature(t *testing.T) {
 }
 
 func TestXMLDSigModule_ScanWalk(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	shibDir := filepath.Join(tmp, "etc", "shibboleth")
 	require.NoError(t, os.MkdirAll(shibDir, 0o755))

@@ -50,6 +50,7 @@ func stubRunnerLimited(output string, err error) cmdRunnerLimitedFunc {
 // --- Windows cert store ---
 
 func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
+	t.Parallel()
 	// PowerShell `Get-ChildItem Cert:\LocalMachine\Root | ForEach-Object { [Convert]::ToBase64String($_.RawData) }`
 	// emits one base64-encoded DER per line. The module decodes each
 	// line, wraps it in a PEM block, and feeds it into the existing
@@ -89,6 +90,7 @@ func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
 }
 
 func TestWindowsCertStore_EmptyOutput(t *testing.T) {
+	t.Parallel()
 	m := NewCertStoreModule(&config.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited("", nil)
 
@@ -100,6 +102,7 @@ func TestWindowsCertStore_EmptyOutput(t *testing.T) {
 }
 
 func TestWindowsCertStore_RunnerError(t *testing.T) {
+	t.Parallel()
 	m := NewCertStoreModule(&config.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited("", errors.New("powershell not found"))
 
@@ -115,6 +118,7 @@ func TestWindowsCertStore_RunnerError(t *testing.T) {
 // --- Java cacerts ---
 
 func TestJavaCacerts_ParsesKeytoolPEMOutput(t *testing.T) {
+	t.Parallel()
 	// `keytool -list -rfc -keystore cacerts -storepass changeit`
 	// emits headers plus one or more PEM-encoded certs. The parser
 	// reuses parsePEMCerts which already scans any PEM-framed blob.
@@ -148,6 +152,7 @@ Entry type: trustedCertEntry
 }
 
 func TestJavaCacerts_KeytoolMissing(t *testing.T) {
+	t.Parallel()
 	m := NewCertStoreModule(&config.Config{})
 	m.cmdRunnerLimited = stubRunnerLimited("", errors.New(`exec: "keytool": executable file not found in $PATH`))
 

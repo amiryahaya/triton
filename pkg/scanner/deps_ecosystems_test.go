@@ -17,6 +17,7 @@ import (
 var _ Module = (*DepsEcosystemsModule)(nil)
 
 func TestDepsEcosystemsModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewDepsEcosystemsModule(&config.Config{})
 	assert.Equal(t, "deps_ecosystems", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -26,6 +27,7 @@ func TestDepsEcosystemsModule_Interface(t *testing.T) {
 // --- Matcher ---
 
 func TestIsDepsEcosystemFile(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		// Python
 		"/srv/app/requirements.txt": true,
@@ -66,6 +68,7 @@ pycrypto==2.6.1
 `
 
 func TestParsePythonRequirements(t *testing.T) {
+	t.Parallel()
 	m := NewDepsEcosystemsModule(&config.Config{})
 	findings := m.parsePythonRequirements("/srv/app/requirements.txt", []byte(pyRequirementsTxt))
 	require.NotEmpty(t, findings)
@@ -102,6 +105,7 @@ django = "^5.0"
 `
 
 func TestParsePyProjectToml(t *testing.T) {
+	t.Parallel()
 	m := NewDepsEcosystemsModule(&config.Config{})
 	findings := m.parsePyProjectToml("/srv/app/pyproject.toml", []byte(pyProjectToml))
 	require.NotEmpty(t, findings)
@@ -132,6 +136,7 @@ const nodePackageJSON = `{
 }`
 
 func TestParseNodePackageJSON(t *testing.T) {
+	t.Parallel()
 	m := NewDepsEcosystemsModule(&config.Config{})
 	findings := m.parseNodePackageJSON("/srv/app/package.json", []byte(nodePackageJSON))
 	require.NotEmpty(t, findings)
@@ -181,6 +186,7 @@ const javaPomXML = `<?xml version="1.0" encoding="UTF-8"?>
 </project>`
 
 func TestParseJavaPomXML(t *testing.T) {
+	t.Parallel()
 	m := NewDepsEcosystemsModule(&config.Config{})
 	findings := m.parseJavaPomXML("/srv/app/pom.xml", []byte(javaPomXML))
 	require.NotEmpty(t, findings)
@@ -202,6 +208,7 @@ func TestParseJavaPomXML(t *testing.T) {
 // The fix strips management blocks before the dependency
 // regex runs.
 func TestParseJavaPomXML_DependencyManagementStripped(t *testing.T) {
+	t.Parallel()
 	const pomWithDepMgmt = `<?xml version="1.0" encoding="UTF-8"?>
 <project>
   <dependencyManagement>
@@ -248,6 +255,7 @@ dependencies {
 `
 
 func TestParseJavaBuildGradle(t *testing.T) {
+	t.Parallel()
 	m := NewDepsEcosystemsModule(&config.Config{})
 	findings := m.parseJavaBuildGradle("/srv/app/build.gradle", []byte(javaBuildGradle))
 	require.NotEmpty(t, findings)
@@ -264,6 +272,7 @@ func TestParseJavaBuildGradle(t *testing.T) {
 // --- End-to-end walk ---
 
 func TestDepsEcosystemsModule_ScanWalk(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "requirements.txt"), []byte(pyRequirementsTxt), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(nodePackageJSON), 0o644))

@@ -24,21 +24,25 @@ import (
 var _ Module = (*KeyModule)(nil)
 
 func TestKeyModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 	assert.Equal(t, "keys", m.Name())
 }
 
 func TestKeyModuleCategory(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestKeyModuleScanTargetType(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 	assert.Equal(t, model.TargetFilesystem, m.ScanTargetType())
 }
 
 func TestParseRSAPrivateKey(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyContent := `-----BEGIN RSA PRIVATE KEY-----
@@ -75,6 +79,7 @@ KqlREQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 }
 
 func TestKeyFindingShape(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyContent := `-----BEGIN RSA PRIVATE KEY-----
@@ -102,6 +107,7 @@ MIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJRrMtWPmWnK/vL0s3gJTo9Lnlw
 }
 
 func TestDetectKeyTypeAndAlgorithm(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 
 	tests := []struct {
@@ -130,6 +136,7 @@ func TestDetectKeyTypeAndAlgorithm(t *testing.T) {
 }
 
 func TestParseECPrivateKey(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyContent := `-----BEGIN EC PRIVATE KEY-----
@@ -157,6 +164,7 @@ oWQDYgAE0Y/ip/T8KBxmFnlPPGGZasFzBMk3FO3iKSrkk5vWsadRXsfrFWxEIBbK
 }
 
 func TestParsePKCS8Key(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyContent := `-----BEGIN PRIVATE KEY-----
@@ -182,6 +190,7 @@ MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgdata
 }
 
 func TestParseOpenSSHKey(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyContent := `-----BEGIN OPENSSH PRIVATE KEY-----
@@ -207,6 +216,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 }
 
 func TestParsePublicKey(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyContent := `-----BEGIN PUBLIC KEY-----
@@ -232,6 +242,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAdata
 }
 
 func TestIsKeyFile(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 
 	// Should match
@@ -265,6 +276,7 @@ func TestIsKeyFile(t *testing.T) {
 }
 
 func TestNonKeyPEMFileSkipped(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Write a certificate PEM (not a key) — should be skipped
@@ -292,6 +304,7 @@ MIIBkTCB+wIJALbHnMO4ZY3WMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
 }
 
 func TestRandomTextFileSkipped(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// A file with "EC" and "SECTION" in content but no key header
@@ -316,6 +329,7 @@ func TestRandomTextFileSkipped(t *testing.T) {
 }
 
 func TestKeyScanNonExistentDir(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 	findings := make(chan *model.Finding, 10)
 	target := model.ScanTarget{Type: model.TargetFilesystem, Value: "/nonexistent", Depth: 1}
@@ -332,6 +346,7 @@ func TestKeyScanNonExistentDir(t *testing.T) {
 }
 
 func TestKeyScanUnreadableFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	keyFile := filepath.Join(tmpDir, "unreadable.key")
@@ -356,6 +371,7 @@ func TestKeyScanUnreadableFile(t *testing.T) {
 }
 
 func TestPKCS8RSAKeyDetection(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate a real RSA key and encode as PKCS#8
@@ -389,6 +405,7 @@ func TestPKCS8RSAKeyDetection(t *testing.T) {
 }
 
 func TestPKCS8ECKeyDetection(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -420,6 +437,7 @@ func TestPKCS8ECKeyDetection(t *testing.T) {
 }
 
 func TestPKCS8Ed25519KeyDetection(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	_, edKey, err := ed25519.GenerateKey(rand.Reader)
@@ -451,6 +469,7 @@ func TestPKCS8Ed25519KeyDetection(t *testing.T) {
 }
 
 func TestSSHPublicKeyDetection(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	tests := []struct {
@@ -511,6 +530,7 @@ func TestSSHPublicKeyDetection(t *testing.T) {
 }
 
 func TestAuthorizedKeysDetection(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `# SSH authorized keys
@@ -536,6 +556,7 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... admin@server
 }
 
 func TestRSAKeySize(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 4096)
@@ -566,6 +587,7 @@ func TestRSAKeySize(t *testing.T) {
 }
 
 func TestIsKeyFileExtended(t *testing.T) {
+	t.Parallel()
 	m := NewKeyModule(&config.Config{})
 
 	// New SSH file patterns

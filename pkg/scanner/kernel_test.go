@@ -22,6 +22,7 @@ import (
 var _ Module = (*KernelModule)(nil)
 
 func TestKernelModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewKernelModule(&config.Config{})
 	assert.Equal(t, "kernel", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -29,6 +30,7 @@ func TestKernelModuleInterface(t *testing.T) {
 }
 
 func TestKernelModuleGracefulSkipOnNonLinux(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "linux" {
 		t.Skip("This test is for non-Linux systems")
 	}
@@ -49,6 +51,7 @@ func TestKernelModuleGracefulSkipOnNonLinux(t *testing.T) {
 }
 
 func TestIsKernelModule(t *testing.T) {
+	t.Parallel()
 	m := NewKernelModule(&config.Config{})
 
 	assert.True(t, m.isKernelModule("/lib/modules/5.15/kernel/crypto/aes_generic.ko"))
@@ -60,6 +63,7 @@ func TestIsKernelModule(t *testing.T) {
 }
 
 func TestKernelModuleScanWithFakeModules(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a fake .ko file with crypto strings
@@ -123,6 +127,7 @@ func TestKernelModuleScanWithFakeModules(t *testing.T) {
 }
 
 func TestKernelModuleScanEmptyDir(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	m := NewKernelModule(&config.Config{})
@@ -141,6 +146,7 @@ func TestKernelModuleScanEmptyDir(t *testing.T) {
 }
 
 func TestKernelModuleScanNoCryptoInModule(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// .ko file with no crypto strings
@@ -175,6 +181,7 @@ func makeFakeCryptoPayload() []byte {
 }
 
 func TestKernelModuleScanCompressedGz(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	payload := makeFakeCryptoPayload()
 
@@ -210,6 +217,7 @@ func TestKernelModuleScanCompressedGz(t *testing.T) {
 }
 
 func TestKernelModuleScanCompressedXz(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	payload := makeFakeCryptoPayload()
 
@@ -246,6 +254,7 @@ func TestKernelModuleScanCompressedXz(t *testing.T) {
 }
 
 func TestKernelModuleScanCompressedZst(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	payload := makeFakeCryptoPayload()
 
@@ -282,6 +291,7 @@ func TestKernelModuleScanCompressedZst(t *testing.T) {
 }
 
 func TestKernelModuleScanCorruptCompressedFiles(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	garbage := []byte("this is not valid compressed data at all")
 
@@ -307,6 +317,7 @@ func TestKernelModuleScanCorruptCompressedFiles(t *testing.T) {
 }
 
 func TestKernelModuleScanEmptyCompressedFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a valid gzip file with empty payload
@@ -331,6 +342,7 @@ func TestKernelModuleScanEmptyCompressedFile(t *testing.T) {
 }
 
 func TestKernelModuleScanMixedFileTypes(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	payload := makeFakeCryptoPayload()
 

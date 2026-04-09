@@ -10,6 +10,7 @@ import (
 )
 
 func TestCheckExternalTool_Found(t *testing.T) {
+	t.Parallel()
 	// Use a tool that exists on all platforms
 	var tool string
 	switch runtime.GOOS {
@@ -31,6 +32,7 @@ func TestCheckExternalTool_Found(t *testing.T) {
 }
 
 func TestCheckExternalTool_NotFound(t *testing.T) {
+	t.Parallel()
 	result := CheckExternalTool("packages", "brew", func(name string) (string, error) {
 		return "", &os.PathError{Op: "lookpath", Path: name, Err: os.ErrNotExist}
 	})
@@ -43,6 +45,7 @@ func TestCheckExternalTool_NotFound(t *testing.T) {
 }
 
 func TestCheckFilesystemAccess_Readable(t *testing.T) {
+	t.Parallel()
 	// Use temp dir which always exists and is readable
 	dir := t.TempDir()
 
@@ -54,6 +57,7 @@ func TestCheckFilesystemAccess_Readable(t *testing.T) {
 }
 
 func TestCheckFilesystemAccess_NonExistent(t *testing.T) {
+	t.Parallel()
 	result := CheckFilesystemAccess("certificates", "/nonexistent/path/that/does/not/exist")
 
 	assert.Equal(t, CheckFail, result.Status)
@@ -62,6 +66,7 @@ func TestCheckFilesystemAccess_NonExistent(t *testing.T) {
 }
 
 func TestCheckFilesystemAccess_PermissionDenied(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Permission test not reliable on Windows")
 	}
@@ -83,6 +88,7 @@ func TestCheckFilesystemAccess_PermissionDenied(t *testing.T) {
 }
 
 func TestCheckElevatedPermissions_NotRoot(t *testing.T) {
+	t.Parallel()
 	result := CheckElevatedPermissions(func() int { return 1000 })
 
 	assert.Equal(t, CheckWarn, result.Status)
@@ -91,6 +97,7 @@ func TestCheckElevatedPermissions_NotRoot(t *testing.T) {
 }
 
 func TestCheckElevatedPermissions_Root(t *testing.T) {
+	t.Parallel()
 	result := CheckElevatedPermissions(func() int { return 0 })
 
 	assert.Equal(t, CheckPass, result.Status)
@@ -98,6 +105,7 @@ func TestCheckElevatedPermissions_Root(t *testing.T) {
 }
 
 func TestCheckGoTLS(t *testing.T) {
+	t.Parallel()
 	result := CheckGoTLS()
 
 	assert.Equal(t, CheckPass, result.Status)
@@ -106,16 +114,19 @@ func TestCheckGoTLS(t *testing.T) {
 }
 
 func TestDoctorReport_HasFailures_True(t *testing.T) {
+	t.Parallel()
 	r := &DoctorReport{FailCount: 1}
 	assert.True(t, r.HasFailures())
 }
 
 func TestDoctorReport_HasFailures_False(t *testing.T) {
+	t.Parallel()
 	r := &DoctorReport{FailCount: 0, WarnCount: 3}
 	assert.False(t, r.HasFailures())
 }
 
 func TestDoctorReport_Counts(t *testing.T) {
+	t.Parallel()
 	r := &DoctorReport{
 		Checks: []CheckResult{
 			{Status: CheckPass},
@@ -133,6 +144,7 @@ func TestDoctorReport_Counts(t *testing.T) {
 }
 
 func TestRunDoctorChecks_QuickProfile(t *testing.T) {
+	t.Parallel()
 	report := RunDoctorChecks("quick")
 
 	assert.Equal(t, runtime.GOOS+"/"+runtime.GOARCH, report.Platform)
@@ -148,6 +160,7 @@ func TestRunDoctorChecks_QuickProfile(t *testing.T) {
 }
 
 func TestRunDoctorChecks_ComprehensiveProfile(t *testing.T) {
+	t.Parallel()
 	report := RunDoctorChecks("comprehensive")
 
 	assert.Equal(t, "comprehensive", report.Profile)
@@ -171,12 +184,14 @@ func TestRunDoctorChecks_ComprehensiveProfile(t *testing.T) {
 }
 
 func TestRunDoctorChecks_InvalidProfile(t *testing.T) {
+	t.Parallel()
 	// Invalid profile falls back to standard
 	report := RunDoctorChecks("nonexistent")
 	assert.Equal(t, "standard", report.Profile)
 }
 
 func TestCheckStatus_String(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "PASS", CheckPass.String())
 	assert.Equal(t, "WARN", CheckWarn.String())
 	assert.Equal(t, "FAIL", CheckFail.String())

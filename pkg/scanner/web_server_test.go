@@ -19,6 +19,7 @@ import (
 var _ Module = (*WebServerModule)(nil)
 
 func TestWebServerModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	assert.Equal(t, "web_server", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -28,6 +29,7 @@ func TestWebServerModule_Interface(t *testing.T) {
 // --- Matcher (isWebServerConfigFile) ---
 
 func TestIsWebServerConfigFile_Nginx(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/etc/nginx/nginx.conf":                       true,
 		"/etc/nginx/sites-enabled/example.com.conf":   true,
@@ -45,6 +47,7 @@ func TestIsWebServerConfigFile_Nginx(t *testing.T) {
 }
 
 func TestIsWebServerConfigFile_Apache(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/etc/apache2/apache2.conf":                   true,
 		"/etc/httpd/conf/httpd.conf":                  true,
@@ -60,11 +63,13 @@ func TestIsWebServerConfigFile_Apache(t *testing.T) {
 }
 
 func TestIsWebServerConfigFile_Haproxy(t *testing.T) {
+	t.Parallel()
 	assert.True(t, isWebServerConfigFile("/etc/haproxy/haproxy.cfg"))
 	assert.True(t, isWebServerConfigFile("/usr/local/etc/haproxy/haproxy.cfg"))
 }
 
 func TestIsWebServerConfigFile_Caddy(t *testing.T) {
+	t.Parallel()
 	assert.True(t, isWebServerConfigFile("/etc/caddy/Caddyfile"))
 	assert.True(t, isWebServerConfigFile("/usr/local/etc/Caddyfile"))
 	// Caddy JSON config is also valid but we focus on the canonical Caddyfile
@@ -97,6 +102,7 @@ server {
 `
 
 func TestParseNginx_Strong(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	findings := m.parseNginx("/test/nginx.conf", []byte(nginxStrong))
 
@@ -114,6 +120,7 @@ func TestParseNginx_Strong(t *testing.T) {
 }
 
 func TestParseNginx_Weak(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	findings := m.parseNginx("/test/nginx.conf", []byte(nginxWeak))
 
@@ -153,6 +160,7 @@ const apacheWeak = `
 `
 
 func TestParseApache_Strong(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	findings := m.parseApache("/test/ssl.conf", []byte(apacheStrong))
 
@@ -165,6 +173,7 @@ func TestParseApache_Strong(t *testing.T) {
 }
 
 func TestParseApache_Weak(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	findings := m.parseApache("/test/ssl.conf", []byte(apacheWeak))
 
@@ -195,6 +204,7 @@ frontend https
 `
 
 func TestParseHaproxy(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	findings := m.parseHaproxy("/test/haproxy.cfg", []byte(haproxyConfig))
 
@@ -226,6 +236,7 @@ example.com {
 `
 
 func TestParseCaddyfile(t *testing.T) {
+	t.Parallel()
 	m := NewWebServerModule(&config.Config{})
 	findings := m.parseCaddyfile("/test/Caddyfile", []byte(caddyfileConfig))
 
@@ -246,6 +257,7 @@ func TestParseCaddyfile(t *testing.T) {
 // cipher-list split and produced algorithm names like `"NULL`
 // and `ECDHE+AESGCM"` with literal quote characters.
 func TestParseApache_QuotedCipherSuite(t *testing.T) {
+	t.Parallel()
 	const apacheQuoted = `
 <VirtualHost *:443>
     SSLProtocol +TLSv1.2 +TLSv1.3
@@ -272,6 +284,7 @@ func TestParseApache_QuotedCipherSuite(t *testing.T) {
 // test ensures the parser does not crash and that no nil
 // finding leaks out.
 func TestParseNginx_DegenerateCipherList(t *testing.T) {
+	t.Parallel()
 	const degenerate = `
 server {
     listen 443 ssl;
@@ -293,6 +306,7 @@ server {
 // --- End-to-end Scan() with a real filesystem walk ---
 
 func TestWebServerModule_ScanWalk(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	nginxPath := filepath.Join(tmp, "nginx.conf")
 	require.NoError(t, os.WriteFile(nginxPath, []byte(nginxStrong), 0o644))

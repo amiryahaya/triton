@@ -17,12 +17,14 @@ import (
 var _ Module = (*MailServerModule)(nil)
 
 func TestMailServerModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewMailServerModule(&config.Config{})
 	assert.Equal(t, "mail_server", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestIsMailServerConfigFile(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/etc/postfix/main.cf":      true,
 		"/etc/postfix/master.cf":    true,
@@ -58,6 +60,7 @@ smtpd_tls_cipher_suites = ALL:!EXPORT:LOW
 `
 
 func TestParsePostfix_Strong(t *testing.T) {
+	t.Parallel()
 	m := NewMailServerModule(&config.Config{})
 	findings := m.parsePostfix("/etc/postfix/main.cf", []byte(postfixMainCfStrong))
 	require.NotEmpty(t, findings)
@@ -71,6 +74,7 @@ func TestParsePostfix_Strong(t *testing.T) {
 }
 
 func TestParsePostfix_Weak(t *testing.T) {
+	t.Parallel()
 	m := NewMailServerModule(&config.Config{})
 	findings := m.parsePostfix("/etc/postfix/main.cf", []byte(postfixMainCfWeak))
 	require.NotEmpty(t, findings)
@@ -89,6 +93,7 @@ func TestParsePostfix_Weak(t *testing.T) {
 // whitespace-led continuation lines into their parent directive
 // before the directive parser runs.
 func TestParsePostfix_MultiLineContinuation(t *testing.T) {
+	t.Parallel()
 	const cfg = `# Multi-line Postfix directive
 smtpd_tls_mandatory_protocols =
     !SSLv2, !SSLv3,
@@ -112,6 +117,7 @@ mail._domainkey.corp.local corp.local:mail:/etc/dkim/corp.private
 `
 
 func TestParseDKIMKeyTable(t *testing.T) {
+	t.Parallel()
 	m := NewMailServerModule(&config.Config{})
 	findings := m.parseDKIMKeyTable("/etc/opendkim/KeyTable", []byte(dkimKeyTable))
 	require.NotEmpty(t, findings)
@@ -138,6 +144,7 @@ func TestParseDKIMKeyTable(t *testing.T) {
 // --- DKIM private key file detection ---
 
 func TestParseDKIMKeyFile(t *testing.T) {
+	t.Parallel()
 	m := NewMailServerModule(&config.Config{})
 	findings := m.parseDKIMKeyFile("/etc/dkim/default.private")
 	require.NotEmpty(t, findings)
@@ -147,6 +154,7 @@ func TestParseDKIMKeyFile(t *testing.T) {
 // --- End-to-end walk ---
 
 func TestMailServerModule_ScanWalk(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	postfixDir := filepath.Join(tmp, "etc", "postfix")
 	require.NoError(t, os.MkdirAll(postfixDir, 0o755))

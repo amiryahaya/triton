@@ -17,6 +17,7 @@ import (
 var _ Module = (*ConfigModule)(nil)
 
 func TestConfigModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewConfigModule(&config.Config{})
 	assert.Equal(t, "configs", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -24,6 +25,7 @@ func TestConfigModuleInterface(t *testing.T) {
 }
 
 func TestIsConfigFile(t *testing.T) {
+	t.Parallel()
 	m := NewConfigModule(&config.Config{})
 
 	assert.True(t, m.isConfigFile("/etc/ssh/sshd_config"))
@@ -37,6 +39,7 @@ func TestIsConfigFile(t *testing.T) {
 }
 
 func TestParseSSHConfig(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	sshdConfig := filepath.Join(tmpDir, "sshd_config")
 	err := os.WriteFile(sshdConfig, []byte(`
@@ -87,6 +90,7 @@ HostKeyAlgorithms ssh-ed25519,rsa-sha2-512
 }
 
 func TestParseSSHConfigComments(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	sshdConfig := filepath.Join(tmpDir, "sshd_config")
 	err := os.WriteFile(sshdConfig, []byte(`
@@ -112,6 +116,7 @@ Port 22
 }
 
 func TestParseJavaSecurity(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	javaSec := filepath.Join(tmpDir, "java.security")
 	err := os.WriteFile(javaSec, []byte(`
@@ -147,6 +152,7 @@ jdk.certpath.disabledAlgorithms=MD2, MD5
 }
 
 func TestParseJavaSecurityMultiline(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	javaSec := filepath.Join(tmpDir, "java.security")
 	err := os.WriteFile(javaSec, []byte(`jdk.tls.disabledAlgorithms=SSLv3, TLSv1, \
@@ -172,6 +178,7 @@ func TestParseJavaSecurityMultiline(t *testing.T) {
 }
 
 func TestParseCryptoPolicies(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	// Must have "crypto-policies" in the path
 	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
@@ -201,6 +208,7 @@ func TestParseCryptoPolicies(t *testing.T) {
 }
 
 func TestParseCryptoPolicies_FIPS(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
 	err := os.MkdirAll(policyDir, 0755)
@@ -229,6 +237,7 @@ func TestParseCryptoPolicies_FIPS(t *testing.T) {
 }
 
 func TestParseCryptoPolicies_DEFAULT(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
 	err := os.MkdirAll(policyDir, 0755)
@@ -257,6 +266,7 @@ func TestParseCryptoPolicies_DEFAULT(t *testing.T) {
 }
 
 func TestParseCryptoPolicies_LEGACY(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
 	err := os.MkdirAll(policyDir, 0755)
@@ -285,6 +295,7 @@ func TestParseCryptoPolicies_LEGACY(t *testing.T) {
 }
 
 func TestParseCryptoPolicies_Unknown(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
 	err := os.MkdirAll(policyDir, 0755)
@@ -312,6 +323,7 @@ func TestParseCryptoPolicies_Unknown(t *testing.T) {
 }
 
 func TestParseCryptoPolicies_Empty(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	policyDir := filepath.Join(tmpDir, "crypto-policies", "state")
 	err := os.MkdirAll(policyDir, 0755)
@@ -337,6 +349,7 @@ func TestParseCryptoPolicies_Empty(t *testing.T) {
 }
 
 func TestConfigModule_CertbotRenewalConf(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	// Create letsencrypt/renewal.conf path
 	renewalDir := filepath.Join(tmpDir, "etc", "letsencrypt", "renewal")
@@ -367,6 +380,7 @@ key_type = ecdsa
 }
 
 func TestConfigModule_CertbotHyphenatedKeys(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	renewalDir := filepath.Join(tmpDir, "etc", "letsencrypt", "renewal")
 	err := os.MkdirAll(renewalDir, 0755)
@@ -389,6 +403,7 @@ rsa-key-size = 4096
 }
 
 func TestConfigModule_CertbotDomainConf(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	renewalDir := filepath.Join(tmpDir, "etc", "letsencrypt", "renewal")
 	err := os.MkdirAll(renewalDir, 0755)
@@ -411,6 +426,7 @@ key_type = ecdsa
 }
 
 func TestSSHAlgorithmMap_RSASignatureAlgorithms(t *testing.T) {
+	t.Parallel()
 	// ssh-rsa, rsa-sha2-256, rsa-sha2-512 are signature algorithms,
 	// not key types — they should map to "RSA" without a key size.
 	rsaSignatureAlgos := []string{"ssh-rsa", "rsa-sha2-256", "rsa-sha2-512"}
@@ -424,6 +440,7 @@ func TestSSHAlgorithmMap_RSASignatureAlgorithms(t *testing.T) {
 }
 
 func TestScanFixtureConfigs(t *testing.T) {
+	t.Parallel()
 	// Test against the actual fixture files
 	fixtureDir := filepath.Join("../../test/fixtures/configs")
 	if _, err := os.Stat(filepath.Join(fixtureDir, "sshd_config")); os.IsNotExist(err) {

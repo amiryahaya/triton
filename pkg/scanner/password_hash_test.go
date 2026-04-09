@@ -17,6 +17,7 @@ import (
 var _ Module = (*PasswordHashModule)(nil)
 
 func TestPasswordHashModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewPasswordHashModule(&config.Config{})
 	assert.Equal(t, "password_hash", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
@@ -26,6 +27,7 @@ func TestPasswordHashModule_Interface(t *testing.T) {
 // --- Matcher ---
 
 func TestIsPasswordHashFile(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		"/etc/shadow":                         true,
 		"/etc/gshadow":                        true,
@@ -56,6 +58,7 @@ bcrypter:$2y$10$bcryptSaltAndHashCombinedValueGoesHereXX:19000:0:99999:7:::
 `
 
 func TestParseShadowFile(t *testing.T) {
+	t.Parallel()
 	m := NewPasswordHashModule(&config.Config{})
 	findings := m.parseShadow("/etc/shadow", []byte(shadowFile))
 
@@ -88,6 +91,7 @@ func TestParseShadowFile(t *testing.T) {
 }
 
 func TestParseShadow_LockedAccountsSkipped(t *testing.T) {
+	t.Parallel()
 	// Accounts with *, !, !!, or empty password fields are
 	// system/locked accounts — don't emit findings for them.
 	const locked = `root:*:19000:0:99999:7:::
@@ -115,6 +119,7 @@ password [success=1 default=ignore] pam_unix.so obscure md5
 `
 
 func TestParsePAM_StrongSha512(t *testing.T) {
+	t.Parallel()
 	m := NewPasswordHashModule(&config.Config{})
 	findings := m.parsePAM("/etc/pam.d/system-auth", []byte(pamSystemAuth))
 	require.NotEmpty(t, findings)
@@ -124,6 +129,7 @@ func TestParsePAM_StrongSha512(t *testing.T) {
 }
 
 func TestParsePAM_WeakMd5(t *testing.T) {
+	t.Parallel()
 	m := NewPasswordHashModule(&config.Config{})
 	findings := m.parsePAM("/etc/pam.d/common-password", []byte(pamCommonPasswordWeak))
 	require.NotEmpty(t, findings)
@@ -148,6 +154,7 @@ host    replication     replicator      10.0.1.0/24             password
 `
 
 func TestParsePgHba(t *testing.T) {
+	t.Parallel()
 	m := NewPasswordHashModule(&config.Config{})
 	findings := m.parsePgHba("/etc/postgresql/15/main/pg_hba.conf", []byte(pgHbaMixed))
 	require.NotEmpty(t, findings)
@@ -165,6 +172,7 @@ func TestParsePgHba(t *testing.T) {
 // --- Integration walk ---
 
 func TestPasswordHashModule_ScanWalk(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 
 	// Lay out a minimal tree that matches the module's path heuristics.

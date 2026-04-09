@@ -17,12 +17,14 @@ import (
 var _ Module = (*ServiceMeshModule)(nil)
 
 func TestServiceMeshModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewServiceMeshModule(&config.Config{})
 	assert.Equal(t, "service_mesh", m.Name())
 	assert.Equal(t, model.CategoryPassiveFile, m.Category())
 }
 
 func TestIsServiceMeshCertFile(t *testing.T) {
+	t.Parallel()
 	cases := map[string]bool{
 		// Istio
 		"/etc/certs/cert-chain.pem": true,
@@ -46,6 +48,7 @@ func TestIsServiceMeshCertFile(t *testing.T) {
 }
 
 func TestServiceMesh_ClassifyVendor(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "istio", serviceMeshVendor("/etc/certs/cert-chain.pem"))
 	assert.Equal(t, "istio", serviceMeshVendor("/var/run/secrets/workload-spiffe-credentials/cert-chain.pem"))
 	assert.Equal(t, "linkerd", serviceMeshVendor("/var/run/linkerd/identity/end-entity/crt.pem"))
@@ -53,6 +56,7 @@ func TestServiceMesh_ClassifyVendor(t *testing.T) {
 }
 
 func TestServiceMeshModule_ScanWalk(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	// Simulate an Istio sidecar: /etc/certs/cert-chain.pem
 	istioDir := filepath.Join(tmp, "etc", "certs")

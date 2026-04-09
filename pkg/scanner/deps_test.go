@@ -60,6 +60,7 @@ func collectFindings(ch chan *model.Finding) []model.Finding {
 // --- Test 1: Interface ---
 
 func TestDepsModule_Interface(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 
 	assert.Equal(t, "deps", m.Name())
@@ -70,6 +71,7 @@ func TestDepsModule_Interface(t *testing.T) {
 // --- Test 2: isGoModFile ---
 
 func TestDepsModule_IsGoModFile(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		path   string
 		expect bool
@@ -94,6 +96,7 @@ func TestDepsModule_IsGoModFile(t *testing.T) {
 // --- Test 3: ParseGoMod basic ---
 
 func TestParseGoMod_Basic(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	gomod := filepath.Join(dir, "go.mod")
 	err := os.WriteFile(gomod, []byte(`module github.com/example/myapp
@@ -123,6 +126,7 @@ require (
 // --- Test 4: ParseGoMod indirect deps ---
 
 func TestParseGoMod_IndirectDeps(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	gomod := filepath.Join(dir, "go.mod")
 	err := os.WriteFile(gomod, []byte(`module github.com/example/myapp
@@ -152,6 +156,7 @@ require (
 // --- Test 5: ParseGoSum deduplicates ---
 
 func TestParseGoSum_Deduplicates(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	gosum := filepath.Join(dir, "go.sum")
 	err := os.WriteFile(gosum, []byte(`github.com/foo/bar v1.0.0 h1:abc123=
@@ -177,6 +182,7 @@ golang.org/x/crypto v0.17.0/go.mod h1:pqr678=
 // --- Test 6: identifyCryptoModules ---
 
 func TestIdentifyCryptoModules(t *testing.T) {
+	t.Parallel()
 	sumModules := []string{
 		"github.com/foo/bar",
 		"golang.org/x/crypto",
@@ -207,6 +213,7 @@ func TestIdentifyCryptoModules(t *testing.T) {
 // --- Test 7: Reachability direct ---
 
 func TestReachability_Direct(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -254,6 +261,7 @@ func TestReachability_Direct(t *testing.T) {
 // --- Test 8: Reachability transitive ---
 
 func TestReachability_Transitive(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -301,6 +309,7 @@ func TestReachability_Transitive(t *testing.T) {
 // --- Test 9: Reachability unreachable ---
 
 func TestReachability_Unreachable(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -345,6 +354,7 @@ func TestReachability_Unreachable(t *testing.T) {
 // --- Test 10: findImportChain shortest path ---
 
 func TestFindImportChain_ShortestPath(t *testing.T) {
+	t.Parallel()
 	graph := &goImportGraph{
 		PackageImports: map[string][]string{
 			"myapp": {"pkg/a", "pkg/b"},
@@ -365,6 +375,7 @@ func TestFindImportChain_ShortestPath(t *testing.T) {
 // --- Test 11: findImportChain no path ---
 
 func TestFindImportChain_NoPath(t *testing.T) {
+	t.Parallel()
 	graph := &goImportGraph{
 		PackageImports: map[string][]string{
 			"myapp": {"fmt", "os"},
@@ -378,6 +389,7 @@ func TestFindImportChain_NoPath(t *testing.T) {
 // --- Test 12: Migration priority reduction ---
 
 func TestMigrationPriorityReduction(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -420,6 +432,7 @@ func TestMigrationPriorityReduction(t *testing.T) {
 // --- Test 13: No go.mod → graceful skip ---
 
 func TestScan_NoGoMod(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 
 	dir := t.TempDir()
@@ -439,6 +452,7 @@ func TestScan_NoGoMod(t *testing.T) {
 // --- Test 14: Empty module ---
 
 func TestScan_EmptyModule(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -470,6 +484,7 @@ func TestScan_EmptyModule(t *testing.T) {
 // --- Test 15: Integration with synthetic Go module ---
 
 func TestScan_Integration(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create go.mod
@@ -533,6 +548,7 @@ func main() {
 // --- Test 16: PQC classification ---
 
 func TestScan_PQCClassification(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -571,6 +587,7 @@ func TestScan_PQCClassification(t *testing.T) {
 // --- Test 17: Finding shape ---
 
 func TestScan_FindingShape(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{
@@ -612,6 +629,7 @@ func TestScan_FindingShape(t *testing.T) {
 // --- Test 18: Context cancellation ---
 
 func TestScan_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 
 	dir := t.TempDir()
@@ -643,6 +661,7 @@ func TestScan_ContextCancellation(t *testing.T) {
 // --- Test 19: BuildImportGraph with stdlib parser ---
 
 func TestBuildImportGraph_StdlibParser(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create a Go source file
@@ -676,6 +695,7 @@ func main() {
 // --- Test 20: Vendor directory ---
 
 func TestScan_VendorDirectory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create go.mod
@@ -741,6 +761,7 @@ func Do() { _ = des.BlockSize }
 // appears in both root and non-root packages (regression test for map iteration order bug) ---
 
 func TestReachability_DirectDeterministic(t *testing.T) {
+	t.Parallel()
 	m := NewDepsModule(depsTestConfig())
 	m.analyzer = &mockGoModuleAnalyzer{
 		modInfo: &goModuleInfo{

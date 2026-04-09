@@ -14,6 +14,7 @@ import (
 )
 
 func TestWalkTargetDepthEnforcement(t *testing.T) {
+	t.Parallel()
 	// Create a nested directory structure:
 	// tmpDir/
 	//   level1/
@@ -70,6 +71,7 @@ func TestWalkTargetDepthEnforcement(t *testing.T) {
 }
 
 func TestWalkTargetMaxFileSize(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Small file (10 bytes)
@@ -103,6 +105,7 @@ func TestWalkTargetMaxFileSize(t *testing.T) {
 }
 
 func TestWalkTargetExcludePatterns(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	os.MkdirAll(filepath.Join(tmpDir, ".git", "objects"), 0755)
@@ -132,6 +135,7 @@ func TestWalkTargetExcludePatterns(t *testing.T) {
 }
 
 func TestShouldSkipDir(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		ExcludePatterns: []string{".git", "node_modules", "/proc"},
 	}
@@ -144,6 +148,7 @@ func TestShouldSkipDir(t *testing.T) {
 }
 
 func TestWalkerFileCounters(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create mixed files: 3 .pem (match), 2 .txt (no match)
@@ -173,6 +178,7 @@ func TestWalkerFileCounters(t *testing.T) {
 }
 
 func TestWalkerFileCountersNil(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "a.pem"), []byte("data"), 0644)
 

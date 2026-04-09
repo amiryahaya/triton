@@ -17,6 +17,7 @@ import (
 var _ Module = (*WebAppModule)(nil)
 
 func TestWebAppModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewWebAppModule(&config.Config{})
 	assert.Equal(t, "webapp", m.Name())
 	assert.Equal(t, model.CategoryPassiveCode, m.Category())
@@ -24,6 +25,7 @@ func TestWebAppModuleInterface(t *testing.T) {
 }
 
 func TestIsWebAppFile(t *testing.T) {
+	t.Parallel()
 	m := NewWebAppModule(&config.Config{})
 
 	// Should match web app files
@@ -54,6 +56,7 @@ func TestIsWebAppFile(t *testing.T) {
 }
 
 func TestWebAppScanPHP(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `<?php
@@ -92,6 +95,7 @@ openssl_sign($data, $signature, $privKey, OPENSSL_ALGO_SHA256);
 }
 
 func TestWebAppScanJava(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `import javax.crypto.Cipher;
@@ -128,6 +132,7 @@ public class CryptoExample {
 }
 
 func TestWebAppScanJavaScript(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `const crypto = require('crypto');
@@ -154,6 +159,7 @@ const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 }
 
 func TestWebAppScanGo(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `package main
@@ -184,6 +190,7 @@ func main() {
 }
 
 func TestWebAppScanCSharp(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `using System.Security.Cryptography;
@@ -212,6 +219,7 @@ var sha = SHA256.Create();
 }
 
 func TestWebAppScanCryptoJS(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `var encrypted = CryptoJS.AES.encrypt("message", "secret");
@@ -250,6 +258,7 @@ var dk = CryptoJS.PBKDF2("password", "salt", {keySize: 256/32});
 }
 
 func TestWebAppScanEVP(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `#include <openssl/evp.h>
@@ -291,6 +300,7 @@ void encrypt(void) {
 }
 
 func TestWebAppScanSwift(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `import Security
@@ -325,6 +335,7 @@ let hash = CC_SHA256(data, CC_LONG(data.count), &digest)
 }
 
 func TestWebAppScanECCCurves(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `var key = ec.KeyFromPrivate(privateKey, 'hex');
@@ -359,6 +370,7 @@ var p384 = secp384r1;
 }
 
 func TestWebAppScanJavaPBKDF2(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `import javax.crypto.SecretKeyFactory;
@@ -395,6 +407,7 @@ SSLContext ctx = SSLContext.getInstance("TLSv1.3");
 }
 
 func TestWebAppScanCSharpHMAC(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `using System.Security.Cryptography;
@@ -428,6 +441,7 @@ var dk = new Rfc2898DeriveBytes(password, salt, iterations);
 }
 
 func TestWebAppScanNoCrypto(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `<?php
@@ -454,6 +468,7 @@ $result = array_sum([1, 2, 3]);
 }
 
 func TestWebAppScanEmptyDir(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	m := NewWebAppModule(&config.Config{})
@@ -472,6 +487,7 @@ func TestWebAppScanEmptyDir(t *testing.T) {
 }
 
 func TestWebAppFindingHasPQCStatus(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `<?php
@@ -497,6 +513,7 @@ $hash = hash('md5', $data);
 }
 
 func TestWebAppDetectionMethodPopulated(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	content := `<?php

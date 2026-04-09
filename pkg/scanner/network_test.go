@@ -15,6 +15,7 @@ import (
 var _ Module = (*NetworkModule)(nil)
 
 func TestNetworkModuleInterface(t *testing.T) {
+	t.Parallel()
 	m := NewNetworkModule(&config.Config{})
 	assert.Equal(t, "network", m.Name())
 	assert.Equal(t, model.CategoryActiveNetwork, m.Category())
@@ -22,6 +23,7 @@ func TestNetworkModuleInterface(t *testing.T) {
 }
 
 func TestParseListeningPorts(t *testing.T) {
+	t.Parallel()
 	m := NewNetworkModule(&config.Config{})
 
 	// Simulate lsof output for listening ports
@@ -60,6 +62,7 @@ postgres  101 pg      7u  IPv4  45678      0t0  TCP *:5432 (LISTEN)
 }
 
 func TestClassifyPort(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		port      int
 		protocol  string
@@ -95,6 +98,7 @@ func TestClassifyPort(t *testing.T) {
 }
 
 func TestParseListeningPortsEmpty(t *testing.T) {
+	t.Parallel()
 	m := NewNetworkModule(&config.Config{})
 
 	findings := make(chan *model.Finding, 10)
@@ -110,6 +114,7 @@ func TestParseListeningPortsEmpty(t *testing.T) {
 }
 
 func TestParseListeningPortsContextCancellation(t *testing.T) {
+	t.Parallel()
 	m := NewNetworkModule(&config.Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -125,6 +130,7 @@ sshd      123 root    3u  IPv4  12345      0t0  TCP *:22 (LISTEN)
 }
 
 func TestNetworkFindingPQCStatus(t *testing.T) {
+	t.Parallel()
 	m := NewNetworkModule(&config.Config{})
 
 	output := `COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
@@ -142,6 +148,7 @@ sshd      123 root    3u  IPv4  12345      0t0  TCP *:22 (LISTEN)
 }
 
 func TestParseSSOutput(t *testing.T) {
+	t.Parallel()
 	m := NewNetworkModule(&config.Config{})
 
 	// Simulate ss output

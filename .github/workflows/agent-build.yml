@@ -122,17 +122,22 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           PUBKEY: ${{ steps.pubkey.outputs.pubkey }}
         run: |
-          mkdir -p dist
-          out="dist/triton-${VERSION}-${GOOS}-${GOARCH}${{ matrix.ext }}"
-          echo "Building $out"
+          # Build into a staging directory whose name is ALWAYS
+          # distinct from the archive name. This avoids a collision
+          # on unix where the archive base and an intermediate file
+          # name would otherwise share the same path (no extension
+          # to distinguish file from directory).
+          stage="dist/triton-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir -p "$stage"
+          echo "Building $stage/triton${{ matrix.ext }}"
           go build \
             -trimpath \
             -ldflags "-s -w \
               -X github.com/amiryahaya/triton/internal/version.Version=${VERSION} \
               -X github.com/amiryahaya/triton/internal/license.publicKeyHex=${PUBKEY}" \
-            -o "$out" \
+            -o "$stage/triton${{ matrix.ext }}" \
             .
-          ls -lh "$out"
+          ls -lh "$stage"
 
       - name: Verify embedded pubkey (linux/darwin only)
         if: matrix.goos != 'windows'
@@ -145,7 +150,7 @@ jobs:
           # Sanity check: `strings` the binary and confirm the hex
           # shows up exactly once. Catches accidental ldflags typos
           # that silently fall back to the zeroed embedded default.
-          bin="dist/triton-${VERSION}-${GOOS}-${GOARCH}"
+          bin="dist/triton-${VERSION}-${GOOS}-${GOARCH}/triton"
           if ! strings "$bin" | grep -q "^${EXPECTED_PUBKEY}$"; then
             echo "::error::Embedded pubkey not found in $bin — ldflags injection failed."
             exit 1
@@ -159,15 +164,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           cd dist
-          bin="triton-${VERSION}-${GOOS}-${GOARCH}${{ matrix.ext }}"
           stage="triton-${VERSION}-${GOOS}-${GOARCH}"
-          # Stage the binary under its simple name (triton / triton.exe)
-          # so operators can drop the archive contents next to
-          # agent.yaml without renaming anything.
-          mkdir -p "$stage"
-          cp "$bin" "$stage/triton${{ matrix.ext }}"
+
+          # Include LICENSE + README alongside the binary so the
+          # archive is self-documenting.
           cp ../LICENSE "$stage/LICENSE" 2>/dev/null || true
           cp ../README.md "$stage/README.md" 2>/dev/null || true
+
           if [ "${GOOS}" = "windows" ]; then
             zip -q -r "${stage}.zip" "$stage"
           else

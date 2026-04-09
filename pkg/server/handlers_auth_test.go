@@ -5,6 +5,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -134,6 +135,33 @@ func TestLogin_MustChangePasswordFlag(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, true, resp["mustChangePassword"], "invited user must see mcp=true on login")
+}
+
+// TestLogin_JWTCarriesOrgName verifies that the JWT issued on login
+// embeds the OrgName claim so the web UI can show "you are logged in
+// as <user> @ <org>" without an additional API roundtrip. The report
+// server's signUserToken is responsible for resolving the user's
+// OrgID to a display name at token-issuance time; if it ever silently
+// drops the lookup (e.g., a refactor breaks the store call), this
+// test catches it.
+func TestLogin_JWTCarriesOrgName(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+	org, user := createOrgUser(t, db, "org_admin", "correct-horse-battery", false)
+
+	token := loginAndExtractToken(t, srv, user.Email, "correct-horse-battery")
+
+	// Decode the JWT payload (middle segment) without verification —
+	// the test uses the signing key only implicitly, via loginAndExtractToken.
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3, "JWT must have three dot-separated segments")
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	require.NoError(t, err)
+
+	var claims map[string]any
+	require.NoError(t, json.Unmarshal(payload, &claims))
+	assert.Equal(t, org.Name, claims["org_name"],
+		"JWT org_name claim must match the user's organization name so the UI can display it")
+	assert.Equal(t, org.ID, claims["org"], "org UUID claim must still be present")
 }
 
 func TestLogin_MissingFields(t *testing.T) {

@@ -26,10 +26,11 @@ import (
 // and Org is empty) and the report server (where Role is "org_admin" or
 // "org_user" and Org is the org UUID).
 type UserClaims struct {
-	Jti                string `json:"jti"`           // RFC 7519 JWT ID — unique per token
-	Sub                string `json:"sub"`           // user UUID
-	Org                string `json:"org,omitempty"` // org UUID (empty for platform admin)
-	Role               string `json:"role"`          // platform_admin, org_admin, org_user
+	Jti                string `json:"jti"`                // RFC 7519 JWT ID — unique per token
+	Sub                string `json:"sub"`                // user UUID
+	Org                string `json:"org,omitempty"`      // org UUID (empty for platform admin)
+	OrgName            string `json:"org_name,omitempty"` // display name of the org (best-effort; may lag actual org rename by up to TTL)
+	Role               string `json:"role"`               // platform_admin, org_admin, org_user
 	Name               string `json:"name"`
 	MustChangePassword bool   `json:"mcp,omitempty"` // true while user must change their temporary password
 	Iat                int64  `json:"iat"`

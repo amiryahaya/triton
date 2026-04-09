@@ -789,3 +789,49 @@ td[colspan] {
   font: inherit;
   color: inherit;
 }
+
+/* Logged-in user + org card inside the sidebar footer. */
+.user-info {
+  padding: 10px 14px 12px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.06);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.user-info-org {
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 2px;
+  /* Long org names wrap rather than clipping — ops frequently use
+     descriptive names like "Cyber Security Malaysia - Ops". */
+  overflow-wrap: anywhere;
+}
+
+.user-info-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #94a3b8;
+}
+
+.user-info-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-info-role {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.12);
+  color: #22d3ee;
+}

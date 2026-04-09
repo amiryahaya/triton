@@ -152,6 +152,37 @@
       logoutBtn.style.display = auth.getToken() ? '' : 'none';
     }
 
+    // Sidebar user-info card: show the current user's name + role and
+    // the org they belong to, so a logged-in operator can tell at a
+    // glance which tenant they're looking at. Values come from the JWT
+    // claims set by the server (signUserToken embeds org_name best-
+    // effort; it may be briefly stale after an admin renames the org).
+    // Hidden entirely on auth-mode pages (login, change-password).
+    const userInfo = $('#user-info');
+    if (userInfo) {
+      const c = auth.getClaims();
+      if (c && !authMode) {
+        const orgEl = $('#user-info-org');
+        const nameEl = $('#user-info-name');
+        const roleEl = $('#user-info-role');
+        if (orgEl) orgEl.textContent = c.org_name || '(no organization)';
+        if (nameEl) nameEl.textContent = c.name || '';
+        if (roleEl) {
+          // Map machine-readable role values to friendly labels. Keep
+          // the switch exhaustive so adding a new role doesn't
+          // silently display the raw string.
+          let label = c.role || '';
+          if (c.role === 'org_admin') label = 'Admin';
+          else if (c.role === 'org_user') label = 'User';
+          else if (c.role === 'platform_admin') label = 'Platform Admin';
+          roleEl.textContent = label;
+        }
+        userInfo.style.display = '';
+      } else {
+        userInfo.style.display = 'none';
+      }
+    }
+
     switch(view) {
       case 'login': renderLogin(); break;
       case 'change-password': renderChangePassword(); break;

@@ -32,10 +32,35 @@ const (
 
 // signUserToken issues a JWT for the given user and creates a session row
 // referencing it. Returns (token, expiresAt, error).
+//
+// The caller's org display name is looked up best-effort and embedded in
+// the claims so the UI can show "you are logged in as <user> @ <org>"
+// without an additional API roundtrip on every page load. Lookup failure
+// is non-fatal — login/refresh/change-password continue with an empty
+// OrgName rather than blocking the user on a cosmetic feature.
+//
+// Note on staleness: because OrgName is signed into the JWT, renaming an
+// org via the admin API does NOT immediately update the displayed name
+// for active sessions; users see the old name until their next
+// login/refresh (at most userJWTTTL = 24h). Acceptable tradeoff for the
+// zero-extra-roundtrip design.
 func (s *Server) signUserToken(r *http.Request, user *store.User) (string, time.Time, error) {
+	orgName := ""
+	if user.OrgID != "" {
+		if org, err := s.store.GetOrg(r.Context(), user.OrgID); err == nil && org != nil {
+			orgName = org.Name
+		} else if err != nil {
+			// Logged but not surfaced — login must not fail on a
+			// cosmetic lookup. If this starts firing repeatedly it
+			// points at a real data-integrity issue (user row
+			// references a missing org) which is worth investigating.
+			log.Printf("signUserToken: org lookup for user %s org %s failed: %v", user.ID, user.OrgID, err)
+		}
+	}
 	claims := &auth.UserClaims{
 		Sub:                user.ID,
 		Org:                user.OrgID,
+		OrgName:            orgName,
 		Role:               user.Role,
 		Name:               user.Name,
 		MustChangePassword: user.MustChangePassword,

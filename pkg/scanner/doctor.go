@@ -111,6 +111,15 @@ func moduleDependencies() map[string][]platformTool {
 			{os: "darwin", tool: "codesign"},
 			{os: "linux", tool: "rpm"},
 			{os: "linux", tool: "dpkg-sig"},
+			// Sprint C2 — cross-platform Authenticode + JAR
+			// verification. osslsigncode runs on Linux/macOS;
+			// jarsigner ships with the JDK. Both are
+			// optional — module emits a "tool unavailable"
+			// finding instead of failing if absent.
+			{os: "linux", tool: "osslsigncode"},
+			{os: "darwin", tool: "osslsigncode"},
+			{os: "linux", tool: "jarsigner"},
+			{os: "darwin", tool: "jarsigner"},
 		},
 	}
 }

@@ -47,16 +47,25 @@ var profiles = map[string]ScanProfile{
 	"standard": {
 		Name:        "standard",
 		Description: "Balanced scan of system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps"},
-		Depth:       10,
-		Workers:     8,
+		// Sprint A1/A3 — web_server and vpn join the standard
+		// profile because TLS posture and VPN crypto are
+		// expected coverage for any compliance-driven scan,
+		// not deep-dive territory.
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn"},
+		Depth:   10,
+		Workers: 8,
 	},
 	"comprehensive": {
 		Name:        "comprehensive",
 		Description: "Deep scan of entire system",
-		Modules:     []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps"},
-		Depth:       -1, // unlimited
-		Workers:     16,
+		// Sprint A1/A3/C1 — web_server, vpn, and the new
+		// container_signatures supply-chain scanner extend the
+		// comprehensive profile. Codesign already runs here
+		// and now picks up Authenticode (.exe/.dll/.msi) and
+		// JAR (.jar/.war/.ear) artifacts via the C2 extension.
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures"},
+		Depth:   -1, // unlimited
+		Workers: 16,
 	},
 }
 

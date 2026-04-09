@@ -54,8 +54,10 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 19 modules
-	assert.Len(t, eng.modules, 19)
+	// Should register all 22 modules:
+	// 19 historical + web_server (Sprint A1) + vpn (Sprint A3)
+	// + container_signatures (Sprint C1).
+	assert.Len(t, eng.modules, 22)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -92,6 +94,11 @@ func TestRegisterDefaultModules(t *testing.T) {
 
 	// Phase 12
 	assert.True(t, names["deps"])
+
+	// Sprint A1/A3/C1 — coverage + supply chain.
+	assert.True(t, names["web_server"])
+	assert.True(t, names["vpn"])
+	assert.True(t, names["container_signatures"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

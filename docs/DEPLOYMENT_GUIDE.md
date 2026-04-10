@@ -208,38 +208,55 @@ This is the recommended production deployment on a fresh Ubuntu 22.04/24.04 serv
 ```bash
 # 1. Install prerequisites (see §2 for details)
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y podman git pipx
+sudo apt install -y podman pipx curl
 pipx install podman-compose
 
-# 2. Clone the repo
-cd /opt
-sudo git clone https://github.com/amiryahaya/triton.git
-cd triton
+# 2. Create the deployment directory (no git clone needed — we only
+#    need compose.yaml, .env, and the DB init script)
+sudo mkdir -p /opt/triton
+cd /opt/triton
 
-# 3. Generate .env with fresh credentials
-sudo ./scripts/gen-dev-env.sh > .env
-sudo chmod 600 .env
+# 3. Download the deployment files from the repo
+REPO="https://raw.githubusercontent.com/amiryahaya/triton/main"
+sudo curl -sSfL "$REPO/compose.yaml"          -o compose.yaml
+sudo curl -sSfL "$REPO/.env.example"          -o .env
+sudo mkdir -p scripts
+sudo curl -sSfL "$REPO/scripts/init-db.sh"    -o scripts/init-db.sh
+sudo chmod +x scripts/init-db.sh
 
 # 4. Edit .env — fill in production values:
-#    - TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL=https://reports.example.com
-#    - TRITON_LICENSE_SERVER_PUBLIC_URL=https://license.example.com
-#    - REPORT_SERVER_INVITE_URL=https://reports.example.com/ui/#/login
-#    - REPORT_SERVER_INVITE_URL_BASE=https://reports.example.com/ui/#/login
-#    - RESEND_API_KEY=re_... (if using email delivery)
-#    - RESEND_FROM_EMAIL=noreply@example.com
-#    - REPORT_SERVER_RESEND_API_KEY=re_... (same key)
-#    - REPORT_SERVER_RESEND_FROM_EMAIL=noreply@example.com
-#    - REPORT_SERVER_DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+#    Generate secrets:
+#      openssl rand -hex 32  (for each key/secret field)
+#
+#    Required fields to set:
+#      TRITON_LICENSE_SERVER_ADMIN_KEY=<random hex>
+#      TRITON_LICENSE_SERVER_SIGNING_KEY=<Ed25519 64-byte hex — see §6d>
+#      TRITON_LICENSE_SERVER_ADMIN_PASSWORD=<strong password>
+#      TRITON_LICENSE_SERVER_REPORT_KEY=<random hex>
+#      REPORT_SERVER_SERVICE_KEY=<same value as REPORT_KEY above>
+#      REPORT_SERVER_JWT_SIGNING_KEY=<random hex>
+#      REPORT_SERVER_TENANT_PUBKEY=<last 32 bytes of signing key>
+#      REPORT_SERVER_DATA_ENCRYPTION_KEY=<random hex>
+#      TRITON_LICENSE_KEY=<mint via license server after first boot>
+#
+#    Production URLs:
+#      TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL=https://reports.example.com
+#      TRITON_LICENSE_SERVER_PUBLIC_URL=https://license.example.com
+#      REPORT_SERVER_INVITE_URL=https://reports.example.com/ui/#/login
+#      REPORT_SERVER_INVITE_URL_BASE=https://reports.example.com/ui/#/login
+#
+#    Email (optional):
+#      RESEND_API_KEY=re_...
+#      RESEND_FROM_EMAIL=noreply@example.com
+#      REPORT_SERVER_RESEND_API_KEY=re_...
+#      REPORT_SERVER_RESEND_FROM_EMAIL=noreply@example.com
 sudo nano .env
+sudo chmod 600 .env
 
-# 5. Pull container images (or build locally)
-podman pull ghcr.io/amiryahaya/triton:latest
-podman pull ghcr.io/amiryahaya/triton-license-server:latest
-
-# 6. Start the full stack
+# 5. Start the full stack (images are pulled automatically from ghcr.io)
 podman compose --profile server --profile license-server up -d
 
-# 7. Verify
+# 6. Verify
 curl -s http://localhost:8080/api/v1/health   # report server
 curl -s http://localhost:8081/api/v1/health   # license server
 

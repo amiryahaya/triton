@@ -96,8 +96,8 @@ This is the reference deployment target. All examples below use Ubuntu, but Fedo
 sudo apt update && sudo apt upgrade -y
 
 # 2. Install Podman + compose
-sudo apt install -y podman
-pip3 install podman-compose   # or: sudo apt install podman-compose
+sudo apt install -y podman pipx
+pipx install podman-compose
 
 # 3. (Optional) Install Docker instead — all podman commands below work
 #    identically with docker. Replace "podman" with "docker" throughout.
@@ -152,7 +152,8 @@ podman machine init && podman machine start
 
 **Fedora/RHEL:**
 ```bash
-sudo dnf install podman podman-compose
+sudo dnf install podman pipx
+pipx install podman-compose
 ```
 
 ---
@@ -207,8 +208,8 @@ This is the recommended production deployment on a fresh Ubuntu 22.04/24.04 serv
 ```bash
 # 1. Install prerequisites (see §2 for details)
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y podman git
-pip3 install podman-compose
+sudo apt install -y podman git pipx
+pipx install podman-compose
 
 # 2. Clone the repo
 cd /opt

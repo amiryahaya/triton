@@ -179,7 +179,7 @@ func (s *Server) serveTarGzBundle(w http.ResponseWriter, archiveName, binaryPath
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	defer binFile.Close()
+	defer func() { _ = binFile.Close() }()
 	binStat, err := binFile.Stat()
 	if err != nil {
 		log.Printf("bundle: stat binary error: %v", err)
@@ -196,7 +196,7 @@ func (s *Server) serveTarGzBundle(w http.ResponseWriter, archiveName, binaryPath
 	tw := tar.NewWriter(gw)
 
 	// Stream the binary from disk.
-	if err := tw.WriteHeader(&tar.Header{Name: binName, Size: binStat.Size(), Mode: 0755}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: binName, Size: binStat.Size(), Mode: 0o755}); err != nil {
 		log.Printf("bundle: tar write header error: %v", err)
 		return
 	}
@@ -211,8 +211,8 @@ func (s *Server) serveTarGzBundle(w http.ResponseWriter, archiveName, binaryPath
 		Data []byte
 		Mode int64
 	}{
-		{Name: "agent.yaml", Data: []byte(yamlBody), Mode: 0600},
-		{Name: installFilename, Data: []byte(installScript), Mode: 0755},
+		{Name: "agent.yaml", Data: []byte(yamlBody), Mode: 0o600},
+		{Name: installFilename, Data: []byte(installScript), Mode: 0o755},
 	} {
 		if err := tw.WriteHeader(&tar.Header{Name: e.Name, Size: int64(len(e.Data)), Mode: e.Mode}); err != nil {
 			return
@@ -234,7 +234,7 @@ func (s *Server) serveZipBundle(w http.ResponseWriter, archiveName, binaryPath, 
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	defer binFile.Close()
+	defer func() { _ = binFile.Close() }()
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName+".zip"))

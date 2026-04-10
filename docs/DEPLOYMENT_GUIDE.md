@@ -211,18 +211,22 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y podman pipx curl
 pipx install podman-compose
 
-# 2. Create the deployment directory (no git clone needed — we only
-#    need compose.yaml, .env, and the DB init script)
+# 2. Create the deployment directory
 sudo mkdir -p /opt/triton
 cd /opt/triton
 
-# 3. Download the deployment files from the repo
-REPO="https://raw.githubusercontent.com/amiryahaya/triton/main"
-sudo curl -sSfL "$REPO/compose.yaml"          -o compose.yaml
-sudo curl -sSfL "$REPO/.env.example"          -o .env
-sudo mkdir -p scripts
-sudo curl -sSfL "$REPO/scripts/init-db.sh"    -o scripts/init-db.sh
-sudo chmod +x scripts/init-db.sh
+# 3. Download the deployment files.
+#    Only 3 files are needed: compose.yaml, .env, scripts/init-db.sh.
+#
+#    Option A — GitHub CLI (works for private repos):
+gh release download --repo amiryahaya/triton --pattern "*.tar.gz" --dir /tmp/triton-release || true
+#
+#    Option B — shallow clone (simplest):
+sudo git clone --depth 1 https://github.com/amiryahaya/triton.git /opt/triton
+#
+#    After cloning, you can remove the .git directory if you don't want
+#    git history on the production server:
+sudo rm -rf /opt/triton/.git
 
 # 4. Edit .env — fill in production values:
 #    Generate secrets:

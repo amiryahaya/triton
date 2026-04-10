@@ -208,7 +208,7 @@ This is the recommended production deployment on a fresh Ubuntu 22.04/24.04 serv
 ```bash
 # 1. Install prerequisites (see §2 for details)
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y podman pipx curl
+sudo apt install -y podman pipx curl git
 pipx install podman-compose
 
 # 2. Create the deployment directory

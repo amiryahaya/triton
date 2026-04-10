@@ -37,6 +37,13 @@ type Config struct {
 	// admin API. Required alongside ReportServerURL.
 	ReportServerServiceKey string
 
+	// PublicURL is the customer-facing URL of this license server
+	// itself (e.g., "https://license.example.com"). Used by install
+	// scripts that call back to download binaries and agent.yaml.
+	// When empty, install-token features are disabled (the admin UI
+	// hides the "Copy install command" button).
+	PublicURL string
+
 	// Mailer, if non-nil, is used to send admin-invite emails after
 	// successful org provisioning. Typically a *ResendMailer built from
 	// the RESEND_API_KEY env var. If nil, handlers fall back to

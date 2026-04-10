@@ -110,6 +110,7 @@ func run() error {
 	// downloads and invite emails. When unset, handlers fall
 	// back to REPORT_URL with a log warning at first use.
 	reportServerPublicURL := envOr("TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL", "")
+	publicURL := envOr("TRITON_LICENSE_SERVER_PUBLIC_URL", "")
 	resendAPIKey := envOr("RESEND_API_KEY", "")
 	resendFromEmail := envOr("RESEND_FROM_EMAIL", "")
 	resendFromName := envOr("RESEND_FROM_NAME", "Triton Reports")
@@ -142,6 +143,7 @@ func run() error {
 		ReportServerURL:        reportServerURL,
 		ReportServerPublicURL:  reportServerPublicURL,
 		ReportServerServiceKey: reportServerKey,
+		PublicURL:              publicURL,
 		Mailer:                 mailer,
 		ReportServerInviteURL:  reportInviteURL,
 	}

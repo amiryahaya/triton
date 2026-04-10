@@ -330,9 +330,32 @@
           '<tr><th>Expires</th><td>' + formatDate(data.expiresAt) + '</td></tr>' +
           '<tr><th>Status</th><td>' + statusBadge(data) + '</td></tr>' +
         '</table>' +
-        '<div class="actions" style="margin:1em 0;">' +
-          '<button class="btn btn-primary" id="download-agent-yaml-btn">Download agent.yaml</button>' +
-          '<span class="text-muted" style="margin-left:0.75em;">Generates a ready-to-ship agent.yaml with an embedded license token. Treat the file as a secret.</span>' +
+        '<div class="card" style="margin-top:1.5em">' +
+          '<div class="card-header"><strong>Agent Installation</strong></div>' +
+          '<div class="card-body">' +
+            '<div style="margin-bottom:0.75em;">' +
+              '<label for="platform-select" style="font-weight:600;margin-right:0.5em;">Target platform:</label>' +
+              '<select id="platform-select" class="form-control" style="display:inline-block;width:auto;">' +
+                '<option value="linux-amd64">Linux (Intel/AMD 64-bit)</option>' +
+                '<option value="linux-arm64">Linux (ARM 64-bit)</option>' +
+                '<option value="darwin-amd64">macOS (Intel)</option>' +
+                '<option value="darwin-arm64" selected>macOS (Apple Silicon)</option>' +
+                '<option value="windows-amd64">Windows (64-bit)</option>' +
+              '</select>' +
+            '</div>' +
+            '<div style="display:flex;gap:0.75em;flex-wrap:wrap;margin-bottom:0.75em;">' +
+              '<button class="btn btn-primary" id="download-bundle-btn">Download bundle</button>' +
+              '<button class="btn btn-outline-secondary" id="download-agent-yaml-btn">Download agent.yaml only</button>' +
+              '<button class="btn btn-outline-secondary" id="copy-install-cmd-btn">Copy install command</button>' +
+            '</div>' +
+            '<div id="install-cmd-area" style="display:none;">' +
+              '<p style="margin-bottom:0.25em;font-weight:600;">Linux/macOS:</p>' +
+              '<pre id="install-cmd-curl" style="background:#f5f5f5;padding:0.75em;overflow-x:auto;font-size:0.85em;"></pre>' +
+              '<p style="margin-bottom:0.25em;font-weight:600;">Windows (PowerShell as Admin):</p>' +
+              '<pre id="install-cmd-ps1" style="background:#f5f5f5;padding:0.75em;overflow-x:auto;font-size:0.85em;"></pre>' +
+              '<small class="text-muted">This link expires in 24 hours.</small>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<h3>Activations</h3>' +
         '<table><thead><tr><th>Machine</th><th>Hostname</th><th>OS/Arch</th><th>Last Seen</th><th>Active</th></tr></thead><tbody>';
@@ -348,26 +371,103 @@
       html += '</tbody></table>';
       page.innerHTML = html;
 
-      // Wire the Download agent.yaml button. Uses fetch+blob (rather
-      // than a plain anchor) so we can attach the admin-key header
-      // and surface errors inline instead of navigating away.
-      const dlBtn = document.getElementById('download-agent-yaml-btn');
-      if (dlBtn) {
-        // Disable the button for revoked/expired licenses — the server
-        // rejects these anyway, so fail fast in the UI rather than
-        // round-tripping to learn that.
-        const isRevoked = !!data.revoked;
-        const isExpired = data.expiresAt && (new Date(data.expiresAt).getTime() < Date.now());
-        if (isRevoked || isExpired) {
-          dlBtn.disabled = true;
-          dlBtn.title = isRevoked ? 'Cannot download for a revoked license' : 'Cannot download for an expired license';
+      // Disable all installation buttons for revoked/expired licenses.
+      const isRevoked = !!data.revoked;
+      const isExpired = data.expiresAt && (new Date(data.expiresAt).getTime() < Date.now());
+      const disableReason = isRevoked ? 'Cannot use for a revoked license' : (isExpired ? 'Cannot use for an expired license' : '');
+      const installBtns = [
+        document.getElementById('download-bundle-btn'),
+        document.getElementById('download-agent-yaml-btn'),
+        document.getElementById('copy-install-cmd-btn')
+      ];
+      if (isRevoked || isExpired) {
+        installBtns.forEach(function(b) { if (b) { b.disabled = true; b.title = disableReason; } });
+      }
+
+      // Helper: parse platform dropdown into {os, arch}.
+      function selectedPlatform() {
+        var sel = document.getElementById('platform-select');
+        var parts = sel.value.split('-');
+        return { os: parts[0], arch: parts[1] };
+      }
+
+      // Helper: blob download via fetch+hidden anchor (reusable).
+      async function blobDownload(url, method, body, filename, btn) {
+        var originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+        try {
+          var resp = await fetch(url, {
+            method: method,
+            headers: {
+              'X-Triton-Admin-Key': adminKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+          });
+          if (resp.status === 401 || resp.status === 403) {
+            sessionStorage.removeItem('triton_admin_key');
+            adminKey = '';
+            showAuthPrompt();
+            return;
+          }
+          if (!resp.ok) {
+            var msg = 'Download failed (HTTP ' + resp.status + ')';
+            try { var j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+            alert(msg);
+            return;
+          }
+          var blob = await resp.blob();
+          var blobUrl = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 0);
+        } catch(err) {
+          alert('Download failed. Please try again.');
+        } finally {
+          btn.disabled = isRevoked || isExpired;
+          btn.textContent = originalText;
         }
-        dlBtn.onclick = async function() {
-          dlBtn.disabled = true;
-          const originalText = dlBtn.textContent;
-          dlBtn.textContent = 'Generating...';
+      }
+
+      // Wire "Download bundle" button.
+      var bundleBtn = document.getElementById('download-bundle-btn');
+      if (bundleBtn) {
+        bundleBtn.onclick = function() {
+          var p = selectedPlatform();
+          var filename = 'triton-agent-' + p.os + '-' + p.arch + '.tar.gz';
+          if (p.os === 'windows') filename = 'triton-agent-' + p.os + '-' + p.arch + '.zip';
+          blobDownload(
+            '/api/v1/admin/licenses/' + encodeURIComponent(id) + '/bundle',
+            'POST', { os: p.os, arch: p.arch }, filename, bundleBtn
+          );
+        };
+      }
+
+      // Wire "Download agent.yaml only" button (preserves original behavior).
+      var dlBtn = document.getElementById('download-agent-yaml-btn');
+      if (dlBtn) {
+        dlBtn.onclick = function() {
+          blobDownload(
+            '/api/v1/admin/licenses/' + encodeURIComponent(id) + '/agent-yaml',
+            'POST', {}, 'agent.yaml', dlBtn
+          );
+        };
+      }
+
+      // Wire "Copy install command" button.
+      var copyBtn = document.getElementById('copy-install-cmd-btn');
+      if (copyBtn) {
+        copyBtn.onclick = async function() {
+          var originalText = copyBtn.textContent;
+          copyBtn.disabled = true;
+          copyBtn.textContent = 'Generating...';
           try {
-            const resp = await fetch('/api/v1/admin/licenses/' + encodeURIComponent(id) + '/agent-yaml', {
+            var resp = await fetch('/api/v1/admin/licenses/' + encodeURIComponent(id) + '/install-token', {
               method: 'POST',
               headers: {
                 'X-Triton-Admin-Key': adminKey,
@@ -382,27 +482,33 @@
               return;
             }
             if (!resp.ok) {
-              let msg = 'Download failed (HTTP ' + resp.status + ')';
-              try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
+              var msg = 'Failed to generate install command (HTTP ' + resp.status + ')';
+              try { var j = await resp.json(); if (j && j.error) msg = j.error; } catch(_) {}
               alert(msg);
               return;
             }
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'agent.yaml';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            // Release the blob URL on the next tick so the download
-            // has a chance to start before the URL is revoked.
-            setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+            var result = await resp.json();
+            var curlCmd = result.curl_command || '';
+            var ps1Cmd = result.ps1_command || '';
+            document.getElementById('install-cmd-curl').textContent = curlCmd;
+            document.getElementById('install-cmd-ps1').textContent = ps1Cmd;
+            document.getElementById('install-cmd-area').style.display = 'block';
+            // Copy the curl command to clipboard.
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(curlCmd).then(function() {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(function() { copyBtn.textContent = originalText; }, 2000);
+              }, function() {
+                copyBtn.textContent = originalText;
+              });
+            } else {
+              copyBtn.textContent = originalText;
+            }
           } catch(err) {
-            alert('Download failed. Please try again.');
+            alert('Failed to generate install command. Please try again.');
           } finally {
-            dlBtn.disabled = isRevoked || isExpired;
-            dlBtn.textContent = originalText;
+            copyBtn.disabled = isRevoked || isExpired;
+            if (copyBtn.textContent === 'Generating...') copyBtn.textContent = originalText;
           }
         };
       }

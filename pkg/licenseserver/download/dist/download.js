@@ -172,7 +172,72 @@
     }
 
     html += '<p class="version-info">Version ' + escapeHtml(latestVersion) + '</p>';
+
+    // Quick Install section — one-liner for the detected platform.
+    if (match) {
+      var serverURL = window.location.origin;
+      var dlURL = serverURL + downloadURL(latestVersion, match.os, match.arch);
+      var lic = escapeHtml(licenseID);
+
+      html += '<div class="quick-install" style="margin-top:2em;padding:1.5em;background:#0d1b2a;border-radius:8px;border:1px solid #1b2838">';
+      html += '<h3 style="margin:0 0 0.5em 0;color:#00d4ff;font-size:1em">Quick Install (Recommended)</h3>';
+      html += '<p style="color:#8892a4;margin:0 0 1em 0;font-size:0.9em">Paste this into your terminal to download, install, and activate in one step.</p>';
+
+      if (match.os === 'windows') {
+        var ps1Cmd = '# Run in PowerShell as Administrator\n'
+          + '$ProgressPreference="SilentlyContinue"\n'
+          + 'New-Item -ItemType Directory -Path "C:\\Program Files\\Triton" -Force | Out-Null\n'
+          + 'Invoke-WebRequest -Uri "' + dlURL + '" -OutFile "C:\\Program Files\\Triton\\triton.exe" -UseBasicParsing\n'
+          + '& "C:\\Program Files\\Triton\\triton.exe" license activate --license-server ' + serverURL + ' --license-id ' + lic + '\n'
+          + '& "C:\\Program Files\\Triton\\triton.exe" agent --check-config';
+        html += '<div class="code-block" style="position:relative;cursor:pointer" id="quick-install-code">';
+        html += escapeHtml(ps1Cmd);
+        html += '</div>';
+      } else {
+        // Linux/macOS — single curl | sh pipeline won't work here because
+        // we need multiple steps. Use a multi-line command block instead.
+        var shCmd = 'sudo bash -c \''
+          + 'mkdir -p /opt/triton/reports'
+          + ' && curl -sSfL "' + dlURL + '" -o /opt/triton/triton'
+          + ' && chmod 755 /opt/triton/triton';
+        if (match.os === 'darwin') {
+          shCmd += ' && xattr -d com.apple.quarantine /opt/triton/triton 2>/dev/null || true';
+        }
+        shCmd += ' && /opt/triton/triton license activate --license-server ' + serverURL + ' --license-id ' + lic
+          + ' && /opt/triton/triton agent --check-config'
+          + '\'';
+        html += '<div class="code-block" style="position:relative;cursor:pointer" id="quick-install-code">';
+        html += escapeHtml(shCmd);
+        html += '</div>';
+      }
+
+      html += '<button class="btn btn-secondary" id="btn-copy-quick" style="margin-top:0.75em;font-size:0.85em">Copy to clipboard</button>';
+      html += '</div>';
+    }
+
     platformsDiv.innerHTML = html;
+
+    // Wire copy button.
+    var copyBtn = document.getElementById('btn-copy-quick');
+    var codeBlock = document.getElementById('quick-install-code');
+    if (copyBtn && codeBlock) {
+      copyBtn.onclick = function() {
+        var text = codeBlock.textContent;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function() {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(function() { copyBtn.textContent = 'Copy to clipboard'; }, 2000);
+          });
+        } else {
+          // Fallback: select the text.
+          var range = document.createRange();
+          range.selectNodeContents(codeBlock);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      };
+    }
 
     // Attach click handlers to show instructions.
     var links = platformsDiv.querySelectorAll('a[data-os]');

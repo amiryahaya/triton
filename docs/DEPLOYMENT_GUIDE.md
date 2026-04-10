@@ -318,6 +318,7 @@ All license-server options are environment variables. See `cmd/licenseserver/mai
 | `TRITON_LICENSE_SERVER_REPORT_URL` | No | Internal URL the license server itself uses to reach the report server (e.g. compose-network hostname `http://triton:8080`). Used for cross-server provisioning calls. |
 | `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | No | Customer-facing report server URL baked into generated `agent.yaml` downloads (e.g. `https://reports.example.com`). Falls back to `TRITON_LICENSE_SERVER_REPORT_URL` when unset. Keep it distinct because the internal URL is typically unresolvable from outside the service network. |
 | `TRITON_LICENSE_SERVER_REPORT_KEY` | No | Shared secret the report server expects in `X-Triton-Service-Key` for provisioning calls. Paired with `TRITON_LICENSE_SERVER_REPORT_URL`. |
+| `TRITON_LICENSE_SERVER_PUBLIC_URL` | No | The license server's own externally-reachable URL (e.g. `https://license.example.com`). Required for one-liner install commands generated in the admin UI — the install token URL is built from this value. If unset, one-liner generation is disabled. |
 | `TRITON_LICENSE_SERVER_RESEND_API_KEY` | No | Resend API key for the invite mailer |
 | `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | No | From address for invite emails |
 | `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | No | From name for invite emails |
@@ -529,6 +530,79 @@ Any handoff channel that leaves the file readable by other users on the host is 
 | Offline bootstrap with no network to licence server | ✓ | ✗ |
 
 For large fleets that need per-machine accounting, prefer the activation path. For one-off customer deployments or when the customer cannot run licence commands, use `agent.yaml`.
+
+### 7f. Fool-proof agent installation (bundle + one-liner)
+
+For operators who need to hand pre-built binaries to end-users, the license server admin UI offers two zero-touch installation flows accessible from the license detail page (`/ui/#/licenses/<id>`).
+
+#### Flow A — Bundle download
+
+1. Superadmin opens the license detail page and selects the target platform (Linux amd64, Linux arm64, macOS arm64, Windows amd64).
+2. Clicks **Download bundle**.
+3. The license server calls `POST /api/v1/admin/licenses/{id}/bundle` with `{"os":"linux","arch":"amd64"}` (or equivalent) and streams back a compressed archive:
+   - Linux/macOS: `.tar.gz` containing `triton`, `agent.yaml`, `install.sh`
+   - Windows: `.zip` containing `triton.exe`, `agent.yaml`, `install.bat`
+4. Superadmin delivers the archive to the operator (email, SFTP, shared drive).
+5. Operator extracts and runs the install script — no further configuration required.
+
+**Install paths set by the script:**
+
+| OS | Binary | Config | Reports |
+|----|--------|--------|---------|
+| Linux / macOS | `/opt/triton/triton` | `/opt/triton/agent.yaml` | `/opt/triton/reports/` |
+| Windows | `C:\Program Files\Triton\triton.exe` | `C:\Program Files\Triton\agent.yaml` | `C:\Program Files\Triton\reports\` |
+
+**`install.sh` behaviour (Linux/macOS):**
+
+- Requires root (`sudo`); exits with an error if run as a non-root user.
+- Creates `/opt/triton/` with `755` permissions.
+- Copies the binary and agent.yaml; sets binary to `755`, agent.yaml to `600`.
+- On macOS, runs `xattr -dr com.apple.quarantine /opt/triton/triton` to bypass Gatekeeper without requiring the user to navigate security settings.
+
+**`install.bat` behaviour (Windows):**
+
+- Must be run from an elevated (Administrator) command prompt.
+- Creates `C:\Program Files\Triton\` and copies the files.
+- Sets ACLs on `agent.yaml` to restrict read access to the current user only.
+
+#### Flow B — One-liner install
+
+1. Superadmin clicks **Copy install command** on the license detail page.
+2. Superadmin pastes the command into Slack/email for the operator.
+3. Operator runs the one-liner on the target host:
+
+```bash
+curl -sSL 'https://license.example.com/api/v1/install/<TOKEN>' | sudo bash
+```
+
+**How the one-liner works:**
+
+- `POST /api/v1/admin/licenses/{id}/install-token` generates a short-lived (24 h) install token and returns an install URL.
+- The install URL (`GET /api/v1/install/{token}`) serves a platform-detecting shell script that:
+  1. Detects the host OS and architecture.
+  2. Downloads the correct binary from `GET /api/v1/install/{token}/binary/{os}/{arch}`.
+  3. Downloads the pre-baked `agent.yaml` from `GET /api/v1/install/{token}/agent-yaml`.
+  4. Installs both to `/opt/triton/` (Linux/macOS) with correct permissions and Gatekeeper bypass.
+- The install token is single-use and expires after 24 hours.
+- `TRITON_LICENSE_SERVER_PUBLIC_URL` **must** be set on the license server for one-liner generation to work — the URL is baked into the install token link returned to the admin.
+
+**Windows one-liner (PowerShell):**
+
+The admin UI also provides a PowerShell one-liner for Windows targets:
+
+```powershell
+iex (irm 'https://license.example.com/api/v1/install/<TOKEN>?ps=1')
+```
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| macOS: "unidentified developer" dialog | Quarantine attribute set by browser download | The install script/one-liner runs `xattr -dr com.apple.quarantine` automatically. If you copied the binary manually, run that command yourself. |
+| Windows: SmartScreen blocks `install.bat` | Unsigned script | Right-click → **Run as administrator** → click **More info** → **Run anyway**. Or run from an elevated CMD: `install.bat`. |
+| `Permission denied` on Linux/macOS | Script not run as root | Prefix with `sudo`: `sudo bash install.sh` or use the `| sudo bash` form of the one-liner. |
+| One-liner URL not generated | `TRITON_LICENSE_SERVER_PUBLIC_URL` not set | Set the env var to the license server's externally-reachable URL (e.g. `https://license.example.com`) and restart the license server. |
+| Install token expired | Token is 24 h single-use | Generate a new one from the admin UI and share the updated URL. |
 
 ---
 

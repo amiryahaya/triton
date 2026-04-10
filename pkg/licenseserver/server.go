@@ -102,6 +102,13 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/refresh", srv.handleRefresh)
 	})
 
+	// Install API (token-authed via HMAC token in URL path — no admin key).
+	r.Route("/api/v1/install/{token}", func(r chi.Router) {
+		r.Get("/", srv.handleInstallScript)
+		r.Get("/binary/{os}/{arch}", srv.handleInstallBinary)
+		r.Get("/agent-yaml", srv.handleInstallAgentYAML)
+	})
+
 	// Admin API (requires admin key — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(AdminKeyAuth(cfg.AdminKeys))
@@ -122,6 +129,11 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		// superadmin clicks one button and gets a ready-to-ship
 		// file with the license's Ed25519 token baked in).
 		r.Post("/licenses/{id}/agent-yaml", srv.handleDownloadAgentYAML)
+		// Install token: generates a short-lived HMAC token that
+		// the admin copies as a curl one-liner to the target host.
+		r.Post("/licenses/{id}/install-token", srv.handleGenerateInstallToken)
+		// Bundle download: binary + agent.yaml + install script in one archive.
+		r.Post("/licenses/{id}/bundle", srv.handleDownloadBundle)
 
 		// Activations
 		r.Get("/activations", srv.handleListActivations)

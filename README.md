@@ -437,6 +437,25 @@ triton license activate \
 triton license deactivate
 ```
 
+#### Agent installation — bundle and one-liner
+
+The license server admin UI (`/ui/#/licenses/<id>`) supports two zero-touch agent installation flows for distributing the binary + config to end-users:
+
+**Bundle download** — pick a platform (Linux amd64/arm64, macOS arm64, Windows amd64), click **Download bundle**, and receive a `.tar.gz` or `.zip` containing the binary, a pre-baked `agent.yaml`, and an install script. The install script handles directory creation, file permissions, and (on macOS) Gatekeeper quarantine removal automatically.
+
+- Linux/macOS install path: `/opt/triton/` (binary + agent.yaml + reports/)
+- Windows install path: `C:\Program Files\Triton\` (binary + agent.yaml + reports\)
+
+**One-liner install** — click **Copy install command** and share the command with your operator:
+
+```bash
+curl -sSL 'https://license.example.com/api/v1/install/<TOKEN>' | sudo bash
+```
+
+The token is valid for 24 hours. The install script auto-detects the host OS/arch, downloads the correct binary and agent.yaml, and installs everything to `/opt/triton/` with correct permissions. Set `TRITON_LICENSE_SERVER_PUBLIC_URL` on the license server to enable this flow.
+
+See [§7f of the Deployment Guide](docs/DEPLOYMENT_GUIDE.md#7f-fool-proof-agent-installation-bundle--one-liner) for full details, install paths, and troubleshooting (macOS Gatekeeper, Windows SmartScreen, permission errors).
+
 See the [License Server Guide](docs/LICENSE_SERVER_GUIDE.md) for full setup instructions.
 
 ### Verifying a Licence

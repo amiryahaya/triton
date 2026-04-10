@@ -86,21 +86,20 @@ func ComputeProjection(trend store.TrendSummary, targetPercent float64, deadline
 		monthsBetween = 1
 	}
 
-	pacePerMonth := (lastReadiness - first.Readiness) / float64(monthsBetween)
-	pacePerMonth = roundTo1Decimal(pacePerMonth)
-	out.PacePerMonth = pacePerMonth
+	rawPace := (lastReadiness - first.Readiness) / float64(monthsBetween)
+	out.PacePerMonth = roundTo1Decimal(rawPace) // display value only
 
 	// Regressing: any negative pace is worth flagging.
-	if pacePerMonth < 0 {
+	if rawPace < 0 {
 		out.Status = "regressing"
 		out.ExplanationText = fmt.Sprintf(
 			"Regressing — net readiness dropping %.1f%% per month over the last %d months.",
-			-pacePerMonth, monthsBetween)
+			-out.PacePerMonth, monthsBetween)
 		return out
 	}
 
 	// Flat: below the noise floor we can reliably measure.
-	if pacePerMonth < flatThresholdPercent {
+	if rawPace < flatThresholdPercent {
 		out.Status = "insufficient-movement"
 		out.ExplanationText = fmt.Sprintf(
 			"Insufficient movement — readiness flat over the last %d months.",
@@ -108,32 +107,34 @@ func ComputeProjection(trend store.TrendSummary, targetPercent float64, deadline
 		return out
 	}
 
-	// Compute projection.
+	// Compute projection using raw (unrounded) pace to avoid
+	// compounding rounding error into the projected year.
 	remaining := targetPercent - lastReadiness
-	monthsNeeded := remaining / pacePerMonth
+	monthsNeeded := remaining / rawPace
 	yearsNeeded := monthsNeeded / 12
 	currentYear := time.Now().UTC().Year()
-	projectedYear := currentYear + int(math.Ceil(yearsNeeded))
-	out.ProjectedYear = projectedYear
 
 	if yearsNeeded > float64(maxProjectionYears) {
 		out.Status = "capped"
 		out.ExplanationText = fmt.Sprintf(
 			"Capped — at current pace of %.1f%%/month, reaching %g%% would take over %d years.",
-			pacePerMonth, targetPercent, maxProjectionYears)
-		return out
+			out.PacePerMonth, targetPercent, maxProjectionYears)
+		return out // ProjectedYear stays 0 per documented contract
 	}
+
+	projectedYear := currentYear + int(math.Ceil(yearsNeeded))
+	out.ProjectedYear = projectedYear
 
 	if projectedYear <= deadlineYear {
 		out.Status = "on-track"
 		out.ExplanationText = fmt.Sprintf(
 			"On track — %.1f%%/month pace projects %g%% readiness by %d.",
-			pacePerMonth, targetPercent, projectedYear)
+			out.PacePerMonth, targetPercent, projectedYear)
 	} else {
 		out.Status = "behind-schedule"
 		out.ExplanationText = fmt.Sprintf(
 			"Behind schedule — %.1f%%/month pace projects %g%% readiness by %d, past the %d deadline.",
-			pacePerMonth, targetPercent, projectedYear, deadlineYear)
+			out.PacePerMonth, targetPercent, projectedYear, deadlineYear)
 	}
 	return out
 }

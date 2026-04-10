@@ -43,7 +43,7 @@
   // any analytics view while backfill is running, and auto-clears
   // once the header stops being set.
   const backfillState = { inProgress: false };
-  const ANALYTICS_PATHS = ['/inventory', '/certificates', '/priority'];
+  const ANALYTICS_PATHS = ['/inventory', '/certificates', '/priority', '/executive'];
 
   // API helper. Injects Authorization header from stored JWT, handles
   // 401 by clearing the token and showing the login screen.
@@ -607,10 +607,10 @@
         '<div class="exec-label">Readiness</div>' +
         '<div class="exec-value">' + r.percent.toFixed(1) + '%</div>' +
       '</div>' +
-      '<span class="exec-chip ' + trendChipCls + '">' + trendLabel + '</span>' +
+      '<span class="exec-chip ' + trendChipCls + '">' + escapeHtml(trendLabel) + '</span>' +
       policyChips +
-      '<div class="' + projectionCls + '" title="Target ' + p.targetPercent +
-      '% by ' + p.deadlineYear + ' (org settings)">' +
+      '<div class="' + projectionCls + '" title="Target ' + escapeHtml(String(p.targetPercent)) +
+      '% by ' + escapeHtml(String(p.deadlineYear)) + ' (org settings)">' +
         escapeHtml(p.explanationText) +
       '</div>' +
     '</div>';
@@ -622,7 +622,7 @@
   function renderStatCards(agg, machineHealth) {
     let machinesCard;
     if (machineHealth) {
-      machinesCard = '<div class="card info">' +
+      machinesCard = '<div class="card info" data-testid="machines-card">' +
         '<div class="value">' + escapeHtml(agg.machineCount) + '</div>' +
         '<div class="label">Machines' +
           '<div class="machine-tiers">' +
@@ -633,7 +633,7 @@
         '</div>' +
       '</div>';
     } else {
-      machinesCard = '<div class="card info">' +
+      machinesCard = '<div class="card info" data-testid="machines-card">' +
         '<div class="value">' + escapeHtml(agg.machineCount) + '</div>' +
         '<div class="label">Machines</div>' +
       '</div>';

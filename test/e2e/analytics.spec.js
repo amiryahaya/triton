@@ -186,7 +186,7 @@ test.describe('Overview — executive summary block (Phase 2)', () => {
   });
 
   test('upgraded Machines stat card includes tier badges', async ({ page }) => {
-    const machinesCard = page.locator('.card.info').first();
+    const machinesCard = page.locator('[data-testid="machines-card"]');
     await expect(machinesCard.locator('.machine-tiers')).toBeVisible();
     await expect(machinesCard.locator('.tier.tier-red')).toBeVisible();
     await expect(machinesCard.locator('.tier.tier-yellow')).toBeVisible();

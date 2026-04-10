@@ -277,7 +277,7 @@ func TestHandleExecutive_PopulatedReturnsFullSummary(t *testing.T) {
 	scan1 := testScanResult(testUUID(10), "host-1")
 	scan1.OrgID = org.ID
 	scan1.Metadata.Timestamp = time.Now().UTC().AddDate(0, -2, 0) // 2 months ago
-	scan1.Summary = model.Summary{Safe: 30, Transitional: 20, Deprecated: 30, Unsafe: 20}
+	scan1.Summary = model.Summary{TotalFindings: 100, Safe: 30, Transitional: 20, Deprecated: 30, Unsafe: 20}
 	scan1.Findings = []model.Finding{
 		cryptoFinding("key", "/a", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
 	}
@@ -286,7 +286,7 @@ func TestHandleExecutive_PopulatedReturnsFullSummary(t *testing.T) {
 	scan2 := testScanResult(testUUID(11), "host-1")
 	scan2.OrgID = org.ID
 	scan2.Metadata.Timestamp = time.Now().UTC()
-	scan2.Summary = model.Summary{Safe: 50, Transitional: 20, Deprecated: 20, Unsafe: 10}
+	scan2.Summary = model.Summary{TotalFindings: 100, Safe: 50, Transitional: 20, Deprecated: 20, Unsafe: 10}
 	scan2.Findings = []model.Finding{
 		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE", MigrationPriority: 0}),
 	}

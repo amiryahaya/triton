@@ -15,7 +15,7 @@ function makeScan(id, hostname, safe, trans, dep, unsafe, ageHours) {
   const findings = [];
   let idx = 0;
 
-  const add = (count, status, algo) => {
+  const add = (count, status, algo, priority) => {
     for (let i = 0; i < count; i++) {
       findings.push({
         id: `f-${id}-${idx}`,
@@ -26,6 +26,7 @@ function makeScan(id, hostname, safe, trans, dep, unsafe, ageHours) {
           pqcStatus: status,
           keySize: 256,
           function: 'encryption',
+          migrationPriority: priority || 0,
         },
         module: 'certificates',
         confidence: 0.95,
@@ -35,10 +36,10 @@ function makeScan(id, hostname, safe, trans, dep, unsafe, ageHours) {
     }
   };
 
-  add(safe, 'SAFE', 'ML-KEM-768');
-  add(trans, 'TRANSITIONAL', 'RSA-2048');
-  add(dep, 'DEPRECATED', 'SHA-1');
-  add(unsafe, 'UNSAFE', 'DES');
+  add(safe, 'SAFE', 'ML-KEM-768', 0);
+  add(trans, 'TRANSITIONAL', 'RSA-2048', 50);
+  add(dep, 'DEPRECATED', 'SHA-1', 75);
+  add(unsafe, 'UNSAFE', 'DES', 90);
 
   return {
     id,

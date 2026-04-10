@@ -1,32 +1,34 @@
 # =============================================================================
-#  Triton compose stack — dev-by-default, prod-capable via .env
+#  Triton compose stack — pull from ghcr.io, configure via .env
 # =============================================================================
 #
-# Every secret-shaped environment variable below is REQUIRED at compose-up
-# time. There are no committed fallbacks for signing keys, admin passwords,
-# or cross-server shared secrets — the `${VAR:?...}` form causes
-# `podman compose up` (or `docker compose up`) to abort with a clear error
-# if the variable is unset. This eliminates the "oops, I shipped with the
-# dev key" failure mode and keeps GitGuardian / secret scanners quiet.
+# ## Quick start
+#
+#     ./scripts/gen-dev-env.sh > .env
+#     podman compose --profile server --profile license-server up -d
+#
+# ## How it works
+#
+# Compose pulls pre-built images from ghcr.io by default (no local build
+# needed). Override TRITON_IMAGE / TRITON_LICENSE_SERVER_IMAGE in .env to
+# pin a version tag or use locally-built images for development.
+#
+# Every secret-shaped environment variable is REQUIRED at compose-up time.
+# The `${VAR:?...}` form causes compose to abort with a clear error if
+# the variable is unset — no dev-key fallbacks in production.
 #
 # ## First-time setup
 #
 # Generate a fresh `.env` file (gitignored) with ephemeral dev credentials:
 #
 #     ./scripts/gen-dev-env.sh > .env
-#     podman compose --profile server --profile license-server up -d
 #
-# Or, if you prefer to do it by hand, copy `.env.example` to `.env` and
-# fill in the values using the `openssl rand` recipes in the comments.
+# Or copy `.env.example` to `.env` and fill in the values manually.
 #
-# ## Production deployments
+# ## Production
 #
-# Use the same `.env` pattern but with keys from your secrets manager
-# (Vault, AWS SM, sops, etc.). Never commit `.env` — it's in `.gitignore`.
-#
-# Public keys (TRITON_PUBLIC_KEY_HEX, REPORT_SERVER_TENANT_PUBKEY) ARE
-# committed because they're not secrets — embedded in binaries at build
-# time via ldflags and used only for signature verification.
+# Use the same `.env` pattern but with keys from your secrets manager.
+# Never commit `.env` — it's in `.gitignore`.
 #
 # =============================================================================
 
@@ -50,11 +52,7 @@ services:
       retries: 5
 
   triton:
-    build:
-      context: .
-      dockerfile: Containerfile
-      args:
-        PUBLIC_KEY_HEX: "${TRITON_PUBLIC_KEY_HEX:-a158a5193e2443ddc7cc7c25745c407e47d6c68ff56d8baddf4e822ce43cff96}"
+    image: "${TRITON_IMAGE:-ghcr.io/amiryahaya/triton:latest}"
     container_name: triton-server
     profiles: [server]
     depends_on:
@@ -118,9 +116,7 @@ services:
     command: ["server", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable", "--listen", ":8080"]
 
   license-server:
-    build:
-      context: .
-      dockerfile: Containerfile.licenseserver
+    image: "${TRITON_LICENSE_SERVER_IMAGE:-ghcr.io/amiryahaya/triton-license-server:latest}"
     container_name: triton-license-server
     profiles: [license-server]
     depends_on:

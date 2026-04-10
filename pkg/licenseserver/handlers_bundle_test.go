@@ -110,7 +110,7 @@ func TestHandleDownloadBundle_WindowsZip(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	zr, err := zip.NewReader(bytes.NewReaderAt(body, int64(len(body))), int64(len(body)))
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	require.NoError(t, err)
 
 	files := make(map[string]string)

@@ -350,9 +350,15 @@
             '</div>' +
             '<div id="install-cmd-area" style="display:none;">' +
               '<p style="margin-bottom:0.25em;font-weight:600;">Linux/macOS:</p>' +
-              '<pre id="install-cmd-curl" style="background:#f5f5f5;padding:0.75em;overflow-x:auto;font-size:0.85em;"></pre>' +
+              '<div style="position:relative;">' +
+                '<pre id="install-cmd-curl" style="background:var(--bg-deep);padding:0.75em;padding-right:3em;overflow-x:auto;font-size:0.85em;color:var(--text-primary);border:1px solid var(--border-light);border-radius:6px;"></pre>' +
+                '<button id="copy-curl-btn" title="Copy" style="position:absolute;top:6px;right:6px;background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:4px;padding:4px 8px;cursor:pointer;color:var(--text-secondary);font-size:0.75em;">Copy</button>' +
+              '</div>' +
               '<p style="margin-bottom:0.25em;font-weight:600;">Windows (PowerShell as Admin):</p>' +
-              '<pre id="install-cmd-ps1" style="background:#f5f5f5;padding:0.75em;overflow-x:auto;font-size:0.85em;"></pre>' +
+              '<div style="position:relative;">' +
+                '<pre id="install-cmd-ps1" style="background:var(--bg-deep);padding:0.75em;padding-right:3em;overflow-x:auto;font-size:0.85em;color:var(--text-primary);border:1px solid var(--border-light);border-radius:6px;"></pre>' +
+                '<button id="copy-ps1-btn" title="Copy" style="position:absolute;top:6px;right:6px;background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:4px;padding:4px 8px;cursor:pointer;color:var(--text-secondary);font-size:0.75em;">Copy</button>' +
+              '</div>' +
               '<small class="text-muted">This link expires in 24 hours.</small>' +
             '</div>' +
           '</div>' +
@@ -493,6 +499,24 @@
             document.getElementById('install-cmd-curl').textContent = curlCmd;
             document.getElementById('install-cmd-ps1').textContent = ps1Cmd;
             document.getElementById('install-cmd-area').style.display = 'block';
+            // Wire copy buttons for each pre block.
+            function wireCopyBtn(btnId, preId) {
+              var b = document.getElementById(btnId);
+              if (b) {
+                b.addEventListener('click', function() {
+                  var t = document.getElementById(preId).textContent;
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(t).then(function() {
+                      b.textContent = 'Copied!';
+                      b.style.color = 'var(--success)';
+                      setTimeout(function() { b.textContent = 'Copy'; b.style.color = 'var(--text-secondary)'; }, 2000);
+                    });
+                  }
+                });
+              }
+            }
+            wireCopyBtn('copy-curl-btn', 'install-cmd-curl');
+            wireCopyBtn('copy-ps1-btn', 'install-cmd-ps1');
             // Copy the curl command to clipboard.
             if (navigator.clipboard && navigator.clipboard.writeText) {
               navigator.clipboard.writeText(curlCmd).then(function() {

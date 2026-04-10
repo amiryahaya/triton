@@ -24,8 +24,9 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
-// maxRequestBody is the maximum allowed request body size (10 MB).
-const maxRequestBody = 10 << 20
+// maxRequestBody is the maximum allowed request body size (100 MB).
+// Comprehensive scans can produce 30K+ findings — 10 MB is too small.
+const maxRequestBody = 100 << 20
 
 // maxListLimit is the maximum number of scans that can be requested in a single list call.
 const maxListLimit = 500

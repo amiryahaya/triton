@@ -232,4 +232,7 @@ var migrations = []string{
 		ADD COLUMN IF NOT EXISTS executive_target_percent NUMERIC(5,2) NOT NULL DEFAULT 80.0;
 	ALTER TABLE organizations
 		ADD COLUMN IF NOT EXISTS executive_deadline_year INTEGER NOT NULL DEFAULT 2030;`,
+
+	// key_size can exceed int4 max (e.g. 2^31 for large DH parameters).
+	`ALTER TABLE findings ALTER COLUMN key_size TYPE BIGINT;`,
 }

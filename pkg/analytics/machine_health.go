@@ -17,6 +17,7 @@ import (
 // is counted once). Pure function; no DB access. See
 // docs/plans/2026-04-10-analytics-phase-2-design.md §5.3 for the
 // rationale on "any unsafe = red" strictness.
+
 // ComputeReadiness sums safe and total findings across the latest
 // scan per host and returns a ReadinessSummary with the headline
 // percentage. Pure function; no DB access.

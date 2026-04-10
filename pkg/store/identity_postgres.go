@@ -72,7 +72,10 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 
 func (s *PostgresStore) UpdateOrg(ctx context.Context, org *Organization) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE organizations SET name = $2, executive_target_percent = $3, executive_deadline_year = $4, updated_at = $5 WHERE id = $1`,
+		`UPDATE organizations SET name = $2,
+			executive_target_percent = COALESCE(NULLIF($3::numeric, 0), executive_target_percent),
+			executive_deadline_year = COALESCE(NULLIF($4::integer, 0), executive_deadline_year),
+			updated_at = $5 WHERE id = $1`,
 		org.ID, org.Name, org.ExecutiveTargetPercent, org.ExecutiveDeadlineYear, time.Now().UTC(),
 	)
 	if err != nil {

@@ -144,3 +144,62 @@ func TestComputeOrgTrend_MonthlyPointsSortedChronologically(t *testing.T) {
 	assert.Equal(t, "2026-02", got.MonthlyPoints[1].Month)
 	assert.Equal(t, "2026-03", got.MonthlyPoints[2].Month)
 }
+
+func TestComputeOrgTrend_ExactlyAtThresholdIsStable(t *testing.T) {
+	// Delta of exactly +1.0% should be "stable" because the
+	// threshold is strict (delta > 1.0, not >=).
+	// 50 safe / 100 total = 50%, then 51 safe / 100 = 51%.
+	// Delta = 1.0% — at the threshold, not past it.
+	scans := []store.ScanSummary{
+		scanSummaryAt("host-1", mustParseMonth("2026-01-15"), 50, 20, 20, 10),
+		scanSummaryAt("host-1", mustParseMonth("2026-02-15"), 51, 19, 20, 10),
+	}
+	got := ComputeOrgTrend(scans)
+	assert.Equal(t, "stable", got.Direction, "delta of exactly 1.0 should be stable, not improving")
+	assert.Equal(t, 1.0, got.DeltaPercent)
+}
+
+// --- LatestByHostname tests ---
+
+func TestLatestByHostname_Nil(t *testing.T) {
+	got := LatestByHostname(nil)
+	assert.Nil(t, got)
+}
+
+func TestLatestByHostname_SingleHost(t *testing.T) {
+	scans := []store.ScanSummary{
+		scanSummaryAt("host-1", mustParseMonth("2026-01-15"), 50, 20, 20, 10),
+	}
+	got := LatestByHostname(scans)
+	require.Len(t, got, 1)
+	assert.Equal(t, "host-1", got[0].Hostname)
+}
+
+func TestLatestByHostname_KeepsLatestPerHost(t *testing.T) {
+	scans := []store.ScanSummary{
+		scanSummaryAt("host-1", mustParseMonth("2026-01-05"), 30, 30, 30, 10),
+		scanSummaryAt("host-1", mustParseMonth("2026-03-15"), 80, 10, 5, 5),
+		scanSummaryAt("host-1", mustParseMonth("2026-02-10"), 50, 20, 20, 10),
+	}
+	got := LatestByHostname(scans)
+	require.Len(t, got, 1)
+	assert.Equal(t, "2026-03-15", got[0].Timestamp.Format("2006-01-02"),
+		"should keep the latest scan by timestamp")
+	assert.Equal(t, 80, got[0].Safe)
+}
+
+func TestLatestByHostname_MultiHost(t *testing.T) {
+	scans := []store.ScanSummary{
+		scanSummaryAt("host-A", mustParseMonth("2026-01-15"), 40, 20, 20, 20),
+		scanSummaryAt("host-B", mustParseMonth("2026-02-15"), 60, 20, 15, 5),
+		scanSummaryAt("host-A", mustParseMonth("2026-03-15"), 70, 15, 10, 5),
+	}
+	got := LatestByHostname(scans)
+	require.Len(t, got, 2)
+	byHost := map[string]store.ScanSummary{}
+	for _, s := range got {
+		byHost[s.Hostname] = s
+	}
+	assert.Equal(t, 70, byHost["host-A"].Safe, "host-A should have the March scan")
+	assert.Equal(t, 60, byHost["host-B"].Safe, "host-B has only one scan")
+}

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/amiryahaya/triton/pkg/analytics"
+	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/policy"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -179,7 +179,7 @@ func (s *Server) handleExecutiveSummary(w http.ResponseWriter, r *http.Request) 
 	machineHealth := analytics.ComputeMachineHealth(latestPerHost)
 
 	// Compute readiness from the latest-per-host summaries.
-	readiness := computeReadiness(latestPerHost)
+	readiness := analytics.ComputeReadiness(latestPerHost)
 
 	// Top-5 blockers from Phase 1 store method.
 	topBlockers, err := s.store.ListTopPriorityFindings(r.Context(), orgID, 5)
@@ -212,27 +212,10 @@ func (s *Server) handleExecutiveSummary(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, out)
 }
 
-// computeReadiness sums safe and total findings across the latest
-// scan per host and returns the ReadinessSummary.
-func computeReadiness(latestPerHost []store.ScanSummary) store.ReadinessSummary {
-	var safe, total int
-	for _, s := range latestPerHost {
-		safe += s.Safe
-		total += s.Safe + s.Transitional + s.Deprecated + s.Unsafe
-	}
-	percent := 0.0
-	if total > 0 {
-		percent = math.Round(float64(safe)/float64(total)*1000) / 10 // 1 decimal
-	}
-	return store.ReadinessSummary{
-		Percent:       percent,
-		TotalFindings: total,
-		SafeFindings:  safe,
-	}
-}
-
 // computePolicyVerdicts evaluates both built-in policies against
 // each latest scan in the org and aggregates the results.
+// Scans are fetched once and reused across all policies to avoid
+// N×M DB round-trips (/pensive:full-review B-D2).
 // Verdict aggregation: worst wins (FAIL > WARN > PASS). Counts sum.
 func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latestPerHost []store.ScanSummary) ([]store.PolicyVerdictSummary, error) {
 	type policyDef struct {
@@ -242,6 +225,28 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 	builtins := []policyDef{
 		{name: "nacsa-2030", label: "NACSA-2030"},
 		{name: "cnsa-2.0", label: "CNSA-2.0"},
+	}
+
+	if len(latestPerHost) == 0 {
+		out := make([]store.PolicyVerdictSummary, 0, len(builtins))
+		for _, def := range builtins {
+			out = append(out, store.PolicyVerdictSummary{
+				PolicyName:  def.name,
+				PolicyLabel: def.label,
+				Verdict:     "PASS",
+			})
+		}
+		return out, nil
+	}
+
+	// Fetch all scan results ONCE, reuse across all policies.
+	scanResults := make(map[string]*model.ScanResult, len(latestPerHost))
+	for _, summary := range latestPerHost {
+		scan, err := s.store.GetScan(ctx, summary.ID, orgID)
+		if err != nil {
+			return nil, fmt.Errorf("get scan %s: %w", summary.ID, err)
+		}
+		scanResults[summary.ID] = scan
 	}
 
 	out := make([]store.PolicyVerdictSummary, 0, len(builtins))
@@ -254,12 +259,7 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 		verdict := "PASS"
 		var totalViolations, totalFindings int
 		for _, summary := range latestPerHost {
-			// Fetch the full scan with findings for policy evaluation.
-			scan, err := s.store.GetScan(ctx, summary.ID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("get scan %s: %w", summary.ID, err)
-			}
-			result := policy.Evaluate(pol, scan)
+			result := policy.Evaluate(pol, scanResults[summary.ID])
 			totalViolations += len(result.Violations)
 			totalFindings += result.FindingsChecked
 			verdict = worstVerdict(verdict, string(result.Verdict))
@@ -277,11 +277,16 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 }
 
 // worstVerdict returns the more severe of two policy verdicts.
-// Severity order: FAIL > WARN > PASS. Used to aggregate per-scan
-// verdicts into a single org-wide verdict.
+// Severity order: FAIL > WARN > PASS. Unknown strings fail-safe
+// to FAIL (/pensive:full-review B-D4).
 func worstVerdict(a, b string) string {
 	rank := map[string]int{"PASS": 0, "WARN": 1, "FAIL": 2}
-	if rank[b] > rank[a] {
+	ra, aok := rank[a]
+	rb, bok := rank[b]
+	if !aok || !bok {
+		return "FAIL"
+	}
+	if rb > ra {
 		return b
 	}
 	return a

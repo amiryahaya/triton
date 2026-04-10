@@ -346,9 +346,13 @@ LIMIT $2
 	return out, rows.Err()
 }
 
-// ListScansOrderedByTime returns all scan summaries for the given
-// org, sorted by timestamp ASCENDING. See the interface doc comment
-// in store.go for rationale. Analytics Phase 2.
+// ListScansOrderedByTime returns ALL scan summaries for the given
+// org, sorted by timestamp ASCENDING. Full history is intentional:
+// the projection math in pkg/analytics uses first-to-last pace over
+// the entire org lifetime. If a time window is needed in the future,
+// add an optional parameter rather than changing this method.
+// See the interface doc comment in store.go for rationale.
+// Analytics Phase 2.
 func (s *PostgresStore) ListScansOrderedByTime(ctx context.Context, orgID string) ([]ScanSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, hostname, timestamp, profile,

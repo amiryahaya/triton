@@ -83,7 +83,7 @@ func TestComputeProjection_NegativePaceRegressing(t *testing.T) {
 }
 
 func TestComputeProjection_BelowFlatThresholdInsufficientMovement(t *testing.T) {
-	// +0.1% over 4 months = 0.025%/mo — below 0.1 flat floor.
+	// +0.1% over 4 months = 0.025%/mo raw — below 0.1 flat floor.
 	trend := tpa(
 		store.TrendMonthPoint{Month: "2026-01", Readiness: 50.0, TotalFindings: 100},
 		store.TrendMonthPoint{Month: "2026-05", Readiness: 50.1, TotalFindings: 100},
@@ -122,13 +122,25 @@ func TestComputeProjection_PositivePaceBehindSchedule(t *testing.T) {
 }
 
 func TestComputeProjection_SanityCapOver70Years(t *testing.T) {
-	// target=100, start 0.9%, +0.11%/mo → 99/0.11 = 900 months = 75 years → CAPPED
+	// target=100, start 1.0%, +0.2%/mo raw over 10 months (1.0→3.0)
+	// remaining 97% / 0.2 = 485 months = ~40 years — wait, that's
+	// within cap. Use a slower pace:
+	// start 1.0%, end 2.5% over 10 months = 0.15%/mo raw
+	// remaining 97.5% / 0.15 = 650 months = ~54 years — still under.
+	// Use target=100, start 0.5%, end 1.5% over 10 months = 0.1%/mo raw
+	// remaining 98.5% / 0.1 = 985 months = ~82 years → CAPPED
+	// (raw pace 0.1 is at the floor boundary but we use raw, not rounded)
+	// Use clearly-above-threshold: start 1.0 → 3.0 over 10mo = 0.2%/mo
+	// target 100, remaining 97 / 0.2 = 485mo = 40y — under cap.
+	// Need remaining / pace > 70*12=840mo. With pace 0.11: 97/0.11=882mo=73.5y → CAPPED
+	// start 1.0 → 2.1 over 10 months = 0.11%/mo raw
 	trend := tpa(
-		store.TrendMonthPoint{Month: "2026-01", Readiness: 0.9, TotalFindings: 1000},
-		store.TrendMonthPoint{Month: "2026-11", Readiness: 2.0, TotalFindings: 1000},
+		store.TrendMonthPoint{Month: "2026-01", Readiness: 1.0, TotalFindings: 1000},
+		store.TrendMonthPoint{Month: "2026-11", Readiness: 2.1, TotalFindings: 1000},
 	)
 	got := ComputeProjection(trend, 100.0, 2030)
 	assert.Equal(t, "capped", got.Status)
+	assert.Equal(t, 0, got.ProjectedYear, "capped status should have ProjectedYear = 0")
 	assert.Contains(t, got.ExplanationText, "70 years")
 }
 

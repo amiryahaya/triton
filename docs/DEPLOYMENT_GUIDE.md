@@ -776,9 +776,22 @@ Large scan submissions (>10MB findings sections) may need adjusted timeouts — 
 
 Both servers apply `middleware.Throttle(100)` — up to 100 concurrent requests. Heavier load should stagger agent scan intervals or horizontally scale (noting the rate-limiter split-brain trade-off in ADR 0001).
 
-## 13. Analytics Dashboard (Phase 1)
+## 13. Analytics Dashboard
 
-The report server's web UI includes three analytical views under a new "Analytics" sidebar section, shipped as Analytics Phase 1:
+Triton ships two analytics phases that are **fully standalone** — they provide production-ready dashboard views with no dependency on future phases. No additional features need to be enabled or configured beyond what is described in §13 and §14.
+
+### Phase overview
+
+| Phase | What it adds | Status |
+|-------|-------------|--------|
+| **Phase 1** | Crypto Inventory, Expiring Certificates, Migration Priority views + `findings` read-model table | Shipped |
+| **Phase 2** | Executive Summary on Overview — readiness, trend, projection, dual policy verdicts, machine health tiers, top-5 blockers | Shipped |
+
+Both phases degrade gracefully: a fresh org with no scans sees empty/zero-value states, not errors. The dashboard is usable from day one and becomes richer as scan data accumulates.
+
+### 13.1 Analytics Views (Phase 1)
+
+The report server's web UI includes three analytical views under a new "Analytics" sidebar section:
 
 - **Crypto Inventory** (`#/inventory`) — aggregated by `(algorithm, key_size)` across the org, filtered to the latest scan per host. Answers "what crypto is currently deployed?"
 - **Expiring Certificates** (`#/certificates`) — certs sorted by soonest expiry, with 30/90/180-day filter chips. Default window is 90 days. Already-expired certs are always included regardless of the filter.
@@ -786,7 +799,7 @@ The report server's web UI includes three analytical views under a new "Analytic
 
 All three views read from a new denormalized `findings` table (schema v7) that is populated on every scan submit transactionally alongside the scan row. For historical data, a first-boot background goroutine walks `scans.result_json`, extracts crypto findings, and marks each scan via the new `findings_extracted_at` column. The goroutine runs once per process start, is bounded to 30 minutes, and is idempotent across restarts — dropping the findings table and clearing `findings_extracted_at` triggers a fresh extraction without data loss.
 
-### 13a. Backfill observability
+### 13.1a. Backfill observability
 
 Three Prometheus metrics expose backfill progress via `/api/v1/metrics`:
 
@@ -796,7 +809,7 @@ Three Prometheus metrics expose backfill progress via `/api/v1/metrics`:
 
 While backfill is in progress, the three analytics API responses include an `X-Backfill-In-Progress: true` header and the UI shows an inline cyan banner on the affected views. The banner auto-clears when the header stops being sent.
 
-### 13b. Recovery runbook
+### 13.1b. Recovery runbook
 
 The `findings` table is a **read-model** over `scans.result_json`. Dropping or truncating it loses nothing permanent — it can always be rebuilt from the scan blobs.
 
@@ -818,11 +831,11 @@ ALTER TABLE scans DROP COLUMN findings_extracted_at;
 
 Redeploy with a schema v6 binary. The report server will work without analytics views until v7 is re-applied.
 
-### 13c. Single-tenant mode note
+### 13.1c. Single-tenant mode note
 
 In deployments with no Guard and no JWT (the default local dev mode), `TenantFromContext` returns the empty string. The analytics views won't show any data in this mode because the `findings` table's `org_id` column is `UUID NOT NULL` and requires a real tenant. Scans still persist correctly — the write path short-circuits findings insertion for single-tenant scans. Analytics are a feature of multi-tenant deployments.
 
-## 14. Executive Summary (Phase 2)
+### 13.2 Executive Summary (Phase 2)
 
 Phase 2 extends the Overview dashboard (`#/`) with an executive summary block designed for a CISO audience. The block shows:
 
@@ -833,7 +846,7 @@ Phase 2 extends the Overview dashboard (`#/`) with an executive summary block de
 - **Top 5 blockers** — reused from Phase 1's `/api/v1/priority` endpoint
 - **Machine health tiers** — red/yellow/green rollup on the upgraded Machines stat card
 
-### 14a. Per-org configuration
+### 13.2a. Per-org configuration
 
 The projection math uses two display preferences that live on each organization row:
 
@@ -855,10 +868,10 @@ WHERE name = 'US Defense Contractor';
 
 After the UPDATE, the next `/api/v1/executive` request from that org sees the new values. No server restart needed.
 
-### 14b. What's hard-coded
+### 13.2b. What's hard-coded
 
 The three other tunables — flat-pace threshold (0.1%/month), regressing severity (red), and the 70-year projection cap — are hard-coded in `pkg/analytics/projection.go`. These are math plumbing, not user preferences; no deployment should need to tune them.
 
-### 14c. What happens on a fresh org
+### 13.2c. What happens on a fresh org
 
 An org with zero scans gets an "insufficient-history" projection status, empty top-blockers list, and zero-value machine health tiers. The dashboard still renders; chips show grey "insufficient" states. Once at least two scans across two calendar months exist, the trend and projection become computable.

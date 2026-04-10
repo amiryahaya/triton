@@ -21,9 +21,9 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 		org.UpdatedAt = now
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO organizations (id, name, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4)`,
-		org.ID, org.Name, org.CreatedAt, org.UpdatedAt,
+		`INSERT INTO organizations (id, name, executive_target_percent, executive_deadline_year, created_at, updated_at)
+		 VALUES ($1, $2, COALESCE(NULLIF($3::numeric, 0), 80.0), COALESCE(NULLIF($4::integer, 0), 2030), $5, $6)`,
+		org.ID, org.Name, org.ExecutiveTargetPercent, org.ExecutiveDeadlineYear, org.CreatedAt, org.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -72,8 +72,8 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 
 func (s *PostgresStore) UpdateOrg(ctx context.Context, org *Organization) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE organizations SET name = $2, updated_at = $3 WHERE id = $1`,
-		org.ID, org.Name, time.Now().UTC(),
+		`UPDATE organizations SET name = $2, executive_target_percent = $3, executive_deadline_year = $4, updated_at = $5 WHERE id = $1`,
+		org.ID, org.Name, org.ExecutiveTargetPercent, org.ExecutiveDeadlineYear, time.Now().UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("updating organization: %w", err)

@@ -1,0 +1,85 @@
+package licenseserver
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// installTokenClaims is the payload embedded in an install token.
+type installTokenClaims struct {
+	LicenseID string `json:"lid"`
+	ExpiresAt int64  `json:"exp"`
+}
+
+// GenerateInstallToken creates an HMAC-signed install token.
+// hmacSecret should be the Ed25519 signing key's 32-byte seed.
+// Returns error if licenseID is empty.
+func GenerateInstallToken(hmacSecret []byte, licenseID string, ttl time.Duration) (string, error) {
+	if licenseID == "" {
+		return "", errors.New("licenseID must not be empty")
+	}
+
+	claims := installTokenClaims{
+		LicenseID: licenseID,
+		ExpiresAt: time.Now().Add(ttl).Unix(),
+	}
+
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", fmt.Errorf("marshal claims: %w", err)
+	}
+
+	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
+	sig := hmacSign(hmacSecret, []byte(encodedPayload))
+	encodedSig := base64.RawURLEncoding.EncodeToString(sig)
+
+	return encodedPayload + "." + encodedSig, nil
+}
+
+// ValidateInstallToken verifies HMAC signature and checks expiry.
+// Returns decoded claims on success, error on invalid/expired/tampered.
+func ValidateInstallToken(hmacSecret []byte, token string) (*installTokenClaims, error) {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("invalid token format")
+	}
+
+	encodedPayload := parts[0]
+	encodedSig := parts[1]
+
+	expectedSig := hmacSign(hmacSecret, []byte(encodedPayload))
+	expectedEncodedSig := base64.RawURLEncoding.EncodeToString(expectedSig)
+
+	if !hmac.Equal([]byte(encodedSig), []byte(expectedEncodedSig)) {
+		return nil, errors.New("invalid token signature")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(encodedPayload)
+	if err != nil {
+		return nil, errors.New("invalid token encoding")
+	}
+
+	var claims installTokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, errors.New("invalid token payload")
+	}
+
+	if time.Now().Unix() > claims.ExpiresAt {
+		return nil, errors.New("token expired")
+	}
+
+	return &claims, nil
+}
+
+// hmacSign is a private helper that HMAC-SHA256 signs a message.
+func hmacSign(secret, message []byte) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(message)
+	return mac.Sum(nil)
+}

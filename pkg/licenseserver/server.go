@@ -132,6 +132,8 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		// Install token: generates a short-lived HMAC token that
 		// the admin copies as a curl one-liner to the target host.
 		r.Post("/licenses/{id}/install-token", srv.handleGenerateInstallToken)
+		// Bundle download: binary + agent.yaml + install script in one archive.
+		r.Post("/licenses/{id}/bundle", srv.handleDownloadBundle)
 
 		// Activations
 		r.Get("/activations", srv.handleListActivations)

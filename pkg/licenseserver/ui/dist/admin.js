@@ -488,8 +488,8 @@
               return;
             }
             var result = await resp.json();
-            var curlCmd = result.curl || '';
-            var ps1Cmd = result.ps1 || '';
+            var curlCmd = result.curl_command || '';
+            var ps1Cmd = result.ps1_command || '';
             document.getElementById('install-cmd-curl').textContent = curlCmd;
             document.getElementById('install-cmd-ps1').textContent = ps1Cmd;
             document.getElementById('install-cmd-area').style.display = 'block';

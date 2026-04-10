@@ -3,7 +3,6 @@ package licenseserver
 import (
 	"archive/tar"
 	"archive/zip"
-	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -107,7 +107,13 @@ func (s *Server) handleDownloadBundle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeFilename := filepath.Base(match.Filename)
-	binaryPath := filepath.Join(s.config.BinariesDir, match.Version, req.OS+"-"+req.Arch, safeFilename)
+	binaryPath := filepath.Clean(filepath.Join(s.config.BinariesDir, match.Version, req.OS+"-"+req.Arch, safeFilename))
+
+	// Defense-in-depth: assert resolved path is within BinariesDir.
+	if !strings.HasPrefix(binaryPath, filepath.Clean(s.config.BinariesDir)+string(os.PathSeparator)) {
+		writeError(w, http.StatusBadRequest, "invalid binary path")
+		return
+	}
 
 	// Generate agent.yaml.
 	tok, err := s.signToken(lic, "")
@@ -165,10 +171,18 @@ func (s *Server) handleDownloadBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveTarGzBundle streams a tar.gz archive containing the binary, agent.yaml, and install script.
+// The binary is streamed from disk (not buffered in memory) to keep per-request memory bounded.
 func (s *Server) serveTarGzBundle(w http.ResponseWriter, archiveName, binaryPath, binName, yamlBody, installScript, installFilename string) {
-	binData, err := os.ReadFile(binaryPath)
+	binFile, err := os.Open(binaryPath)
 	if err != nil {
-		log.Printf("bundle: read binary error: %v", err)
+		log.Printf("bundle: open binary error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	defer binFile.Close()
+	binStat, err := binFile.Stat()
+	if err != nil {
+		log.Printf("bundle: stat binary error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -181,28 +195,29 @@ func (s *Server) serveTarGzBundle(w http.ResponseWriter, archiveName, binaryPath
 	gw := gzip.NewWriter(w)
 	tw := tar.NewWriter(gw)
 
-	entries := []struct {
+	// Stream the binary from disk.
+	if err := tw.WriteHeader(&tar.Header{Name: binName, Size: binStat.Size(), Mode: 0755}); err != nil {
+		log.Printf("bundle: tar write header error: %v", err)
+		return
+	}
+	if _, err := io.Copy(tw, binFile); err != nil {
+		log.Printf("bundle: tar stream binary error: %v", err)
+		return
+	}
+
+	// Write the small text entries (agent.yaml + install script) directly.
+	for _, e := range []struct {
 		Name string
 		Data []byte
 		Mode int64
 	}{
-		{Name: binName, Data: binData, Mode: 0755},
 		{Name: "agent.yaml", Data: []byte(yamlBody), Mode: 0600},
 		{Name: installFilename, Data: []byte(installScript), Mode: 0755},
-	}
-
-	for _, e := range entries {
-		hdr := &tar.Header{
-			Name: e.Name,
-			Size: int64(len(e.Data)),
-			Mode: e.Mode,
-		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			log.Printf("bundle: tar write header error: %v", err)
+	} {
+		if err := tw.WriteHeader(&tar.Header{Name: e.Name, Size: int64(len(e.Data)), Mode: e.Mode}); err != nil {
 			return
 		}
 		if _, err := tw.Write(e.Data); err != nil {
-			log.Printf("bundle: tar write data error: %v", err)
 			return
 		}
 	}
@@ -211,14 +226,15 @@ func (s *Server) serveTarGzBundle(w http.ResponseWriter, archiveName, binaryPath
 	_ = gw.Close()
 }
 
-// serveZipBundle streams a zip archive containing the binary, agent.yaml, and install script.
+// serveZipBundle streams a zip archive. Binary is streamed from disk.
 func (s *Server) serveZipBundle(w http.ResponseWriter, archiveName, binaryPath, binName, yamlBody, installScript, installFilename string) {
-	binData, err := os.ReadFile(binaryPath)
+	binFile, err := os.Open(binaryPath)
 	if err != nil {
-		log.Printf("bundle: read binary error: %v", err)
+		log.Printf("bundle: open binary error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	defer binFile.Close()
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", archiveName+".zip"))
@@ -227,23 +243,28 @@ func (s *Server) serveZipBundle(w http.ResponseWriter, archiveName, binaryPath, 
 
 	zw := zip.NewWriter(w)
 
-	entries := []struct {
+	// Stream binary from disk.
+	bw, err := zw.Create(binName)
+	if err != nil {
+		return
+	}
+	if _, err := io.Copy(bw, binFile); err != nil {
+		return
+	}
+
+	// Write small text entries.
+	for _, e := range []struct {
 		Name string
 		Data []byte
 	}{
-		{Name: binName, Data: binData},
 		{Name: "agent.yaml", Data: []byte(yamlBody)},
 		{Name: installFilename, Data: []byte(installScript)},
-	}
-
-	for _, e := range entries {
+	} {
 		fw, err := zw.Create(e.Name)
 		if err != nil {
-			log.Printf("bundle: zip create entry error: %v", err)
 			return
 		}
-		if _, err := io.Copy(fw, bytes.NewReader(e.Data)); err != nil {
-			log.Printf("bundle: zip write data error: %v", err)
+		if _, err := fw.Write(e.Data); err != nil {
 			return
 		}
 	}

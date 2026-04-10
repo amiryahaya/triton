@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
@@ -75,6 +77,13 @@ type installScriptData struct {
 	ScriptURL string
 }
 
+// Pre-parsed install script templates. Parsed once at package init
+// since the template source is a compile-time constant.
+var (
+	installShTmpl  = template.Must(template.New("sh").Parse(onelinerInstallSh))
+	installPs1Tmpl = template.Must(template.New("ps1").Parse(onelinerInstallPs1))
+)
+
 // GET /api/v1/install/{token}
 //
 // Serves the one-liner install script. The token in the URL path
@@ -95,18 +104,9 @@ func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shell := r.URL.Query().Get("shell")
-	var tmplSrc string
+	tmpl := installShTmpl
 	if shell == "ps1" {
-		tmplSrc = onelinerInstallPs1
-	} else {
-		tmplSrc = onelinerInstallSh
-	}
-
-	tmpl, err := template.New("install").Parse(tmplSrc)
-	if err != nil {
-		log.Printf("install-script: template parse error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
+		tmpl = installPs1Tmpl
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -159,7 +159,21 @@ func (s *Server) handleInstallBinary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeFilename := filepath.Base(match.Filename)
-	binaryPath := filepath.Join(s.config.BinariesDir, match.Version, reqOS+"-"+reqArch, safeFilename)
+	binaryPath := filepath.Clean(filepath.Join(s.config.BinariesDir, match.Version, reqOS+"-"+reqArch, safeFilename))
+
+	// Defense-in-depth: ensure the resolved path is within BinariesDir
+	// even if meta.json version field was corrupted on disk.
+	if !strings.HasPrefix(binaryPath, filepath.Clean(s.config.BinariesDir)+string(os.PathSeparator)) {
+		writeError(w, http.StatusBadRequest, "invalid binary path")
+		return
+	}
+
+	// Integrity check: verify on-disk size matches metadata.
+	fi, err := os.Stat(binaryPath)
+	if err != nil || fi.Size() != match.Size {
+		writeError(w, http.StatusInternalServerError, "binary integrity check failed")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", safeFilename))

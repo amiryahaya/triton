@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 // installTokenClaims is the payload embedded in an install token.
@@ -17,8 +20,21 @@ type installTokenClaims struct {
 	ExpiresAt int64  `json:"exp"`
 }
 
+// deriveInstallHMACKey derives a dedicated HMAC key from the Ed25519
+// signing key seed using HKDF with a domain-separated label. This
+// ensures the HMAC key material is cryptographically independent from
+// the Ed25519 signing key, avoiding key confusion between schemes
+// (NIST SP 800-133, RFC 8032 guidance).
+func deriveInstallHMACKey(seed []byte) []byte {
+	r := hkdf.New(sha256.New, seed, nil, []byte("triton-install-token-v1"))
+	key := make([]byte, 32)
+	_, _ = io.ReadFull(r, key)
+	return key
+}
+
 // GenerateInstallToken creates an HMAC-signed install token.
-// hmacSecret should be the Ed25519 signing key's 32-byte seed.
+// hmacSecret should be the Ed25519 signing key's 32-byte seed;
+// a dedicated HMAC key is derived via HKDF before signing.
 // Returns error if licenseID is empty.
 func GenerateInstallToken(hmacSecret []byte, licenseID string, ttl time.Duration) (string, error) {
 	if licenseID == "" {
@@ -35,8 +51,9 @@ func GenerateInstallToken(hmacSecret []byte, licenseID string, ttl time.Duration
 		return "", fmt.Errorf("marshal claims: %w", err)
 	}
 
+	derivedKey := deriveInstallHMACKey(hmacSecret)
 	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
-	sig := hmacSign(hmacSecret, []byte(encodedPayload))
+	sig := hmacSign(derivedKey, []byte(encodedPayload))
 	encodedSig := base64.RawURLEncoding.EncodeToString(sig)
 
 	return encodedPayload + "." + encodedSig, nil
@@ -53,7 +70,8 @@ func ValidateInstallToken(hmacSecret []byte, token string) (*installTokenClaims,
 	encodedPayload := parts[0]
 	encodedSig := parts[1]
 
-	expectedSig := hmacSign(hmacSecret, []byte(encodedPayload))
+	derivedKey := deriveInstallHMACKey(hmacSecret)
+	expectedSig := hmacSign(derivedKey, []byte(encodedPayload))
 	expectedEncodedSig := base64.RawURLEncoding.EncodeToString(expectedSig)
 
 	if !hmac.Equal([]byte(encodedSig), []byte(expectedEncodedSig)) {

@@ -87,26 +87,73 @@ Triton in multi-tenant mode runs **three** cooperating services plus PostgreSQL.
 | Go | 1.25+ | Only if building from source |
 | Resend API key | _(optional)_ | For invite emails; fall back to manual credential delivery |
 
-### Install Podman
+### Install on Ubuntu Server (22.04 / 24.04)
 
-**macOS:**
+This is the reference deployment target. All examples below use Ubuntu, but Fedora/RHEL and macOS work with minor package-manager differences.
+
+```bash
+# 1. Update system
+sudo apt update && sudo apt upgrade -y
+
+# 2. Install Podman + compose
+sudo apt install -y podman
+pip3 install podman-compose   # or: sudo apt install podman-compose
+
+# 3. (Optional) Install Docker instead — all podman commands below work
+#    identically with docker. Replace "podman" with "docker" throughout.
+# curl -fsSL https://get.docker.com | sudo sh
+
+# 4. Verify
+podman --version
+podman compose version
+```
+
+**Firewall (ufw):**
+```bash
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP (reverse proxy)
+sudo ufw allow 443/tcp   # HTTPS (reverse proxy)
+# Do NOT expose 5435 (PostgreSQL), 8080, or 8081 directly — use a reverse proxy.
+sudo ufw enable
+```
+
+**Reverse proxy (Caddy — recommended for auto-TLS):**
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+```
+
+Create `/etc/caddy/Caddyfile`:
+```
+reports.example.com {
+    reverse_proxy localhost:8080
+}
+
+license.example.com {
+    reverse_proxy localhost:8081
+}
+```
+
+```bash
+sudo systemctl enable --now caddy
+```
+
+Caddy automatically obtains and renews Let's Encrypt TLS certificates for both domains. No manual cert management needed.
+
+### Install on other platforms
+
+**macOS (dev):**
 ```bash
 brew install podman
-podman machine init
-podman machine start
+podman machine init && podman machine start
 ```
 
-**Linux:**
+**Fedora/RHEL:**
 ```bash
-# Fedora/RHEL
 sudo dnf install podman podman-compose
-
-# Ubuntu/Debian
-sudo apt install podman
-pip3 install podman-compose
 ```
-
-All `podman` commands work identically with `docker` — replace `podman` with `docker` and `podman compose` with `docker compose`.
 
 ---
 
@@ -151,6 +198,106 @@ The multi-tenant stack is two independent binaries sharing a PostgreSQL instance
 3. Report server (creates its own schema on first connect)
 4. Agents (activate against the license server, submit to the report server)
 
+### Ubuntu Server Deployment (step-by-step)
+
+This is the recommended production deployment on a fresh Ubuntu 22.04/24.04 server with Caddy reverse proxy and Let's Encrypt TLS.
+
+**Assumptions:** you have a server with two DNS records pointing at it (`reports.example.com` and `license.example.com`), SSH access, and ports 80/443 open.
+
+```bash
+# 1. Install prerequisites (see §2 for details)
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y podman git
+pip3 install podman-compose
+
+# 2. Clone the repo
+cd /opt
+sudo git clone https://github.com/amiryahaya/triton.git
+cd triton
+
+# 3. Generate .env with fresh credentials
+sudo ./scripts/gen-dev-env.sh > .env
+sudo chmod 600 .env
+
+# 4. Edit .env — fill in production values:
+#    - TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL=https://reports.example.com
+#    - TRITON_LICENSE_SERVER_PUBLIC_URL=https://license.example.com
+#    - REPORT_SERVER_INVITE_URL=https://reports.example.com/ui/#/login
+#    - REPORT_SERVER_INVITE_URL_BASE=https://reports.example.com/ui/#/login
+#    - RESEND_API_KEY=re_... (if using email delivery)
+#    - RESEND_FROM_EMAIL=noreply@example.com
+#    - REPORT_SERVER_RESEND_API_KEY=re_... (same key)
+#    - REPORT_SERVER_RESEND_FROM_EMAIL=noreply@example.com
+#    - REPORT_SERVER_DATA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+sudo nano .env
+
+# 5. Pull container images (or build locally)
+podman pull ghcr.io/amiryahaya/triton:latest
+podman pull ghcr.io/amiryahaya/triton-license-server:latest
+
+# 6. Start the full stack
+podman compose --profile server --profile license-server up -d
+
+# 7. Verify
+curl -s http://localhost:8080/api/v1/health   # report server
+curl -s http://localhost:8081/api/v1/health   # license server
+
+# 8. Install Caddy reverse proxy (auto-TLS)
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+
+# 9. Configure Caddy
+sudo tee /etc/caddy/Caddyfile > /dev/null <<'CADDY'
+reports.example.com {
+    reverse_proxy localhost:8080
+}
+
+license.example.com {
+    reverse_proxy localhost:8081
+}
+CADDY
+sudo systemctl restart caddy
+
+# 10. Verify HTTPS
+curl -s https://reports.example.com/api/v1/health
+curl -s https://license.example.com/api/v1/health
+```
+
+**First-time setup after deployment:**
+
+1. Open `https://license.example.com/ui/` — enter the admin key from `.env` (`TRITON_LICENSE_SERVER_ADMIN_KEY`)
+2. Create your first organization
+3. Create a license (enterprise tier, desired seat count, 365 days)
+4. Click **Download bundle** (pick the target platform) or **Copy install command**
+5. Ship the bundle/command to the operator — they run `sudo bash install.sh` and the agent is live
+
+**Systemd auto-start (optional):**
+
+Create `/etc/systemd/system/triton-stack.service`:
+```ini
+[Unit]
+Description=Triton Report + License Server Stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/triton
+ExecStart=/usr/bin/podman compose --profile server --profile license-server up -d
+ExecStop=/usr/bin/podman compose --profile server --profile license-server down
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now triton-stack
+```
+
 **Compose profile for full stack:**
 
 ```bash
@@ -189,24 +336,39 @@ Multi-stage build `golang:1.25` → `scratch`, ~10MB, static binary, includes CA
 
 ### 5b. Configuration
 
-All report-server options can be set via flags, environment variables, or config file. Flags take precedence.
+The report server reads a mix of CLI flags and environment variables. **CLI flags take precedence** over env vars for the settings that support both.
 
-| Flag | Env var | Default | Description |
-|------|---------|---------|-------------|
-| `--listen` | `TRITON_LISTEN` | `:8080` | Bind address |
-| `--db` | `TRITON_DB_URL` | `postgres://triton:triton@localhost:5435/triton?sslmode=disable` | PostgreSQL connection URL |
-| `--tls-cert` / `--tls-key` | `TRITON_TLS_CERT` / `TRITON_TLS_KEY` | _(none)_ | TLS material |
-| `--license-key` | `TRITON_LICENSE_KEY` | _(none)_ | Enterprise license token |
-| _(not a flag)_ | `REPORT_SERVER_DATA_ENCRYPTION_KEY` | _(none)_ | 64-hex-char AES-256 key for at-rest encryption of scan payloads; if set, malformed values fail startup |
-| _(not a flag)_ | `REPORT_SERVER_RESEND_API_KEY` | _(none)_ | Resend API key for the invite mailer; when set alongside the `FROM_EMAIL` var, `handleResendInvite` pushes temp passwords via email |
-| _(not a flag)_ | `REPORT_SERVER_RESEND_FROM_EMAIL` | _(none)_ | From address for invite emails sent by the report server |
-| _(not a flag)_ | `REPORT_SERVER_RESEND_FROM_NAME` | _(none)_ | From name for invite emails (optional) |
-| _(not a flag)_ | `REPORT_SERVER_INVITE_URL` | _(none)_ | URL embedded in resent invite emails (typically the report server login page) |
-| _(programmatic)_ | _(none)_ | _(none)_ | `Config.ServiceKey` — shared secret for cross-server provisioning; when empty the `/api/v1/admin/*` route group is NOT registered |
-| _(programmatic)_ | _(none)_ | _(none)_ | `Config.JWTSigningKey` — Ed25519 private key used to sign org-user JWTs; when empty the `/api/v1/auth/*` route group is NOT registered |
-| _(programmatic)_ | _(none)_ | _(none)_ | `Config.LoginRateLimiterConfig` — override the default 5-attempts-in-15min policy |
+**CLI flags (passed via `triton server --flag`):**
 
-**Programmatic configuration note:** the `ServiceKey`, `JWTSigningKey`, and `LoginRateLimiterConfig` fields on `pkg/server.Config` are not yet exposed as CLI flags. For multi-tenant production deployments you need a thin wrapper main that sets these from env vars — see `test/e2e/cmd/testserver/main.go` for a working example. Exposing them as CLI flags is tracked in the Sprint 3 backlog.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen` | `:8080` | Bind address |
+| `--db` | `postgres://triton:triton@localhost:5435/triton?sslmode=disable` | PostgreSQL connection URL |
+| `--tls-cert` / `--tls-key` | _(none)_ | TLS certificate and key paths |
+| `--license-key` | _(none)_ | Enterprise license token |
+
+**Environment variables (read by `cmd/server.go`):**
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TRITON_LICENSE_KEY` | Yes | _(none)_ | Enterprise license token (also settable via `--license-key` flag) |
+| `REPORT_SERVER_JWT_SIGNING_KEY` | Yes (multi-tenant) | _(none)_ | Hex-encoded Ed25519 seed for signing org-user JWTs. When unset, the `/api/v1/auth/*` and `/api/v1/users` routes are NOT registered (agents-only mode). |
+| `REPORT_SERVER_TENANT_PUBKEY` | Yes (multi-tenant) | _(none)_ | Hex-encoded Ed25519 public key (64 chars) for verifying agent license tokens. Must match the license server's signing key public half. |
+| `REPORT_SERVER_SERVICE_KEY` | Yes (multi-tenant) | _(none)_ | Shared secret for cross-server provisioning. Must match `TRITON_LICENSE_SERVER_REPORT_KEY` on the license server. When empty, the `/api/v1/admin/*` route group is NOT registered. |
+| `REPORT_SERVER_DATA_ENCRYPTION_KEY` | No | _(none)_ | 64-hex-char AES-256-GCM key for at-rest encryption of scan payloads. Malformed values fail startup. |
+| `REPORT_SERVER_INVITE_URL` | No | _(none)_ | URL embedded in invite emails (typically the report server login page). |
+| `REPORT_SERVER_RESEND_API_KEY` | No | _(none)_ | Resend API key for the invite mailer. |
+| `REPORT_SERVER_RESEND_FROM_EMAIL` | No | _(none)_ | From address for invite emails. |
+| `REPORT_SERVER_RESEND_FROM_NAME` | No | `Triton Reports` | From name for invite emails. |
+| `REPORT_SERVER_SESSION_CACHE_SIZE` | No | `10000` | JWT session cache entries. Set to 0 to disable (with log warning). |
+| `REPORT_SERVER_SESSION_CACHE_TTL` | No | `60s` | JWT session cache TTL. Clamped to [5s, 5m]. |
+| `REPORT_SERVER_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | No | `5` | Failed logins before lockout. |
+| `REPORT_SERVER_LOGIN_RATE_LIMIT_WINDOW` | No | `15m` | Sliding window for login attempts. |
+| `REPORT_SERVER_LOGIN_RATE_LIMIT_LOCKOUT` | No | `15m` | Lockout duration after exceeding max attempts. |
+| `REPORT_SERVER_REQUEST_RATE_LIMIT_MAX_REQUESTS` | No | `600` | Per-tenant request throttle. |
+| `REPORT_SERVER_REQUEST_RATE_LIMIT_WINDOW` | No | `1m` | Request rate limit window. |
+
+**Note on the `--db` flag:** the report server reads the database URL exclusively as a CLI flag, NOT an env var. In `compose.yaml` this is passed in the `command:` field. Outside compose, pass it directly: `triton server --db "postgres://..."`. There is no `TRITON_DB_URL` env var.
 
 ### 5c. At-rest encryption
 
@@ -308,23 +470,29 @@ It exposes:
 
 All license-server options are environment variables. See `cmd/licenseserver/main.go` for the authoritative list.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TRITON_LICENSE_SERVER_LISTEN` | No (default `:8081`) | Bind address |
-| `TRITON_LICENSE_SERVER_DB_URL` | Yes | PostgreSQL URL (should use a dedicated DB or schema) |
-| `TRITON_LICENSE_SERVER_ADMIN_KEY` | Yes | Superadmin bootstrap key for the `X-Triton-Admin-Key` header; multiple comma-separated values allowed |
-| `TRITON_LICENSE_SERVER_SIGNING_KEY` | Yes | Hex-encoded Ed25519 private key used to sign license tokens AND user JWTs |
-| `TRITON_LICENSE_SERVER_BINARIES_DIR` | No | Local directory where uploaded client binaries are stored for `/license/download` |
-| `TRITON_LICENSE_SERVER_REPORT_URL` | No | Internal URL the license server itself uses to reach the report server (e.g. compose-network hostname `http://triton:8080`). Used for cross-server provisioning calls. |
-| `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | No | Customer-facing report server URL baked into generated `agent.yaml` downloads (e.g. `https://reports.example.com`). Falls back to `TRITON_LICENSE_SERVER_REPORT_URL` when unset. Keep it distinct because the internal URL is typically unresolvable from outside the service network. |
-| `TRITON_LICENSE_SERVER_REPORT_KEY` | No | Shared secret the report server expects in `X-Triton-Service-Key` for provisioning calls. Paired with `TRITON_LICENSE_SERVER_REPORT_URL`. |
-| `TRITON_LICENSE_SERVER_PUBLIC_URL` | No | The license server's own externally-reachable URL (e.g. `https://license.example.com`). Required for one-liner install commands generated in the admin UI — the install token URL is built from this value. If unset, one-liner generation is disabled. |
-| `TRITON_LICENSE_SERVER_RESEND_API_KEY` | No | Resend API key for the invite mailer |
-| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | No | From address for invite emails |
-| `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | No | From name for invite emails |
-| `TRITON_LICENSE_SERVER_INVITE_URL` | No | URL embedded in invite emails (usually the report server login page) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TRITON_LICENSE_SERVER_LISTEN` | No | `:8081` | Bind address |
+| `TRITON_LICENSE_SERVER_DB_URL` | Yes | — | PostgreSQL URL (should use a dedicated DB or schema) |
+| `TRITON_LICENSE_SERVER_ADMIN_KEY` | Yes | — | Admin API key for the `X-Triton-Admin-Key` header; multiple comma-separated values allowed |
+| `TRITON_LICENSE_SERVER_SIGNING_KEY` | Yes | — | Hex-encoded Ed25519 private key (64 hex chars = 32-byte seed + 32-byte pubkey) used to sign license tokens AND superadmin JWTs |
+| `TRITON_LICENSE_SERVER_ADMIN_EMAIL` | No | `admin@localhost` | Bootstrap superadmin email (only used on first startup against empty users table) |
+| `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` | Yes (first boot) | — | Bootstrap superadmin password. Rotate immediately after first login. |
+| `TRITON_LICENSE_SERVER_TLS_CERT` | No | — | TLS certificate path (leave blank for plaintext / reverse proxy termination) |
+| `TRITON_LICENSE_SERVER_TLS_KEY` | No | — | TLS key path |
+| `TRITON_LICENSE_SERVER_BINARIES_DIR` | No | `/opt/triton/binaries` | Directory for uploaded agent binaries (filesystem path inside the container) |
+| `TRITON_LICENSE_SERVER_REPORT_URL` | No | — | Internal URL the license server uses to reach the report server (e.g. `http://triton:8080` in compose). Used for cross-server provisioning. |
+| `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | No | — | Customer-facing report server URL baked into generated `agent.yaml` downloads (e.g. `https://reports.example.com`). Falls back to `TRITON_LICENSE_SERVER_REPORT_URL`. |
+| `TRITON_LICENSE_SERVER_REPORT_KEY` | No | — | Shared secret for cross-server provisioning. **Must match** `REPORT_SERVER_SERVICE_KEY` on the report server. |
+| `TRITON_LICENSE_SERVER_PUBLIC_URL` | No | — | The license server's own external URL (e.g. `https://license.example.com`). Required for one-liner install commands. If unset, the "Copy install command" button is disabled. |
+| `RESEND_API_KEY` | No | — | Resend API key for invite emails. **Note:** uses a generic prefix, NOT `TRITON_LICENSE_SERVER_RESEND_*`. |
+| `RESEND_FROM_EMAIL` | No | — | From address for invite emails |
+| `RESEND_FROM_NAME` | No | `Triton Reports` | From name for invite emails |
+| `REPORT_SERVER_INVITE_URL_BASE` | No | — | Login link embedded in invite emails. **Note:** the report server reads this as `REPORT_SERVER_INVITE_URL` (different name). |
 
-**Admin key bootstrap:** on first startup against an empty database, the license server seeds an initial `platform_admin` user using the admin key and a hard-coded bootstrap email (see `pkg/licenseserver/seed.go`). Change the bootstrap user's password immediately after first login.
+**Admin key bootstrap:** on first startup against an empty database, the license server seeds an initial `platform_admin` user using `TRITON_LICENSE_SERVER_ADMIN_EMAIL` and `TRITON_LICENSE_SERVER_ADMIN_PASSWORD`. Change the bootstrap password immediately after first login.
+
+**Naming pitfalls:** the license server uses `RESEND_*` (generic prefix) for its mailer, while the report server uses `REPORT_SERVER_RESEND_*`. If both services need to send emails, set both sets of variables. Similarly, the invite URL is `REPORT_SERVER_INVITE_URL_BASE` on the license server but `REPORT_SERVER_INVITE_URL` on the report server. See `.env.example` for the complete mapping.
 
 ### 6c. Running the license server
 

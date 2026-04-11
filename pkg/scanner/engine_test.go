@@ -476,3 +476,23 @@ func TestScanMetricsDisabledByDefault(t *testing.T) {
 	assert.Nil(t, result.Metadata.ModuleMetrics)
 	assert.Equal(t, float64(0), result.Metadata.PeakMemoryMB)
 }
+
+func TestEngine_NoFilesystemTargetsDoesNotPanic(t *testing.T) {
+	cfg := &scannerconfig.Config{
+		Profile: "standard",
+		Modules: []string{},
+		Workers: 1,
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetOCIImage, Value: "scratch"},
+		},
+	}
+	e := New(cfg)
+	// Intentionally register no modules — engine must handle empty pair list.
+	progressCh := make(chan Progress, 10)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result := e.Scan(ctx, progressCh)
+	require.NotNil(t, result)
+	assert.Empty(t, result.Findings)
+}

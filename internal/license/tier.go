@@ -129,12 +129,33 @@ func AllowedFormats(t Tier) []string {
 var freeModules = []string{"certificates", "keys", "packages"}
 
 // AllowedModules returns the module list for the tier.
-// Returns nil for paid tiers (all modules allowed).
+// Returns nil for the enterprise tier (all modules allowed).
+// Pro tier returns a whitelist that excludes enterprise-only modules.
 func AllowedModules(t Tier) []string {
-	if t == TierFree {
+	switch t {
+	case TierFree:
 		out := make([]string, len(freeModules))
 		copy(out, freeModules)
 		return out
+	case TierPro:
+		return proModules()
+	case TierEnterprise:
+		return nil
 	}
-	return nil
+	return freeModules
+}
+
+// proModules is maintained explicitly rather than via exclusion to keep
+// the list greppable. Add new modules here when they land.
+func proModules() []string {
+	return []string{
+		"certificates", "keys", "packages", "libraries", "binaries",
+		"kernel", "scripts", "webapp", "configs", "processes",
+		"network", "protocol", "containers", "certstore", "database",
+		"hsm", "ldap", "codesign", "deps", "web_server", "vpn",
+		"container_signatures", "password_hash", "auth_material",
+		"deps_ecosystems", "service_mesh", "xml_dsig", "mail_server",
+		"oci_image",
+		// k8s_live is enterprise-only — do NOT add.
+	}
 }

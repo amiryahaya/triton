@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // Guard enforces feature gating based on the resolved licence tier.
@@ -260,6 +261,40 @@ func (g *Guard) FilterConfig(cfg *scannerconfig.Config) {
 		}
 		cfg.Modules = filtered
 	}
+
+	// Drop target types for modules not allowed at this tier. Primary
+	// enforcement point for the OCI image and Kubernetes scanners — if
+	// the gated module was already filtered out of cfg.Modules above,
+	// we also strip its targets so the engine dispatch never considers
+	// them.
+	var filteredTargets []model.ScanTarget
+	var droppedImage, droppedK8s bool
+	for _, t := range cfg.ScanTargets {
+		switch t.Type {
+		case model.TargetOCIImage:
+			if containsString(cfg.Modules, "oci_image") {
+				filteredTargets = append(filteredTargets, t)
+			} else {
+				droppedImage = true
+			}
+		case model.TargetKubernetesCluster:
+			if containsString(cfg.Modules, "k8s_live") {
+				filteredTargets = append(filteredTargets, t)
+			} else {
+				droppedK8s = true
+			}
+		default:
+			filteredTargets = append(filteredTargets, t)
+		}
+	}
+	cfg.ScanTargets = filteredTargets
+
+	if droppedImage {
+		log.Printf("warning: --image targets dropped; OCI image scanning requires pro tier or higher (current: %s)", g.tier)
+	}
+	if droppedK8s {
+		log.Printf("warning: --kubeconfig target dropped; live Kubernetes scanning requires enterprise tier (current: %s)", g.tier)
+	}
 }
 
 // NewGuardWithServer creates a Guard that validates tokens online against a
@@ -353,4 +388,14 @@ func (e *ErrFeatureGated) Error() string {
 		"feature %q requires a higher licence tier (current: %s). Upgrade at https://triton.dev/pricing",
 		e.Feature, e.Tier,
 	)
+}
+
+// containsString reports whether needle is present in haystack.
+func containsString(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 func TestNewGuard_NoLicense(t *testing.T) {
@@ -456,6 +457,82 @@ func TestNewGuardWithServer_NoLicenseID(t *testing.T) {
 
 	g := NewGuardFromToken(token, pub)
 	assert.Equal(t, TierPro, g.Tier(), "no lid should use offline token tier")
+}
+
+func TestFilterConfig_FreeTierDropsOCIImageTargets(t *testing.T) {
+	g := &Guard{tier: TierFree}
+	cfg := &scannerconfig.Config{
+		Profile: "quick",
+		Modules: []string{"certificates", "oci_image"},
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetFilesystem, Value: "/etc"},
+			{Type: model.TargetOCIImage, Value: "nginx:1.25"},
+		},
+	}
+	g.FilterConfig(cfg)
+
+	for _, tgt := range cfg.ScanTargets {
+		assert.NotEqual(t, model.TargetOCIImage, tgt.Type,
+			"free tier must not retain OCI image targets")
+	}
+	assert.NotContains(t, cfg.Modules, "oci_image")
+}
+
+func TestFilterConfig_ProTierKeepsOCIImageTargets(t *testing.T) {
+	g := &Guard{tier: TierPro, license: &License{Tier: TierPro}}
+	cfg := &scannerconfig.Config{
+		Profile: "standard",
+		Modules: []string{"certificates", "oci_image"},
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetOCIImage, Value: "nginx:1.25"},
+		},
+	}
+	g.FilterConfig(cfg)
+
+	var hasImage bool
+	for _, tgt := range cfg.ScanTargets {
+		if tgt.Type == model.TargetOCIImage {
+			hasImage = true
+		}
+	}
+	assert.True(t, hasImage, "pro tier must retain OCI image targets")
+}
+
+func TestFilterConfig_ProTierDropsK8sClusterTargets(t *testing.T) {
+	g := &Guard{tier: TierPro, license: &License{Tier: TierPro}}
+	cfg := &scannerconfig.Config{
+		Profile: "standard",
+		Modules: []string{"certificates", "k8s_live"},
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetKubernetesCluster, Value: "/home/alice/.kube/config"},
+		},
+	}
+	g.FilterConfig(cfg)
+
+	for _, tgt := range cfg.ScanTargets {
+		assert.NotEqual(t, model.TargetKubernetesCluster, tgt.Type,
+			"pro tier must not retain k8s cluster targets (enterprise-only)")
+	}
+}
+
+func TestFilterConfig_EnterpriseTierKeepsK8sClusterTargets(t *testing.T) {
+	g := &Guard{tier: TierEnterprise, license: &License{Tier: TierEnterprise}}
+	cfg := &scannerconfig.Config{
+		Profile: "comprehensive",
+		Modules: []string{"certificates", "k8s_live"},
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetKubernetesCluster, Value: "/home/alice/.kube/config"},
+		},
+	}
+	g.FilterConfig(cfg)
+
+	var hasK8s bool
+	for _, tgt := range cfg.ScanTargets {
+		if tgt.Type == model.TargetKubernetesCluster {
+			hasK8s = true
+		}
+	}
+	assert.True(t, hasK8s, "enterprise tier must retain k8s cluster targets")
 }
 
 // testTokenWithOrg creates a token with a specific org name.

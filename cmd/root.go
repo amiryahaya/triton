@@ -54,6 +54,12 @@ var (
 	licenseID        string
 	guard            = license.NewGuard("") // safe default, overwritten by PersistentPreRun
 
+	// OCI / Kubernetes scan flags (Wave 0)
+	imageRefs      []string
+	kubeconfigPath string
+	k8sContext     string
+	registryAuth   string
+
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
 	rootCmd = &cobra.Command{
@@ -149,6 +155,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&licenseFile, "license-file", "", "Path to a file containing the licence token (overrides the default ~/.triton/license.key)")
 	rootCmd.PersistentFlags().StringVar(&licenseServerURL, "license-server", "", "License server URL for online validation")
 	rootCmd.PersistentFlags().StringVar(&licenseID, "license-id", "", "License ID for server activation")
+	rootCmd.PersistentFlags().StringSliceVar(&imageRefs, "image", nil,
+		"OCI image reference to scan (repeatable, e.g. --image nginx:1.25 --image redis:7)")
+	rootCmd.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "",
+		"Path to kubeconfig for live Kubernetes cluster scan (Sprint 1b)")
+	rootCmd.PersistentFlags().StringVar(&k8sContext, "k8s-context", "",
+		"Kubeconfig context name (used with --kubeconfig)")
+	rootCmd.PersistentFlags().StringVar(&registryAuth, "registry-auth", "",
+		"Path to docker config.json override for image registry auth")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -297,9 +311,20 @@ func runScan(cmd *cobra.Command, args []string) error {
 		format = "json"
 	}
 
-	cfg := scannerconfig.Load(scanProfile)
-	if len(modules) > 0 {
-		cfg.Modules = modules
+	cfg, buildErr := scannerconfig.BuildConfig(scannerconfig.BuildOptions{
+		Profile:      scanProfile,
+		Modules:      modules,
+		ImageRefs:    imageRefs,
+		Kubeconfig:   kubeconfigPath,
+		K8sContext:   k8sContext,
+		RegistryAuth: registryAuth,
+		DBUrl:        dbPath,
+		Metrics:      showMetrics,
+		Incremental:  incremental,
+	})
+	if buildErr != nil {
+		fmt.Fprintln(os.Stderr, "error:", buildErr)
+		os.Exit(1)
 	}
 
 	// Gate optional features behind licence tier.
@@ -328,11 +353,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cfg.Metrics = showMetrics
-	cfg.Incremental = incremental
-	if dbPath != "" {
-		cfg.DBUrl = dbPath
-	} else {
+	if cfg.DBUrl == "" {
 		cfg.DBUrl = scannerconfig.DefaultDBUrl()
 	}
 

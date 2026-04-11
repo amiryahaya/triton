@@ -24,6 +24,8 @@ const (
 	TargetDatabase
 	TargetHSM
 	TargetLDAP
+	TargetOCIImage          // OCI image reference (e.g. nginx:1.25)
+	TargetKubernetesCluster // kubeconfig path (Wave 1 Sprint 1b)
 )
 
 // PQC readiness status constants.

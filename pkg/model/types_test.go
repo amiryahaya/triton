@@ -291,6 +291,11 @@ func TestScanTargetTypes(t *testing.T) {
 	assert.Equal(t, ScanTargetType(0), TargetFilesystem)
 	assert.Equal(t, ScanTargetType(1), TargetNetwork)
 	assert.Equal(t, ScanTargetType(2), TargetProcess)
+	assert.Equal(t, ScanTargetType(3), TargetDatabase)
+	assert.Equal(t, ScanTargetType(4), TargetHSM)
+	assert.Equal(t, ScanTargetType(5), TargetLDAP)
+	assert.Equal(t, ScanTargetType(6), TargetOCIImage)
+	assert.Equal(t, ScanTargetType(7), TargetKubernetesCluster)
 }
 
 func TestModuleCategoryConstants(t *testing.T) {

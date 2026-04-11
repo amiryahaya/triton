@@ -462,3 +462,18 @@ func TestPQCStatusConstants(t *testing.T) {
 	assert.Equal(t, "DEPRECATED", PQCStatusDeprecated)
 	assert.Equal(t, "UNSAFE", PQCStatusUnsafe)
 }
+
+func TestCryptoAssetImageFieldsOmitEmpty(t *testing.T) {
+	a := CryptoAsset{Algorithm: "RSA"}
+	b, err := json.Marshal(a)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "imageRef")
+	assert.NotContains(t, string(b), "imageDigest")
+
+	a.ImageRef = "nginx:1.25"
+	a.ImageDigest = "sha256:abc"
+	b, err = json.Marshal(a)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"imageRef":"nginx:1.25"`)
+	assert.Contains(t, string(b), `"imageDigest":"sha256:abc"`)
+}

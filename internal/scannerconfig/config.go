@@ -21,6 +21,7 @@ type Config struct {
 	Metrics         bool
 	DBUrl           string
 	Incremental     bool
+	Credentials     ScanCredentials
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.

@@ -1,4 +1,4 @@
-package scanner
+package scannerconfig
 
 import (
 	"encoding/json"

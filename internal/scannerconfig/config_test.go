@@ -128,3 +128,9 @@ func TestDefaultIncludePatterns(t *testing.T) {
 	assert.Contains(t, patterns, "*.key")
 	assert.Contains(t, patterns, "*.cer")
 }
+
+func TestConfig_HasCredentialsField(t *testing.T) {
+	cfg := &Config{}
+	cfg.Credentials.RegistryUsername = "alice"
+	assert.Equal(t, "alice", cfg.Credentials.RegistryUsername)
+}

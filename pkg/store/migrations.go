@@ -232,4 +232,13 @@ var migrations = []string{
 		ADD COLUMN IF NOT EXISTS executive_target_percent NUMERIC(5,2) NOT NULL DEFAULT 80.0;
 	ALTER TABLE organizations
 		ADD COLUMN IF NOT EXISTS executive_deadline_year INTEGER NOT NULL DEFAULT 2030;`,
+
+	// Version 10: Container image annotation on the findings read-model.
+	// Populated by the OCIImageModule delegation wrapper when findings
+	// originate from a pulled OCI image scan. Host filesystem scans
+	// leave both columns NULL. No backfill required.
+	`ALTER TABLE findings
+		ADD COLUMN IF NOT EXISTS image_ref TEXT;
+	ALTER TABLE findings
+		ADD COLUMN IF NOT EXISTS image_digest TEXT;`,
 }

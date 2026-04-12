@@ -30,6 +30,8 @@ type Finding struct {
 	Issuer            string
 	Reachability      string
 	CreatedAt         time.Time
+	ImageRef          string
+	ImageDigest       string
 }
 
 // InventoryRow is one row in the Crypto Inventory view — one per

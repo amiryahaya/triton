@@ -110,8 +110,14 @@ func TestAllowedModules(t *testing.T) {
 	free := AllowedModules(TierFree)
 	require.Equal(t, []string{"certificates", "keys", "packages"}, free)
 
-	// Pro and Enterprise return nil (all modules allowed)
-	assert.Nil(t, AllowedModules(TierPro))
+	// Pro returns an explicit whitelist that includes oci_image but not k8s_live
+	pro := AllowedModules(TierPro)
+	require.NotNil(t, pro, "pro tier must return a non-nil whitelist")
+	assert.Contains(t, pro, "certificates")
+	assert.Contains(t, pro, "oci_image")
+	assert.NotContains(t, pro, "k8s_live", "k8s_live is enterprise-only")
+
+	// Enterprise returns nil (all modules allowed)
 	assert.Nil(t, AllowedModules(TierEnterprise))
 }
 

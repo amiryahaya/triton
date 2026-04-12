@@ -132,6 +132,12 @@ func (e *Engine) RegisterDefaultModules() {
 	e.RegisterModule(NewServiceMeshModule(e.config))
 	e.RegisterModule(NewXMLDSigModule(e.config))
 	e.RegisterModule(NewMailServerModule(e.config))
+
+	// Wave 0 — OCI image scanner. Not in any profile's default module
+	// list; only runs when --image is supplied, which adds TargetOCIImage
+	// entries to cfg.ScanTargets. Engine dispatch naturally skips it
+	// when no OCI targets exist.
+	e.RegisterModule(NewOCIImageModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

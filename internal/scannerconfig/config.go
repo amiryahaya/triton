@@ -1,6 +1,7 @@
 package scannerconfig
 
 import (
+	"fmt"
 	"runtime"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -21,6 +22,7 @@ type Config struct {
 	Metrics         bool
 	DBUrl           string
 	Incremental     bool
+	Credentials     ScanCredentials
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.
@@ -81,7 +83,10 @@ var profiles = map[string]ScanProfile{
 		// Fast Wins sprint — password_hash + auth_material
 		// cover every remaining canonical auth-material surface
 		// on Linux/BSD hosts.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server"},
+		//
+		// Wave 0 — OCI image scanning module for pulling and
+		// analyzing container images (requires explicit --image flag).
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},
@@ -180,6 +185,96 @@ func defaultScanTargets(depth int) []model.ScanTarget {
 	return targets
 }
 
+// BuildOptions captures the CLI-visible inputs that drive BuildConfig.
+// Keeps config construction in one place rather than scattered field
+// assignments across cmd/root.go.
+type BuildOptions struct {
+	Profile      string
+	Modules      []string // explicit --modules override; empty means "use profile"
+	ImageRefs    []string
+	Kubeconfig   string
+	K8sContext   string
+	RegistryAuth string
+	RegistryUser string
+	RegistryPass string
+	DBUrl        string
+	Metrics      bool
+	Incremental  bool
+}
+
+// BuildConfig is the canonical constructor for scannerconfig.Config given
+// a resolved set of CLI flags. It handles target injection (filesystem
+// defaults from profile, plus image/kubernetes targets from flags) and
+// enforces the filesystem-default suppression rule: if any image or
+// kubeconfig is supplied, the profile's filesystem defaults are NOT
+// appended to ScanTargets.
+func BuildConfig(opts BuildOptions) (*Config, error) {
+	imageMode := len(opts.ImageRefs) > 0
+	k8sMode := opts.Kubeconfig != ""
+
+	if imageMode && k8sMode {
+		return nil, fmt.Errorf(
+			"cannot mix --image and --kubeconfig in a single scan; " +
+				"run triton separately for each target type")
+	}
+
+	cfg := Load(opts.Profile)
+
+	if len(opts.Modules) > 0 {
+		cfg.Modules = append([]string{}, opts.Modules...)
+	}
+	cfg.Metrics = opts.Metrics
+	cfg.Incremental = opts.Incremental
+	if opts.DBUrl != "" {
+		cfg.DBUrl = opts.DBUrl
+	}
+
+	cfg.Credentials = ScanCredentials{
+		RegistryAuthFile: opts.RegistryAuth,
+		RegistryUsername: opts.RegistryUser,
+		RegistryPassword: opts.RegistryPass,
+		Kubeconfig:       opts.Kubeconfig,
+		K8sContext:       opts.K8sContext,
+	}
+
+	if imageMode || k8sMode {
+		cfg.ScanTargets = stripFilesystemTargets(cfg.ScanTargets)
+
+		for _, ref := range opts.ImageRefs {
+			cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+				Type:  model.TargetOCIImage,
+				Value: ref,
+			})
+		}
+		if k8sMode {
+			cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+				Type:  model.TargetKubernetesCluster,
+				Value: opts.Kubeconfig,
+			})
+		}
+	}
+
+	// Ensure oci_image module is present whenever --image targets are provided.
+	// Profiles other than "comprehensive" don't include oci_image by default,
+	// so without this injection the image scan would be a silent no-op: the
+	// engine's shouldRunModule check skips any module not listed in cfg.Modules.
+	if imageMode && !containsModule(cfg.Modules, "oci_image") {
+		cfg.Modules = append(cfg.Modules, "oci_image")
+	}
+
+	return cfg, nil
+}
+
+func stripFilesystemTargets(in []model.ScanTarget) []model.ScanTarget {
+	out := make([]model.ScanTarget, 0, len(in))
+	for _, t := range in {
+		if t.Type != model.TargetFilesystem {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func defaultIncludePatterns() []string {
 	return []string{
 		"*.pem", "*.crt", "*.cer", "*.key",
@@ -196,4 +291,14 @@ func defaultExcludePatterns() []string {
 		"*.log", "*.tmp",
 		".git", "node_modules", "vendor",
 	}
+}
+
+// containsModule reports whether name appears in the modules slice.
+func containsModule(modules []string, name string) bool {
+	for _, m := range modules {
+		if m == name {
+			return true
+		}
+	}
+	return false
 }

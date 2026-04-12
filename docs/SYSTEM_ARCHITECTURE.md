@@ -652,6 +652,30 @@ func (m *CertificateModule) Scan(ctx context.Context, target ScanTarget, finding
 }
 ```
 
+### 6.5 OCI Image Scanner
+
+The `oci_image` module delegates to existing filesystem modules against
+an extracted rootfs rather than re-implementing file parsing.
+
+**Flow:**
+1. `remoteFetcher` pulls the image manifest via `go-containerregistry`,
+   flattens layers with `mutate.Extract`, and writes the tar stream to
+   `$TMPDIR/triton-oci-<digest12>-<salt>/` (mode 0700).
+2. Symlinks, hard links, and escaping paths are skipped. Size capped at
+   4 GB uncompressed; layers capped at 128.
+3. `OCIImageModule.Scan` constructs a synthetic `scannerconfig.Config`
+   and invokes delegates (certificates, keys, library, binaries, deps,
+   deps_ecosystems, configs, webapp, packages, certstore).
+4. An annotator goroutine tags every finding with `ImageRef` and
+   `ImageDigest` before forwarding.
+5. `defer img.Cleanup()` removes the sandbox on completion or cancel.
+
+**Credential resolution:** `--registry-auth` > `DOCKER_CONFIG` env >
+default keychain (Docker config, cloud helpers for ECR/GCR/ACR).
+
+**Server mode:** ambient credential chains disabled. API scan requests
+must carry explicit credentials.
+
 ---
 
 ## 7. PQC Classification & Crypto-Agility Assessment

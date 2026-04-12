@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 
@@ -236,6 +237,36 @@ func CheckGoTLS() CheckResult {
 	}
 }
 
+// CheckDockerConfig checks if Docker config file exists at ~/.docker/config.json.
+func CheckDockerConfig() CheckResult {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return CheckResult{
+			Module:    "oci_image",
+			CheckName: "docker config",
+			Status:    CheckPass,
+			Message:   "ambient keychain will be used if available",
+		}
+	}
+
+	configPath := filepath.Join(home, ".docker", "config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		return CheckResult{
+			Module:    "oci_image",
+			CheckName: "docker config",
+			Status:    CheckPass,
+			Message:   fmt.Sprintf("found at %s", configPath),
+		}
+	}
+
+	return CheckResult{
+		Module:    "oci_image",
+		CheckName: "docker config",
+		Status:    CheckPass,
+		Message:   "not found (will use ambient keychain if available)",
+	}
+}
+
 // RunDoctorChecks runs all readiness checks for the given profile.
 func RunDoctorChecks(profile string) *DoctorReport {
 	cfg := scannerconfig.Load(profile)
@@ -306,6 +337,19 @@ func RunDoctorChecks(profile string) *DoctorReport {
 	// 4. Go TLS check (for protocol module)
 	if activeModules["protocol"] {
 		report.Checks = append(report.Checks, CheckGoTLS())
+	}
+
+	// 5. OCI image scanning checks
+	if activeModules["oci_image"] {
+		// go-containerregistry is always available (compiled-in dependency)
+		report.Checks = append(report.Checks, CheckResult{
+			Module:    "oci_image",
+			CheckName: "go-containerregistry",
+			Status:    CheckPass,
+			Message:   "available (imported library)",
+		})
+		// Docker config is optional but informative
+		report.Checks = append(report.Checks, CheckDockerConfig())
 	}
 
 	report.computeCounts()

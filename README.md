@@ -8,7 +8,7 @@ An enterprise-grade, cross-platform CLI + server tool for generating Software Bi
 
 ## Features
 
-- **28 scanner modules across 9 CBOM categories + enterprise infrastructure** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, configs, network services, protocol probing, containers, cert stores (incl. Windows Root store + Java cacerts), databases, HSM, LDAP, code signing (incl. Windows Authenticode + JAR + git tags), dependency reachability (Go + Python + Node + Java), web server TLS (nginx/Apache/haproxy/Caddy), VPN (IPsec/WireGuard/OpenVPN), container supply chain (cosign/Notary/K8s SA tokens), service mesh mTLS (Istio/Linkerd/Consul), password hashing posture (/etc/shadow/PAM/pg_hba), auth material (Kerberos keytabs/GPG/Tor/DNSSEC/802.1X), XML DSig/SAML, mail server crypto (Postfix/Sendmail/DKIM)
+- **29 scanner modules across 9 CBOM categories + enterprise infrastructure** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, configs, network services, protocol probing, containers, cert stores (incl. Windows Root store + Java cacerts), databases, HSM, LDAP, code signing (incl. Windows Authenticode + JAR + git tags), dependency reachability (Go + Python + Node + Java), web server TLS (nginx/Apache/haproxy/Caddy), VPN (IPsec/WireGuard/OpenVPN), container supply chain (cosign/Notary/K8s SA tokens), service mesh mTLS (Istio/Linkerd/Consul), password hashing posture (/etc/shadow/PAM/pg_hba), auth material (Kerberos keytabs/GPG/Tor/DNSSEC/802.1X), XML DSig/SAML, mail server crypto (Postfix/Sendmail/DKIM)
 - **Static + active scanning** — passive file/code analysis plus runtime process inspection and active TLS/network probing
 - **Multi-language dependency reachability** — Go, Python, Node.js, and Java crypto library inventory from lockfiles/manifests; Go additionally gets full import graph classification (direct/transitive/unreachable)
 - **PQC algorithm detection** — ML-KEM, ML-DSA, SLH-DSA OID recognition in X.509 certificates, including hybrid/composite certs
@@ -83,9 +83,30 @@ make build
 ./bin/triton --output-dir ./reports
 ```
 
+### Scanning container images
+
+Triton can scan OCI container images directly without running them. The
+image is pulled to a sandboxed tmpfs, layers are flattened, and the
+existing filesystem modules (certificates, keys, libraries, binaries,
+deps, configs) run against the extracted rootfs.
+
+```bash
+# Scan a single public image
+triton --image nginx:1.25 --profile standard
+
+# Scan multiple images
+triton --image nginx:1.25 --image redis:7 --format json -o scan.json
+
+# Private registry with explicit auth
+triton --image myregistry.io/myapp:v1.0 --registry-auth /path/to/docker-config.json
+```
+
+OCI image scanning is a **Pro tier** feature. The host filesystem is
+**not** scanned when `--image` is set.
+
 ## Scanning Categories
 
-Triton covers all 9 CBOM categories plus enterprise infrastructure with **28 scanner modules**:
+Triton covers all 9 CBOM categories plus enterprise infrastructure with **29 scanner modules**:
 
 ### CBOM Core (19 modules)
 
@@ -249,7 +270,7 @@ triton/
 │   ├── license/            # Ed25519 licence system (token, guard, tier, keygen)
 │   └── version/            # Version (set via ldflags at build time)
 ├── pkg/
-│   ├── scanner/            # Engine + 28 scanner modules
+│   ├── scanner/            # Engine + 29 scanner modules
 │   ├── crypto/             # PQC registry, OID detection, NACSA, CNSA 2.0, CAMM
 │   ├── model/              # Data model (ScanResult, System, Finding, CryptoAsset)
 │   ├── report/             # Excel, CycloneDX 1.7 CBOM, HTML, SARIF generators

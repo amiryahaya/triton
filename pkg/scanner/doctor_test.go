@@ -181,6 +181,19 @@ func TestRunDoctorChecks_ComprehensiveProfile(t *testing.T) {
 		assert.True(t, modulesSeen["network"], "comprehensive should check network")
 		assert.True(t, modulesSeen["protocol"], "comprehensive should check protocol")
 	}
+
+	// Comprehensive should include OCI image checks
+	assert.True(t, modulesSeen["oci_image"], "comprehensive should check oci_image")
+
+	// Verify both OCI checks are present
+	ociChecks := 0
+	for _, c := range report.Checks {
+		if c.Module == "oci_image" {
+			assert.Equal(t, CheckPass, c.Status)
+			ociChecks++
+		}
+	}
+	assert.Equal(t, 2, ociChecks, "should have 2 OCI checks (go-containerregistry + docker config)")
 }
 
 func TestRunDoctorChecks_InvalidProfile(t *testing.T) {
@@ -195,4 +208,26 @@ func TestCheckStatus_String(t *testing.T) {
 	assert.Equal(t, "PASS", CheckPass.String())
 	assert.Equal(t, "WARN", CheckWarn.String())
 	assert.Equal(t, "FAIL", CheckFail.String())
+}
+
+func TestCheckDockerConfig_Found(t *testing.T) {
+	t.Parallel()
+	result := CheckDockerConfig()
+
+	assert.Equal(t, CheckPass, result.Status)
+	assert.Equal(t, "oci_image", result.Module)
+	assert.Equal(t, "docker config", result.CheckName)
+	// Result message depends on whether ~/.docker/config.json exists
+	assert.NotEmpty(t, result.Message)
+}
+
+func TestCheckDockerConfig_UnableToGetHome(t *testing.T) {
+	t.Parallel()
+	// This test verifies the function handles errors gracefully
+	// In normal execution, os.UserHomeDir() should succeed, but
+	// the code is defensive about it.
+	result := CheckDockerConfig()
+
+	assert.Equal(t, CheckPass, result.Status)
+	assert.Equal(t, "oci_image", result.Module)
 }

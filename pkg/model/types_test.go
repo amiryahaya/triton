@@ -291,6 +291,11 @@ func TestScanTargetTypes(t *testing.T) {
 	assert.Equal(t, ScanTargetType(0), TargetFilesystem)
 	assert.Equal(t, ScanTargetType(1), TargetNetwork)
 	assert.Equal(t, ScanTargetType(2), TargetProcess)
+	assert.Equal(t, ScanTargetType(3), TargetDatabase)
+	assert.Equal(t, ScanTargetType(4), TargetHSM)
+	assert.Equal(t, ScanTargetType(5), TargetLDAP)
+	assert.Equal(t, ScanTargetType(6), TargetOCIImage)
+	assert.Equal(t, ScanTargetType(7), TargetKubernetesCluster)
 }
 
 func TestModuleCategoryConstants(t *testing.T) {
@@ -456,4 +461,19 @@ func TestPQCStatusConstants(t *testing.T) {
 	assert.Equal(t, "TRANSITIONAL", PQCStatusTransitional)
 	assert.Equal(t, "DEPRECATED", PQCStatusDeprecated)
 	assert.Equal(t, "UNSAFE", PQCStatusUnsafe)
+}
+
+func TestCryptoAssetImageFieldsOmitEmpty(t *testing.T) {
+	a := CryptoAsset{Algorithm: "RSA"}
+	b, err := json.Marshal(a)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "imageRef")
+	assert.NotContains(t, string(b), "imageDigest")
+
+	a.ImageRef = "nginx:1.25"
+	a.ImageDigest = "sha256:abc"
+	b, err = json.Marshal(a)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"imageRef":"nginx:1.25"`)
+	assert.Contains(t, string(b), `"imageDigest":"sha256:abc"`)
 }

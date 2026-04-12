@@ -120,7 +120,7 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 }
 
 // insertFindingsInTx bulk-inserts findings using chunked VALUES lists
-// to avoid the pgx parameter limit (65535). 1000 rows × 16 cols = 16000
+// to avoid the pgx parameter limit (65535). 1000 rows × 18 cols = 18000
 // params per chunk keeps us well under the limit.
 func insertFindingsInTx(ctx context.Context, tx pgx.Tx, findings []Finding) error {
 	if len(findings) == 0 {
@@ -140,28 +140,30 @@ func insertFindingsInTx(ctx context.Context, tx pgx.Tx, findings []Finding) erro
 }
 
 // insertFindingsChunk inserts up to 1000 finding rows in a single
-// statement. Column count: 16 (no category, no line_number).
+// statement. Column count: 18 (no category, no line_number).
 //
 // The loop indexes directly into chunk (rather than `for i, f := range
 // chunk`) to avoid copying each 232-byte Finding struct per iteration —
 // gocritic rangeValCopy fix.
 func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error {
-	const cols = 16
+	const cols = 18
 	args := make([]any, 0, len(chunk)*cols)
 	valueStrs := make([]string, 0, len(chunk))
 	for i := range chunk {
 		f := &chunk[i]
 		base := i * cols
 		valueStrs = append(valueStrs, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
 			base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16,
+			base+17, base+18,
 		))
 		args = append(args,
 			f.ID, f.ScanID, f.OrgID, f.Hostname, f.FindingIndex,
 			f.Module, f.FilePath,
 			f.Algorithm, f.KeySize, f.PQCStatus, f.MigrationPriority,
 			f.NotAfter, f.Subject, f.Issuer, f.Reachability, f.CreatedAt,
+			f.ImageRef, f.ImageDigest,
 		)
 	}
 
@@ -169,7 +171,8 @@ func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error 
 		id, scan_id, org_id, hostname, finding_index,
 		module, file_path,
 		algorithm, key_size, pqc_status, migration_priority,
-		not_after, subject, issuer, reachability, created_at
+		not_after, subject, issuer, reachability, created_at,
+		image_ref, image_digest
 	) VALUES ` + strings.Join(valueStrs, ",") + `
 	ON CONFLICT (scan_id, finding_index) DO NOTHING`
 

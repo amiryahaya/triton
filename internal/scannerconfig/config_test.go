@@ -128,3 +128,152 @@ func TestDefaultIncludePatterns(t *testing.T) {
 	assert.Contains(t, patterns, "*.key")
 	assert.Contains(t, patterns, "*.cer")
 }
+
+func TestConfig_HasCredentialsField(t *testing.T) {
+	cfg := &Config{}
+	cfg.Credentials.RegistryUsername = "alice"
+	assert.Equal(t, "alice", cfg.Credentials.RegistryUsername)
+}
+
+func TestBuildConfig_ImageSuppressesFilesystemDefaults(t *testing.T) {
+	opts := BuildOptions{
+		Profile:   "standard",
+		ImageRefs: []string{"nginx:1.25"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var fsCount, imageCount int
+	for _, tgt := range cfg.ScanTargets {
+		switch tgt.Type {
+		case model.TargetFilesystem:
+			fsCount++
+		case model.TargetOCIImage:
+			imageCount++
+		}
+	}
+	assert.Equal(t, 0, fsCount, "filesystem defaults must be suppressed")
+	assert.Equal(t, 1, imageCount)
+
+	var imgTarget model.ScanTarget
+	for _, t := range cfg.ScanTargets {
+		if t.Type == model.TargetOCIImage {
+			imgTarget = t
+			break
+		}
+	}
+	assert.Equal(t, "nginx:1.25", imgTarget.Value)
+}
+
+func TestBuildConfig_MultipleImages(t *testing.T) {
+	opts := BuildOptions{
+		Profile:   "standard",
+		ImageRefs: []string{"nginx:1.25", "redis:7"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var refs []string
+	for _, tgt := range cfg.ScanTargets {
+		if tgt.Type == model.TargetOCIImage {
+			refs = append(refs, tgt.Value)
+		}
+	}
+	assert.ElementsMatch(t, []string{"nginx:1.25", "redis:7"}, refs)
+}
+
+func TestBuildConfig_KubeconfigSuppressesFilesystemDefaults(t *testing.T) {
+	opts := BuildOptions{
+		Profile:    "standard",
+		Kubeconfig: "/home/alice/.kube/config",
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var fsCount, k8sCount int
+	for _, tgt := range cfg.ScanTargets {
+		switch tgt.Type {
+		case model.TargetFilesystem:
+			fsCount++
+		case model.TargetKubernetesCluster:
+			k8sCount++
+		}
+	}
+	assert.Equal(t, 0, fsCount)
+	assert.Equal(t, 1, k8sCount)
+}
+
+func TestBuildConfig_NoImageOrKubeconfigKeepsFilesystemDefaults(t *testing.T) {
+	opts := BuildOptions{Profile: "standard"}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var fsCount int
+	for _, tgt := range cfg.ScanTargets {
+		if tgt.Type == model.TargetFilesystem {
+			fsCount++
+		}
+	}
+	assert.Greater(t, fsCount, 0, "filesystem defaults should be present")
+}
+
+func TestBuildConfig_ImageAndKubeconfigError(t *testing.T) {
+	opts := BuildOptions{
+		Profile:    "standard",
+		ImageRefs:  []string{"nginx:1.25"},
+		Kubeconfig: "/home/alice/.kube/config",
+	}
+	_, err := BuildConfig(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot mix")
+}
+
+func TestBuildConfig_ImageInjectsOCIImageModule(t *testing.T) {
+	// standard profile does not include oci_image; the module must be
+	// injected automatically whenever --image is set so the scan is not
+	// a silent no-op.
+	opts := BuildOptions{
+		Profile:   "standard",
+		ImageRefs: []string{"nginx:1.25"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var hasOCI bool
+	for _, mod := range cfg.Modules {
+		if mod == "oci_image" {
+			hasOCI = true
+			break
+		}
+	}
+	assert.True(t, hasOCI, "oci_image must be injected into Modules when --image is set")
+}
+
+func TestBuildConfig_ImageInjectsOCIImageModule_ComprehensiveNoDuplicate(t *testing.T) {
+	// comprehensive already lists oci_image; injection must not duplicate it.
+	opts := BuildOptions{
+		Profile:   "comprehensive",
+		ImageRefs: []string{"alpine:3.19"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	count := 0
+	for _, mod := range cfg.Modules {
+		if mod == "oci_image" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "oci_image must appear exactly once even for comprehensive profile")
+}
+
+func TestBuildConfig_NoImageDoesNotInjectOCIImageModule(t *testing.T) {
+	// Without --image, oci_image must not be injected into non-comprehensive profiles.
+	opts := BuildOptions{Profile: "standard"}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	for _, mod := range cfg.Modules {
+		assert.NotEqual(t, "oci_image", mod, "oci_image must not be present without --image flag")
+	}
+}

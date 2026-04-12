@@ -54,14 +54,14 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 28 modules:
+	// Should register all 29 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
-	// + mail_server (Enterprise sprint). certstore Windows/Java
-	// cacerts + codesign git verify were added as extensions,
-	// not new modules.
-	assert.Len(t, eng.modules, 28)
+	// + mail_server (Enterprise sprint) + oci_image (Wave 0).
+	// certstore Windows/Java cacerts + codesign git verify were
+	// added as extensions, not new modules.
+	assert.Len(t, eng.modules, 29)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -114,6 +114,9 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.True(t, names["service_mesh"])
 	assert.True(t, names["xml_dsig"])
 	assert.True(t, names["mail_server"])
+
+	// Wave 0 — OCI image scanner.
+	assert.True(t, names["oci_image"])
 }
 
 func TestScanWithNoModules(t *testing.T) {
@@ -475,4 +478,24 @@ func TestScanMetricsDisabledByDefault(t *testing.T) {
 	// But no metrics
 	assert.Nil(t, result.Metadata.ModuleMetrics)
 	assert.Equal(t, float64(0), result.Metadata.PeakMemoryMB)
+}
+
+func TestEngine_NoFilesystemTargetsDoesNotPanic(t *testing.T) {
+	cfg := &scannerconfig.Config{
+		Profile: "standard",
+		Modules: []string{},
+		Workers: 1,
+		ScanTargets: []model.ScanTarget{
+			{Type: model.TargetOCIImage, Value: "scratch"},
+		},
+	}
+	e := New(cfg)
+	// Intentionally register no modules — engine must handle empty pair list.
+	progressCh := make(chan Progress, 10)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result := e.Scan(ctx, progressCh)
+	require.NotNil(t, result)
+	assert.Empty(t, result.Findings)
 }

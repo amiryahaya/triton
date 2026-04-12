@@ -24,6 +24,8 @@ const (
 	TargetDatabase
 	TargetHSM
 	TargetLDAP
+	TargetOCIImage          // OCI image reference (e.g. nginx:1.25)
+	TargetKubernetesCluster // kubeconfig path (Wave 1 Sprint 1b)
 )
 
 // PQC readiness status constants.
@@ -213,6 +215,11 @@ type CryptoAsset struct {
 	KeyExchange    string   `json:"keyExchange,omitempty"`    // "ECDHE", "DHE", "RSA", "TLS13"
 	ForwardSecrecy bool     `json:"forwardSecrecy,omitempty"` // true if ECDHE/DHE
 	SANs           []string `json:"sans,omitempty"`           // Subject Alternative Names
+
+	// Container image annotation (populated by OCIImageModule delegation
+	// wrapper). Empty on filesystem-scan findings.
+	ImageRef    string `json:"imageRef,omitempty"`
+	ImageDigest string `json:"imageDigest,omitempty"`
 }
 
 // Summary holds aggregated statistics for a scan result.

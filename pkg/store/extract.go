@@ -69,6 +69,8 @@ func ExtractFindings(scan *model.ScanResult) []Finding {
 			Issuer:            ca.Issuer,
 			Reachability:      ca.Reachability,
 			CreatedAt:         now,
+			ImageRef:          ca.ImageRef,
+			ImageDigest:       ca.ImageDigest,
 		})
 	}
 	return out

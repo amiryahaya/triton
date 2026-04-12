@@ -93,6 +93,11 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "db_atrest")
 	// Wave 3 — Secrets manager config scanner (Enterprise).
 	assert.Contains(t, cfg.Modules, "secrets_mgr")
+	// Wave 3 — CI/CD provenance and supply chain signing scanner.
+	assert.Contains(t, cfg.Modules, "supply_chain")
+	// Wave 3 — Kerberos runtime + enrollment.
+	assert.Contains(t, cfg.Modules, "kerberos_runtime")
+	assert.Contains(t, cfg.Modules, "enrollment")
 
 	// Should have process and network targets
 	hasProcess := false

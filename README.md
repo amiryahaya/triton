@@ -8,7 +8,7 @@ An enterprise-grade, cross-platform CLI + server tool for generating Software Bi
 
 ## Features
 
-- **30 scanner modules across 9 CBOM categories + enterprise infrastructure** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, configs, network services, protocol probing, containers, cert stores (incl. Windows Root store + Java cacerts), databases, HSM, LDAP, code signing (incl. Windows Authenticode + JAR + git tags), dependency reachability (Go + Python + Node + Java), web server TLS (nginx/Apache/haproxy/Caddy), VPN (IPsec/WireGuard/OpenVPN), container supply chain (cosign/Notary/K8s SA tokens), service mesh mTLS (Istio/Linkerd/Consul), password hashing posture (/etc/shadow/PAM/pg_hba), auth material (Kerberos keytabs/GPG/Tor/DNSSEC/802.1X), XML DSig/SAML, mail server crypto (Postfix/Sendmail/DKIM), OIDC/JWKS probing
+- **31 scanner modules across 9 CBOM categories + enterprise infrastructure** — certificates, keys, libraries, binaries, kernel modules, scripts, web apps, configs, network services, protocol probing, containers, cert stores (incl. Windows Root store + Java cacerts), databases, HSM, LDAP, code signing (incl. Windows Authenticode + JAR + git tags), dependency reachability (Go + Python + Node + Java), web server TLS (nginx/Apache/haproxy/Caddy), VPN (IPsec/WireGuard/OpenVPN), container supply chain (cosign/Notary/K8s SA tokens), service mesh mTLS (Istio/Linkerd/Consul), password hashing posture (/etc/shadow/PAM/pg_hba), auth material (Kerberos keytabs/GPG/Tor/DNSSEC/802.1X), XML DSig/SAML, mail server crypto (Postfix/Sendmail/DKIM), OIDC/JWKS probing
 - **Static + active scanning** — passive file/code analysis plus runtime process inspection and active TLS/network probing
 - **Multi-language dependency reachability** — Go, Python, Node.js, and Java crypto library inventory from lockfiles/manifests; Go additionally gets full import graph classification (direct/transitive/unreachable)
 - **PQC algorithm detection** — ML-KEM, ML-DSA, SLH-DSA OID recognition in X.509 certificates, including hybrid/composite certs
@@ -124,9 +124,29 @@ deployed key (lower confidence).
 OIDC probing is a **Pro tier** feature and does **not** suppress the
 default host filesystem scan.
 
+### Scanning Kubernetes clusters
+
+Triton can connect to a live Kubernetes cluster and inventory TLS
+secrets, ingress bindings, webhook CA bundles, cluster CA, and
+cert-manager resources.
+
+```bash
+# Scan all namespaces
+triton --kubeconfig ~/.kube/config --k8s-context prod
+
+# Scan a specific namespace
+triton --kubeconfig ~/.kube/config --k8s-context prod --k8s-namespace default
+
+# In-cluster scanning (from a pod with a ServiceAccount)
+triton
+```
+
+Live Kubernetes scanning is an **Enterprise tier** feature. The host
+filesystem is **not** scanned when `--kubeconfig` is set.
+
 ## Scanning Categories
 
-Triton covers all 9 CBOM categories plus enterprise infrastructure with **30 scanner modules**:
+Triton covers all 9 CBOM categories plus enterprise infrastructure with **31 scanner modules**:
 
 ### CBOM Core (19 modules)
 
@@ -290,7 +310,7 @@ triton/
 │   ├── license/            # Ed25519 licence system (token, guard, tier, keygen)
 │   └── version/            # Version (set via ldflags at build time)
 ├── pkg/
-│   ├── scanner/            # Engine + 30 scanner modules
+│   ├── scanner/            # Engine + 31 scanner modules
 │   ├── crypto/             # PQC registry, OID detection, NACSA, CNSA 2.0, CAMM
 │   ├── model/              # Data model (ScanResult, System, Finding, CryptoAsset)
 │   ├── report/             # Excel, CycloneDX 1.7 CBOM, HTML, SARIF generators

@@ -7,6 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // fakeFetcher returns a pre-baked rootfs path without network access.
@@ -37,6 +40,14 @@ func (f *fakeFetcher) Fetch(ctx context.Context, ref string, creds ScanCredentia
 			return nil
 		},
 	}, nil
+}
+
+func TestOCIImage_ModuleInterface(t *testing.T) {
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := NewOCIImageModule(cfg)
+	assert.Equal(t, "oci_image", m.Name())
+	assert.Equal(t, model.CategoryPassiveFile, m.Category())
+	assert.Equal(t, model.TargetOCIImage, m.ScanTargetType())
 }
 
 func TestOCIImage_FakeFetcherReturnsFixture(t *testing.T) {

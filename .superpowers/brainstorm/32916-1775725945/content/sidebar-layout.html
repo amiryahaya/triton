@@ -1,0 +1,82 @@
+<h2>Sidebar Structure</h2>
+<p class="subtitle">Where should the three new views live in the nav?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup" style="margin:0;height:100%">
+        <div class="mockup-header">Option A · Flat list</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:13px">
+          <div style="padding:8px 12px;background:rgba(148,163,184,0.1);border-radius:6px;margin-bottom:4px">Overview</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Machines</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Scans</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Diff</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Trend</div>
+          <div style="padding:8px 12px;margin-bottom:4px;background:rgba(34,211,238,0.12);color:#22d3ee;border-radius:6px">✨ Inventory</div>
+          <div style="padding:8px 12px;margin-bottom:4px;background:rgba(34,211,238,0.12);color:#22d3ee;border-radius:6px">✨ Certificates</div>
+          <div style="padding:8px 12px;margin-bottom:4px;background:rgba(34,211,238,0.12);color:#22d3ee;border-radius:6px">✨ Priority</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Users</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · Flat list — three new top-level entries</h3>
+      <p>Each new view gets its own sidebar entry, alongside Overview / Machines / Scans / Diff / Trend. Matches the existing sidebar pattern exactly — no new UI concepts. Sidebar becomes 8 items deep.</p>
+      <p><strong>Best if:</strong> you want zero pattern change and equal visibility for all three views.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup" style="margin:0;height:100%">
+        <div class="mockup-header">Option B · Grouped Analytics section</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:13px">
+          <div style="padding:8px 12px;background:rgba(148,163,184,0.1);border-radius:6px;margin-bottom:4px">Overview</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Machines</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Scans</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Diff</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Trend</div>
+          <div style="padding:6px 12px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-top:12px;margin-bottom:2px">✨ Analytics</div>
+          <div style="padding:6px 12px 6px 24px;color:#22d3ee;font-size:12px">Inventory</div>
+          <div style="padding:6px 12px 6px 24px;color:#22d3ee;font-size:12px">Certificates</div>
+          <div style="padding:6px 12px 6px 24px;color:#22d3ee;font-size:12px">Priority</div>
+          <div style="padding:8px 12px;margin-top:8px">Users</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · Grouped Analytics section (recommended)</h3>
+      <p>A new section divider labelled "Analytics" groups the three views under one header. Existing entries stay flat. Gives the new views a conceptual home and makes future phases (phase 2 Executive summary, phase 6 Advanced) trivially slot in below.</p>
+      <p><strong>Best if:</strong> you want room to grow and a clear "this is the analytical surface" label.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup" style="margin:0;height:100%">
+        <div class="mockup-header">Option C · Absorb Diff + Trend into Analytics</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:13px">
+          <div style="padding:8px 12px;background:rgba(148,163,184,0.1);border-radius:6px;margin-bottom:4px">Overview</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Machines</div>
+          <div style="padding:8px 12px;margin-bottom:4px">Scans</div>
+          <div style="padding:6px 12px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-top:12px;margin-bottom:2px">Analytics</div>
+          <div style="padding:6px 12px 6px 24px;font-size:12px;color:#94a3b8">Diff</div>
+          <div style="padding:6px 12px 6px 24px;font-size:12px;color:#94a3b8">Trend</div>
+          <div style="padding:6px 12px 6px 24px;color:#22d3ee;font-size:12px">✨ Inventory</div>
+          <div style="padding:6px 12px 6px 24px;color:#22d3ee;font-size:12px">✨ Certificates</div>
+          <div style="padding:6px 12px 6px 24px;color:#22d3ee;font-size:12px">✨ Priority</div>
+          <div style="padding:8px 12px;margin-top:8px">Users</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · Absorb Diff + Trend into Analytics</h3>
+      <p>Same grouped section as B, but Diff and Trend move inside it. Argument: they're analytical tools too, so keeping all analytical surfaces together is consistent. Changes the navigation of existing features mid-rollout.</p>
+      <p><strong>Best if:</strong> you see Diff/Trend conceptually as analytics and want the nav to reflect that.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:24px">Click a card to select, or tell me in the terminal which direction feels right.</p>

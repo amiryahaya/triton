@@ -1,0 +1,93 @@
+<h2>Migration Priority View</h2>
+<p class="subtitle">"What should I fix first?" · top findings by priority score</p>
+
+<div class="section">
+  <p>This view sorts every finding in the org by its existing <code>MigrationPriority</code> score (0–100) descending and shows the worst offenders up top. It reuses the scoring that the scan engine already computes — no new heuristics, just a dedicated view for it.</p>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Migration Priority · Top 20 (default)</div>
+  <div class="mockup-body" style="padding:16px">
+
+    <!-- Summary banner -->
+    <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="padding:12px 16px;background:rgba(248,113,113,0.1);border-radius:8px;border:1px solid rgba(248,113,113,0.2);flex:1;min-width:140px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">Critical (priority ≥80)</div>
+        <div style="font-size:24px;font-weight:600;color:#f87171">14</div>
+      </div>
+      <div style="padding:12px 16px;background:rgba(251,146,60,0.1);border-radius:8px;border:1px solid rgba(251,146,60,0.2);flex:1;min-width:140px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">High (60–79)</div>
+        <div style="font-size:24px;font-weight:600;color:#fb923c">37</div>
+      </div>
+      <div style="padding:12px 16px;background:rgba(251,191,36,0.1);border-radius:8px;border:1px solid rgba(251,191,36,0.2);flex:1;min-width:140px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">Medium (40–59)</div>
+        <div style="font-size:24px;font-weight:600;color:#fbbf24">82</div>
+      </div>
+      <div style="padding:12px 16px;background:rgba(148,163,184,0.08);border-radius:8px;flex:1;min-width:140px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">Total findings</div>
+        <div style="font-size:24px;font-weight:600;color:#e2e8f0">847</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:rgba(148,163,184,0.08);text-align:left">
+          <th style="padding:10px 12px;width:60px;text-align:right">Score</th>
+          <th style="padding:10px 12px">Algorithm</th>
+          <th style="padding:10px 12px">Category</th>
+          <th style="padding:10px 12px">Host</th>
+          <th style="padding:10px 12px">Location</th>
+          <th style="padding:10px 12px">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#f87171">95</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">MD5</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">library</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">api-prod-01</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">/usr/lib/libmd5.so:12</td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">unsafe</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#f87171">92</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">SHA-1</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">codesign</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">build-01</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">/opt/app/signed.jar</td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">unsafe</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#f87171">89</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RSA-2048</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">certificate</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">mail-01</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">/etc/pki/mail.crt</td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">deprecated</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#f87171">87</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">DES</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">config</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">legacy-app-03</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">/etc/app/crypto.cfg:42</td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">unsafe</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#f87171">85</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RC4</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">protocol</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">vpn-01</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">:443 (TLS 1.0)</td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">unsafe</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#fb923c">72</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RSA-2048</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">key</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">api-prod-01</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">~/.ssh/id_rsa</td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">deprecated</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#fb923c">68</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">DH-1024</td><td style="padding:10px 12px;font-size:12px;color:#94a3b8">webapp</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">stage-lb-01</td><td style="padding:10px 12px;font-family:monospace;font-size:11px;color:#94a3b8">src/handshake.go:88</td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase">deprecated</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;text-align:right;color:#94a3b8;font-size:11px" colspan="6">· 13 more rows (showing top 20 of 847) · <span style="color:#22d3ee">Load all</span> ·</td></tr>
+      </tbody>
+    </table>
+
+  </div>
+</div>
+
+<h3 style="margin-top:32px">Default row limit — which feels right?</h3>
+<p class="subtitle">Load-all is always available; this sets the initial fetch size.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="20" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Top 20 ⭐</h3>
+      <p>Fits on one screen, matches "what should I fix this sprint" framing. Loads instantly. Operators who want more click "Load all." My recommendation.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="50" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Top 50</h3>
+      <p>A quarter's worth of work at a normal pace. More scrolling but fewer "I need to see more" clicks.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="all" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Everything, paginated server-side</h3>
+      <p>Infinite scroll / "Load more" button fetching pages of 50 at a time. Most flexible, most complex to implement, and for realistic org sizes (≤10,000 findings) pagination is overkill.</p>
+    </div>
+  </div>
+
+</div>
+
+<h3 style="margin-top:32px">Workflow features — explicitly <em>out of scope</em> for Phase 1</h3>
+<div class="section">
+  <p style="color:#94a3b8">Things like <em>"mark as in progress"</em>, <em>"dismiss this finding"</em>, <em>"assign to engineer"</em> are deliberately deferred. They'd require a new <code>finding_state</code> table, user-scoped mutation flows, audit entries, and tests — enough work to be its own phase. Phase 1 stays read-only: see the priorities, act on them outside Triton, verify on the next scan.</p>
+</div>

@@ -172,6 +172,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// RabbitMQ, NATS, Mosquitto, Redis. Pro tier.
 	e.RegisterModule(NewMessagingModule(e.config))
 
+	// Wave 3 — Database at-rest encryption scanner. Oracle Wallet,
+	// MySQL keyring, MSSQL TDE, PostgreSQL TDE, LUKS crypttab. Pro tier.
+	e.RegisterModule(NewDBAtRestModule(e.config))
+
 	// Wave 3 — Secrets manager config scanner. Vault seal/TLS,
 	// SOPS key refs, AWS KMS refs. Enterprise tier.
 	e.RegisterModule(NewSecretsMgrModule(e.config))

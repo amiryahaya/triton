@@ -1,0 +1,102 @@
+<h2>Phase 2 — Final Overview layout</h2>
+<p class="subtitle">All four components in place, top to bottom</p>
+
+<div class="mockup">
+  <div class="mockup-header">Overview — extended with executive summary block</div>
+  <div class="mockup-body" style="padding:20px;font-family:system-ui">
+
+    <h3 style="font-size:18px;color:#e2e8f0;margin:0 0 16px">Organization Overview</h3>
+
+    <!-- [1] NEW: compact summary bar -->
+    <div style="display:flex;align-items:center;gap:16px;padding:12px 16px;margin-bottom:16px;background:rgba(148,163,184,0.06);border:1px solid rgba(148,163,184,0.12);border-radius:10px;flex-wrap:wrap">
+      <div style="flex:0 0 auto;padding-right:12px;border-right:1px solid rgba(148,163,184,0.12)">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748b">Readiness</div>
+        <div style="font-size:26px;font-weight:700;color:#22d3ee;line-height:1.1">43.1%</div>
+      </div>
+      <span style="padding:6px 12px;border-radius:6px;font-size:12px;background:rgba(52,211,153,0.12);color:#34d399;white-space:nowrap">↗ improving · +2.3%</span>
+      <span style="padding:6px 12px;border-radius:6px;font-size:12px;background:rgba(248,113,113,0.12);color:#f87171;white-space:nowrap">NACSA-2030: FAIL · 12 violations</span>
+      <span style="padding:6px 12px;border-radius:6px;font-size:12px;background:rgba(251,191,36,0.12);color:#fbbf24;white-space:nowrap">CNSA-2.0: WARN · 5 violations</span>
+      <div style="flex:1 1 auto;text-align:right;font-size:12px;color:#34d399">On track — 80% by 2028</div>
+    </div>
+
+    <!-- [2] Stat cards row (existing, Machines card UPGRADED) -->
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
+      <div style="padding:14px;background:rgba(34,211,238,0.08);border-radius:8px">
+        <div style="font-size:22px;font-weight:700;color:#22d3ee">14</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:2px">Machines
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <span style="padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;background:rgba(248,113,113,0.18);color:#f87171">3</span>
+            <span style="padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;background:rgba(251,191,36,0.18);color:#fbbf24">5</span>
+            <span style="padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;background:rgba(52,211,153,0.18);color:#34d399">6</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px;background:rgba(34,211,238,0.08);border-radius:8px">
+        <div style="font-size:22px;font-weight:700;color:#22d3ee">956</div>
+        <div style="font-size:11px;color:#94a3b8">Total Findings</div>
+      </div>
+      <div style="padding:14px;background:rgba(52,211,153,0.08);border-radius:8px">
+        <div style="font-size:22px;font-weight:700;color:#34d399">412</div>
+        <div style="font-size:11px;color:#94a3b8">Safe</div>
+      </div>
+      <div style="padding:14px;background:rgba(251,191,36,0.08);border-radius:8px">
+        <div style="font-size:22px;font-weight:700;color:#fbbf24">287</div>
+        <div style="font-size:11px;color:#94a3b8">Transitional</div>
+      </div>
+      <div style="padding:14px;background:rgba(251,146,60,0.08);border-radius:8px">
+        <div style="font-size:22px;font-weight:700;color:#fb923c">189</div>
+        <div style="font-size:11px;color:#94a3b8">Deprecated</div>
+      </div>
+      <div style="padding:14px;background:rgba(248,113,113,0.08);border-radius:8px">
+        <div style="font-size:22px;font-weight:700;color:#f87171">68</div>
+        <div style="font-size:11px;color:#94a3b8">Unsafe</div>
+      </div>
+    </div>
+
+    <!-- [3] Charts (existing) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="padding:16px;background:rgba(148,163,184,0.04);border-radius:8px;text-align:center;color:#64748b;font-size:12px;min-height:120px;display:flex;align-items:center;justify-content:center">
+        [PQC Status Distribution — donut chart]
+      </div>
+      <div style="padding:16px;background:rgba(148,163,184,0.04);border-radius:8px;text-align:center;color:#64748b;font-size:12px;min-height:120px;display:flex;align-items:center;justify-content:center">
+        [Machines by Risk — bar chart]
+      </div>
+    </div>
+
+    <!-- [4] NEW: Top 5 blockers strip -->
+    <div style="padding:12px 16px;margin-bottom:16px;background:rgba(148,163,184,0.04);border:1px solid rgba(148,163,184,0.08);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;white-space:nowrap">Top priority blockers</div>
+      <div style="display:flex;gap:6px;flex:1;flex-wrap:wrap;align-items:center">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(248,113,113,0.1);border-radius:4px;font-size:11px">
+          <span style="font-weight:600;color:#f87171">95</span>
+          <span style="color:#e2e8f0">MD5</span>
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(248,113,113,0.1);border-radius:4px;font-size:11px">
+          <span style="font-weight:600;color:#f87171">92</span>
+          <span style="color:#e2e8f0">SHA-1</span>
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(251,146,60,0.1);border-radius:4px;font-size:11px">
+          <span style="font-weight:600;color:#fb923c">89</span>
+          <span style="color:#e2e8f0">RSA-2048</span>
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(248,113,113,0.1);border-radius:4px;font-size:11px">
+          <span style="font-weight:600;color:#f87171">87</span>
+          <span style="color:#e2e8f0">DES</span>
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(248,113,113,0.1);border-radius:4px;font-size:11px">
+          <span style="font-weight:600;color:#f87171">85</span>
+          <span style="color:#e2e8f0">RC4</span>
+        </span>
+      </div>
+      <a href="#/priority" style="color:#22d3ee;font-size:11px;white-space:nowrap;text-decoration:none">See all priorities →</a>
+    </div>
+
+    <!-- [5] Machines table (existing) -->
+    <div style="padding:14px;background:rgba(148,163,184,0.04);border-radius:6px;text-align:center;color:#64748b;font-size:11px">
+      [existing machines table — unchanged]
+    </div>
+
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:24px;text-align:center">This is how the final Overview page will render. Summary bar on top, upgraded Machines card in the stat row, Top Blockers strip after the charts.</p>

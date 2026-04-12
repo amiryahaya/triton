@@ -1,0 +1,81 @@
+<h2>Crypto Inventory Table — Row Grain</h2>
+<p class="subtitle">What does one row represent?</p>
+
+<div class="section">
+  <p>The inventory view aggregates findings across every machine in the org. The key question is how finely to group them — too coarse and you can't see which key sizes are the problem; too fine and the table becomes noisy.</p>
+</div>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>One row per (algorithm, key_size) — flat</h3>
+      <p class="subtitle">Each distinct algorithm+size combination is its own row. Natural fit for PQC classification (which varies by size).</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Crypto Inventory · Flat by (algorithm, key_size)</div>
+        <div class="mockup-body" style="padding:0">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:rgba(148,163,184,0.08);text-align:left">
+                <th style="padding:10px 12px">Algorithm</th>
+                <th style="padding:10px 12px">Size</th>
+                <th style="padding:10px 12px">Status</th>
+                <th style="padding:10px 12px;text-align:right">Instances</th>
+                <th style="padding:10px 12px;text-align:right">Machines</th>
+                <th style="padding:10px 12px;text-align:right">Max Priority</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace">RSA</td><td style="padding:10px 12px;font-family:monospace">2048</td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">deprecated</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">47</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">12</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#f87171">87</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace">RSA</td><td style="padding:10px 12px;font-family:monospace">3072</td><td style="padding:10px 12px"><span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">transitional</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">12</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">4</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">54</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace">ECDSA</td><td style="padding:10px 12px;font-family:monospace">P-256</td><td style="padding:10px 12px"><span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">transitional</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">31</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">8</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">60</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace">ECDSA</td><td style="padding:10px 12px;font-family:monospace">P-384</td><td style="padding:10px 12px"><span style="background:rgba(52,211,153,0.15);color:#34d399;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">safe</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">9</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">3</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#94a3b8">—</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace">SHA-1</td><td style="padding:10px 12px;font-family:monospace">—</td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">unsafe</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">18</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">7</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#f87171">95</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace">AES</td><td style="padding:10px 12px;font-family:monospace">256</td><td style="padding:10px 12px"><span style="background:rgba(52,211,153,0.15);color:#34d399;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">safe</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">412</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">14</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#94a3b8">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p style="margin-top:12px"><strong>Row counts (realistic org):</strong> ~20–40 rows across all categories. Sortable by any column. Click a row to drill down to findings filtered by that (algo, size).</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Grouped by algorithm, expandable by size</h3>
+      <p class="subtitle">Each algorithm family collapses into one row that expands on click to reveal per-size details.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Crypto Inventory · Grouped + expandable</div>
+        <div class="mockup-body" style="padding:0">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:rgba(148,163,184,0.08);text-align:left">
+                <th style="padding:10px 12px" colspan="2">Algorithm</th>
+                <th style="padding:10px 12px">Worst Status</th>
+                <th style="padding:10px 12px;text-align:right">Total Instances</th>
+                <th style="padding:10px 12px;text-align:right">Machines</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08);cursor:pointer"><td style="padding:10px 4px 10px 12px;width:20px;color:#94a3b8">▼</td><td style="padding:10px 12px;font-family:monospace"><strong>RSA</strong></td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">deprecated</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">59</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">14</td></tr>
+              <tr style="background:rgba(148,163,184,0.04)"><td></td><td style="padding:6px 12px 6px 32px;font-family:monospace;color:#94a3b8;font-size:12px">2048-bit</td><td style="padding:6px 12px;font-size:11px;color:#fb923c">deprecated</td><td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">47</td><td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">12</td></tr>
+              <tr style="background:rgba(148,163,184,0.04)"><td></td><td style="padding:6px 12px 6px 32px;font-family:monospace;color:#94a3b8;font-size:12px">3072-bit</td><td style="padding:6px 12px;font-size:11px;color:#fbbf24">transitional</td><td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">12</td><td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">4</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08);cursor:pointer"><td style="padding:10px 4px 10px 12px;width:20px;color:#94a3b8">▸</td><td style="padding:10px 12px;font-family:monospace"><strong>ECDSA</strong></td><td style="padding:10px 12px"><span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">transitional</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">40</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">11</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08);cursor:pointer"><td style="padding:10px 4px 10px 12px;width:20px;color:#94a3b8">▸</td><td style="padding:10px 12px;font-family:monospace"><strong>SHA-1</strong></td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">unsafe</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">18</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">7</td></tr>
+              <tr style="border-top:1px solid rgba(148,163,184,0.08);cursor:pointer"><td style="padding:10px 4px 10px 12px;width:20px;color:#94a3b8">▸</td><td style="padding:10px 12px;font-family:monospace"><strong>AES</strong></td><td style="padding:10px 12px"><span style="background:rgba(52,211,153,0.15);color:#34d399;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">safe</span></td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">412</td><td style="padding:10px 12px;text-align:right;font-variant-numeric:tabular-nums">14</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p style="margin-top:12px"><strong>Row counts:</strong> ~8–15 top-level rows, expanding to ~20–40 total. More compact at first glance but hides the key-size breakdown behind a click.</p>
+    </div>
+  </div>
+
+</div>
+
+<h3 style="margin-top:32px">Hybrid — starting point depends on what you pick</h3>
+<div class="section">
+  <p>Both options can support the same drill-down (click → filtered findings list). Both can support filters/sorts. The difference is really whether an operator's first glance should show <em>"RSA-2048 is the one killing me"</em> (Option A) or <em>"RSA is the family killing me, let me expand to see which size"</em> (Option B).</p>
+</div>

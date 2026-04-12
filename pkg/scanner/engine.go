@@ -163,6 +163,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 2 §6.5 — Network infrastructure config scanner. Parses
 	// SNMPv3, BGP, NTS, syslog-TLS, 802.1X/RADIUS configs. Pro tier.
 	e.RegisterModule(NewNetInfraModule(e.config))
+
+	// Wave 2 §6.4 — Firmware / Secure Boot scanner. EFI variables,
+	// MOK chain, TPM version. Linux-first, Pro tier.
+	e.RegisterModule(NewFirmwareModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

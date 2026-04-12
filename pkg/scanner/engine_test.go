@@ -54,17 +54,17 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 34 modules:
+	// Should register all 35 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
 	// + mail_server (Enterprise sprint) + oci_image (Wave 0)
 	// + oidc_probe (Wave 2) + k8s_live (Sprint 1b)
 	// + dnssec (Wave 2 §6.1) + vpn_runtime (Wave 2 §6.3)
-	// + netinfra (Wave 2 §6.5).
+	// + netinfra (Wave 2 §6.5) + firmware (Wave 2 §6.4).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 34)
+	assert.Len(t, eng.modules, 35)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -135,6 +135,9 @@ func TestRegisterDefaultModules(t *testing.T) {
 
 	// Wave 2 §6.5 — Network infrastructure config scanner.
 	assert.True(t, names["netinfra"])
+
+	// Wave 2 §6.4 — Firmware / Secure Boot scanner.
+	assert.True(t, names["firmware"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

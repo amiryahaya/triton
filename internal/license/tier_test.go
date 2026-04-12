@@ -118,6 +118,7 @@ func TestAllowedModules(t *testing.T) {
 	assert.Contains(t, pro, "dnssec")
 	assert.Contains(t, pro, "vpn_runtime")
 	assert.Contains(t, pro, "netinfra")
+	assert.Contains(t, pro, "firmware")
 	assert.NotContains(t, pro, "k8s_live", "k8s_live is enterprise-only")
 
 	// Enterprise returns nil (all modules allowed)

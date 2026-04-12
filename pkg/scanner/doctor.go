@@ -128,6 +128,11 @@ func moduleDependencies() map[string][]platformTool {
 			{os: "linux", tool: "dig"},
 			{os: "darwin", tool: "dig"},
 		},
+		// Wave 2 §6.4 — mokutil is optional for MOK chain enumeration.
+		// EFI var and TPM checks read sysfs directly.
+		"firmware": {
+			{os: "linux", tool: "mokutil"},
+		},
 		// Wave 2 §6.3 — ipsec, wg, and cat are optional for live VPN
 		// state probing. Module degrades gracefully if any are missing.
 		"vpn_runtime": {

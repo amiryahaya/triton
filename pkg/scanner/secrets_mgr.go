@@ -337,6 +337,8 @@ func (m *SecretsMgrModule) parseAzureKVConfig(path string, data []byte) []*model
 // Age uses X25519 for key exchange and ChaCha20-Poly1305 for encryption.
 func (m *SecretsMgrModule) parseSOPSAgeKeys(path string, data []byte) []*model.Finding {
 	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	defer func() { logScannerErr(path, "sops-age", sc.Err()) }()
 	hasKey := false
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())

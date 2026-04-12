@@ -281,8 +281,11 @@ func (m *NetInfraModule) parseRPKIConfig(path string, data []byte) []*model.Find
 		}
 		lower := strings.ToLower(line)
 
-		// Trust Anchor Locator references
-		if strings.Contains(lower, "tal") || strings.Contains(lower, "trust-anchor") || strings.Contains(lower, "trust_anchor") {
+		// Trust Anchor Locator references — boundary-aware to avoid
+		// false positives on words like "total" or "install".
+		if strings.Contains(lower, "tal-dir") || strings.Contains(lower, "tal_dir") ||
+			strings.HasPrefix(lower, "tal ") || strings.HasPrefix(lower, "tal=") ||
+			strings.Contains(lower, "trust-anchor") || strings.Contains(lower, "trust_anchor") {
 			hasTAL = true
 		}
 	}

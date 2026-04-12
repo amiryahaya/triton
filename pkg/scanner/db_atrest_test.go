@@ -156,8 +156,9 @@ swap_crypt /dev/sda3 /dev/urandom swap,cipher=aes-xts-plain64,size=256
 root_crypt UUID=wxyz-9876 none luks
 `
 	m := &DBAtRestModule{}
-	findings := m.parseCrypttab("/etc/crypttab", []byte(conf))
+	findings, devices := m.parseCrypttab("/etc/crypttab", []byte(conf))
 	require.NotEmpty(t, findings)
+	require.Len(t, devices, len(findings), "devices slice parallel to findings")
 
 	funcSet := make(map[string]bool)
 	algoSet := make(map[string]bool)
@@ -173,7 +174,7 @@ func TestParseCrypttab_Empty(t *testing.T) {
 	conf := `# empty crypttab
 `
 	m := &DBAtRestModule{}
-	findings := m.parseCrypttab("/etc/crypttab", []byte(conf))
+	findings, _ := m.parseCrypttab("/etc/crypttab", []byte(conf))
 	assert.Empty(t, findings)
 }
 
@@ -181,9 +182,10 @@ func TestParseCrypttab_SwapOnly(t *testing.T) {
 	conf := `swap /dev/sda2 /dev/urandom swap,cipher=aes-cbc-essiv:sha256,size=256
 `
 	m := &DBAtRestModule{}
-	findings := m.parseCrypttab("/etc/crypttab", []byte(conf))
+	findings, devices := m.parseCrypttab("/etc/crypttab", []byte(conf))
 	require.Len(t, findings, 1)
 	assert.Equal(t, "AES-CBC", findings[0].CryptoAsset.Algorithm)
+	assert.Equal(t, "/dev/sda2", devices[0], "device path from crypttab")
 }
 
 // --- PostgreSQL TDE tests ---

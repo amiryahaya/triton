@@ -145,17 +145,13 @@ func (m *DBAtRestModule) parseFile(ctx context.Context, path string) []*model.Fi
 		if err != nil {
 			return nil
 		}
-		findings := m.parseCrypttab(path, data)
+		findings, devices := m.parseCrypttab(path, data)
 		// For LUKS entries, try luksDump to get precise cipher + key size.
 		// Requires cryptsetup and read access to the device (typically root).
-		for _, f := range findings {
-			if f.CryptoAsset.Algorithm == "LUKS" {
-				// Extract device from finding purpose ("crypttab volume <name>")
-				// and try luksDump for richer data.
-				luksFindings := m.parseLuksDump(ctx, f.Source.Path)
-				if len(luksFindings) > 0 {
-					findings = append(findings, luksFindings...)
-				}
+		for i, f := range findings {
+			if f.CryptoAsset.Algorithm == "LUKS" && i < len(devices) && devices[i] != "" {
+				luksFindings := m.parseLuksDump(ctx, devices[i])
+				findings = append(findings, luksFindings...)
 			}
 		}
 		return findings
@@ -347,8 +343,9 @@ var crypttabCipherMap = map[string]string{
 	"xchacha12,aes-adiantum-plain64": "Adiantum",
 }
 
-func (m *DBAtRestModule) parseCrypttab(path string, data []byte) []*model.Finding {
-	var out []*model.Finding
+// parseCrypttab returns findings and a parallel slice of source device
+// paths (fields[1] from each crypttab line) for luksDump enrichment.
+func (m *DBAtRestModule) parseCrypttab(path string, data []byte) (findings []*model.Finding, devicePaths []string) {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	defer func() { logScannerErr(path, "crypttab", sc.Err()) }()
@@ -398,10 +395,11 @@ func (m *DBAtRestModule) parseCrypttab(path string, data []byte) []*model.Findin
 			continue
 		}
 
-		out = append(out, m.dbAtRestFinding(path, "Disk encryption volume", algo,
+		findings = append(findings, m.dbAtRestFinding(path, "Disk encryption volume", algo,
 			fmt.Sprintf("crypttab volume %s", target)))
+		devicePaths = append(devicePaths, fields[1]) // source device (e.g. UUID=... or /dev/sda2)
 	}
-	return out
+	return findings, devicePaths
 }
 
 // parseLuksDump runs `cryptsetup luksDump <device>` and extracts cipher info.

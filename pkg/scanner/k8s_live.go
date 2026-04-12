@@ -329,9 +329,82 @@ func (m *K8sLiveModule) scanRootCA(ctx context.Context, client k8sClient, k8sCtx
 	}
 }
 
-// scanCertManager is implemented in Task 4.
+// certManagerAlgoMap normalizes cert-manager spec.privateKey.algorithm
+// values to canonical crypto registry names.
+var certManagerAlgoMap = map[string]string{
+	"RSA":     "RSA",
+	"ECDSA":   "ECDSA",
+	"Ed25519": "Ed25519",
+}
+
 func (m *K8sLiveModule) scanCertManager(ctx context.Context, client k8sClient, k8sCtx, namespace string, findings chan<- *model.Finding) {
-	// Implemented in Task 4
+	has, err := client.HasAPIGroup("cert-manager.io")
+	if err != nil {
+		log.Printf("k8s_live: check cert-manager API group: %v", err)
+		return
+	}
+	if !has {
+		return
+	}
+
+	certs, err := client.ListCertManagerCertificates(ctx, namespace)
+	if err != nil {
+		log.Printf("k8s_live: list cert-manager certificates: %v", err)
+	} else {
+		for _, c := range certs {
+			endpoint := fmt.Sprintf("%s/%s/Certificate/%s", k8sCtx, c.Namespace, c.Name)
+			algo := c.Algorithm
+			if canonical, ok := certManagerAlgoMap[algo]; ok {
+				if canonical == "ECDSA" && c.KeySize > 0 {
+					algo = fmt.Sprintf("ECDSA-P%d", c.KeySize)
+				} else {
+					algo = canonical
+				}
+			}
+			asset := &model.CryptoAsset{
+				Algorithm: algo,
+				KeySize:   c.KeySize,
+				Purpose:   "authentication",
+				Function:  "cert-manager Certificate",
+			}
+			crypto.ClassifyCryptoAsset(asset)
+			m.emitFinding(ctx, endpoint, asset, 5, 0.85, findings)
+		}
+	}
+
+	issuers, err := client.ListCertManagerIssuers(ctx, namespace)
+	if err != nil {
+		log.Printf("k8s_live: list cert-manager issuers: %v", err)
+	} else {
+		for _, iss := range issuers {
+			endpoint := fmt.Sprintf("%s/%s/%s/%s", k8sCtx, iss.Namespace, iss.Kind, iss.Name)
+			asset := &model.CryptoAsset{
+				Purpose:  "certificate-management",
+				Function: fmt.Sprintf("cert-manager %s", iss.Kind),
+			}
+			if iss.CASecret != "" {
+				asset.Function += fmt.Sprintf(" (CA secret: %s)", iss.CASecret)
+			}
+			m.emitFinding(ctx, endpoint, asset, 5, 0.80, findings)
+		}
+	}
+
+	clusterIssuers, err := client.ListCertManagerClusterIssuers(ctx)
+	if err != nil {
+		log.Printf("k8s_live: list cert-manager cluster issuers: %v", err)
+	} else {
+		for _, iss := range clusterIssuers {
+			endpoint := fmt.Sprintf("%s/ClusterIssuer/%s", k8sCtx, iss.Name)
+			asset := &model.CryptoAsset{
+				Purpose:  "certificate-management",
+				Function: "cert-manager ClusterIssuer",
+			}
+			if iss.CASecret != "" {
+				asset.Function += fmt.Sprintf(" (CA secret: %s)", iss.CASecret)
+			}
+			m.emitFinding(ctx, endpoint, asset, 5, 0.80, findings)
+		}
+	}
 }
 
 // newRealK8sClientFactory returns the production client factory.

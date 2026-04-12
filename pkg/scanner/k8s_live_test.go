@@ -166,6 +166,112 @@ func testCertPEM(t *testing.T) (certPEM, keyPEM []byte) {
 	return
 }
 
+func TestK8sLive_CertManagerCertificate(t *testing.T) {
+	fc := &fakeK8sClient{
+		certManagerCerts: []k8sCertManagerCert{
+			{Namespace: "default", Name: "my-cert", Algorithm: "ECDSA", KeySize: 384, IssuerRef: "letsencrypt"},
+		},
+		hasAPIGroups: map[string]bool{"cert-manager.io": true},
+	}
+	fakeFactory := &fakeK8sClientFactory{client: fc}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, fakeFactory)
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetKubernetesCluster, Value: "/fake",
+	}, findings)
+	close(findings)
+	<-done
+
+	require.GreaterOrEqual(t, len(collected), 1)
+	var certFinding *model.Finding
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "cert-manager Certificate" {
+			certFinding = f
+		}
+	}
+	require.NotNil(t, certFinding)
+	assert.Equal(t, "ECDSA-P384", certFinding.CryptoAsset.Algorithm)
+	assert.Equal(t, 384, certFinding.CryptoAsset.KeySize)
+	assert.Equal(t, 0.85, certFinding.Confidence)
+	assert.Contains(t, certFinding.Source.Endpoint, "Certificate/my-cert")
+}
+
+func TestK8sLive_CertManagerIssuer(t *testing.T) {
+	fc := &fakeK8sClient{
+		certManagerIssuers: []k8sCertManagerIssuer{
+			{Namespace: "default", Name: "letsencrypt", Kind: "Issuer", CASecret: "ca-secret"},
+		},
+		hasAPIGroups: map[string]bool{"cert-manager.io": true},
+	}
+	fakeFactory := &fakeK8sClientFactory{client: fc}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, fakeFactory)
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetKubernetesCluster, Value: "/fake",
+	}, findings)
+	close(findings)
+	<-done
+
+	var issuerFinding *model.Finding
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "cert-manager Issuer (CA secret: ca-secret)" {
+			issuerFinding = f
+		}
+	}
+	require.NotNil(t, issuerFinding)
+	assert.Equal(t, 0.80, issuerFinding.Confidence)
+	assert.Contains(t, issuerFinding.Source.Endpoint, "Issuer/letsencrypt")
+}
+
+func TestK8sLive_CertManagerNotInstalled(t *testing.T) {
+	fc := &fakeK8sClient{
+		hasAPIGroups: map[string]bool{"cert-manager.io": false},
+	}
+	fakeFactory := &fakeK8sClientFactory{client: fc}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, fakeFactory)
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetKubernetesCluster, Value: "/fake",
+	}, findings)
+	close(findings)
+	<-done
+
+	assert.Empty(t, collected, "no cert-manager findings when API group absent")
+}
+
 func TestK8sLive_FakeClientWorks(t *testing.T) {
 	fc := &fakeK8sClient{
 		tlsSecrets: []k8sTLSSecret{

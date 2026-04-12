@@ -189,17 +189,18 @@ func defaultScanTargets(depth int) []model.ScanTarget {
 // Keeps config construction in one place rather than scattered field
 // assignments across cmd/root.go.
 type BuildOptions struct {
-	Profile      string
-	Modules      []string // explicit --modules override; empty means "use profile"
-	ImageRefs    []string
-	Kubeconfig   string
-	K8sContext   string
-	RegistryAuth string
-	RegistryUser string
-	RegistryPass string
-	DBUrl        string
-	Metrics      bool
-	Incremental  bool
+	Profile       string
+	Modules       []string // explicit --modules override; empty means "use profile"
+	ImageRefs     []string
+	Kubeconfig    string
+	K8sContext    string
+	RegistryAuth  string
+	RegistryUser  string
+	RegistryPass  string
+	DBUrl         string
+	Metrics       bool
+	Incremental   bool
+	OIDCEndpoints []string
 }
 
 // BuildConfig is the canonical constructor for scannerconfig.Config given
@@ -260,6 +261,22 @@ func BuildConfig(opts BuildOptions) (*Config, error) {
 	// engine's shouldRunModule check skips any module not listed in cfg.Modules.
 	if imageMode && !containsModule(cfg.Modules, "oci_image") {
 		cfg.Modules = append(cfg.Modules, "oci_image")
+	}
+
+	// Inject oidc_probe module and add TargetNetwork entries for each OIDC
+	// endpoint supplied via --oidc-endpoint. Unlike --image, OIDC probing does
+	// NOT suppress filesystem defaults: the caller still wants a full file-system
+	// scan plus the additional OIDC discovery checks in the same run.
+	if len(opts.OIDCEndpoints) > 0 {
+		if !containsModule(cfg.Modules, "oidc_probe") {
+			cfg.Modules = append(cfg.Modules, "oidc_probe")
+		}
+		for _, ep := range opts.OIDCEndpoints {
+			cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+				Type:  model.TargetNetwork,
+				Value: ep,
+			})
+		}
 	}
 
 	return cfg, nil

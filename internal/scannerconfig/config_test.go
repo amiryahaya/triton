@@ -277,3 +277,47 @@ func TestBuildConfig_NoImageDoesNotInjectOCIImageModule(t *testing.T) {
 		assert.NotEqual(t, "oci_image", mod, "oci_image must not be present without --image flag")
 	}
 }
+
+func TestBuildConfig_OIDCEndpointInjectsModule(t *testing.T) {
+	opts := BuildOptions{
+		Profile:       "standard",
+		OIDCEndpoints: []string{"https://auth.example.com"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+	assert.Contains(t, cfg.Modules, "oidc_probe")
+}
+
+func TestBuildConfig_OIDCEndpointAddsTarget(t *testing.T) {
+	opts := BuildOptions{
+		Profile:       "standard",
+		OIDCEndpoints: []string{"https://auth.example.com"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var found bool
+	for _, tgt := range cfg.ScanTargets {
+		if tgt.Type == model.TargetNetwork && tgt.Value == "https://auth.example.com" {
+			found = true
+		}
+	}
+	assert.True(t, found, "OIDC endpoint must appear as TargetNetwork")
+}
+
+func TestBuildConfig_OIDCDoesNotSuppressFilesystem(t *testing.T) {
+	opts := BuildOptions{
+		Profile:       "standard",
+		OIDCEndpoints: []string{"https://auth.example.com"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var fsCount int
+	for _, tgt := range cfg.ScanTargets {
+		if tgt.Type == model.TargetFilesystem {
+			fsCount++
+		}
+	}
+	assert.Greater(t, fsCount, 0, "filesystem defaults must be preserved with --oidc-endpoint")
+}

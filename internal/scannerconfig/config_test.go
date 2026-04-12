@@ -98,6 +98,10 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	// Wave 3 — Kerberos runtime + enrollment.
 	assert.Contains(t, cfg.Modules, "kerberos_runtime")
 	assert.Contains(t, cfg.Modules, "enrollment")
+	// Wave 4 — FIDO2/WebAuthn + blockchain wallets + Helm charts.
+	assert.Contains(t, cfg.Modules, "fido2")
+	assert.Contains(t, cfg.Modules, "blockchain")
+	assert.Contains(t, cfg.Modules, "helm_chart")
 
 	// Should have process and network targets
 	hasProcess := false

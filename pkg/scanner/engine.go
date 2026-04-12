@@ -191,6 +191,18 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 3 — SCEP/EST/ACME enrollment scanner. Certbot keys,
 	// renewal configs, step-ca. Pro tier.
 	e.RegisterModule(NewEnrollmentModule(e.config))
+
+	// Wave 4 — FIDO2/WebAuthn credential scanner. pam-u2f keys,
+	// WebAuthn RP pubKeyCredParams. Pro tier.
+	e.RegisterModule(NewFIDO2Module(e.config))
+
+	// Wave 4 — Blockchain wallet scanner. Bitcoin wallet.dat,
+	// Ethereum keystore cipher/KDF, Solana keypair. Pro tier.
+	e.RegisterModule(NewBlockchainModule(e.config))
+
+	// Wave 4 — Helm chart CBOM scanner. Chart.yaml identity,
+	// values.yaml TLS/cert-manager references. Pro tier.
+	e.RegisterModule(NewHelmChartModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

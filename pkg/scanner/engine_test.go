@@ -54,14 +54,14 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 28 modules:
+	// Should register all 29 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
-	// + mail_server (Enterprise sprint). certstore Windows/Java
-	// cacerts + codesign git verify were added as extensions,
-	// not new modules.
-	assert.Len(t, eng.modules, 28)
+	// + mail_server (Enterprise sprint) + oci_image (Wave 0).
+	// certstore Windows/Java cacerts + codesign git verify were
+	// added as extensions, not new modules.
+	assert.Len(t, eng.modules, 29)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -114,6 +114,9 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.True(t, names["service_mesh"])
 	assert.True(t, names["xml_dsig"])
 	assert.True(t, names["mail_server"])
+
+	// Wave 0 — OCI image scanner.
+	assert.True(t, names["oci_image"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

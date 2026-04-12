@@ -83,7 +83,10 @@ var profiles = map[string]ScanProfile{
 		// Fast Wins sprint — password_hash + auth_material
 		// cover every remaining canonical auth-material surface
 		// on Linux/BSD hosts.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server"},
+		//
+		// Wave 0 — OCI image scanning module for pulling and
+		// analyzing container images (requires explicit --image flag).
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},

@@ -171,6 +171,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 3 — Messaging broker TLS/SASL config scanner. Kafka,
 	// RabbitMQ, NATS, Mosquitto, Redis. Pro tier.
 	e.RegisterModule(NewMessagingModule(e.config))
+
+	// Wave 3 — Secrets manager config scanner. Vault seal/TLS,
+	// SOPS key refs, AWS KMS refs. Enterprise tier.
+	e.RegisterModule(NewSecretsMgrModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

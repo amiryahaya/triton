@@ -121,6 +121,7 @@ func TestAllowedModules(t *testing.T) {
 	assert.Contains(t, pro, "firmware")
 	assert.Contains(t, pro, "messaging")
 	assert.NotContains(t, pro, "k8s_live", "k8s_live is enterprise-only")
+	assert.NotContains(t, pro, "secrets_mgr", "secrets_mgr is enterprise-only")
 
 	// Enterprise returns nil (all modules allowed)
 	assert.Nil(t, AllowedModules(TierEnterprise))

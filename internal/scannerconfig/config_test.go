@@ -321,3 +321,24 @@ func TestBuildConfig_OIDCDoesNotSuppressFilesystem(t *testing.T) {
 	}
 	assert.Greater(t, fsCount, 0, "filesystem defaults must be preserved with --oidc-endpoint")
 }
+
+func TestBuildConfig_KubeconfigInjectsK8sLiveModule(t *testing.T) {
+	opts := BuildOptions{
+		Profile:    "standard",
+		Kubeconfig: "/home/alice/.kube/config",
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+	assert.Contains(t, cfg.Modules, "k8s_live")
+}
+
+func TestBuildConfig_K8sNamespacePassedThrough(t *testing.T) {
+	opts := BuildOptions{
+		Profile:      "standard",
+		Kubeconfig:   "/home/alice/.kube/config",
+		K8sNamespace: "prod",
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", cfg.K8sNamespace)
+}

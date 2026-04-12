@@ -179,6 +179,26 @@ tls {
 	assert.True(t, hasCipher)
 }
 
+func TestParseNATS_InlineCipherSuites(t *testing.T) {
+	conf := `tls {
+  cert_file: "/etc/nats/cert.pem"
+  key_file: "/etc/nats/key.pem"
+  cipher_suites: ["TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384"]
+} # end tls
+`
+	m := &MessagingModule{}
+	findings := m.parseNATSConfig("/etc/nats/nats-server.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+
+	cipherCount := 0
+	for _, f := range findings {
+		if f.CryptoAsset.Function == "NATS TLS cipher suite" {
+			cipherCount++
+		}
+	}
+	assert.Equal(t, 2, cipherCount, "two inline cipher suites")
+}
+
 func TestParseNATS_NoTLS(t *testing.T) {
 	conf := `port: 4222
 `

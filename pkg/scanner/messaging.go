@@ -261,7 +261,7 @@ func (m *MessagingModule) parseNATSConfig(path string, data []byte) []*model.Fin
 			hasTLSBlock = true
 			continue
 		}
-		if inTLS && line == "}" {
+		if inTLS && strings.HasPrefix(line, "}") {
 			inTLS = false
 			continue
 		}

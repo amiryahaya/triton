@@ -104,14 +104,21 @@ func isSecretsMgrConfigFile(path string) bool {
 		return true
 	}
 
-	// Azure Key Vault configs — parser deferred; matcher removed until it exists.
+	// Azure Key Vault configs
+	if strings.Contains(lower, "/azure/") && strings.Contains(lower, "keyvault") &&
+		(strings.HasSuffix(base, ".json") || strings.HasSuffix(base, ".conf") || strings.HasSuffix(base, ".yaml")) {
+		return true
+	}
 
 	// SOPS config
 	if base == ".sops.yaml" || base == ".sops.yml" {
 		return true
 	}
 
-	// SOPS age key files — parser deferred; matcher removed until it exists.
+	// SOPS age key files
+	if strings.Contains(lower, "/sops/") && strings.Contains(lower, "/age/") {
+		return true
+	}
 
 	return false
 }
@@ -128,6 +135,10 @@ func (m *SecretsMgrModule) parseConfig(path string, data []byte) []*model.Findin
 		return m.parseSOPSConfig(path, data)
 	case strings.Contains(lower, ".aws/") || (strings.Contains(lower, "/aws/") && base == "config"):
 		return m.parseAWSConfig(path, data)
+	case strings.Contains(lower, "/azure/") && strings.Contains(lower, "keyvault"):
+		return m.parseAzureKVConfig(path, data)
+	case strings.Contains(lower, "/sops/") && strings.Contains(lower, "/age/"):
+		return m.parseSOPSAgeKeys(path, data)
 	}
 	return nil
 }
@@ -280,6 +291,72 @@ func (m *SecretsMgrModule) parseAWSConfig(path string, data []byte) []*model.Fin
 		}
 	}
 	return out
+}
+
+// --- Azure Key Vault ---
+
+// parseAzureKVConfig detects Azure Key Vault configuration references.
+func (m *SecretsMgrModule) parseAzureKVConfig(path string, data []byte) []*model.Finding {
+	var out []*model.Finding
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	defer func() { logScannerErr(path, "azure-kv", sc.Err()) }()
+
+	base := filepath.Base(path)
+	hasVaultURL := false
+	hasKeyName := false
+
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "vault.azure.net") || strings.Contains(lower, "vault-url") || strings.Contains(lower, "vaulturl") {
+			hasVaultURL = true
+		}
+		if strings.Contains(lower, "key-name") || strings.Contains(lower, "keyname") || strings.Contains(lower, "key_name") {
+			hasKeyName = true
+		}
+	}
+
+	if hasVaultURL {
+		out = append(out, m.secretsMgrFinding(path, "Azure Key Vault reference", "Azure-Key-Vault",
+			fmt.Sprintf("Azure KV endpoint in %s", base)))
+	}
+	if hasKeyName {
+		out = append(out, m.secretsMgrFinding(path, "Azure Key Vault key reference", "Azure-Key-Vault",
+			fmt.Sprintf("Azure KV key-name in %s", base)))
+	}
+	return out
+}
+
+// --- SOPS age key files ---
+
+// parseSOPSAgeKeys detects age key files used by SOPS for encryption.
+// Age uses X25519 for key exchange and ChaCha20-Poly1305 for encryption.
+func (m *SecretsMgrModule) parseSOPSAgeKeys(path string, data []byte) []*model.Finding {
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	defer func() { logScannerErr(path, "sops-age", sc.Err()) }()
+	hasKey := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// age secret keys start with AGE-SECRET-KEY-
+		// age public keys start with age1
+		if strings.HasPrefix(line, "AGE-SECRET-KEY-") || strings.HasPrefix(line, "age1") {
+			hasKey = true
+			break
+		}
+	}
+	if !hasKey {
+		return nil
+	}
+	return []*model.Finding{m.secretsMgrFinding(path, "SOPS age key file", "X25519",
+		fmt.Sprintf("age key in %s", filepath.Base(path)))}
 }
 
 // --- finding builder ---

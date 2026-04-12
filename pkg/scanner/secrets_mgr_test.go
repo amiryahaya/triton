@@ -28,16 +28,16 @@ func TestIsSecretsMgrConfigFile(t *testing.T) {
 		{"/home/user/.aws/config", true},
 		{"/etc/aws/config", true},
 
-		// Azure — parser deferred, matcher removed
-		{"/etc/azure/keyvault.conf", false},
-		{"/opt/azure/keyvault.json", false},
+		// Azure Key Vault
+		{"/etc/azure/keyvault.conf", true},
+		{"/opt/azure/keyvault.json", true},
 
 		// SOPS
 		{".sops.yaml", true},
 		{"/repo/.sops.yaml", true},
 
-		// age / SOPS key files — parser deferred, matcher removed
-		{"/etc/sops/age/keys.txt", false},
+		// age / SOPS key files
+		{"/etc/sops/age/keys.txt", true},
 
 		// Not secrets mgr
 		{"/etc/nginx/nginx.conf", false},
@@ -167,6 +167,45 @@ output = json
 `
 	m := &SecretsMgrModule{}
 	findings := m.parseAWSConfig("/root/.aws/config", []byte(conf))
+	assert.Empty(t, findings)
+}
+
+// --- Azure Key Vault tests ---
+
+func TestParseAzureKV_VaultURL(t *testing.T) {
+	conf := `vault-url: https://myorg-keyvault.vault.azure.net/
+key-name: my-encryption-key
+`
+	m := &SecretsMgrModule{}
+	findings := m.parseAzureKVConfig("/etc/azure/keyvault.conf", []byte(conf))
+	require.Len(t, findings, 2)
+	assert.Equal(t, "Azure Key Vault reference", findings[0].CryptoAsset.Function)
+	assert.Equal(t, "Azure Key Vault key reference", findings[1].CryptoAsset.Function)
+}
+
+func TestParseAzureKV_Empty(t *testing.T) {
+	m := &SecretsMgrModule{}
+	findings := m.parseAzureKVConfig("/etc/azure/keyvault.conf", []byte("# empty"))
+	assert.Empty(t, findings)
+}
+
+// --- SOPS age key file tests ---
+
+func TestParseSOPSAgeKeys(t *testing.T) {
+	keys := `# created: 2026-04-13T00:00:00Z
+# public key: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+AGE-SECRET-KEY-1QFGHMRPJM5CDLGJ7M6X6FMUWD2FEDJL3ZVTZWTPAQKL93DFJSNQXV5QNQ
+`
+	m := &SecretsMgrModule{}
+	findings := m.parseSOPSAgeKeys("/etc/sops/age/keys.txt", []byte(keys))
+	require.Len(t, findings, 1)
+	assert.Equal(t, "SOPS age key file", findings[0].CryptoAsset.Function)
+	assert.Equal(t, "X25519", findings[0].CryptoAsset.Algorithm)
+}
+
+func TestParseSOPSAgeKeys_NoKey(t *testing.T) {
+	m := &SecretsMgrModule{}
+	findings := m.parseSOPSAgeKeys("/etc/sops/age/keys.txt", []byte("# just comments"))
 	assert.Empty(t, findings)
 }
 

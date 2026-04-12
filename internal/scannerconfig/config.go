@@ -23,6 +23,7 @@ type Config struct {
 	DBUrl           string
 	Incremental     bool
 	Credentials     ScanCredentials
+	K8sNamespace    string // namespace filter for k8s_live; empty means all namespaces
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.

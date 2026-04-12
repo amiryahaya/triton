@@ -75,6 +75,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "mail_server")
 	// Wave 2 §6.1 — DNSSEC zone file scanner.
 	assert.Contains(t, cfg.Modules, "dnssec")
+	// Wave 2 §6.3 — Live VPN state scanner.
+	assert.Contains(t, cfg.Modules, "vpn_runtime")
 
 	// Should have process and network targets
 	hasProcess := false

@@ -128,6 +128,14 @@ func moduleDependencies() map[string][]platformTool {
 			{os: "linux", tool: "dig"},
 			{os: "darwin", tool: "dig"},
 		},
+		// Wave 2 §6.3 — ipsec, wg, and cat are optional for live VPN
+		// state probing. Module degrades gracefully if any are missing.
+		"vpn_runtime": {
+			{os: "linux", tool: "ipsec"},
+			{os: "darwin", tool: "ipsec"},
+			{os: "linux", tool: "wg"},
+			{os: "darwin", tool: "wg"},
+		},
 	}
 }
 

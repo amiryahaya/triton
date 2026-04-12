@@ -88,8 +88,10 @@ func isSecretsMgrConfigFile(path string) bool {
 	base := filepath.Base(path)
 	lower := strings.ToLower(path)
 
-	// Vault HCL/JSON configs
-	if strings.Contains(lower, "vault") &&
+	// Vault HCL/JSON configs — match /vault/ or /vault.d/ in path,
+	// or vault*.hcl basename. Excludes "keyvault" (Azure).
+	if (strings.Contains(lower, "/vault/") || strings.Contains(lower, "/vault.d/") ||
+		strings.HasPrefix(base, "vault")) &&
 		(strings.HasSuffix(base, ".hcl") || strings.HasSuffix(base, ".json")) {
 		return true
 	}
@@ -102,20 +104,14 @@ func isSecretsMgrConfigFile(path string) bool {
 		return true
 	}
 
-	// Azure Key Vault configs
-	if strings.Contains(lower, "azure") && strings.Contains(lower, "keyvault") {
-		return true
-	}
+	// Azure Key Vault configs — parser deferred; matcher removed until it exists.
 
 	// SOPS config
 	if base == ".sops.yaml" || base == ".sops.yml" {
 		return true
 	}
 
-	// SOPS age key files
-	if strings.Contains(lower, "/sops/") && strings.Contains(lower, "/age/") {
-		return true
-	}
+	// SOPS age key files — parser deferred; matcher removed until it exists.
 
 	return false
 }
@@ -126,7 +122,7 @@ func (m *SecretsMgrModule) parseConfig(path string, data []byte) []*model.Findin
 	lower := strings.ToLower(path)
 
 	switch {
-	case strings.Contains(lower, "vault"):
+	case strings.Contains(lower, "/vault/") || strings.Contains(lower, "/vault.d/") || strings.HasPrefix(base, "vault"):
 		return m.parseVaultConfig(path, data)
 	case base == ".sops.yaml" || base == ".sops.yml":
 		return m.parseSOPSConfig(path, data)
@@ -250,7 +246,7 @@ func (m *SecretsMgrModule) parseSOPSConfig(path string, data []byte) []*model.Fi
 			{"pgp:", "SOPS PGP encryption", "PGP"},
 			{"hc_vault_transit_uri:", "SOPS Vault transit encryption", "AES-256-GCM"},
 		} {
-			if strings.HasPrefix(line, spec.prefix) || strings.HasPrefix(strings.TrimSpace(line), spec.prefix) {
+			if strings.HasPrefix(line, spec.prefix) {
 				if !seen[spec.function] {
 					seen[spec.function] = true
 					out = append(out, m.secretsMgrFinding(path, spec.function, spec.algorithm,

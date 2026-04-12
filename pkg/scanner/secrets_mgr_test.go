@@ -28,16 +28,16 @@ func TestIsSecretsMgrConfigFile(t *testing.T) {
 		{"/home/user/.aws/config", true},
 		{"/etc/aws/config", true},
 
-		// Azure
-		{"/etc/azure/keyvault.conf", true},
-		{"/opt/azure/keyvault.json", true},
+		// Azure — parser deferred, matcher removed
+		{"/etc/azure/keyvault.conf", false},
+		{"/opt/azure/keyvault.json", false},
 
 		// SOPS
 		{".sops.yaml", true},
 		{"/repo/.sops.yaml", true},
 
-		// age / SOPS key files
-		{"/etc/sops/age/keys.txt", true},
+		// age / SOPS key files — parser deferred, matcher removed
+		{"/etc/sops/age/keys.txt", false},
 
 		// Not secrets mgr
 		{"/etc/nginx/nginx.conf", false},

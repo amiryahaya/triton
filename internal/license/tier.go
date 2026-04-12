@@ -162,6 +162,6 @@ func proModules() []string {
 		"netinfra",
 		"firmware",
 		"messaging",
-		// k8s_live is enterprise-only — do NOT add.
+		// k8s_live and secrets_mgr are enterprise-only — do NOT add.
 	}
 }

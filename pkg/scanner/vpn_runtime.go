@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -46,6 +47,9 @@ var vpnRuntimeCmdRunner = func(ctx context.Context, name string, args ...string)
 	return exec.CommandContext(ctx, name, args...).Output()
 }
 
+// vpnRuntimeReadFile abstracts file reads for testability (OpenVPN status log).
+var vpnRuntimeReadFile func(string) ([]byte, error) = os.ReadFile
+
 // Scan probes each supported VPN daemon for runtime crypto state.
 // Missing tools or inactive daemons are silently skipped.
 func (m *VPNRuntimeModule) Scan(ctx context.Context, _ model.ScanTarget, findings chan<- *model.Finding) error {
@@ -76,8 +80,10 @@ func (m *VPNRuntimeModule) Scan(ctx context.Context, _ model.ScanTarget, finding
 	}
 
 	// OpenVPN status log (daemon writes this periodically).
-	// Try the management command first, fall back to status file.
-	if out, err := vpnRuntimeCmdRunner(ctx, "cat", "/var/run/openvpn-status.log"); err == nil {
+	// Read the status file directly — no subprocess needed.
+	// Note: the status file format does not expose the negotiated
+	// cipher; that requires the management socket (deferred).
+	if out, err := vpnRuntimeReadFile("/var/run/openvpn-status.log"); err == nil {
 		for _, f := range m.parseOpenVPNStatus(out) {
 			select {
 			case findings <- f:

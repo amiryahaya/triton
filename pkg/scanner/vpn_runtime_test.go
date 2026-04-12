@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -172,30 +173,15 @@ peer: xyz789=
 	hasWg0 := false
 	hasWg1 := false
 	for _, f := range findings {
-		if f.CryptoAsset.Purpose != "" {
-			if contains(f.CryptoAsset.Purpose, "wg0") {
-				hasWg0 = true
-			}
-			if contains(f.CryptoAsset.Purpose, "wg1") {
-				hasWg1 = true
-			}
+		if strings.Contains(f.CryptoAsset.Purpose, "wg0") {
+			hasWg0 = true
+		}
+		if strings.Contains(f.CryptoAsset.Purpose, "wg1") {
+			hasWg1 = true
 		}
 	}
 	assert.True(t, hasWg0, "should have wg0 findings")
 	assert.True(t, hasWg1, "should have wg1 findings")
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstring(s, substr))
-}
-
-func findSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 func TestParseWgShow_Empty(t *testing.T) {
@@ -274,8 +260,12 @@ func TestVPNRuntimeModuleInterface(t *testing.T) {
 // --- command runner mock tests ---
 
 func TestVPNRuntimeScan_MockCommands(t *testing.T) {
-	orig := vpnRuntimeCmdRunner
-	defer func() { vpnRuntimeCmdRunner = orig }()
+	origCmd := vpnRuntimeCmdRunner
+	origRead := vpnRuntimeReadFile
+	defer func() {
+		vpnRuntimeCmdRunner = origCmd
+		vpnRuntimeReadFile = origRead
+	}()
 
 	vpnRuntimeCmdRunner = func(_ context.Context, name string, _ ...string) ([]byte, error) {
 		switch name {
@@ -291,11 +281,13 @@ func TestVPNRuntimeScan_MockCommands(t *testing.T) {
   private key: (hidden)
   listening port: 51820
 `), nil
-		case "openvpn":
-			return nil, fmt.Errorf("command not found")
 		default:
 			return nil, fmt.Errorf("unknown command: %s", name)
 		}
+	}
+
+	vpnRuntimeReadFile = func(_ string) ([]byte, error) {
+		return nil, fmt.Errorf("no status file")
 	}
 
 	m := NewVPNRuntimeModule(nil)
@@ -308,16 +300,23 @@ func TestVPNRuntimeScan_MockCommands(t *testing.T) {
 	for f := range findings {
 		all = append(all, f)
 	}
-	// Should have findings from ipsec + wg (openvpn failed gracefully)
+	// Should have findings from ipsec + wg (openvpn status file absent)
 	require.True(t, len(all) >= 2, "expected findings from ipsec and wg, got %d", len(all))
 }
 
 func TestVPNRuntimeScan_AllCommandsFail(t *testing.T) {
-	orig := vpnRuntimeCmdRunner
-	defer func() { vpnRuntimeCmdRunner = orig }()
+	origCmd := vpnRuntimeCmdRunner
+	origRead := vpnRuntimeReadFile
+	defer func() {
+		vpnRuntimeCmdRunner = origCmd
+		vpnRuntimeReadFile = origRead
+	}()
 
 	vpnRuntimeCmdRunner = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return nil, fmt.Errorf("command not found")
+	}
+	vpnRuntimeReadFile = func(_ string) ([]byte, error) {
+		return nil, fmt.Errorf("not found")
 	}
 
 	m := NewVPNRuntimeModule(nil)

@@ -27,9 +27,9 @@ func TestIsNetInfraConfigFile(t *testing.T) {
 		{"/etc/frr/bgpd.conf", true},
 		{"/etc/quagga/bgpd.conf", true},
 
-		// RPKI
-		{"/etc/routinator/routinator.conf", true},
-		{"/etc/rpki-client.conf", true},
+		// RPKI — parser deferred, matcher removed until it exists
+		{"/etc/routinator/routinator.conf", false},
+		{"/etc/rpki-client.conf", false},
 
 		// 802.1X / RADIUS
 		{"/etc/raddb/clients.conf", true},

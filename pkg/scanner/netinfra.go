@@ -105,10 +105,8 @@ func isNetInfraConfigFile(path string) bool {
 		return true
 	}
 
-	// RPKI
-	if base == "routinator.conf" || base == "rpki-client.conf" {
-		return true
-	}
+	// RPKI — parser deferred; don't match files until it exists.
+	// See roadmap §6.5 for follow-up.
 
 	// 802.1X / RADIUS — FreeRADIUS config dirs
 	if strings.Contains(lower, "/raddb/") || strings.Contains(lower, "/freeradius/") {
@@ -237,8 +235,12 @@ func (m *NetInfraModule) parseBGPConfig(path string, data []byte) []*model.Findi
 		lower := strings.ToLower(line)
 
 		// FRR/Quagga: "neighbor X.X.X.X password ..."
-		// Bird: 'password "..."'
-		if strings.Contains(lower, "password") {
+		// Bird: 'password "..."' (inside protocol bgp block)
+		// Tightened to avoid false positives on "service password-encryption"
+		// or "line vty / password" (console, not BGP TCP-MD5).
+		isBGPPassword := strings.Contains(lower, "neighbor") && strings.Contains(lower, "password")
+		isBirdPassword := strings.HasPrefix(strings.TrimSpace(lower), "password")
+		if isBGPPassword || isBirdPassword {
 			out = append(out, m.netInfraFinding(path, "BGP session authentication", "MD5",
 				fmt.Sprintf("BGP neighbor TCP-MD5 in %s", filepath.Base(path))))
 		}

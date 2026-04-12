@@ -910,6 +910,12 @@ postgres://triton:strong-pw@postgres.example.com:5432/triton?sslmode=verify-full
 
 If you terminate TLS at a reverse proxy (nginx, Caddy, Envoy), **disable response-body logging for the `/api/v1/users/*/resend-invite` route** — that endpoint's response body may contain a temp password when the Mailer is not configured. The `Cache-Control: no-store` header is belt-and-braces but cannot override a proxy configuration that explicitly logs bodies.
 
+### 10d. Image and Kubernetes Scanner Credentials (Server Mode)
+
+`triton server` does **not** fall back to ambient SDK default credential
+chains for OCI image or Kubernetes cluster scans. Scan requests targeting
+images or clusters must carry explicit credentials in the request body.
+
 ---
 
 ## 11. Production Checklist

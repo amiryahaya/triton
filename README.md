@@ -83,6 +83,27 @@ make build
 ./bin/triton --output-dir ./reports
 ```
 
+### Scanning container images
+
+Triton can scan OCI container images directly without running them. The
+image is pulled to a sandboxed tmpfs, layers are flattened, and the
+existing filesystem modules (certificates, keys, libraries, binaries,
+deps, configs) run against the extracted rootfs.
+
+```bash
+# Scan a single public image
+triton --image nginx:1.25 --profile standard
+
+# Scan multiple images
+triton --image nginx:1.25 --image redis:7 --format json -o scan.json
+
+# Private registry with explicit auth
+triton --image myregistry.io/myapp:v1.0 --registry-auth /path/to/docker-config.json
+```
+
+OCI image scanning is a **Pro tier** feature. The host filesystem is
+**not** scanned when `--image` is set.
+
 ## Scanning Categories
 
 Triton covers all 9 CBOM categories plus enterprise infrastructure with **28 scanner modules**:

@@ -408,13 +408,7 @@ func (m *K8sLiveModule) scanCertManager(ctx context.Context, client k8sClient, k
 }
 
 // newRealK8sClientFactory returns the production client factory.
-// Real implementation lands in Task 6 (k8s_live_client.go).
+// Implementation lives in k8s_live_client.go — the only file importing k8s.io/*.
 func newRealK8sClientFactory() k8sClientFactory {
-	return &stubK8sClientFactory{}
-}
-
-type stubK8sClientFactory struct{}
-
-func (s *stubK8sClientFactory) NewClient(kubeconfig, ctx string) (k8sClient, error) {
-	return nil, fmt.Errorf("k8s_live: real client factory not yet implemented (Task 6)")
+	return newRealK8sClient()
 }

@@ -138,6 +138,12 @@ func (e *Engine) RegisterDefaultModules() {
 	// entries to cfg.ScanTargets. Engine dispatch naturally skips it
 	// when no OCI targets exist.
 	e.RegisterModule(NewOCIImageModule(e.config))
+
+	// Wave 2 — OIDC/JWKS discovery probe. Not in any profile's
+	// default module list; only runs when --oidc-endpoint is supplied,
+	// which adds TargetNetwork entries to cfg.ScanTargets. Engine
+	// dispatch naturally skips it when no OIDC targets exist.
+	e.RegisterModule(NewOIDCProbeModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

@@ -150,6 +150,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// TargetKubernetesCluster entry to cfg.ScanTargets. Engine
 	// dispatch naturally skips it when no Kubernetes targets exist.
 	e.RegisterModule(NewK8sLiveModule(e.config))
+
+	// Wave 2 §6.1 — DNSSEC zone file scanner. Parses BIND/NSD/Knot
+	// zone files for DNSKEY/DS/RRSIG algorithm inventory. Pro tier.
+	e.RegisterModule(NewDNSSECModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

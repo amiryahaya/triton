@@ -54,15 +54,16 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 31 modules:
+	// Should register all 32 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
 	// + mail_server (Enterprise sprint) + oci_image (Wave 0)
-	// + oidc_probe (Wave 2) + k8s_live (Sprint 1b).
+	// + oidc_probe (Wave 2) + k8s_live (Sprint 1b)
+	// + dnssec (Wave 2 §6.1).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 31)
+	assert.Len(t, eng.modules, 32)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -124,6 +125,9 @@ func TestRegisterDefaultModules(t *testing.T) {
 
 	// Sprint 1b — live Kubernetes cluster scanner.
 	assert.True(t, names["k8s_live"])
+
+	// Wave 2 §6.1 — DNSSEC zone file scanner.
+	assert.True(t, names["dnssec"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

@@ -44,6 +44,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	// Enterprise sprint — deps_ecosystems + mail_server join standard.
 	assert.Contains(t, cfg.Modules, "deps_ecosystems")
 	assert.Contains(t, cfg.Modules, "mail_server")
+	// Wave 2 §6.1 — DNSSEC zone file scanner.
+	assert.Contains(t, cfg.Modules, "dnssec")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -71,6 +73,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "service_mesh")
 	assert.Contains(t, cfg.Modules, "xml_dsig")
 	assert.Contains(t, cfg.Modules, "mail_server")
+	// Wave 2 §6.1 — DNSSEC zone file scanner.
+	assert.Contains(t, cfg.Modules, "dnssec")
 
 	// Should have process and network targets
 	hasProcess := false

@@ -159,6 +159,7 @@ func proModules() []string {
 		"oidc_probe",
 		"dnssec",
 		"vpn_runtime",
+		"netinfra",
 		// k8s_live is enterprise-only — do NOT add.
 	}
 }

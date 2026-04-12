@@ -159,6 +159,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// wg show, openvpn status to capture negotiated algorithms.
 	// Pro tier, TargetProcess.
 	e.RegisterModule(NewVPNRuntimeModule(e.config))
+
+	// Wave 2 §6.5 — Network infrastructure config scanner. Parses
+	// SNMPv3, BGP, NTS, syslog-TLS, 802.1X/RADIUS configs. Pro tier.
+	e.RegisterModule(NewNetInfraModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

@@ -35,6 +35,7 @@ func TestOIDCAlgoNormalization(t *testing.T) {
 		{"", "EC", "P-256", "ECDSA-P256"},
 		{"", "EC", "P-384", "ECDSA-P384"},
 		{"", "OKP", "Ed25519", "Ed25519"},
+		{"", "OKP", "", "UNKNOWN"},
 		{"UNKNOWN_ALG", "", "", "UNKNOWN"},
 	}
 	for _, tt := range tests {
@@ -268,14 +269,15 @@ func TestOIDCProbe_MalformedJSON(t *testing.T) {
 	assert.Empty(t, collected, "expected zero findings on malformed JSON")
 }
 
-// TestOIDCProbe_Timeout — server handler sleeps 5 seconds, context has 100ms timeout.
+// TestOIDCProbe_Timeout — server handler blocks on a channel, context has 100ms timeout.
 // Expect: clean termination, no error.
 func TestOIDCProbe_Timeout(t *testing.T) {
+	block := make(chan struct{})
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(5 * time.Second)
-		_, _ = w.Write([]byte(`{}`))
+		<-block
 	}))
 	defer srv.Close()
+	defer close(block) // unblocks handler goroutine on test exit
 
 	cfg := &scannerconfig.Config{Profile: "standard"}
 	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
@@ -397,6 +399,42 @@ func TestOIDCProbe_SkipsNonURLTargets(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, collected, "host:port target should produce zero findings")
+}
+
+// TestOIDCProbe_RedactionNoCredsInFindings verifies that no credentials leak into findings.
+func TestOIDCProbe_RedactionNoCredsInFindings(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(oidcDiscovery{
+				JwksURI:                 srvURL + "/jwks",
+				IDTokenSigningAlgValues: []string{"ES256"},
+			})
+		case "/jwks":
+			_ = json.NewEncoder(w).Encode(jwkSet{
+				Keys: []jwkKey{{Kty: "EC", Alg: "ES256", Use: "sig", Crv: "P-256"}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+	collected := oidcScan(t, m, srv.URL)
+
+	require.NotEmpty(t, collected, "expected at least one finding")
+
+	for _, f := range collected {
+		b, _ := json.Marshal(f)
+		body := string(b)
+		assert.NotContains(t, body, "Authorization")
+		assert.NotContains(t, body, "Bearer")
+		assert.NotContains(t, body, "password")
+	}
 }
 
 // oidcScan is a test helper that runs OIDCProbeModule.Scan and returns all findings.

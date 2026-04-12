@@ -60,7 +60,7 @@ func normalizeJWAAlgorithm(alg, kty, crv string) string {
 		if canonical, ok := crvToAlgorithm[crv]; ok {
 			return canonical
 		}
-		return "Ed25519"
+		return "UNKNOWN"
 	}
 	return "UNKNOWN"
 }

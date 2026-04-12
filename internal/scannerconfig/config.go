@@ -88,7 +88,7 @@ var profiles = map[string]ScanProfile{
 		//
 		// Wave 0 — OCI image scanning module for pulling and
 		// analyzing container images (requires explicit --image flag).
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec", "vpn_runtime", "netinfra", "firmware", "messaging", "db_atrest", "secrets_mgr", "supply_chain", "kerberos_runtime", "enrollment", "fido2", "blockchain"},
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec", "vpn_runtime", "netinfra", "firmware", "messaging", "db_atrest", "secrets_mgr", "supply_chain", "kerberos_runtime", "enrollment", "fido2", "blockchain", "helm_chart"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},

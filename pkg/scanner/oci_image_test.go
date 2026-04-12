@@ -2,6 +2,8 @@ package scanner
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -69,4 +71,159 @@ func TestOCIImage_FakeFetcherReturnsFixture(t *testing.T) {
 
 	require.NoError(t, img.Cleanup())
 	assert.True(t, ff.cleaned)
+}
+
+func TestOCIImage_HappyPathAnnotatesFindings(t *testing.T) {
+	rootFS, err := filepath.Abs("../../test/fixtures/oci/minimal-rootfs")
+	require.NoError(t, err)
+
+	cfg := &scannerconfig.Config{
+		Profile:         "standard",
+		Modules:         []string{"certificates"},
+		MaxFileSize:     100 * 1024 * 1024,
+		IncludePatterns: []string{"*.pem", "*.crt", "*.cer", "*.key", "*.p12", "*.pfx", "*.jks"},
+		ExcludePatterns: []string{},
+		MaxDepth:        -1,
+	}
+	m := &OCIImageModule{
+		config: cfg,
+		fetcher: &fakeFetcher{
+			rootFS: rootFS,
+			ref:    "nginx:1.25",
+			digest: "sha256:deadbeef",
+			layers: 1,
+			sizeB:  50_000,
+		},
+	}
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	scanErr := m.Scan(context.Background(), model.ScanTarget{
+		Type:  model.TargetOCIImage,
+		Value: "nginx:1.25",
+	}, findings)
+	close(findings)
+	<-done
+
+	require.NoError(t, scanErr)
+	require.NotEmpty(t, collected, "expected at least one finding from fixture cert")
+
+	var annotated int
+	for _, f := range collected {
+		if f.CryptoAsset == nil {
+			continue
+		}
+		if f.CryptoAsset.ImageRef == "nginx:1.25" &&
+			f.CryptoAsset.ImageDigest == "sha256:deadbeef" {
+			annotated++
+		}
+	}
+	assert.Greater(t, annotated, 0, "expected annotated cert finding")
+}
+
+func TestOCIImage_FetcherErrorReturnsError(t *testing.T) {
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OCIImageModule{
+		config:  cfg,
+		fetcher: &fakeFetcher{err: fmt.Errorf("network unreachable")},
+	}
+	findings := make(chan *model.Finding, 4)
+	err := m.Scan(context.Background(), model.ScanTarget{
+		Type:  model.TargetOCIImage,
+		Value: "nginx:1.25",
+	}, findings)
+	close(findings)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fetch")
+}
+
+func TestOCIImage_SizeCapExceeded(t *testing.T) {
+	rootFS, _ := filepath.Abs("../../test/fixtures/oci/minimal-rootfs")
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OCIImageModule{
+		config: cfg,
+		fetcher: &fakeFetcher{
+			rootFS: rootFS,
+			sizeB:  5 * 1024 * 1024 * 1024, // 5 GB > 4 GB cap
+		},
+	}
+	findings := make(chan *model.Finding, 4)
+	err := m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetOCIImage, Value: "huge:1.0",
+	}, findings)
+	close(findings)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "size cap")
+}
+
+func TestOCIImage_LayerCapExceeded(t *testing.T) {
+	rootFS, _ := filepath.Abs("../../test/fixtures/oci/minimal-rootfs")
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OCIImageModule{
+		config: cfg,
+		fetcher: &fakeFetcher{
+			rootFS: rootFS,
+			layers: 200, // > 128 cap
+		},
+	}
+	findings := make(chan *model.Finding, 4)
+	err := m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetOCIImage, Value: "deeplayers:1.0",
+	}, findings)
+	close(findings)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "layer cap")
+}
+
+func TestOCIImage_RedactionNoPasswordInFindings(t *testing.T) {
+	rootFS, _ := filepath.Abs("../../test/fixtures/oci/minimal-rootfs")
+	cfg := &scannerconfig.Config{
+		Profile: "standard",
+		Modules: []string{"certificates"},
+		Credentials: ScanCredentials{
+			RegistryUsername: "alice",
+			RegistryPassword: "super-secret-xyz",
+		},
+		IncludePatterns: []string{"*.pem"},
+		MaxDepth:        -1,
+		MaxFileSize:     100 * 1024 * 1024,
+	}
+	m := &OCIImageModule{
+		config: cfg,
+		fetcher: &fakeFetcher{
+			rootFS: rootFS,
+			ref:    "nginx:1.25",
+			digest: "sha256:abc",
+		},
+	}
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetOCIImage, Value: "nginx:1.25",
+	}, findings)
+	close(findings)
+	<-done
+
+	for _, f := range collected {
+		b, _ := json.Marshal(f)
+		assert.NotContains(t, string(b), "super-secret-xyz",
+			"password must never appear in findings")
+	}
 }

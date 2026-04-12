@@ -54,7 +54,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 39 modules:
+	// Should register all 41 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
@@ -63,10 +63,11 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + dnssec (Wave 2 §6.1) + vpn_runtime (Wave 2 §6.3)
 	// + netinfra (Wave 2 §6.5) + firmware (Wave 2 §6.4)
 	// + messaging (Wave 3) + db_atrest (Wave 3) + secrets_mgr (Wave 3)
-	// + supply_chain (Wave 3).
+	// + supply_chain (Wave 3) + kerberos_runtime (Wave 3)
+	// + enrollment (Wave 3).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 39)
+	assert.Len(t, eng.modules, 41)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -152,6 +153,12 @@ func TestRegisterDefaultModules(t *testing.T) {
 
 	// Wave 3 — CI/CD provenance and supply chain signing scanner.
 	assert.True(t, names["supply_chain"])
+
+	// Wave 3 — Kerberos runtime enctype enumeration (Enterprise).
+	assert.True(t, names["kerberos_runtime"])
+
+	// Wave 3 — SCEP/EST/ACME enrollment scanner.
+	assert.True(t, names["enrollment"])
 }
 
 func TestScanWithNoModules(t *testing.T) {

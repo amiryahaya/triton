@@ -164,6 +164,7 @@ func proModules() []string {
 		"messaging",
 		"db_atrest",
 		"supply_chain",
-		// k8s_live and secrets_mgr are enterprise-only — do NOT add.
+		"enrollment",
+		// k8s_live, secrets_mgr, kerberos_runtime are enterprise-only — do NOT add.
 	}
 }

@@ -347,9 +347,7 @@ func RunDoctorChecks(profile string) *DoctorReport {
 			CheckName: "go-containerregistry",
 			Status:    CheckPass,
 			Message:   "available (imported library)",
-		})
-		// Docker config is optional but informative
-		report.Checks = append(report.Checks, CheckDockerConfig())
+		}, CheckDockerConfig())
 	}
 
 	report.computeCounts()

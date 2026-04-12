@@ -60,6 +60,9 @@ var (
 	k8sContext     string
 	registryAuth   string
 
+	// OIDC/JWKS probe flags (Wave 2)
+	oidcEndpoints []string
+
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
 	rootCmd = &cobra.Command{
@@ -163,6 +166,8 @@ func init() {
 		"Kubeconfig context name (used with --kubeconfig)")
 	rootCmd.PersistentFlags().StringVar(&registryAuth, "registry-auth", "",
 		"Path to docker config.json override for image registry auth")
+	rootCmd.PersistentFlags().StringSliceVar(&oidcEndpoints, "oidc-endpoint", nil,
+		"OIDC identity provider URL to probe (repeatable, e.g. --oidc-endpoint https://auth.example.com)")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -312,15 +317,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg, buildErr := scannerconfig.BuildConfig(scannerconfig.BuildOptions{
-		Profile:      scanProfile,
-		Modules:      modules,
-		ImageRefs:    imageRefs,
-		Kubeconfig:   kubeconfigPath,
-		K8sContext:   k8sContext,
-		RegistryAuth: registryAuth,
-		DBUrl:        dbPath,
-		Metrics:      showMetrics,
-		Incremental:  incremental,
+		Profile:       scanProfile,
+		Modules:       modules,
+		ImageRefs:     imageRefs,
+		Kubeconfig:    kubeconfigPath,
+		K8sContext:    k8sContext,
+		RegistryAuth:  registryAuth,
+		DBUrl:         dbPath,
+		Metrics:       showMetrics,
+		Incremental:   incremental,
+		OIDCEndpoints: oidcEndpoints,
 	})
 	if buildErr != nil {
 		fmt.Fprintln(os.Stderr, "error:", buildErr)

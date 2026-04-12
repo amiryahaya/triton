@@ -157,6 +157,7 @@ func proModules() []string {
 		"deps_ecosystems", "service_mesh", "xml_dsig", "mail_server",
 		"oci_image",
 		"oidc_probe",
+		"dnssec",
 		// k8s_live is enterprise-only — do NOT add.
 	}
 }

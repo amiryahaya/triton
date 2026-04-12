@@ -122,6 +122,12 @@ func moduleDependencies() map[string][]platformTool {
 			{os: "linux", tool: "jarsigner"},
 			{os: "darwin", tool: "jarsigner"},
 		},
+		// Wave 2 §6.1 — dig is optional for active DNSSEC probing
+		// (--dnssec-zone). Zone file parsing works without it.
+		"dnssec": {
+			{os: "linux", tool: "dig"},
+			{os: "darwin", tool: "dig"},
+		},
 	}
 }
 

@@ -64,6 +64,9 @@ var (
 	// OIDC/JWKS probe flags (Wave 2)
 	oidcEndpoints []string
 
+	// DNSSEC active query flags (Wave 2 §6.1)
+	dnssecZones []string
+
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
 	rootCmd = &cobra.Command{
@@ -171,6 +174,8 @@ func init() {
 		"Path to docker config.json override for image registry auth")
 	rootCmd.PersistentFlags().StringSliceVar(&oidcEndpoints, "oidc-endpoint", nil,
 		"OIDC identity provider URL to probe (repeatable, e.g. --oidc-endpoint https://auth.example.com)")
+	rootCmd.PersistentFlags().StringSliceVar(&dnssecZones, "dnssec-zone", nil,
+		"DNS zone to query via dig for DNSSEC algorithm inventory (repeatable, e.g. --dnssec-zone example.com)")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -331,6 +336,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Metrics:       showMetrics,
 		Incremental:   incremental,
 		OIDCEndpoints: oidcEndpoints,
+		DNSSECZones:   dnssecZones,
 	})
 	if buildErr != nil {
 		fmt.Fprintln(os.Stderr, "error:", buildErr)

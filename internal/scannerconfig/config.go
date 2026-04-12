@@ -23,7 +23,8 @@ type Config struct {
 	DBUrl           string
 	Incremental     bool
 	Credentials     ScanCredentials
-	K8sNamespace    string // namespace filter for k8s_live; empty means all namespaces
+	K8sNamespace    string   // namespace filter for k8s_live; empty means all namespaces
+	DNSSECZones     []string // zones to query via dig for active DNSSEC probing
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.
@@ -68,7 +69,7 @@ var profiles = map[string]ScanProfile{
 		// else scans it. service_mesh and xml_dsig stay in
 		// comprehensive only — they're niche per host and cheap
 		// to skip when not present.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn", "password_hash", "deps_ecosystems", "mail_server"},
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn", "password_hash", "deps_ecosystems", "mail_server", "dnssec"},
 		Depth:   10,
 		Workers: 8,
 	},
@@ -87,7 +88,7 @@ var profiles = map[string]ScanProfile{
 		//
 		// Wave 0 — OCI image scanning module for pulling and
 		// analyzing container images (requires explicit --image flag).
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image"},
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},
@@ -203,6 +204,7 @@ type BuildOptions struct {
 	Metrics       bool
 	Incremental   bool
 	OIDCEndpoints []string
+	DNSSECZones   []string // zones to query via dig (active DNSSEC probing)
 }
 
 // BuildConfig is the canonical constructor for scannerconfig.Config given
@@ -287,6 +289,16 @@ func BuildConfig(opts BuildOptions) (*Config, error) {
 				Value: ep,
 			})
 		}
+	}
+
+	// Inject dnssec module and store zone names for active dig queries.
+	// Like OIDC, this does NOT suppress filesystem defaults — both zone
+	// file parsing and active dig queries run alongside the normal scan.
+	if len(opts.DNSSECZones) > 0 {
+		if !containsModule(cfg.Modules, "dnssec") {
+			cfg.Modules = append(cfg.Modules, "dnssec")
+		}
+		cfg.DNSSECZones = opts.DNSSECZones
 	}
 
 	return cfg, nil

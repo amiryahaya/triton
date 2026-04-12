@@ -196,14 +196,3 @@ func constructDelegate(name string, cfg *scannerconfig.Config) Module {
 	}
 }
 
-// newRemoteFetcher returns the stub remote fetcher. The real implementation
-// using go-containerregistry lands in Task 13.
-func newRemoteFetcher() imageFetcher {
-	return &stubRemoteFetcher{}
-}
-
-type stubRemoteFetcher struct{}
-
-func (s *stubRemoteFetcher) Fetch(ctx context.Context, ref string, creds ScanCredentials) (*fetchedImage, error) {
-	return nil, fmt.Errorf("oci_image: remote fetcher not implemented (lands in Task 13)")
-}

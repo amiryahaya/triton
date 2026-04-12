@@ -171,12 +171,12 @@ func (m *K8sLiveModule) scanTLSSecrets(ctx context.Context, client k8sClient, k8
 	}
 	for _, s := range secrets {
 		endpoint := fmt.Sprintf("%s/%s/Secret/%s", k8sCtx, s.Namespace, s.Name)
-		m.parseCertPEM(ctx, s.CertPEM, endpoint, "TLS certificate", findings)
+		m.parseCertPEM(ctx, s.CertPEM, endpoint, "TLS certificate", 0.95, findings)
 		m.parseKeyPEM(ctx, s.KeyPEM, endpoint, "TLS private key", findings)
 	}
 }
 
-func (m *K8sLiveModule) parseCertPEM(ctx context.Context, pemData []byte, endpoint, function string, findings chan<- *model.Finding) {
+func (m *K8sLiveModule) parseCertPEM(ctx context.Context, pemData []byte, endpoint, function string, confidence float64, findings chan<- *model.Finding) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
 		return
@@ -198,7 +198,7 @@ func (m *K8sLiveModule) parseCertPEM(ctx context.Context, pemData []byte, endpoi
 		IsCA:      cert.IsCA,
 	}
 	crypto.ClassifyCryptoAsset(asset)
-	m.emitFinding(ctx, endpoint, asset, 0.95, findings)
+	m.emitFinding(ctx, endpoint, asset, 5, confidence, findings)
 }
 
 func (m *K8sLiveModule) parseKeyPEM(ctx context.Context, pemData []byte, endpoint, function string, findings chan<- *model.Finding) {
@@ -217,7 +217,7 @@ func (m *K8sLiveModule) parseKeyPEM(ctx context.Context, pemData []byte, endpoin
 		Function:  function,
 	}
 	crypto.ClassifyCryptoAsset(asset)
-	m.emitFinding(ctx, endpoint, asset, 0.95, findings)
+	m.emitFinding(ctx, endpoint, asset, 5, 0.95, findings)
 }
 
 func classifyCertKey(cert *x509.Certificate) (string, int) {
@@ -252,12 +252,12 @@ func classifyKeyDER(der []byte) (string, int) {
 	return "", 0
 }
 
-func (m *K8sLiveModule) emitFinding(ctx context.Context, endpoint string, asset *model.CryptoAsset, confidence float64, findings chan<- *model.Finding) {
+func (m *K8sLiveModule) emitFinding(ctx context.Context, endpoint string, asset *model.CryptoAsset, category int, confidence float64, findings chan<- *model.Finding) {
 	atomic.AddInt64(&m.lastMatched, 1)
 	select {
 	case findings <- &model.Finding{
 		ID:       uuid.Must(uuid.NewV7()).String(),
-		Category: 5,
+		Category: category,
 		Source: model.FindingSource{
 			Type:            "kubernetes",
 			Endpoint:        endpoint,
@@ -272,19 +272,61 @@ func (m *K8sLiveModule) emitFinding(ctx context.Context, endpoint string, asset 
 	}
 }
 
-// scanIngresses is implemented in Task 3.
 func (m *K8sLiveModule) scanIngresses(ctx context.Context, client k8sClient, k8sCtx, namespace string, findings chan<- *model.Finding) {
-	// Implemented in Task 3
+	ingresses, err := client.ListIngresses(ctx, namespace)
+	if err != nil {
+		log.Printf("k8s_live: list ingresses: %v", err)
+		return
+	}
+	for _, ing := range ingresses {
+		for _, tls := range ing.TLSHosts {
+			endpoint := fmt.Sprintf("%s/%s/Ingress/%s", k8sCtx, ing.Namespace, ing.Name)
+			hosts := ""
+			if len(tls.Hosts) > 0 {
+				hosts = tls.Hosts[0]
+				for _, h := range tls.Hosts[1:] {
+					hosts += ", " + h
+				}
+			}
+			asset := &model.CryptoAsset{
+				Purpose:  "transport",
+				Function: fmt.Sprintf("Ingress TLS binding (%s) → Secret/%s", hosts, tls.SecretName),
+			}
+			// Ingress findings use category 8 (network) + lower confidence since
+			// we're recording TLS binding metadata, not parsing actual crypto.
+			m.emitFinding(ctx, endpoint, asset, 8, 0.80, findings)
+		}
+	}
 }
 
-// scanWebhookConfigs is implemented in Task 3.
 func (m *K8sLiveModule) scanWebhookConfigs(ctx context.Context, client k8sClient, k8sCtx string, findings chan<- *model.Finding) {
-	// Implemented in Task 3
+	webhooks, err := client.ListWebhookConfigs(ctx)
+	if err != nil {
+		log.Printf("k8s_live: list webhooks: %v", err)
+		return
+	}
+	for _, wh := range webhooks {
+		if len(wh.CABundle) == 0 {
+			continue
+		}
+		endpoint := fmt.Sprintf("%s/%s/%s", k8sCtx, wh.Kind, wh.Name)
+		m.parseCertPEM(ctx, wh.CABundle, endpoint, "Webhook CA bundle", 0.90, findings)
+	}
 }
 
-// scanRootCA is implemented in Task 3.
 func (m *K8sLiveModule) scanRootCA(ctx context.Context, client k8sClient, k8sCtx, namespace string, findings chan<- *model.Finding) {
-	// Implemented in Task 3
+	cms, err := client.ListConfigMaps(ctx, namespace, "kube-root-ca.crt")
+	if err != nil {
+		log.Printf("k8s_live: list configmaps: %v", err)
+		return
+	}
+	for _, cm := range cms {
+		if len(cm.CACertPEM) == 0 {
+			continue
+		}
+		endpoint := fmt.Sprintf("%s/%s/ConfigMap/%s", k8sCtx, cm.Namespace, cm.Name)
+		m.parseCertPEM(ctx, cm.CACertPEM, endpoint, "Cluster root CA", 0.95, findings)
+	}
 }
 
 // scanCertManager is implemented in Task 4.

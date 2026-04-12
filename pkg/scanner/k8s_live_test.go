@@ -191,6 +191,112 @@ func TestK8sLive_ModuleInterface(t *testing.T) {
 	assert.Equal(t, model.TargetKubernetesCluster, m.ScanTargetType())
 }
 
+func TestK8sLive_IngressTLSBinding(t *testing.T) {
+	fc := &fakeK8sClient{
+		ingresses: []k8sIngress{
+			{
+				Namespace: "default",
+				Name:      "my-ingress",
+				TLSHosts: []k8sIngressTLS{
+					{Hosts: []string{"app.example.com"}, SecretName: "app-tls"},
+				},
+			},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	fakeFactory := &fakeK8sClientFactory{client: fc}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, fakeFactory)
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetKubernetesCluster, Value: "/fake",
+	}, findings)
+	close(findings)
+	<-done
+
+	require.Len(t, collected, 1)
+	assert.Equal(t, 8, collected[0].Category)
+	assert.Equal(t, 0.80, collected[0].Confidence)
+	assert.Contains(t, collected[0].Source.Endpoint, "Ingress/my-ingress")
+	assert.Contains(t, collected[0].CryptoAsset.Function, "app.example.com")
+}
+
+func TestK8sLive_WebhookCABundle(t *testing.T) {
+	certPEM, _ := testCertPEM(t)
+	fc := &fakeK8sClient{
+		webhookConfigs: []k8sWebhookConfig{
+			{Name: "my-webhook", Kind: "ValidatingWebhookConfiguration", CABundle: certPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	fakeFactory := &fakeK8sClientFactory{client: fc}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, fakeFactory)
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetKubernetesCluster, Value: "/fake",
+	}, findings)
+	close(findings)
+	<-done
+
+	require.GreaterOrEqual(t, len(collected), 1)
+	assert.Equal(t, 0.90, collected[0].Confidence)
+	assert.Contains(t, collected[0].Source.Endpoint, "ValidatingWebhookConfiguration/my-webhook")
+}
+
+func TestK8sLive_KubeRootCA(t *testing.T) {
+	certPEM, _ := testCertPEM(t)
+	fc := &fakeK8sClient{
+		configMaps: []k8sConfigMap{
+			{Namespace: "kube-system", Name: "kube-root-ca.crt", CACertPEM: certPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	fakeFactory := &fakeK8sClientFactory{client: fc}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, fakeFactory)
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	_ = m.Scan(context.Background(), model.ScanTarget{
+		Type: model.TargetKubernetesCluster, Value: "/fake",
+	}, findings)
+	close(findings)
+	<-done
+
+	require.GreaterOrEqual(t, len(collected), 1)
+	assert.Equal(t, 0.95, collected[0].Confidence)
+	assert.Contains(t, collected[0].Source.Endpoint, "ConfigMap/kube-root-ca.crt")
+}
+
 func TestK8sLive_TLSSecretFindings(t *testing.T) {
 	certPEM, keyPEM := testCertPEM(t)
 

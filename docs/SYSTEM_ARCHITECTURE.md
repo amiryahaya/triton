@@ -662,7 +662,7 @@ an extracted rootfs rather than re-implementing file parsing.
    flattens layers with `mutate.Extract`, and writes the tar stream to
    `$TMPDIR/triton-oci-<digest12>-<salt>/` (mode 0700).
 2. Symlinks, hard links, and escaping paths are skipped. Size capped at
-   4 GB uncompressed; layers at 128 MB.
+   4 GB uncompressed; layers capped at 128.
 3. `OCIImageModule.Scan` constructs a synthetic `scannerconfig.Config`
    and invokes delegates (certificates, keys, library, binaries, deps,
    deps_ecosystems, configs, webapp, packages, certstore).

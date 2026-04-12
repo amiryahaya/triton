@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	dockerconfig "github.com/docker/cli/cli/config"
+	"github.com/docker/cli/cli/config/configfile"
+	dockertypes "github.com/docker/cli/cli/config/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -52,6 +55,11 @@ func (r *remoteFetcher) Fetch(ctx context.Context, ref string, creds ScanCredent
 	if err != nil {
 		return nil, fmt.Errorf("img.Layers: %w", err)
 	}
+	// Guard before extraction: reject oversized images early to avoid
+	// materialising hundreds of layers to disk only to discard them.
+	if len(layers) > ociMaxLayers {
+		return nil, fmt.Errorf("oci_image: image exceeds layer cap (%d > %d)", len(layers), ociMaxLayers)
+	}
 
 	sandboxRoot, err := newSandboxRoot(digest.String())
 	if err != nil {
@@ -87,9 +95,69 @@ func resolveKeychain(creds ScanCredentials) authn.Keychain {
 		}
 	}
 	if creds.RegistryAuthFile != "" {
-		_ = os.Setenv("DOCKER_CONFIG", filepath.Dir(creds.RegistryAuthFile))
+		if kc, err := newKeychainFromFile(creds.RegistryAuthFile); err == nil {
+			return kc
+		}
+		// Fall through to default keychain if the file is unreadable.
 	}
 	return authn.DefaultKeychain
+}
+
+// newKeychainFromFile reads a Docker-format auth config file at path and
+// returns a Keychain backed by it. This avoids mutating os.Setenv("DOCKER_CONFIG"),
+// which is a process-global variable and would race under concurrent image scans
+// with different auth files.
+func newKeychainFromFile(path string) (authn.Keychain, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	cf, err := dockerconfig.LoadFromReader(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return &fileKeychain{cf: cf}, nil
+}
+
+// fileKeychain is an authn.Keychain backed by a pre-loaded Docker config file.
+// It mirrors the registry-lookup logic of authn.defaultKeychain without
+// touching any process-global environment variables.
+type fileKeychain struct {
+	cf *configfile.ConfigFile
+}
+
+// Resolve implements authn.Keychain.
+func (k *fileKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	var (
+		empty dockertypes.AuthConfig
+		cfg   dockertypes.AuthConfig
+		err   error
+	)
+	for _, key := range []string{target.String(), target.RegistryStr()} {
+		cfg, err = k.cf.GetAuthConfig(key)
+		if err != nil {
+			return nil, err
+		}
+		// GetAuthConfig always sets ServerAddress; clear it so the
+		// empty-config check below works correctly.
+		cfg.ServerAddress = ""
+		if cfg != empty {
+			break
+		}
+	}
+	if cfg == empty {
+		return authn.Anonymous, nil
+	}
+	return authn.FromConfig(authn.AuthConfig{
+		Username:      cfg.Username,
+		Password:      cfg.Password,
+		Auth:          cfg.Auth,
+		IdentityToken: cfg.IdentityToken,
+		RegistryToken: cfg.RegistryToken,
+	}), nil
 }
 
 type staticKeychain struct {

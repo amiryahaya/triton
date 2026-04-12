@@ -254,6 +254,14 @@ func BuildConfig(opts BuildOptions) (*Config, error) {
 		}
 	}
 
+	// Ensure oci_image module is present whenever --image targets are provided.
+	// Profiles other than "comprehensive" don't include oci_image by default,
+	// so without this injection the image scan would be a silent no-op: the
+	// engine's shouldRunModule check skips any module not listed in cfg.Modules.
+	if imageMode && !containsModule(cfg.Modules, "oci_image") {
+		cfg.Modules = append(cfg.Modules, "oci_image")
+	}
+
 	return cfg, nil
 }
 
@@ -283,4 +291,14 @@ func defaultExcludePatterns() []string {
 		"*.log", "*.tmp",
 		".git", "node_modules", "vendor",
 	}
+}
+
+// containsModule reports whether name appears in the modules slice.
+func containsModule(modules []string, name string) bool {
+	for _, m := range modules {
+		if m == name {
+			return true
+		}
+	}
+	return false
 }

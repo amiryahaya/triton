@@ -227,3 +227,53 @@ func TestBuildConfig_ImageAndKubeconfigError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot mix")
 }
+
+func TestBuildConfig_ImageInjectsOCIImageModule(t *testing.T) {
+	// standard profile does not include oci_image; the module must be
+	// injected automatically whenever --image is set so the scan is not
+	// a silent no-op.
+	opts := BuildOptions{
+		Profile:   "standard",
+		ImageRefs: []string{"nginx:1.25"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	var hasOCI bool
+	for _, mod := range cfg.Modules {
+		if mod == "oci_image" {
+			hasOCI = true
+			break
+		}
+	}
+	assert.True(t, hasOCI, "oci_image must be injected into Modules when --image is set")
+}
+
+func TestBuildConfig_ImageInjectsOCIImageModule_ComprehensiveNoDuplicate(t *testing.T) {
+	// comprehensive already lists oci_image; injection must not duplicate it.
+	opts := BuildOptions{
+		Profile:   "comprehensive",
+		ImageRefs: []string{"alpine:3.19"},
+	}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	count := 0
+	for _, mod := range cfg.Modules {
+		if mod == "oci_image" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "oci_image must appear exactly once even for comprehensive profile")
+}
+
+func TestBuildConfig_NoImageDoesNotInjectOCIImageModule(t *testing.T) {
+	// Without --image, oci_image must not be injected into non-comprehensive profiles.
+	opts := BuildOptions{Profile: "standard"}
+	cfg, err := BuildConfig(opts)
+	require.NoError(t, err)
+
+	for _, mod := range cfg.Modules {
+		assert.NotEqual(t, "oci_image", mod, "oci_image must not be present without --image flag")
+	}
+}

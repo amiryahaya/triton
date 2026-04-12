@@ -46,7 +46,7 @@ cp "${SCRIPT_DIR}/agent.yaml" "${INSTALL_DIR}/agent.yaml"
 
 # Set permissions
 chmod 755 "${INSTALL_DIR}/triton"
-chmod 600 "${INSTALL_DIR}/agent.yaml"
+chmod 644 "${INSTALL_DIR}/agent.yaml"
 
 # macOS: bypass Gatekeeper quarantine
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -137,10 +137,10 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Restrict agent.yaml to Administrators read-only
-icacls "%INSTALL_DIR%\agent.yaml" /inheritance:r /grant:r "BUILTIN\Administrators:(R)" >nul
+:: Allow all users to read agent.yaml
+icacls "%INSTALL_DIR%\agent.yaml" /inheritance:r /grant:r "BUILTIN\Administrators:(F)" /grant:r "BUILTIN\Users:(R)" >nul
 if %errorlevel% neq 0 (
-    echo WARNING: Could not restrict permissions on agent.yaml
+    echo WARNING: Could not set permissions on agent.yaml
 )
 
 echo Verifying configuration ...
@@ -233,7 +233,7 @@ cp "${TMP}/triton" "${INSTALL_DIR}/triton"
 cp "${TMP}/agent.yaml" "${INSTALL_DIR}/agent.yaml"
 
 chmod 755 "${INSTALL_DIR}/triton"
-chmod 600 "${INSTALL_DIR}/agent.yaml"
+chmod 644 "${INSTALL_DIR}/agent.yaml"
 
 # macOS: bypass Gatekeeper quarantine
 if [ "${OS}" = "darwin" ]; then
@@ -329,13 +329,17 @@ try {
     Copy-Item -Path $BINARY_TMP -Destination "$INSTALL_DIR\triton.exe" -Force
     Copy-Item -Path $YAML_TMP   -Destination "$INSTALL_DIR\agent.yaml"  -Force
 
-    # Restrict agent.yaml to Administrators read-only
+    # Allow all users to read agent.yaml, admins get full control
     $acl = Get-Acl "$INSTALL_DIR\agent.yaml"
     $acl.SetAccessRuleProtection($true, $false)
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        "BUILTIN\Administrators", "Read", "Allow"
+    $adminRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "BUILTIN\Administrators", "FullControl", "Allow"
     )
-    $acl.SetAccessRule($rule)
+    $userRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "BUILTIN\Users", "Read", "Allow"
+    )
+    $acl.SetAccessRule($adminRule)
+    $acl.SetAccessRule($userRule)
     Set-Acl -Path "$INSTALL_DIR\agent.yaml" -AclObject $acl
 
     Write-Host ""

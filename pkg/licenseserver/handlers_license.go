@@ -285,7 +285,7 @@ func (s *Server) handleDownloadAgentYAML(w http.ResponseWriter, r *http.Request)
 	// means "use the default 'quick'" and is fine.
 	profile := strings.TrimSpace(req.Profile)
 	if profile == "" {
-		profile = "quick"
+		profile = "comprehensive"
 	}
 	if profile != "quick" && profile != "standard" && profile != "comprehensive" {
 		writeError(w, http.StatusBadRequest,

@@ -853,7 +853,7 @@
         <span class="download-label">Download report:</span>
         <button class="btn btn-sm js-download-report" data-format="json">JSON</button>
         <button class="btn btn-sm js-download-report" data-format="html">HTML</button>
-        <button class="btn btn-sm js-download-report" data-format="xlsx">Excel</button>
+        <button class="btn btn-sm js-download-report" data-format="xlsx">NACSA: Arahan 9</button>
         <button class="btn btn-sm js-download-report" data-format="cdx">CycloneDX</button>
         <button class="btn btn-sm js-download-report" data-format="sarif">SARIF</button>
       </div>`;

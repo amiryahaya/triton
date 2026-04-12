@@ -233,7 +233,10 @@ var migrations = []string{
 	ALTER TABLE organizations
 		ADD COLUMN IF NOT EXISTS executive_deadline_year INTEGER NOT NULL DEFAULT 2030;`,
 
-	// Version 10: Container image annotation on the findings read-model.
+	// Version 10: key_size can exceed int4 max (e.g. 2^31 for large DH parameters).
+	`ALTER TABLE findings ALTER COLUMN key_size TYPE BIGINT;`,
+
+	// Version 11: Container image annotation on the findings read-model.
 	// Populated by the OCIImageModule delegation wrapper when findings
 	// originate from a pulled OCI image scan. Host filesystem scans
 	// leave both columns NULL. No backfill required.

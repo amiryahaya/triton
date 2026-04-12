@@ -17,6 +17,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM scratch
 
 ENV HOME=/tmp
+# scratch has no filesystem — create /tmp for temp file operations (e.g. Excel export)
+COPY --from=builder /tmp /tmp
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo

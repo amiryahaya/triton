@@ -507,7 +507,13 @@ func detectLanguage(path string) string {
 }
 
 // getImportedLibraries extracts imported dynamic libraries from a binary.
-func getImportedLibraries(path string) []string {
+func getImportedLibraries(path string) (result []string) {
+	// The stdlib PE parser can panic on malformed binaries (e.g. corrupt import tables).
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+		}
+	}()
 	// Try ELF
 	if ef, err := elf.Open(path); err == nil {
 		defer func() { _ = ef.Close() }()
@@ -550,7 +556,13 @@ func getImportedLibraries(path string) []string {
 }
 
 // getImportedSymbols extracts imported symbol names from a binary.
-func getImportedSymbols(path string) []string {
+func getImportedSymbols(path string) (result []string) {
+	// The stdlib PE parser can panic on malformed binaries (e.g. corrupt import tables).
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+		}
+	}()
 	// Try ELF
 	if ef, err := elf.Open(path); err == nil {
 		defer func() { _ = ef.Close() }()

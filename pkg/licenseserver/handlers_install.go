@@ -229,7 +229,7 @@ func (s *Server) handleInstallAgentYAML(w http.ResponseWriter, r *http.Request) 
 		License:      lic,
 		Token:        tok,
 		ReportServer: reportServer,
-		Profile:      "quick",
+		Profile:      "comprehensive",
 	})
 
 	s.audit(r, "install_agent_yaml_download", claims.LicenseID, lic.OrgID, "", map[string]any{

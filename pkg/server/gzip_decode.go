@@ -25,7 +25,7 @@ import (
 // legitimate compressible payloads headroom — a 10 MB JSON scan
 // that compresses to 1 MB on the wire would decompress cleanly
 // at a 30 MB cap even with future payload growth.
-const maxDecompressedRequestBody = 32 << 20 // 32 MiB
+const maxDecompressedRequestBody = 300 << 20 // 300 MiB (3× maxRequestBody)
 
 // GzipDecodeMiddleware transparently decompresses request bodies
 // that arrive with `Content-Encoding: gzip`. Handlers further down

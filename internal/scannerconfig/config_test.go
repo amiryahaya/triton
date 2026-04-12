@@ -91,6 +91,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "messaging")
 	// Wave 3 — Database at-rest encryption scanner.
 	assert.Contains(t, cfg.Modules, "db_atrest")
+	// Wave 3 — Secrets manager config scanner (Enterprise).
+	assert.Contains(t, cfg.Modules, "secrets_mgr")
 
 	// Should have process and network targets
 	hasProcess := false

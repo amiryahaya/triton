@@ -1,0 +1,97 @@
+<h2>Expiring Certificates View</h2>
+<p class="subtitle">Layout + default expiry window</p>
+
+<div class="section">
+  <p>This view lists every certificate Triton has scanned in the org that has a <code>NotAfter</code> date set, sorted by soonest expiring first. The question is: <strong>what window should we show by default</strong>, and does the table layout look right?</p>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Expiring Certificates · Default view</div>
+  <div class="mockup-body" style="padding:16px">
+
+    <!-- Summary chips -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="padding:6px 12px;background:rgba(248,113,113,0.15);color:#f87171;border-radius:6px;font-size:12px">
+        <strong>3</strong> expired
+      </div>
+      <div style="padding:6px 12px;background:rgba(251,146,60,0.15);color:#fb923c;border-radius:6px;font-size:12px">
+        <strong>7</strong> within 30 days
+      </div>
+      <div style="padding:6px 12px;background:rgba(251,191,36,0.15);color:#fbbf24;border-radius:6px;font-size:12px">
+        <strong>12</strong> within 90 days
+      </div>
+      <div style="padding:6px 12px;background:rgba(148,163,184,0.12);color:#94a3b8;border-radius:6px;font-size:12px">
+        <strong>42</strong> total with expiry data
+      </div>
+    </div>
+
+    <!-- Filter row -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:12px;color:#94a3b8">
+      <span>Show:</span>
+      <div style="padding:4px 10px;background:rgba(148,163,184,0.1);border-radius:4px;color:#e2e8f0">expired</div>
+      <div style="padding:4px 10px;background:rgba(148,163,184,0.1);border-radius:4px;color:#e2e8f0">30 days</div>
+      <div style="padding:4px 10px;background:rgba(34,211,238,0.15);border-radius:4px;color:#22d3ee">90 days ✓</div>
+      <div style="padding:4px 10px;background:rgba(148,163,184,0.1);border-radius:4px;color:#e2e8f0">180 days</div>
+      <div style="padding:4px 10px;background:rgba(148,163,184,0.1);border-radius:4px;color:#e2e8f0">all</div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:rgba(148,163,184,0.08);text-align:left">
+          <th style="padding:10px 12px">Subject</th>
+          <th style="padding:10px 12px">Host</th>
+          <th style="padding:10px 12px">Algorithm</th>
+          <th style="padding:10px 12px;text-align:right">Expires in</th>
+          <th style="padding:10px 12px">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace;font-size:12px">CN=api.internal.gov.my</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">api-prod-01</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RSA-2048</td><td style="padding:10px 12px;text-align:right;color:#f87171;font-variant-numeric:tabular-nums">expired 4d ago</td><td style="padding:10px 12px"><span style="background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">expired</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace;font-size:12px">CN=mail.internal.gov.my</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">mail-01</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RSA-2048</td><td style="padding:10px 12px;text-align:right;color:#fb923c;font-variant-numeric:tabular-nums">6 days</td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">urgent</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace;font-size:12px">CN=*.stage.acme.my</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">stage-lb-01</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">ECDSA-P256</td><td style="padding:10px 12px;text-align:right;color:#fb923c;font-variant-numeric:tabular-nums">21 days</td><td style="padding:10px 12px"><span style="background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">urgent</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace;font-size:12px">CN=vpn.hq.gov.my</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">vpn-01</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RSA-4096</td><td style="padding:10px 12px;text-align:right;color:#fbbf24;font-variant-numeric:tabular-nums">47 days</td><td style="padding:10px 12px"><span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">warning</span></td></tr>
+        <tr style="border-top:1px solid rgba(148,163,184,0.08)"><td style="padding:10px 12px;font-family:monospace;font-size:12px">CN=pki-root.gov.my</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">pki-01</td><td style="padding:10px 12px;font-family:monospace;font-size:12px">RSA-4096</td><td style="padding:10px 12px;text-align:right;color:#fbbf24;font-variant-numeric:tabular-nums">83 days</td><td style="padding:10px 12px"><span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:2px 8px;border-radius:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">warning</span></td></tr>
+      </tbody>
+    </table>
+
+  </div>
+</div>
+
+<h3 style="margin-top:32px">Default window — which feels right?</h3>
+<p class="subtitle">All options remain switchable via the filter chips above; this is only the <em>first view</em> the operator sees.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="30" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>30 days</h3>
+      <p>Strict "act this sprint" view. Usually a very short list. Best if operators only want immediate action items on this page, and are happy clicking "90 days" to widen.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="90" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>90 days ⭐</h3>
+      <p>Matches browser and OS cert warning windows (e.g. macOS Keychain, Chrome). Gives operators a quarter's worth of runway to plan renewals. My recommendation.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="180" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>180 days</h3>
+      <p>Long-range planning view. Useful for government ops with long procurement cycles, but most of the list at any given moment is "not urgent."</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="all" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>All, sorted by soonest</h3>
+      <p>Show every cert Triton knows about, sorted ascending by expiry. Lets operators see the full picture at once. Can get long for big orgs with many certs, but natural grouping via the status badges means the important ones are at the top.</p>
+    </div>
+  </div>
+
+</div>

@@ -163,6 +163,6 @@ func proModules() []string {
 		"firmware",
 		"messaging",
 		"db_atrest",
-		// k8s_live is enterprise-only — do NOT add.
+		// k8s_live and secrets_mgr are enterprise-only — do NOT add.
 	}
 }

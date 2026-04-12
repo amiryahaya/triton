@@ -1,0 +1,123 @@
+<h2>Executive Summary Block — Layout Options</h2>
+<p class="subtitle">Where does the exec block sit on the existing Overview?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup" style="margin:0;height:100%">
+        <div class="mockup-header">Option A · Hero banner on top</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:12px">
+          <div style="padding:20px;background:linear-gradient(135deg,rgba(34,211,238,0.15),rgba(148,163,184,0.08));border-radius:12px;border:1px solid rgba(34,211,238,0.2);margin-bottom:12px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8">PQC Readiness</div>
+            <div style="font-size:42px;font-weight:700;color:#22d3ee;line-height:1">43%</div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:6px">↗ improving · on track for 2030</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+            <div style="padding:10px;background:rgba(148,163,184,0.06);border-radius:6px">
+              <div style="font-size:9px;color:#94a3b8">TOP BLOCKERS</div>
+              <div style="font-size:11px;color:#e2e8f0;margin-top:4px">MD5 • SHA-1 • RSA-2048</div>
+            </div>
+            <div style="padding:10px;background:rgba(248,113,113,0.1);border-radius:6px">
+              <div style="font-size:9px;color:#94a3b8">NACSA-2030</div>
+              <div style="font-size:11px;color:#f87171;margin-top:4px">FAIL · 12 violations</div>
+            </div>
+          </div>
+          <div style="border-top:1px solid rgba(148,163,184,0.1);padding-top:10px;color:#64748b;font-size:10px">
+            [existing stat cards below]
+          </div>
+          <div style="display:flex;gap:4px;margin-top:6px">
+            <div style="flex:1;padding:8px;background:rgba(34,211,238,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Machines</div>
+            <div style="flex:1;padding:8px;background:rgba(52,211,153,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Safe</div>
+            <div style="flex:1;padding:8px;background:rgba(248,113,113,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Unsafe</div>
+          </div>
+          <div style="padding:14px;background:rgba(148,163,184,0.04);margin-top:10px;border-radius:6px;color:#64748b;text-align:center;font-size:10px">
+            [charts + machines table below]
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · Hero banner (one big number, then details)</h3>
+      <p>A prominent full-width banner with the readiness % as a 42px headline, trend arrow + on-track status, and two secondary cards (top blockers + policy verdict). Existing stat cards and charts sit below, unchanged.</p>
+      <p><strong>Best if:</strong> you want the number to dominate. A CISO opening the page sees "43% — improving, on track for 2030" before anything else.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup" style="margin:0;height:100%">
+        <div class="mockup-header">Option B · Summary bar (compact)</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:12px">
+          <div style="padding:12px 16px;background:rgba(148,163,184,0.08);border-radius:8px;border:1px solid rgba(148,163,184,0.12);margin-bottom:12px;display:flex;gap:16px;align-items:center">
+            <div style="flex:0 0 auto">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">Readiness</div>
+              <div style="font-size:24px;font-weight:700;color:#22d3ee;line-height:1">43%</div>
+            </div>
+            <div style="flex:0 0 auto;padding:4px 10px;background:rgba(52,211,153,0.15);color:#34d399;border-radius:4px;font-size:10px">↗ improving</div>
+            <div style="flex:0 0 auto;padding:4px 10px;background:rgba(248,113,113,0.1);color:#f87171;border-radius:4px;font-size:10px">NACSA-2030: FAIL</div>
+            <div style="flex:1;font-size:10px;color:#94a3b8;text-align:right">2030 projection: <strong style="color:#e2e8f0">on track</strong></div>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:8px">
+            <div style="flex:1;padding:8px;background:rgba(34,211,238,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Machines</div>
+            <div style="flex:1;padding:8px;background:rgba(52,211,153,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Safe</div>
+            <div style="flex:1;padding:8px;background:rgba(251,191,36,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Trans</div>
+            <div style="flex:1;padding:8px;background:rgba(251,146,60,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Dep</div>
+            <div style="flex:1;padding:8px;background:rgba(248,113,113,0.08);border-radius:4px;font-size:9px;color:#94a3b8;text-align:center">Unsafe</div>
+          </div>
+          <div style="padding:14px;background:rgba(148,163,184,0.04);margin-top:8px;border-radius:6px;color:#64748b;text-align:center;font-size:10px">
+            [charts + machines table below]
+          </div>
+          <div style="padding:8px;margin-top:10px;background:rgba(148,163,184,0.06);border-radius:4px;font-size:9px;color:#94a3b8">Top blockers: MD5 (12) · SHA-1 (7) · RSA-2048 (47)</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · Summary bar (horizontal, compact)</h3>
+      <p>A single-row horizontal bar with readiness %, trend chip, policy verdict chip, and projection — all inline. Takes minimum vertical space. Top blockers show as a one-line text below the existing stat cards.</p>
+      <p><strong>Best if:</strong> you want minimum disruption to the current Overview. Existing layout stays virtually intact.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup" style="margin:0;height:100%">
+        <div class="mockup-header">Option C · Executive card grid</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:12px">
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin-bottom:12px">
+            <div style="padding:16px;background:linear-gradient(135deg,rgba(34,211,238,0.12),rgba(148,163,184,0.04));border-radius:10px;border:1px solid rgba(34,211,238,0.15)">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8">PQC Readiness</div>
+              <div style="font-size:32px;font-weight:700;color:#22d3ee;line-height:1.1;margin:4px 0">43%</div>
+              <div style="font-size:10px;color:#34d399">↗ +2.3% last 30 days</div>
+            </div>
+            <div style="padding:14px;background:rgba(52,211,153,0.08);border-radius:10px;border:1px solid rgba(52,211,153,0.15)">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">2030 Forecast</div>
+              <div style="font-size:16px;font-weight:600;color:#34d399;margin:4px 0">On track</div>
+              <div style="font-size:9px;color:#64748b">projected 87% by 2030</div>
+            </div>
+            <div style="padding:14px;background:rgba(248,113,113,0.08);border-radius:10px;border:1px solid rgba(248,113,113,0.15)">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8">NACSA-2030</div>
+              <div style="font-size:16px;font-weight:600;color:#f87171;margin:4px 0">FAIL</div>
+              <div style="font-size:9px;color:#64748b">12 rule violations</div>
+            </div>
+          </div>
+          <div style="padding:10px 12px;background:rgba(148,163,184,0.06);border-radius:6px;margin-bottom:12px">
+            <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Top 5 Blockers</div>
+            <div style="font-size:10px;color:#e2e8f0">MD5 · SHA-1 · DES · RSA-2048 · DH-1024</div>
+          </div>
+          <div style="padding:14px;background:rgba(148,163,184,0.04);border-radius:6px;color:#64748b;text-align:center;font-size:10px">
+            [existing stat cards + charts + machines table below]
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · Executive card grid (3-up summary)</h3>
+      <p>Three cards in a 2:1:1 grid: dominant readiness card on the left (with trend delta), forecast card in the middle, policy card on the right. Top-5 blockers as a strip below. Existing detailed sections follow.</p>
+      <p><strong>Best if:</strong> you want the exec layer to feel like a separate "view" without being a separate page. Visually distinct from the existing stat cards.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:24px">Click a card to select, or tell me in the terminal which direction feels right.</p>

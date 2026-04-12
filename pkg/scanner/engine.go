@@ -175,6 +175,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 3 — Database at-rest encryption scanner. Oracle Wallet,
 	// MySQL keyring, MSSQL TDE, PostgreSQL TDE, LUKS crypttab. Pro tier.
 	e.RegisterModule(NewDBAtRestModule(e.config))
+
+	// Wave 3 — Secrets manager config scanner. Vault seal/TLS,
+	// SOPS key refs, AWS KMS refs. Enterprise tier.
+	e.RegisterModule(NewSecretsMgrModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

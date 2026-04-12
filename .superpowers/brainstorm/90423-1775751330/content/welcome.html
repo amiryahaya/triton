@@ -1,0 +1,28 @@
+<h2>Phase 2 Brainstorm — Executive Summary on Overview</h2>
+<p class="subtitle">Extend the existing Overview dashboard with an executive-first summary</p>
+
+<div class="section">
+  <p>This browser window is our <strong>visual companion</strong> for Phase 2. I'll push layout comparisons, card designs, and UI mockups here when a question benefits from being seen. Conceptual questions (math formulas, product decisions, API shape) stay in the terminal.</p>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Scope of Phase 2</div>
+  <div class="mockup-body">
+    <p><strong>Two decisions already locked in from the session above:</strong></p>
+    <ol>
+      <li>✅ <strong>Extend existing Overview</strong> — don't add a separate <code>#/exec</code> route. The executive summary becomes the top of the Overview page; the existing stat cards + charts + machines table stay below.</li>
+      <li>✅ <strong>Executive/CISO audience first</strong> — big headline number, org-level trend, projected completion up top. Ops drill-down below.</li>
+    </ol>
+    <p><strong>What we still need to decide:</strong></p>
+    <ul>
+      <li>Exact layout of the executive block on top of the current Overview</li>
+      <li>Policy verdict scope (NACSA-2030 only, both, selectable?)</li>
+      <li>Machine health tier definitions (red/yellow/green rules)</li>
+      <li>Projected-completion math (linear vs pace-based)</li>
+      <li>API surface (one new endpoint vs stitch client-side)</li>
+    </ul>
+    <p><strong>Effort:</strong> ~2–3 days · <strong>Reuses Phase 1 foundation:</strong> <code>/aggregate</code>, <code>/trend</code>, <code>/priority</code>, <code>pkg/diff/Trend</code>, <code>pkg/policy/LoadBuiltin</code></p>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:24px;text-align:center">Back to the terminal — first question coming up.</p>

@@ -67,7 +67,7 @@ func (r *remoteFetcher) Fetch(ctx context.Context, ref string, creds ScanCredent
 	}
 
 	flattened := mutate.Extract(img)
-	defer flattened.Close()
+	defer func() { _ = flattened.Close() }()
 
 	sizeBytes, err := extractTarToSandbox(flattened, sandboxRoot)
 	if err != nil {
@@ -112,7 +112,7 @@ func newKeychainFromFile(path string) (authn.Keychain, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	cf, err := dockerconfig.LoadFromReader(f)
 	if err != nil {
@@ -215,7 +215,7 @@ func extractTarToSandbox(r io.Reader, sandboxRoot string) (int64, error) {
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return total, err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return total, err
 			}

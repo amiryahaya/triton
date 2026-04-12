@@ -284,7 +284,7 @@ func (m *OIDCProbeModule) fetchJWKS(ctx context.Context, url string) (*jwkSet, e
 }
 
 func (m *OIDCProbeModule) httpGet(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func (m *OIDCProbeModule) httpGet(ctx context.Context, url string) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("oidc_probe: %s returned %d", url, resp.StatusCode)
 	}

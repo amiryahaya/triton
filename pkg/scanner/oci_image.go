@@ -195,4 +195,3 @@ func constructDelegate(name string, cfg *scannerconfig.Config) Module {
 		return nil
 	}
 }
-

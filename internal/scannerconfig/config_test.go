@@ -50,6 +50,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "netinfra")
 	// Wave 3 — Messaging broker TLS/SASL config scanner.
 	assert.Contains(t, cfg.Modules, "messaging")
+	// Wave 3 — Database at-rest encryption scanner.
+	assert.Contains(t, cfg.Modules, "db_atrest")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -87,6 +89,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "firmware")
 	// Wave 3 — Messaging broker TLS/SASL config scanner.
 	assert.Contains(t, cfg.Modules, "messaging")
+	// Wave 3 — Database at-rest encryption scanner.
+	assert.Contains(t, cfg.Modules, "db_atrest")
 
 	// Should have process and network targets
 	hasProcess := false

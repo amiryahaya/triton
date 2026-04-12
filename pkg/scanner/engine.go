@@ -171,6 +171,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 3 — Messaging broker TLS/SASL config scanner. Kafka,
 	// RabbitMQ, NATS, Mosquitto, Redis. Pro tier.
 	e.RegisterModule(NewMessagingModule(e.config))
+
+	// Wave 3 — Database at-rest encryption scanner. Oracle Wallet,
+	// MySQL keyring, MSSQL TDE, PostgreSQL TDE, LUKS crypttab. Pro tier.
+	e.RegisterModule(NewDBAtRestModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

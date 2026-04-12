@@ -19,7 +19,7 @@ func TestIsEnrollmentFile(t *testing.T) {
 		// Certbot / ACME
 		{"/etc/letsencrypt/accounts/acme-v02.api.letsencrypt.org/directory/abc123/private_key.json", true},
 		{"/etc/letsencrypt/renewal/example.com.conf", true},
-		{"/etc/letsencrypt/live/example.com/privkey.pem", true},
+		{"/etc/letsencrypt/live/example.com/privkey.pem", false}, // PEM handled by cert module
 
 		// step-ca / Smallstep
 		{"/etc/step/config/ca.json", true},

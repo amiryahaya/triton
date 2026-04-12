@@ -88,12 +88,14 @@ func isEnrollmentFile(path string) bool {
 	base := filepath.Base(path)
 	lower := strings.ToLower(path)
 
-	// Certbot / Let's Encrypt
-	if strings.Contains(lower, "/letsencrypt/") {
-		if base == "private_key.json" || strings.HasSuffix(base, ".conf") ||
-			strings.HasSuffix(base, ".pem") {
-			return true
-		}
+	// Certbot / Let's Encrypt — account keys and renewal configs only.
+	// PEM files are handled by the certificate module; cli.conf is not
+	// crypto-relevant.
+	if strings.Contains(lower, "/letsencrypt/") && base == "private_key.json" {
+		return true
+	}
+	if strings.Contains(lower, "/letsencrypt/renewal/") && strings.HasSuffix(base, ".conf") {
+		return true
 	}
 
 	// step-ca / Smallstep

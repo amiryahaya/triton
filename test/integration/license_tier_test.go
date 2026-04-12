@@ -96,9 +96,9 @@ func TestLicenseTier_ProTierFilterConfig(t *testing.T) {
 	// Pro tier preserves comprehensive profile
 	assert.Equal(t, "comprehensive", cfg.Profile)
 
-	// Pro tier allows all modules (nil from AllowedModules = no filtering)
-	compProfile, _ := scannerconfig.GetProfile("comprehensive")
-	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules), "pro tier should keep all modules")
+	// Pro tier allows all modules except enterprise-only (k8s_live, secrets_mgr, kerberos_runtime).
+	proMods := license.AllowedModules(license.TierPro)
+	assert.Equal(t, len(proMods), len(cfg.Modules), "pro tier should keep all pro-allowed modules")
 
 	// Pro tier blocks SARIF format
 	err := guard.EnforceFormat("sarif")

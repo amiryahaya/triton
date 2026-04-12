@@ -71,51 +71,64 @@ type realK8sAPIClient struct {
 // ListTLSSecrets returns all kubernetes.io/tls secrets in the given namespace.
 // Pass "" for namespace to list across all namespaces.
 func (c *realK8sAPIClient) ListTLSSecrets(ctx context.Context, namespace string) ([]k8sTLSSecret, error) {
+	var out []k8sTLSSecret
 	opts := metav1.ListOptions{
 		FieldSelector: "type=kubernetes.io/tls",
 		Limit:         500,
 	}
-	list, err := c.clientset.CoreV1().Secrets(namespace).List(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]k8sTLSSecret, 0, len(list.Items))
-	for i := range list.Items {
-		s := &list.Items[i]
-		out = append(out, k8sTLSSecret{
-			Namespace: s.Namespace,
-			Name:      s.Name,
-			CertPEM:   s.Data[corev1.TLSCertKey],
-			KeyPEM:    s.Data[corev1.TLSPrivateKeyKey],
-		})
+	for {
+		list, err := c.clientset.CoreV1().Secrets(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		for i := range list.Items {
+			s := &list.Items[i]
+			out = append(out, k8sTLSSecret{
+				Namespace: s.Namespace,
+				Name:      s.Name,
+				CertPEM:   s.Data[corev1.TLSCertKey],
+				KeyPEM:    s.Data[corev1.TLSPrivateKeyKey],
+			})
+		}
+		if list.Continue == "" {
+			break
+		}
+		opts.Continue = list.Continue
 	}
 	return out, nil
 }
 
 // ListIngresses returns Ingress resources that have at least one TLS block.
 func (c *realK8sAPIClient) ListIngresses(ctx context.Context, namespace string) ([]k8sIngress, error) {
-	list, err := c.clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{Limit: 500})
-	if err != nil {
-		return nil, err
-	}
 	var out []k8sIngress
-	for i := range list.Items {
-		ing := &list.Items[i]
-		var tlsHosts []k8sIngressTLS
-		for j := range ing.Spec.TLS {
-			tls := &ing.Spec.TLS[j]
-			tlsHosts = append(tlsHosts, k8sIngressTLS{
-				Hosts:      tls.Hosts,
-				SecretName: tls.SecretName,
-			})
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := c.clientset.NetworkingV1().Ingresses(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, err
 		}
-		if len(tlsHosts) > 0 {
-			out = append(out, k8sIngress{
-				Namespace: ing.Namespace,
-				Name:      ing.Name,
-				TLSHosts:  tlsHosts,
-			})
+		for i := range list.Items {
+			ing := &list.Items[i]
+			var tlsHosts []k8sIngressTLS
+			for j := range ing.Spec.TLS {
+				tls := &ing.Spec.TLS[j]
+				tlsHosts = append(tlsHosts, k8sIngressTLS{
+					Hosts:      tls.Hosts,
+					SecretName: tls.SecretName,
+				})
+			}
+			if len(tlsHosts) > 0 {
+				out = append(out, k8sIngress{
+					Namespace: ing.Namespace,
+					Name:      ing.Name,
+					TLSHosts:  tlsHosts,
+				})
+			}
 		}
+		if list.Continue == "" {
+			break
+		}
+		opts.Continue = list.Continue
 	}
 	return out, nil
 }
@@ -126,44 +139,60 @@ func (c *realK8sAPIClient) ListIngresses(ctx context.Context, namespace string) 
 func (c *realK8sAPIClient) ListWebhookConfigs(ctx context.Context) ([]k8sWebhookConfig, error) {
 	var out []k8sWebhookConfig
 
-	valList, err := c.clientset.AdmissionregistrationV1().
-		ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{Limit: 500})
-	if err != nil {
-		return nil, err
-	}
-	for i := range valList.Items {
-		wh := &valList.Items[i]
-		for j := range wh.Webhooks {
-			hook := &wh.Webhooks[j]
-			if len(hook.ClientConfig.CABundle) > 0 {
-				out = append(out, k8sWebhookConfig{
-					Name:     wh.Name,
-					Kind:     "ValidatingWebhookConfiguration",
-					CABundle: hook.ClientConfig.CABundle,
-				})
-				break // one finding per webhook config object, not per hook entry
+	// Validating webhooks
+	valOpts := metav1.ListOptions{Limit: 500}
+	for {
+		valList, err := c.clientset.AdmissionregistrationV1().
+			ValidatingWebhookConfigurations().List(ctx, valOpts)
+		if err != nil {
+			return nil, err
+		}
+		for i := range valList.Items {
+			wh := &valList.Items[i]
+			for j := range wh.Webhooks {
+				hook := &wh.Webhooks[j]
+				if len(hook.ClientConfig.CABundle) > 0 {
+					out = append(out, k8sWebhookConfig{
+						Name:     wh.Name,
+						Kind:     "ValidatingWebhookConfiguration",
+						CABundle: hook.ClientConfig.CABundle,
+					})
+					break // one finding per webhook config object, not per hook entry
+				}
 			}
 		}
+		if valList.Continue == "" {
+			break
+		}
+		valOpts.Continue = valList.Continue
 	}
 
-	mutList, err := c.clientset.AdmissionregistrationV1().
-		MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{Limit: 500})
-	if err != nil {
-		return nil, err
-	}
-	for i := range mutList.Items {
-		wh := &mutList.Items[i]
-		for j := range wh.Webhooks {
-			hook := &wh.Webhooks[j]
-			if len(hook.ClientConfig.CABundle) > 0 {
-				out = append(out, k8sWebhookConfig{
-					Name:     wh.Name,
-					Kind:     "MutatingWebhookConfiguration",
-					CABundle: hook.ClientConfig.CABundle,
-				})
-				break
+	// Mutating webhooks
+	mutOpts := metav1.ListOptions{Limit: 500}
+	for {
+		mutList, err := c.clientset.AdmissionregistrationV1().
+			MutatingWebhookConfigurations().List(ctx, mutOpts)
+		if err != nil {
+			return nil, err
+		}
+		for i := range mutList.Items {
+			wh := &mutList.Items[i]
+			for j := range wh.Webhooks {
+				hook := &wh.Webhooks[j]
+				if len(hook.ClientConfig.CABundle) > 0 {
+					out = append(out, k8sWebhookConfig{
+						Name:     wh.Name,
+						Kind:     "MutatingWebhookConfiguration",
+						CABundle: hook.ClientConfig.CABundle,
+					})
+					break
+				}
 			}
 		}
+		if mutList.Continue == "" {
+			break
+		}
+		mutOpts.Continue = mutList.Continue
 	}
 
 	return out, nil
@@ -171,24 +200,30 @@ func (c *realK8sAPIClient) ListWebhookConfigs(ctx context.Context) ([]k8sWebhook
 
 // ListConfigMaps returns ConfigMaps matching name that contain a "ca.crt" key.
 func (c *realK8sAPIClient) ListConfigMaps(ctx context.Context, namespace, name string) ([]k8sConfigMap, error) {
+	var out []k8sConfigMap
 	opts := metav1.ListOptions{
 		FieldSelector: "metadata.name=" + name,
 		Limit:         500,
 	}
-	list, err := c.clientset.CoreV1().ConfigMaps(namespace).List(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-	var out []k8sConfigMap
-	for i := range list.Items {
-		cm := &list.Items[i]
-		if certData, ok := cm.Data["ca.crt"]; ok {
-			out = append(out, k8sConfigMap{
-				Namespace: cm.Namespace,
-				Name:      cm.Name,
-				CACertPEM: []byte(certData),
-			})
+	for {
+		list, err := c.clientset.CoreV1().ConfigMaps(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, err
 		}
+		for i := range list.Items {
+			cm := &list.Items[i]
+			if certData, ok := cm.Data["ca.crt"]; ok {
+				out = append(out, k8sConfigMap{
+					Namespace: cm.Namespace,
+					Name:      cm.Name,
+					CACertPEM: []byte(certData),
+				})
+			}
+		}
+		if list.Continue == "" {
+			break
+		}
+		opts.Continue = list.Continue
 	}
 	return out, nil
 }
@@ -209,90 +244,111 @@ var (
 // ListCertManagerCertificates lists cert-manager Certificate CRDs via the
 // dynamic client and converts them to k8sCertManagerCert structs.
 func (c *realK8sAPIClient) ListCertManagerCertificates(ctx context.Context, namespace string) ([]k8sCertManagerCert, error) {
-	list, err := c.dynamic.Resource(certManagerCertGVR).Namespace(namespace).List(ctx, metav1.ListOptions{Limit: 500})
-	if err != nil {
-		return nil, err
-	}
 	var out []k8sCertManagerCert
-	for i := range list.Items {
-		item := &list.Items[i]
-		spec, _ := item.Object["spec"].(map[string]interface{})
-		if spec == nil {
-			continue
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := c.dynamic.Resource(certManagerCertGVR).Namespace(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, err
 		}
-		cert := k8sCertManagerCert{
-			Namespace: item.GetNamespace(),
-			Name:      item.GetName(),
-		}
-		if secretName, ok := spec["secretName"].(string); ok {
-			cert.SecretName = secretName
-		}
-		if pk, ok := spec["privateKey"].(map[string]interface{}); ok {
-			if algo, ok := pk["algorithm"].(string); ok {
-				cert.Algorithm = algo
+		for i := range list.Items {
+			item := &list.Items[i]
+			spec, _ := item.Object["spec"].(map[string]interface{})
+			if spec == nil {
+				continue
 			}
-			if size, ok := pk["size"].(float64); ok {
-				cert.KeySize = int(size)
+			cert := k8sCertManagerCert{
+				Namespace: item.GetNamespace(),
+				Name:      item.GetName(),
 			}
-		}
-		if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
-			if name, ok := issuerRef["name"].(string); ok {
-				cert.IssuerRef = name
+			if secretName, ok := spec["secretName"].(string); ok {
+				cert.SecretName = secretName
 			}
+			if pk, ok := spec["privateKey"].(map[string]interface{}); ok {
+				if algo, ok := pk["algorithm"].(string); ok {
+					cert.Algorithm = algo
+				}
+				if size, ok := pk["size"].(float64); ok {
+					cert.KeySize = int(size)
+				}
+			}
+			if issuerRef, ok := spec["issuerRef"].(map[string]interface{}); ok {
+				if name, ok := issuerRef["name"].(string); ok {
+					cert.IssuerRef = name
+				}
+			}
+			out = append(out, cert)
 		}
-		out = append(out, cert)
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
 	}
 	return out, nil
 }
 
 // ListCertManagerIssuers lists cert-manager Issuer CRDs via the dynamic client.
 func (c *realK8sAPIClient) ListCertManagerIssuers(ctx context.Context, namespace string) ([]k8sCertManagerIssuer, error) {
-	list, err := c.dynamic.Resource(certManagerIssuerGVR).Namespace(namespace).List(ctx, metav1.ListOptions{Limit: 500})
-	if err != nil {
-		return nil, err
-	}
 	var out []k8sCertManagerIssuer
-	for i := range list.Items {
-		item := &list.Items[i]
-		issuer := k8sCertManagerIssuer{
-			Namespace: item.GetNamespace(),
-			Name:      item.GetName(),
-			Kind:      "Issuer",
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := c.dynamic.Resource(certManagerIssuerGVR).Namespace(namespace).List(ctx, opts)
+		if err != nil {
+			return nil, err
 		}
-		if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
-			if ca, ok := spec["ca"].(map[string]interface{}); ok {
-				if secret, ok := ca["secretName"].(string); ok {
-					issuer.CASecret = secret
+		for i := range list.Items {
+			item := &list.Items[i]
+			issuer := k8sCertManagerIssuer{
+				Namespace: item.GetNamespace(),
+				Name:      item.GetName(),
+				Kind:      "Issuer",
+			}
+			if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
+				if ca, ok := spec["ca"].(map[string]interface{}); ok {
+					if secret, ok := ca["secretName"].(string); ok {
+						issuer.CASecret = secret
+					}
 				}
 			}
+			out = append(out, issuer)
 		}
-		out = append(out, issuer)
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
 	}
 	return out, nil
 }
 
 // ListCertManagerClusterIssuers lists cert-manager ClusterIssuer CRDs (cluster-scoped).
 func (c *realK8sAPIClient) ListCertManagerClusterIssuers(ctx context.Context) ([]k8sCertManagerIssuer, error) {
-	// ClusterIssuers are cluster-scoped; use the non-namespaced resource interface.
-	list, err := c.dynamic.Resource(certManagerClusterIssuerGVR).List(ctx, metav1.ListOptions{Limit: 500})
-	if err != nil {
-		return nil, err
-	}
 	var out []k8sCertManagerIssuer
-	for i := range list.Items {
-		item := &list.Items[i]
-		issuer := k8sCertManagerIssuer{
-			Name: item.GetName(),
-			Kind: "ClusterIssuer",
+	// ClusterIssuers are cluster-scoped; use the non-namespaced resource interface.
+	opts := metav1.ListOptions{Limit: 500}
+	for {
+		list, err := c.dynamic.Resource(certManagerClusterIssuerGVR).List(ctx, opts)
+		if err != nil {
+			return nil, err
 		}
-		if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
-			if ca, ok := spec["ca"].(map[string]interface{}); ok {
-				if secret, ok := ca["secretName"].(string); ok {
-					issuer.CASecret = secret
+		for i := range list.Items {
+			item := &list.Items[i]
+			issuer := k8sCertManagerIssuer{
+				Name: item.GetName(),
+				Kind: "ClusterIssuer",
+			}
+			if spec, ok := item.Object["spec"].(map[string]interface{}); ok {
+				if ca, ok := spec["ca"].(map[string]interface{}); ok {
+					if secret, ok := ca["secretName"].(string); ok {
+						issuer.CASecret = secret
+					}
 				}
 			}
+			out = append(out, issuer)
 		}
-		out = append(out, issuer)
+		if list.GetContinue() == "" {
+			break
+		}
+		opts.Continue = list.GetContinue()
 	}
 	return out, nil
 }

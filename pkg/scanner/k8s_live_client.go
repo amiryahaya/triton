@@ -80,7 +80,8 @@ func (c *realK8sAPIClient) ListTLSSecrets(ctx context.Context, namespace string)
 		return nil, err
 	}
 	out := make([]k8sTLSSecret, 0, len(list.Items))
-	for _, s := range list.Items {
+	for i := range list.Items {
+		s := &list.Items[i]
 		out = append(out, k8sTLSSecret{
 			Namespace: s.Namespace,
 			Name:      s.Name,
@@ -98,9 +99,11 @@ func (c *realK8sAPIClient) ListIngresses(ctx context.Context, namespace string) 
 		return nil, err
 	}
 	var out []k8sIngress
-	for _, ing := range list.Items {
+	for i := range list.Items {
+		ing := &list.Items[i]
 		var tlsHosts []k8sIngressTLS
-		for _, tls := range ing.Spec.TLS {
+		for j := range ing.Spec.TLS {
+			tls := &ing.Spec.TLS[j]
 			tlsHosts = append(tlsHosts, k8sIngressTLS{
 				Hosts:      tls.Hosts,
 				SecretName: tls.SecretName,
@@ -128,8 +131,10 @@ func (c *realK8sAPIClient) ListWebhookConfigs(ctx context.Context) ([]k8sWebhook
 	if err != nil {
 		return nil, err
 	}
-	for _, wh := range valList.Items {
-		for _, hook := range wh.Webhooks {
+	for i := range valList.Items {
+		wh := &valList.Items[i]
+		for j := range wh.Webhooks {
+			hook := &wh.Webhooks[j]
 			if len(hook.ClientConfig.CABundle) > 0 {
 				out = append(out, k8sWebhookConfig{
 					Name:     wh.Name,
@@ -146,8 +151,10 @@ func (c *realK8sAPIClient) ListWebhookConfigs(ctx context.Context) ([]k8sWebhook
 	if err != nil {
 		return nil, err
 	}
-	for _, wh := range mutList.Items {
-		for _, hook := range wh.Webhooks {
+	for i := range mutList.Items {
+		wh := &mutList.Items[i]
+		for j := range wh.Webhooks {
+			hook := &wh.Webhooks[j]
 			if len(hook.ClientConfig.CABundle) > 0 {
 				out = append(out, k8sWebhookConfig{
 					Name:     wh.Name,
@@ -173,7 +180,8 @@ func (c *realK8sAPIClient) ListConfigMaps(ctx context.Context, namespace, name s
 		return nil, err
 	}
 	var out []k8sConfigMap
-	for _, cm := range list.Items {
+	for i := range list.Items {
+		cm := &list.Items[i]
 		if certData, ok := cm.Data["ca.crt"]; ok {
 			out = append(out, k8sConfigMap{
 				Namespace: cm.Namespace,
@@ -206,7 +214,8 @@ func (c *realK8sAPIClient) ListCertManagerCertificates(ctx context.Context, name
 		return nil, err
 	}
 	var out []k8sCertManagerCert
-	for _, item := range list.Items {
+	for i := range list.Items {
+		item := &list.Items[i]
 		spec, _ := item.Object["spec"].(map[string]interface{})
 		if spec == nil {
 			continue
@@ -243,7 +252,8 @@ func (c *realK8sAPIClient) ListCertManagerIssuers(ctx context.Context, namespace
 		return nil, err
 	}
 	var out []k8sCertManagerIssuer
-	for _, item := range list.Items {
+	for i := range list.Items {
+		item := &list.Items[i]
 		issuer := k8sCertManagerIssuer{
 			Namespace: item.GetNamespace(),
 			Name:      item.GetName(),
@@ -269,7 +279,8 @@ func (c *realK8sAPIClient) ListCertManagerClusterIssuers(ctx context.Context) ([
 		return nil, err
 	}
 	var out []k8sCertManagerIssuer
-	for _, item := range list.Items {
+	for i := range list.Items {
+		item := &list.Items[i]
 		issuer := k8sCertManagerIssuer{
 			Name: item.GetName(),
 			Kind: "ClusterIssuer",
@@ -293,7 +304,8 @@ func (c *realK8sAPIClient) HasAPIGroup(group string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, g := range groups.Groups {
+	for i := range groups.Groups {
+		g := &groups.Groups[i]
 		if g.Name == group {
 			return true, nil
 		}

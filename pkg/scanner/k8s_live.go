@@ -220,7 +220,7 @@ func (m *K8sLiveModule) parseKeyPEM(ctx context.Context, pemData []byte, endpoin
 	m.emitFinding(ctx, endpoint, asset, 5, 0.95, findings)
 }
 
-func classifyCertKey(cert *x509.Certificate) (string, int) {
+func classifyCertKey(cert *x509.Certificate) (algo string, keySize int) {
 	switch pub := cert.PublicKey.(type) {
 	case *rsa.PublicKey:
 		return "RSA", pub.N.BitLen()
@@ -232,7 +232,7 @@ func classifyCertKey(cert *x509.Certificate) (string, int) {
 	return "UNKNOWN", 0
 }
 
-func classifyKeyDER(der []byte) (string, int) {
+func classifyKeyDER(der []byte) (algo string, keySize int) {
 	if key, err := x509.ParsePKCS8PrivateKey(der); err == nil {
 		switch k := key.(type) {
 		case *rsa.PrivateKey:

@@ -167,6 +167,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 2 §6.4 — Firmware / Secure Boot scanner. EFI variables,
 	// MOK chain, TPM version. Linux-first, Pro tier.
 	e.RegisterModule(NewFirmwareModule(e.config))
+
+	// Wave 3 — Messaging broker TLS/SASL config scanner. Kafka,
+	// RabbitMQ, NATS, Mosquitto, Redis. Pro tier.
+	e.RegisterModule(NewMessagingModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

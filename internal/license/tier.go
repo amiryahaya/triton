@@ -161,6 +161,7 @@ func proModules() []string {
 		"vpn_runtime",
 		"netinfra",
 		"firmware",
+		"messaging",
 		// k8s_live is enterprise-only — do NOT add.
 	}
 }

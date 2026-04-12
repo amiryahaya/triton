@@ -46,6 +46,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "mail_server")
 	// Wave 2 §6.1 — DNSSEC zone file scanner.
 	assert.Contains(t, cfg.Modules, "dnssec")
+	// Wave 2 §6.5 — Network infrastructure config scanner.
+	assert.Contains(t, cfg.Modules, "netinfra")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -75,6 +77,12 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "mail_server")
 	// Wave 2 §6.1 — DNSSEC zone file scanner.
 	assert.Contains(t, cfg.Modules, "dnssec")
+	// Wave 2 §6.3 — Live VPN state scanner.
+	assert.Contains(t, cfg.Modules, "vpn_runtime")
+	// Wave 2 §6.5 — Network infrastructure config scanner.
+	assert.Contains(t, cfg.Modules, "netinfra")
+	// Wave 2 §6.4 — Firmware / Secure Boot scanner.
+	assert.Contains(t, cfg.Modules, "firmware")
 
 	// Should have process and network targets
 	hasProcess := false

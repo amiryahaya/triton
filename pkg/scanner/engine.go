@@ -154,6 +154,19 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 2 §6.1 — DNSSEC zone file scanner. Parses BIND/NSD/Knot
 	// zone files for DNSKEY/DS/RRSIG algorithm inventory. Pro tier.
 	e.RegisterModule(NewDNSSECModule(e.config))
+
+	// Wave 2 §6.3 — Live VPN state scanner. Runs ipsec statusall,
+	// wg show, openvpn status to capture negotiated algorithms.
+	// Pro tier, TargetProcess.
+	e.RegisterModule(NewVPNRuntimeModule(e.config))
+
+	// Wave 2 §6.5 — Network infrastructure config scanner. Parses
+	// SNMPv3, BGP, NTS, syslog-TLS, 802.1X/RADIUS configs. Pro tier.
+	e.RegisterModule(NewNetInfraModule(e.config))
+
+	// Wave 2 §6.4 — Firmware / Secure Boot scanner. EFI variables,
+	// MOK chain, TPM version. Linux-first, Pro tier.
+	e.RegisterModule(NewFirmwareModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -453,4 +455,172 @@ func TestK8sLive_TLSSecretFindings(t *testing.T) {
 	}
 	assert.True(t, hasCert, "expected cert finding")
 	assert.True(t, hasKey, "expected key finding")
+}
+
+// runK8sScan runs a scan and returns all findings plus the error.
+func runK8sScan(t *testing.T, m *K8sLiveModule, target model.ScanTarget) ([]*model.Finding, error) {
+	t.Helper()
+	findings := make(chan *model.Finding, 128)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+	err := m.Scan(context.Background(), target, findings)
+	close(findings)
+	<-done
+	return collected, err
+}
+
+func TestK8sLive_NamespaceFilter(t *testing.T) {
+	certPEM, keyPEM := testCertPEM(t)
+	fc := &fakeK8sClient{
+		tlsSecrets: []k8sTLSSecret{
+			{Namespace: "prod", Name: "prod-tls", CertPEM: certPEM, KeyPEM: keyPEM},
+			{Namespace: "dev", Name: "dev-tls", CertPEM: certPEM, KeyPEM: keyPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	cfg := &scannerconfig.Config{Profile: "comprehensive", K8sNamespace: "prod"}
+	m := newK8sLiveModuleWithFactory(cfg, &fakeK8sClientFactory{client: fc})
+
+	collected, err := runK8sScan(t, m, model.ScanTarget{Type: model.TargetKubernetesCluster, Value: "/fake"})
+	require.NoError(t, err)
+	require.NotEmpty(t, collected)
+	for _, f := range collected {
+		assert.Contains(t, f.Source.Endpoint, "prod/", "finding should be from prod namespace, got: %s", f.Source.Endpoint)
+		assert.NotContains(t, f.Source.Endpoint, "dev/", "dev namespace finding leaked through filter")
+	}
+}
+
+func TestK8sLive_AllNamespaces(t *testing.T) {
+	certPEM, keyPEM := testCertPEM(t)
+	fc := &fakeK8sClient{
+		tlsSecrets: []k8sTLSSecret{
+			{Namespace: "ns-a", Name: "tls-a", CertPEM: certPEM, KeyPEM: keyPEM},
+			{Namespace: "ns-b", Name: "tls-b", CertPEM: certPEM, KeyPEM: keyPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	// No K8sNamespace set → scan all namespaces.
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, &fakeK8sClientFactory{client: fc})
+
+	collected, err := runK8sScan(t, m, model.ScanTarget{Type: model.TargetKubernetesCluster, Value: "/fake"})
+	require.NoError(t, err)
+
+	var hasNsA, hasNsB bool
+	for _, f := range collected {
+		if containsStr(f.Source.Endpoint, "ns-a/") {
+			hasNsA = true
+		}
+		if containsStr(f.Source.Endpoint, "ns-b/") {
+			hasNsB = true
+		}
+	}
+	assert.True(t, hasNsA, "expected findings from ns-a")
+	assert.True(t, hasNsB, "expected findings from ns-b")
+}
+
+// containsStr is a simple substring check used in k8s_live tests.
+func containsStr(s, substr string) bool {
+	if len(substr) == 0 {
+		return true
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestK8sLive_EmptyCluster(t *testing.T) {
+	fc := &fakeK8sClient{
+		hasAPIGroups: map[string]bool{},
+	}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, &fakeK8sClientFactory{client: fc})
+
+	collected, err := runK8sScan(t, m, model.ScanTarget{Type: model.TargetKubernetesCluster, Value: "/fake"})
+	require.NoError(t, err, "empty cluster should not return an error")
+	assert.Empty(t, collected, "expected zero findings on empty cluster")
+}
+
+func TestK8sLive_APIError(t *testing.T) {
+	certPEM, _ := testCertPEM(t)
+	fc := &fakeK8sClient{
+		listErrors: map[string]error{
+			"secrets": fmt.Errorf("forbidden"),
+		},
+		webhookConfigs: []k8sWebhookConfig{
+			{Name: "my-webhook", Kind: "ValidatingWebhookConfiguration", CABundle: certPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, &fakeK8sClientFactory{client: fc})
+
+	collected, err := runK8sScan(t, m, model.ScanTarget{Type: model.TargetKubernetesCluster, Value: "/fake"})
+	require.NoError(t, err, "scan must not return error when individual resource list fails")
+	require.NotEmpty(t, collected, "webhook findings must still be emitted despite secrets error")
+
+	var webhookFound bool
+	for _, f := range collected {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "Webhook CA bundle" {
+			webhookFound = true
+		}
+	}
+	assert.True(t, webhookFound, "webhook CA bundle finding expected")
+}
+
+func TestK8sLive_NeverSerializesSecretData(t *testing.T) {
+	certPEM, keyPEM := testCertPEM(t)
+	fc := &fakeK8sClient{
+		tlsSecrets: []k8sTLSSecret{
+			{Namespace: "default", Name: "my-tls", CertPEM: certPEM, KeyPEM: keyPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, &fakeK8sClientFactory{client: fc})
+
+	collected, err := runK8sScan(t, m, model.ScanTarget{Type: model.TargetKubernetesCluster, Value: "/fake"})
+	require.NoError(t, err)
+	require.NotEmpty(t, collected)
+
+	forbidden := []string{
+		"BEGIN CERTIFICATE",
+		"BEGIN EC PRIVATE KEY",
+		"BEGIN RSA PRIVATE KEY",
+	}
+	for _, f := range collected {
+		data, marshalErr := json.Marshal(f)
+		require.NoError(t, marshalErr)
+		jsonStr := string(data)
+		for _, marker := range forbidden {
+			assert.NotContains(t, jsonStr, marker,
+				"finding JSON must not contain raw PEM data (%q leaked)", marker)
+		}
+	}
+}
+
+func TestK8sLive_SkipsNonK8sTarget(t *testing.T) {
+	certPEM, keyPEM := testCertPEM(t)
+	fc := &fakeK8sClient{
+		tlsSecrets: []k8sTLSSecret{
+			{Namespace: "default", Name: "my-tls", CertPEM: certPEM, KeyPEM: keyPEM},
+		},
+		hasAPIGroups: map[string]bool{},
+	}
+	cfg := &scannerconfig.Config{Profile: "comprehensive"}
+	m := newK8sLiveModuleWithFactory(cfg, &fakeK8sClientFactory{client: fc})
+
+	// Pass a TargetNetwork target — module should ignore it.
+	collected, err := runK8sScan(t, m, model.ScanTarget{Type: model.TargetNetwork, Value: "192.168.1.0/24"})
+	require.NoError(t, err)
+	assert.Empty(t, collected, "k8s_live module must not emit findings for non-Kubernetes targets")
 }

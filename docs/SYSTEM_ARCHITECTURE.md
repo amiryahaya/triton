@@ -676,6 +676,25 @@ default keychain (Docker config, cloud helpers for ECR/GCR/ACR).
 **Server mode:** ambient credential chains disabled. API scan requests
 must carry explicit credentials.
 
+### 6.6 OIDC/JWKS Discovery Probe
+
+The `oidc_probe` module fetches `/.well-known/openid-configuration`
+from user-specified endpoints, follows the `jwks_uri`, and inventories
+signing keys and advertised algorithms.
+
+**JWA normalization:** JWA algorithm identifiers (RS256, ES384, etc.)
+are mapped to canonical crypto registry names via `oidcAlgoTokenMap`,
+following the same pattern as `vpnAlgoTokenMap` in vpn_config.go.
+
+**Two finding types:**
+- JWK key findings (0.90 confidence, `DetectionMethod: "network-probe"`)
+- Advertised-but-unused algorithm findings (0.60 confidence,
+  `DetectionMethod: "configuration"`)
+
+Keys with `use: "enc"` and algorithms set to `"none"` are skipped.
+When the JWK `alg` field is absent (Azure AD pattern), the algorithm
+is inferred from `kty` + `crv`.
+
 ---
 
 ## 7. PQC Classification & Crypto-Agility Assessment

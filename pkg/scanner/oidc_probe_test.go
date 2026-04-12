@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -141,4 +142,281 @@ func TestOIDCProbe_HappyPath(t *testing.T) {
 			assert.Equal(t, 256, f.CryptoAsset.KeySize)
 		}
 	}
+}
+
+// TestOIDCProbe_AdvertisedNotInUse — discovery advertises RS256+ES256+ES384,
+// JWKS has only one ES256 key. Expect 1 JWK key finding (ES256, confidence 0.90)
+// + 2 advertised findings (RS256+ES384, confidence 0.60, method "configuration").
+func TestOIDCProbe_AdvertisedNotInUse(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(oidcDiscovery{
+				JwksURI:                 srvURL + "/jwks",
+				IDTokenSigningAlgValues: []string{"RS256", "ES256", "ES384"},
+			})
+		case "/jwks":
+			_ = json.NewEncoder(w).Encode(jwkSet{
+				Keys: []jwkKey{
+					{Kty: "EC", Alg: "ES256", Kid: "ec-1", Use: "sig", Crv: "P-256"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	collected := oidcScan(t, m, srv.URL)
+
+	require.Len(t, collected, 3, "expected 1 JWK + 2 advertised findings")
+
+	var jwkFindings, advFindings []*model.Finding
+	for _, f := range collected {
+		if f.Confidence == 0.90 {
+			jwkFindings = append(jwkFindings, f)
+		} else {
+			advFindings = append(advFindings, f)
+		}
+	}
+
+	require.Len(t, jwkFindings, 1, "expected 1 JWK key finding")
+	assert.Equal(t, "ECDSA-P256", jwkFindings[0].CryptoAsset.Algorithm)
+	assert.Equal(t, "network-probe", jwkFindings[0].Source.DetectionMethod)
+
+	require.Len(t, advFindings, 2, "expected 2 advertised-only findings")
+	var advAlgos []string
+	for _, f := range advFindings {
+		assert.Equal(t, 0.60, f.Confidence)
+		assert.Equal(t, "configuration", f.Source.DetectionMethod)
+		advAlgos = append(advAlgos, f.CryptoAsset.Algorithm)
+	}
+	assert.ElementsMatch(t, []string{"RSA", "ECDSA-P384"}, advAlgos)
+}
+
+// TestOIDCProbe_DiscoveryNotFound — server returns 404 for everything.
+// Expect: no error, zero findings.
+func TestOIDCProbe_DiscoveryNotFound(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	collected := oidcScan(t, m, srv.URL)
+	assert.Empty(t, collected, "expected zero findings when discovery returns 404")
+}
+
+// TestOIDCProbe_JWKSFetchFails — discovery returns valid doc with a jwks_uri
+// pointing to a URL that returns 500. Advertised-algo findings should still emit.
+func TestOIDCProbe_JWKSFetchFails(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(oidcDiscovery{
+				JwksURI:                 srvURL + "/jwks",
+				IDTokenSigningAlgValues: []string{"RS256", "ES256"},
+			})
+		case "/jwks":
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	collected := oidcScan(t, m, srv.URL)
+
+	// No JWK key findings (JWKS fetch failed), but advertised algos should appear.
+	assert.NotEmpty(t, collected, "expected advertised-algo findings even when JWKS fails")
+	for _, f := range collected {
+		assert.Equal(t, 0.60, f.Confidence, "all findings should be advertised (0.60)")
+		assert.Equal(t, "configuration", f.Source.DetectionMethod)
+	}
+	var algos []string
+	for _, f := range collected {
+		algos = append(algos, f.CryptoAsset.Algorithm)
+	}
+	assert.ElementsMatch(t, []string{"RSA", "ECDSA-P256"}, algos)
+}
+
+// TestOIDCProbe_MalformedJSON — server returns invalid JSON for discovery.
+// Expect: no error, zero findings.
+func TestOIDCProbe_MalformedJSON(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{this is not valid json`))
+	}))
+	defer srv.Close()
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	collected := oidcScan(t, m, srv.URL)
+	assert.Empty(t, collected, "expected zero findings on malformed JSON")
+}
+
+// TestOIDCProbe_Timeout — server handler sleeps 5 seconds, context has 100ms timeout.
+// Expect: clean termination, no error.
+func TestOIDCProbe_Timeout(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	err := m.Scan(ctx, model.ScanTarget{
+		Type:  model.TargetNetwork,
+		Value: srv.URL,
+	}, findings)
+	close(findings)
+	<-done
+
+	require.NoError(t, err, "Scan must not return an error on timeout")
+	assert.Empty(t, collected, "expected zero findings on context timeout")
+}
+
+// TestOIDCProbe_NoAlgOnKey — JWKS has one key with no `alg` field.
+// Algorithm should be inferred from kty+crv. Key size should be 256.
+func TestOIDCProbe_NoAlgOnKey(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(oidcDiscovery{
+				JwksURI: srvURL + "/jwks",
+			})
+		case "/jwks":
+			_ = json.NewEncoder(w).Encode(jwkSet{
+				Keys: []jwkKey{
+					{Kty: "EC", Crv: "P-256", Kid: "noalg", Use: "sig"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	collected := oidcScan(t, m, srv.URL)
+
+	require.Len(t, collected, 1, "expected 1 finding for the key with no alg field")
+	f := collected[0]
+	assert.Equal(t, "ECDSA-P256", f.CryptoAsset.Algorithm, "algorithm should be inferred from crv=P-256")
+	assert.Equal(t, 256, f.CryptoAsset.KeySize)
+	assert.Equal(t, 0.90, f.Confidence)
+}
+
+// TestOIDCProbe_SkipsEncryptionKeys — JWKS has two keys: one enc (RSA) and one sig (EC).
+// Only the sig key should produce a finding.
+func TestOIDCProbe_SkipsEncryptionKeys(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(oidcDiscovery{
+				JwksURI: srvURL + "/jwks",
+			})
+		case "/jwks":
+			_ = json.NewEncoder(w).Encode(jwkSet{
+				Keys: []jwkKey{
+					{Kty: "RSA", Alg: "RSA-OAEP", Kid: "enc-1", Use: "enc", N: rsaModulus2048},
+					{Kty: "EC", Alg: "ES256", Kid: "sig-1", Use: "sig", Crv: "P-256"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: srv.Client()}
+
+	collected := oidcScan(t, m, srv.URL)
+
+	require.Len(t, collected, 1, "expected only the sig key finding, enc key must be skipped")
+	assert.Equal(t, "ECDSA-P256", collected[0].CryptoAsset.Algorithm)
+}
+
+// TestOIDCProbe_SkipsNonURLTargets — host:port format should produce zero findings
+// (that format is for protocol scanner, not OIDC probe).
+func TestOIDCProbe_SkipsNonURLTargets(t *testing.T) {
+	cfg := &scannerconfig.Config{Profile: "standard"}
+	m := &OIDCProbeModule{config: cfg, httpClient: http.DefaultClient}
+
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+
+	err := m.Scan(context.Background(), model.ScanTarget{
+		Type:  model.TargetNetwork,
+		Value: "192.168.1.1:443",
+	}, findings)
+	close(findings)
+	<-done
+
+	require.NoError(t, err)
+	assert.Empty(t, collected, "host:port target should produce zero findings")
+}
+
+// oidcScan is a test helper that runs OIDCProbeModule.Scan and returns all findings.
+func oidcScan(t *testing.T, m *OIDCProbeModule, endpoint string) []*model.Finding {
+	t.Helper()
+	findings := make(chan *model.Finding, 64)
+	var collected []*model.Finding
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for f := range findings {
+			collected = append(collected, f)
+		}
+	}()
+	err := m.Scan(context.Background(), model.ScanTarget{
+		Type:  model.TargetNetwork,
+		Value: endpoint,
+	}, findings)
+	close(findings)
+	<-done
+	require.NoError(t, err)
+	return collected
 }

@@ -179,6 +179,10 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 3 — Secrets manager config scanner. Vault seal/TLS,
 	// SOPS key refs, AWS KMS refs. Enterprise tier.
 	e.RegisterModule(NewSecretsMgrModule(e.config))
+
+	// Wave 3 — CI/CD provenance and supply chain signing scanner.
+	// SLSA, in-toto, Sigstore/Fulcio, GitHub Actions OIDC. Pro tier.
+	e.RegisterModule(NewSupplyChainModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

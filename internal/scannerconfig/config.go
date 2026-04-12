@@ -23,6 +23,7 @@ type Config struct {
 	DBUrl           string
 	Incremental     bool
 	Credentials     ScanCredentials
+	K8sNamespace    string // namespace filter for k8s_live; empty means all namespaces
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.
@@ -194,6 +195,7 @@ type BuildOptions struct {
 	ImageRefs     []string
 	Kubeconfig    string
 	K8sContext    string
+	K8sNamespace  string // namespace filter for k8s_live; empty means all namespaces
 	RegistryAuth  string
 	RegistryUser  string
 	RegistryPass  string
@@ -262,6 +264,14 @@ func BuildConfig(opts BuildOptions) (*Config, error) {
 	if imageMode && !containsModule(cfg.Modules, "oci_image") {
 		cfg.Modules = append(cfg.Modules, "oci_image")
 	}
+
+	// Ensure k8s_live module is present whenever --kubeconfig is set.
+	// No profile includes k8s_live by default (Enterprise-only, live cluster
+	// access) so without this injection the k8s scan would be a silent no-op.
+	if k8sMode && !containsModule(cfg.Modules, "k8s_live") {
+		cfg.Modules = append(cfg.Modules, "k8s_live")
+	}
+	cfg.K8sNamespace = opts.K8sNamespace
 
 	// Inject oidc_probe module and add TargetNetwork entries for each OIDC
 	// endpoint supplied via --oidc-endpoint. Unlike --image, OIDC probing does

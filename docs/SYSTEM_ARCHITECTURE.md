@@ -695,6 +695,24 @@ Keys with `use: "enc"` and algorithms set to `"none"` are skipped.
 When the JWK `alg` field is absent (Azure AD pattern), the algorithm
 is inferred from `kty` + `crv`.
 
+### Live Kubernetes Cluster Scanner
+
+The `k8s_live` module connects to a Kubernetes cluster via kubeconfig
+(or in-cluster SA detection) and enumerates crypto-relevant resources.
+
+**Resources scanned:**
+- `Secret` (type `kubernetes.io/tls`) — certificate + private key
+- `Ingress.spec.tls` — hostname→secret binding
+- `ValidatingWebhookConfiguration` / `MutatingWebhookConfiguration` — caBundle PEM
+- `ConfigMap` `kube-root-ca.crt` — cluster CA certificate
+- cert-manager `Certificate` / `Issuer` / `ClusterIssuer` (if installed)
+
+cert-manager detection uses `discovery.ServerGroups()` — graceful skip
+when the API group is absent. All list calls use `Limit: 500` pagination.
+
+Raw private key material is parsed in memory for algorithm identification
+and immediately discarded. Never written to findings, logs, or reports.
+
 ---
 
 ## 7. PQC Classification & Crypto-Agility Assessment

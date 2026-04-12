@@ -144,6 +144,12 @@ func (e *Engine) RegisterDefaultModules() {
 	// which adds TargetNetwork entries to cfg.ScanTargets. Engine
 	// dispatch naturally skips it when no OIDC targets exist.
 	e.RegisterModule(NewOIDCProbeModule(e.config))
+
+	// Sprint 1b — live Kubernetes cluster scanner. Enterprise-only.
+	// Only runs when --kubeconfig is supplied, which adds a
+	// TargetKubernetesCluster entry to cfg.ScanTargets. Engine
+	// dispatch naturally skips it when no Kubernetes targets exist.
+	e.RegisterModule(NewK8sLiveModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

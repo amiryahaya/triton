@@ -916,6 +916,48 @@ If you terminate TLS at a reverse proxy (nginx, Caddy, Envoy), **disable respons
 chains for OCI image or Kubernetes cluster scans. Scan requests targeting
 images or clusters must carry explicit credentials in the request body.
 
+### 10e. Kubernetes Scanner RBAC
+
+Deploy the following ClusterRole and bind it to a ServiceAccount:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: triton-scanner
+rules:
+- apiGroups: [""]
+  resources: ["secrets", "configmaps"]
+  verbs: ["list", "get"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["list"]
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+  verbs: ["list"]
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificates", "issuers", "clusterissuers"]
+  verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: triton-scanner
+subjects:
+- kind: ServiceAccount
+  name: triton-scanner
+  namespace: triton-system
+roleRef:
+  kind: ClusterRole
+  name: triton-scanner
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**Security note:** Triton extracts algorithm, key size, and subject
+metadata from TLS secrets. Raw private key material is parsed in memory
+for algorithm identification and immediately discarded — it is never
+written to disk, logs, findings, or reports.
+
 ---
 
 ## 11. Production Checklist

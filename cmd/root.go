@@ -58,6 +58,7 @@ var (
 	imageRefs      []string
 	kubeconfigPath string
 	k8sContext     string
+	k8sNamespace   string
 	registryAuth   string
 
 	// OIDC/JWKS probe flags (Wave 2)
@@ -164,6 +165,8 @@ func init() {
 		"Path to kubeconfig for live Kubernetes cluster scan (Sprint 1b)")
 	rootCmd.PersistentFlags().StringVar(&k8sContext, "k8s-context", "",
 		"Kubeconfig context name (used with --kubeconfig)")
+	rootCmd.PersistentFlags().StringVar(&k8sNamespace, "k8s-namespace", "",
+		"Kubernetes namespace to scan (default: all namespaces)")
 	rootCmd.PersistentFlags().StringVar(&registryAuth, "registry-auth", "",
 		"Path to docker config.json override for image registry auth")
 	rootCmd.PersistentFlags().StringSliceVar(&oidcEndpoints, "oidc-endpoint", nil,
@@ -322,6 +325,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		ImageRefs:     imageRefs,
 		Kubeconfig:    kubeconfigPath,
 		K8sContext:    k8sContext,
+		K8sNamespace:  k8sNamespace,
 		RegistryAuth:  registryAuth,
 		DBUrl:         dbPath,
 		Metrics:       showMetrics,

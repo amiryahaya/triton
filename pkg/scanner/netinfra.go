@@ -105,8 +105,10 @@ func isNetInfraConfigFile(path string) bool {
 		return true
 	}
 
-	// RPKI — parser deferred; don't match files until it exists.
-	// See roadmap §6.5 for follow-up.
+	// RPKI — routinator, rpki-client
+	if base == "routinator.conf" || base == "rpki-client.conf" {
+		return true
+	}
 
 	// 802.1X / RADIUS — FreeRADIUS config dirs
 	if strings.Contains(lower, "/raddb/") || strings.Contains(lower, "/freeradius/") {
@@ -146,6 +148,8 @@ func (m *NetInfraModule) parseConfig(path string, data []byte) []*model.Finding 
 		strings.Contains(lower, "/frr/") ||
 		strings.Contains(lower, "/quagga/"):
 		return m.parseBGPConfig(path, data)
+	case base == "routinator.conf" || base == "rpki-client.conf":
+		return m.parseRPKIConfig(path, data)
 	case strings.Contains(lower, "/raddb/") || strings.Contains(lower, "/freeradius/"):
 		return m.parseRADIUSConfig(path, data)
 	case base == "chrony.conf" || strings.Contains(lower, "/chrony/") ||
@@ -234,7 +238,7 @@ func (m *NetInfraModule) parseBGPConfig(path string, data []byte) []*model.Findi
 		}
 		lower := strings.ToLower(line)
 
-		// FRR/Quagga: "neighbor X.X.X.X password ..."
+		// FRR/Quagga: "neighbor X.X.X.X password ..." (TCP-MD5)
 		// Bird: 'password "..."' (inside protocol bgp block)
 		// Tightened to avoid false positives on "service password-encryption"
 		// or "line vty / password" (console, not BGP TCP-MD5).
@@ -244,7 +248,58 @@ func (m *NetInfraModule) parseBGPConfig(path string, data []byte) []*model.Findi
 			out = append(out, m.netInfraFinding(path, "BGP session authentication", "MD5",
 				fmt.Sprintf("BGP neighbor TCP-MD5 in %s", filepath.Base(path))))
 		}
+
+		// TCP-AO (RFC 5925) — modern replacement for TCP-MD5.
+		// FRR: "neighbor X.X.X.X tcp-ao KEY_CHAIN"
+		// Bird: 'authentication key chain ...'
+		if strings.Contains(lower, "tcp-ao") || strings.Contains(lower, "tcp_ao") {
+			out = append(out, m.netInfraFinding(path, "BGP session authentication", "TCP-AO",
+				fmt.Sprintf("BGP TCP-AO in %s", filepath.Base(path))))
+		}
 	}
+	return out
+}
+
+// --- RPKI ---
+
+// parseRPKIConfig extracts crypto-relevant settings from RPKI tools.
+// routinator.conf: TAL (Trust Anchor Locator) refs, validation mode
+// rpki-client.conf: trust anchor paths
+func (m *NetInfraModule) parseRPKIConfig(path string, data []byte) []*model.Finding {
+	var out []*model.Finding
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	defer func() { logScannerErr(path, "rpki", sc.Err()) }()
+
+	base := filepath.Base(path)
+	hasTAL := false
+
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lower := strings.ToLower(line)
+
+		// Trust Anchor Locator references
+		if strings.Contains(lower, "tal") || strings.Contains(lower, "trust-anchor") || strings.Contains(lower, "trust_anchor") {
+			hasTAL = true
+		}
+	}
+
+	if hasTAL {
+		// RPKI ROA signatures use RSA (2048+ bit) with SHA-256
+		out = append(out, m.netInfraFinding(path, "RPKI trust anchor", "RSA",
+			fmt.Sprintf("RPKI TAL reference in %s", base)))
+	}
+
+	// RPKI config presence is itself a finding — it means this host
+	// participates in RPKI validation, which uses RSA signatures.
+	if len(out) == 0 {
+		out = append(out, m.netInfraFinding(path, "RPKI validator", "RSA",
+			fmt.Sprintf("RPKI validator config %s", base)))
+	}
+
 	return out
 }
 

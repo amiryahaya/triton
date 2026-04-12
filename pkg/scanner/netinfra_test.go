@@ -27,9 +27,9 @@ func TestIsNetInfraConfigFile(t *testing.T) {
 		{"/etc/frr/bgpd.conf", true},
 		{"/etc/quagga/bgpd.conf", true},
 
-		// RPKI — parser deferred, matcher removed until it exists
-		{"/etc/routinator/routinator.conf", false},
-		{"/etc/rpki-client.conf", false},
+		// RPKI
+		{"/etc/routinator/routinator.conf", true},
+		{"/etc/rpki-client.conf", true},
 
 		// 802.1X / RADIUS
 		{"/etc/raddb/clients.conf", true},
@@ -257,6 +257,52 @@ func TestParseRADIUS_SharedSecret(t *testing.T) {
 	assert.Equal(t, "MD5", findings[0].CryptoAsset.Algorithm, "RADIUS uses MD5 for shared secret auth")
 	// Value must be redacted
 	assert.NotContains(t, findings[0].CryptoAsset.Purpose, "testing123")
+}
+
+// --- RPKI parser tests ---
+
+func TestParseRPKI_Routinator(t *testing.T) {
+	conf := `# Routinator configuration
+repository-dir = /var/lib/routinator/rpki-cache
+tal-dir = /etc/routinator/tals
+`
+	m := &NetInfraModule{}
+	findings := m.parseRPKIConfig("/etc/routinator/routinator.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "RPKI trust anchor", findings[0].CryptoAsset.Function)
+	assert.Equal(t, "RSA", findings[0].CryptoAsset.Algorithm)
+}
+
+func TestParseRPKI_Client(t *testing.T) {
+	conf := `# rpki-client config
+trust-anchor /etc/rpki/tal/arin.tal
+`
+	m := &NetInfraModule{}
+	findings := m.parseRPKIConfig("/etc/rpki-client.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+}
+
+func TestParseRPKI_Minimal(t *testing.T) {
+	// Config with no TAL references still reports RPKI presence
+	conf := `log-level = warn
+`
+	m := &NetInfraModule{}
+	findings := m.parseRPKIConfig("/etc/routinator/routinator.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "RPKI validator", findings[0].CryptoAsset.Function)
+}
+
+// --- BGP TCP-AO tests ---
+
+func TestParseBGP_TCPAO(t *testing.T) {
+	conf := `router bgp 65001
+ neighbor 10.0.0.2 remote-as 65002
+ neighbor 10.0.0.2 tcp-ao MY_KEY_CHAIN
+`
+	m := &NetInfraModule{}
+	findings := m.parseBGPConfig("/etc/frr/frr.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "TCP-AO", findings[0].CryptoAsset.Algorithm)
 }
 
 // --- module interface tests ---

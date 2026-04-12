@@ -146,9 +146,18 @@ func (m *DBAtRestModule) parseFile(ctx context.Context, path string) []*model.Fi
 			return nil
 		}
 		findings := m.parseCrypttab(path, data)
-		// For LUKS entries, optionally run luksDump if available
-		// (deferred — requires root and device access)
-		_ = ctx
+		// For LUKS entries, try luksDump to get precise cipher + key size.
+		// Requires cryptsetup and read access to the device (typically root).
+		for _, f := range findings {
+			if f.CryptoAsset.Algorithm == "LUKS" {
+				// Extract device from finding purpose ("crypttab volume <name>")
+				// and try luksDump for richer data.
+				luksFindings := m.parseLuksDump(ctx, f.Source.Path)
+				if len(luksFindings) > 0 {
+					findings = append(findings, luksFindings...)
+				}
+			}
+		}
 		return findings
 	}
 

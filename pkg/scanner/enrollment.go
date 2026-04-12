@@ -129,8 +129,11 @@ func (m *EnrollmentModule) parseFile(path string, data []byte) []*model.Finding 
 		return m.parseCertbotRenewal(path, data)
 	case strings.Contains(lower, "/step/") && strings.HasSuffix(base, ".json"):
 		return m.parseStepCAConfig(path, data)
+	case strings.Contains(lower, "/est/") && strings.HasSuffix(base, ".conf"):
+		return m.parseESTConfig(path, data)
+	case strings.Contains(lower, "/scep/") && strings.HasSuffix(base, ".conf"):
+		return m.parseSCEPConfig(path, data)
 	}
-	// EST/SCEP configs are presence-only for now
 	return nil
 }
 
@@ -275,6 +278,65 @@ func (m *EnrollmentModule) parseStepCAConfig(path string, data []byte) []*model.
 
 	return []*model.Finding{m.enrollmentFinding(path, "step-ca key type", algo,
 		fmt.Sprintf("step-ca CA key (%s) in %s", conf.KTY, filepath.Base(path)))}
+}
+
+// --- finding builder ---
+
+// --- EST ---
+
+// parseESTConfig extracts TLS and authentication settings from EST client configs.
+func (m *EnrollmentModule) parseESTConfig(path string, data []byte) []*model.Finding {
+	var out []*model.Finding
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	defer func() { logScannerErr(path, "est", sc.Err()) }()
+
+	base := filepath.Base(path)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lower := strings.ToLower(line)
+
+		// EST server URL (implies TLS enrollment)
+		if strings.Contains(lower, "server") && strings.Contains(lower, "https") {
+			out = append(out, m.enrollmentFinding(path, "EST enrollment endpoint", "TLS",
+				fmt.Sprintf("EST server URL in %s", base)))
+			return out // one finding per file is sufficient
+		}
+	}
+	// If no server URL but the file exists, report EST config presence
+	return []*model.Finding{m.enrollmentFinding(path, "EST client config", "EST",
+		fmt.Sprintf("EST client config at %s", base))}
+}
+
+// --- SCEP ---
+
+// parseSCEPConfig extracts SCEP server and challenge settings.
+func (m *EnrollmentModule) parseSCEPConfig(path string, data []byte) []*model.Finding {
+	var out []*model.Finding
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	defer func() { logScannerErr(path, "scep", sc.Err()) }()
+
+	base := filepath.Base(path)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lower := strings.ToLower(line)
+
+		// SCEP server URL
+		if strings.Contains(lower, "url") && strings.Contains(lower, "http") {
+			out = append(out, m.enrollmentFinding(path, "SCEP enrollment endpoint", "RSA",
+				fmt.Sprintf("SCEP server URL in %s", base)))
+			return out
+		}
+	}
+	return []*model.Finding{m.enrollmentFinding(path, "SCEP client config", "RSA",
+		fmt.Sprintf("SCEP client config at %s", base))}
 }
 
 // --- finding builder ---

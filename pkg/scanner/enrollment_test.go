@@ -147,6 +147,57 @@ func TestParseStepCA_NotCA(t *testing.T) {
 	assert.Empty(t, findings)
 }
 
+// --- EST parser tests ---
+
+func TestParseESTConfig_ServerURL(t *testing.T) {
+	conf := `# EST client config
+server = https://est.example.com/.well-known/est
+cert = /etc/est/client.crt
+key = /etc/est/client.key
+`
+	m := &EnrollmentModule{}
+	findings := m.parseESTConfig("/etc/est/est-client.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "EST enrollment endpoint", findings[0].CryptoAsset.Function)
+	assert.Equal(t, "TLS", findings[0].CryptoAsset.Algorithm)
+}
+
+func TestParseESTConfig_NoURL(t *testing.T) {
+	conf := `# minimal EST config
+timeout = 30
+`
+	m := &EnrollmentModule{}
+	findings := m.parseESTConfig("/etc/est/est-client.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "EST client config", findings[0].CryptoAsset.Function)
+}
+
+// --- SCEP parser tests ---
+
+func TestParseSCEPConfig_ServerURL(t *testing.T) {
+	conf := `# SCEP client config
+url = http://scep.example.com/cgi-bin/scep/pkiclient.exe
+challenge = secret123
+`
+	m := &EnrollmentModule{}
+	findings := m.parseSCEPConfig("/etc/scep/scep.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "SCEP enrollment endpoint", findings[0].CryptoAsset.Function)
+	assert.Equal(t, "RSA", findings[0].CryptoAsset.Algorithm)
+	// Challenge must not leak
+	assert.NotContains(t, findings[0].CryptoAsset.Purpose, "secret123")
+}
+
+func TestParseSCEPConfig_Minimal(t *testing.T) {
+	conf := `# minimal
+retry = 3
+`
+	m := &EnrollmentModule{}
+	findings := m.parseSCEPConfig("/etc/scep/scep.conf", []byte(conf))
+	require.NotEmpty(t, findings)
+	assert.Equal(t, "SCEP client config", findings[0].CryptoAsset.Function)
+}
+
 // --- module interface ---
 
 func TestEnrollmentModuleInterface(t *testing.T) {

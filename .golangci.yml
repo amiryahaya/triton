@@ -19,6 +19,10 @@ linters:
     - unparam
     - bodyclose
   settings:
+    misspell:
+      extra-words:
+        - typo: "mosquitto"
+          correction: "mosquitto"
     gocritic:
       enabled-tags:
         - diagnostic

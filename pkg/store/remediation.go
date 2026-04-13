@@ -165,6 +165,33 @@ func (s *PostgresStore) ListRemediationFindings(ctx context.Context, orgID, stat
 	return result, rows.Err()
 }
 
+func (s *PostgresStore) ListFindingStatusLog(ctx context.Context, orgID string, limit int) ([]FindingStatusEntry, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, finding_key, org_id, status, reason, changed_by, changed_at, expires_at
+		 FROM finding_status
+		 WHERE org_id = $1
+		 ORDER BY changed_at DESC
+		 LIMIT $2`,
+		orgID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListFindingStatusLog: %w", err)
+	}
+	defer rows.Close()
+	result := []FindingStatusEntry{}
+	for rows.Next() {
+		var e FindingStatusEntry
+		if err := rows.Scan(&e.ID, &e.FindingKey, &e.OrgID, &e.Status, &e.Reason, &e.ChangedBy, &e.ChangedAt, &e.ExpiresAt); err != nil {
+			return nil, fmt.Errorf("ListFindingStatusLog scan: %w", err)
+		}
+		result = append(result, e)
+	}
+	return result, rows.Err()
+}
+
 func (s *PostgresStore) GetFindingByID(ctx context.Context, findingID, orgID string) (*Finding, error) {
 	var f Finding
 	err := s.pool.QueryRow(ctx,

@@ -20,6 +20,12 @@ var validSchemaName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 type PostgresStore struct {
 	pool   *pgxpool.Pool
 	schema string // non-empty when using an isolated test schema
+
+	// StaleThreshold is the duration after which an activation with no
+	// heartbeat is eligible for automatic reaping during Activate. When
+	// zero, no reaping occurs (backward compatible with all existing
+	// call sites). Set via SetStaleThreshold after construction.
+	StaleThreshold time.Duration
 }
 
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
@@ -429,8 +435,15 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 			return fmt.Errorf("counting seats: %w", err)
 		}
 		if activeCount >= lic.Seats {
-			_ = tx.Rollback(ctx)
-			return &ErrSeatsFull{LicenseID: act.LicenseID, Seats: lic.Seats, Used: activeCount}
+			activeCount, err = s.reapAndRecount(ctx, tx, act.LicenseID, activeCount)
+			if err != nil {
+				_ = tx.Rollback(ctx)
+				return fmt.Errorf("reap during re-activate: %w", err)
+			}
+			if activeCount >= lic.Seats {
+				_ = tx.Rollback(ctx)
+				return &ErrSeatsFull{LicenseID: act.LicenseID, Seats: lic.Seats, Used: activeCount}
+			}
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE activations SET active = TRUE, deactivated_at = NULL,
@@ -457,8 +470,15 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 	}
 
 	if activeCount >= lic.Seats {
-		_ = tx.Rollback(ctx)
-		return &ErrSeatsFull{LicenseID: act.LicenseID, Seats: lic.Seats, Used: activeCount}
+		activeCount, err = s.reapAndRecount(ctx, tx, act.LicenseID, activeCount)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return fmt.Errorf("reap during new activate: %w", err)
+		}
+		if activeCount >= lic.Seats {
+			_ = tx.Rollback(ctx)
+			return &ErrSeatsFull{LicenseID: act.LicenseID, Seats: lic.Seats, Used: activeCount}
+		}
 	}
 
 	// Insert new activation
@@ -597,7 +617,74 @@ func (s *PostgresStore) UpdateLastSeen(ctx context.Context, id string) error {
 }
 
 func (s *PostgresStore) ReapStaleActivations(ctx context.Context, licenseID string, threshold time.Duration) (int, error) {
-	return 0, fmt.Errorf("not implemented")
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE activations
+		 SET active = FALSE, deactivated_at = NOW()
+		 WHERE license_id = $1
+		   AND active = TRUE
+		   AND last_seen_at < NOW() - $2::interval`,
+		licenseID, threshold.String(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("reaping stale activations: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// SetStaleThreshold configures the stale activation reaping threshold.
+func (s *PostgresStore) SetStaleThreshold(d time.Duration) {
+	s.StaleThreshold = d
+}
+
+// reapAndRecount attempts to reap stale activations for the given
+// license within the provided transaction, then re-counts active
+// seats. Returns the new active count. If StaleThreshold is zero,
+// returns the original count unchanged (no reaping).
+func (s *PostgresStore) reapAndRecount(ctx context.Context, tx pgx.Tx, licenseID string, currentCount int) (int, error) {
+	if s.StaleThreshold <= 0 {
+		return currentCount, nil
+	}
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE activations
+		 SET active = FALSE, deactivated_at = NOW()
+		 WHERE license_id = $1
+		   AND active = TRUE
+		   AND last_seen_at < NOW() - $2::interval`,
+		licenseID, s.StaleThreshold.String(),
+	)
+	if err != nil {
+		return currentCount, fmt.Errorf("reaping stale activations: %w", err)
+	}
+	reaped := int(tag.RowsAffected())
+	if reaped == 0 {
+		return currentCount, nil
+	}
+
+	// Audit: log the reap event inside the transaction.
+	details, _ := json.Marshal(map[string]any{"reaped": reaped, "threshold": s.StaleThreshold.String()})
+	_, _ = tx.Exec(ctx,
+		`INSERT INTO audit_log (timestamp, event_type, license_id, actor, details)
+		 VALUES (NOW(), 'auto_reap', $1, 'system', $2)`,
+		licenseID, details,
+	)
+
+	var newCount int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM activations WHERE license_id = $1 AND active = TRUE`,
+		licenseID,
+	).Scan(&newCount); err != nil {
+		return currentCount, fmt.Errorf("re-counting seats after reap: %w", err)
+	}
+	return newCount, nil
+}
+
+// ExecForTest exposes pool.Exec for integration tests that need to
+// manipulate rows directly (e.g., backdating last_seen_at for reap
+// tests). Not part of the Store interface — only available on the
+// concrete PostgresStore.
+func (s *PostgresStore) ExecForTest(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return s.pool.Exec(ctx, sql, args...)
 }
 
 // --- Audit ---

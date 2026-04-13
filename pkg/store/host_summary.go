@@ -282,13 +282,22 @@ func (s *PostgresStore) ListHostSummaries(ctx context.Context, orgID, pqcStatusF
 // is missing or older than the newest scan for that host.
 // This drives the T2 pipeline catch-up sweep. Analytics Phase 4A.
 func (s *PostgresStore) ListStaleHosts(ctx context.Context) ([]PipelineJob, error) {
+	// Find hosts with no summary or whose summary is older than the
+	// latest scan. Uses a CTE to compute MAX(timestamp) per host so
+	// the comparison is against the newest scan only (not every scan).
+	// Unscoped across all orgs — runs at cold start only.
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT f.org_id, f.hostname
-		 FROM findings f
-		 LEFT JOIN host_summary hs ON f.org_id = hs.org_id AND f.hostname = hs.hostname
-		 LEFT JOIN scans s ON f.scan_id = s.id
-		 WHERE hs.org_id IS NULL
-		    OR hs.refreshed_at < s.timestamp`,
+		`WITH latest_scan AS (
+			SELECT f.org_id, f.hostname, MAX(s.timestamp) AS max_ts
+			FROM findings f
+			JOIN scans s ON f.scan_id = s.id
+			GROUP BY f.org_id, f.hostname
+		)
+		SELECT ls.org_id, ls.hostname
+		FROM latest_scan ls
+		LEFT JOIN host_summary hs ON ls.org_id = hs.org_id AND ls.hostname = hs.hostname
+		WHERE hs.org_id IS NULL
+		   OR hs.refreshed_at < ls.max_ts`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ListStaleHosts query: %w", err)

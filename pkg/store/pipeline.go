@@ -18,6 +18,7 @@ type Pipeline struct {
 	store   Store
 	queue   chan PipelineJob
 	pending map[string]bool // key: "orgID/hostname", dedup guard
+	stopped bool            // set in Stop(), checked in Enqueue() to prevent send-on-closed-channel
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 	ctx     context.Context
@@ -26,6 +27,7 @@ type Pipeline struct {
 	// Metrics (atomic for lock-free reads from the status endpoint)
 	jobsProcessed atomic.Int64
 	jobsFailed    atomic.Int64
+	processing    atomic.Bool  // true while worker is executing a job
 	lastProcessed atomic.Value // stores time.Time
 }
 
@@ -48,18 +50,23 @@ func (p *Pipeline) Start() {
 }
 
 // Stop signals the worker to drain and waits for completion.
+// Must not be called concurrently with itself.
 func (p *Pipeline) Stop() {
+	p.mu.Lock()
+	p.stopped = true
+	p.mu.Unlock()
 	p.cancel()
 	close(p.queue)
 	p.wg.Wait()
 }
 
 // Enqueue adds a pipeline job. Deduplicates by org+hostname.
+// Safe to call after Stop() — jobs are silently dropped.
 func (p *Pipeline) Enqueue(job PipelineJob) {
 	key := job.OrgID + "/" + job.Hostname
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.pending[key] {
+	if p.stopped || p.pending[key] {
 		return
 	}
 	select {
@@ -74,7 +81,7 @@ func (p *Pipeline) Enqueue(job PipelineJob) {
 // Status returns the current pipeline state for the status endpoint.
 func (p *Pipeline) Status() PipelineStatus {
 	status := "idle"
-	if len(p.queue) > 0 {
+	if len(p.queue) > 0 || p.processing.Load() {
 		status = "processing"
 	}
 	var lastProc time.Time
@@ -127,6 +134,9 @@ func (p *Pipeline) clearPending(job PipelineJob) {
 }
 
 func (p *Pipeline) processJob(job PipelineJob) {
+	p.processing.Store(true)
+	defer p.processing.Store(false)
+
 	// T2: Refresh host summary
 	if err := p.store.RefreshHostSummary(p.ctx, job.OrgID, job.Hostname); err != nil {
 		log.Printf("pipeline T2 error (org=%s host=%s): %v", job.OrgID, job.Hostname, err)

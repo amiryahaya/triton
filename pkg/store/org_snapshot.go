@@ -14,8 +14,14 @@ import (
 // RefreshOrgSnapshot recomputes the org_snapshot row for an org from all
 // host_summary rows. This is the T3 pipeline transform. Analytics Phase 4A.
 func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("RefreshOrgSnapshot begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback is a no-op after commit
+
 	// Step 1: query all host_summary rows for this org.
-	rows, err := s.pool.Query(ctx,
+	rows, err := tx.Query(ctx,
 		`SELECT hostname, total_findings, safe_findings, transitional_findings,
 		        deprecated_findings, unsafe_findings, readiness_pct,
 		        certs_expiring_30d, certs_expiring_90d, certs_expired,
@@ -69,7 +75,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 
 	// Step 2: no hosts = delete any existing snapshot and return.
 	if len(hosts) == 0 {
-		_, err := s.pool.Exec(ctx, `DELETE FROM org_snapshot WHERE org_id = $1`, orgID)
+		_, err := tx.Exec(ctx, `DELETE FROM org_snapshot WHERE org_id = $1`, orgID)
 		if err != nil {
 			return fmt.Errorf("RefreshOrgSnapshot delete empty snapshot: %w", err)
 		}
@@ -174,7 +180,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 	// Step 7: get org config from organizations table.
 	var targetPct float64
 	var deadlineYear int
-	err = s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT COALESCE(executive_target_percent, 80.0), COALESCE(executive_deadline_year, 2030)
 		 FROM organizations WHERE id = $1`,
 		orgID,
@@ -216,7 +222,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 	}
 
 	// Step 9: top 5 blockers from findings table (latest scan per host).
-	blockerRows, err := s.pool.Query(ctx,
+	blockerRows, err := tx.Query(ctx,
 		`WITH latest_scans AS (
 		   SELECT DISTINCT ON (hostname) id FROM scans
 		   WHERE org_id = $1 ORDER BY hostname, timestamp DESC
@@ -277,7 +283,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 	}
 
 	// Step 12: UPSERT into org_snapshot.
-	_, err = s.pool.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`INSERT INTO org_snapshot (
 		   org_id, readiness_pct, total_findings, safe_findings,
 		   machines_total, machines_red, machines_yellow, machines_green,
@@ -324,7 +330,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 		return fmt.Errorf("RefreshOrgSnapshot upsert: %w", err)
 	}
 
-	return nil
+	return tx.Commit(ctx)
 }
 
 // GetOrgSnapshot returns the pre-computed org snapshot for the given org,

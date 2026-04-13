@@ -58,7 +58,7 @@ func run() error {
 
 	staleThreshold, err := time.ParseDuration(staleThresholdStr)
 	if err != nil {
-		return fmt.Errorf("parsing TRITON_LICENSE_SERVER_STALE_THRESHOLD: %w", err)
+		return fmt.Errorf("parsing TRITON_LICENSE_SERVER_STALE_THRESHOLD %q (use Go duration format, e.g. 336h for 14 days): %w", staleThresholdStr, err)
 	}
 	if staleThreshold < 24*time.Hour {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_STALE_THRESHOLD must be at least 24h (got %s)", staleThreshold)

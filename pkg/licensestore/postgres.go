@@ -22,11 +22,11 @@ type PostgresStore struct {
 	pool   *pgxpool.Pool
 	schema string // non-empty when using an isolated test schema
 
-	// StaleThreshold is the duration after which an activation with no
+	// staleThreshold is the duration after which an activation with no
 	// heartbeat is eligible for automatic reaping during Activate. When
 	// zero, no reaping occurs (backward compatible with all existing
-	// call sites). Set via SetStaleThreshold after construction.
-	StaleThreshold time.Duration
+	// call sites). Set via SetStaleThreshold before the server starts.
+	staleThreshold time.Duration
 }
 
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
@@ -623,8 +623,8 @@ func (s *PostgresStore) ReapStaleActivations(ctx context.Context, licenseID stri
 		 SET active = FALSE, deactivated_at = NOW()
 		 WHERE license_id = $1
 		   AND active = TRUE
-		   AND last_seen_at < NOW() - $2::interval`,
-		licenseID, threshold.String(),
+		   AND last_seen_at < NOW() - ($2 * interval '1 second')`,
+		licenseID, int64(threshold.Seconds()),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("reaping stale activations: %w", err)
@@ -634,7 +634,7 @@ func (s *PostgresStore) ReapStaleActivations(ctx context.Context, licenseID stri
 
 // SetStaleThreshold configures the stale activation reaping threshold.
 func (s *PostgresStore) SetStaleThreshold(d time.Duration) {
-	s.StaleThreshold = d
+	s.staleThreshold = d
 }
 
 // reapAndRecount attempts to reap stale activations for the given
@@ -642,7 +642,7 @@ func (s *PostgresStore) SetStaleThreshold(d time.Duration) {
 // seats. Returns the new active count. If StaleThreshold is zero,
 // returns the original count unchanged (no reaping).
 func (s *PostgresStore) reapAndRecount(ctx context.Context, tx pgx.Tx, licenseID string, currentCount int) (int, error) {
-	if s.StaleThreshold <= 0 {
+	if s.staleThreshold <= 0 {
 		return currentCount, nil
 	}
 
@@ -651,8 +651,8 @@ func (s *PostgresStore) reapAndRecount(ctx context.Context, tx pgx.Tx, licenseID
 		 SET active = FALSE, deactivated_at = NOW()
 		 WHERE license_id = $1
 		   AND active = TRUE
-		   AND last_seen_at < NOW() - $2::interval`,
-		licenseID, s.StaleThreshold.String(),
+		   AND last_seen_at < NOW() - ($2 * interval '1 second')`,
+		licenseID, int64(s.staleThreshold.Seconds()),
 	)
 	if err != nil {
 		return currentCount, fmt.Errorf("reaping stale activations: %w", err)
@@ -665,7 +665,7 @@ func (s *PostgresStore) reapAndRecount(ctx context.Context, tx pgx.Tx, licenseID
 	// Audit: log the reap event inside the transaction. Non-fatal —
 	// the reap itself already succeeded; a failed audit write should
 	// not roll back the seat reclamation.
-	details, _ := json.Marshal(map[string]any{"reaped": reaped, "threshold": s.StaleThreshold.String()})
+	details, _ := json.Marshal(map[string]any{"reaped": reaped, "threshold": s.staleThreshold.String()})
 	if _, auditErr := tx.Exec(ctx,
 		`INSERT INTO audit_log (timestamp, event_type, license_id, actor, details)
 		 VALUES (NOW(), 'auto_reap', $1, 'system', $2)`,

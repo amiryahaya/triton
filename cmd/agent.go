@@ -363,7 +363,12 @@ func profileDowngradeChain(requested string) []string {
 // whatever license_key was already resolved, degrading to free tier
 // if none.
 func activateWithLicenseServer(resolved *resolvedAgentConfig) seatState {
-	if resolved.licenseServer == "" || resolved.licenseID == "" {
+	if resolved.licenseServer == "" && resolved.licenseID == "" {
+		return seatState{}
+	}
+	if (resolved.licenseServer == "") != (resolved.licenseID == "") {
+		fmt.Fprintf(os.Stderr,
+			"warning: license_server and license_id must both be set for seat management — skipping activation\n")
 		return seatState{}
 	}
 
@@ -436,7 +441,7 @@ func deactivateOnShutdown(seat *seatState) {
 
 	if err := seat.client.Deactivate(seat.licenseID); err != nil {
 		fmt.Fprintf(os.Stderr,
-			"warning: license server deactivation failed: %v (seat will be reclaimed after 14 days)\n", err)
+			"warning: license server deactivation failed: %v (seat will be reclaimed automatically)\n", err)
 		return
 	}
 	fmt.Println("  seat:        deactivated (seat freed)")
@@ -543,9 +548,6 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	}
 
 	for {
-		// Heartbeat: update last_seen_at and detect tier changes.
-		activeGuard = heartbeat(&seat, activeGuard)
-
 		if err := runAgentScan(ctx, activeGuard, resolved, client); err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
 		}
@@ -553,6 +555,12 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		if agentInterval == 0 {
 			return nil
 		}
+
+		// Heartbeat between scans (continuous mode only). Updates
+		// last_seen_at on the license server and detects tier
+		// changes or revocations. Skipped on one-shot runs to
+		// avoid an unnecessary HTTP round-trip.
+		activeGuard = heartbeat(&seat, activeGuard)
 
 		// Jitter the sleep by ±10% so a fleet of agents rebooted
 		// simultaneously (e.g., after a patch window) does not

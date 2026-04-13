@@ -7,20 +7,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // pipelineMockStore implements Store for pipeline unit tests.
 // Only the three methods called by Pipeline have real behaviour;
 // all other methods panic to catch unexpected calls.
 type pipelineMockStore struct {
-	t2Calls atomic.Int64
-	t3Calls atomic.Int64
-	t2Err   error
-	t3Err   error
-	stale   []PipelineJob
+	t2Calls  atomic.Int64
+	t3Calls  atomic.Int64
+	t2Err    error
+	t3Err    error
+	stale    []PipelineJob
 	staleErr error
 }
 

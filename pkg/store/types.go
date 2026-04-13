@@ -160,7 +160,7 @@ type PipelineJob struct {
 // PipelineStatus is the response for GET /api/v1/pipeline/status.
 // Analytics Phase 4A.
 type PipelineStatus struct {
-	Status             string    `json:"status"`             // "idle" | "processing"
+	Status             string    `json:"status"` // "idle" | "processing"
 	QueueDepth         int       `json:"queueDepth"`
 	LastProcessedAt    time.Time `json:"lastProcessedAt"`
 	JobsProcessedTotal int64     `json:"jobsProcessedTotal"`

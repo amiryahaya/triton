@@ -18,7 +18,7 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 	if err != nil {
 		return fmt.Errorf("RefreshHostSummary begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback is a no-op after commit
 
 	// Step 1: find the latest scan for this hostname.
 	var scanID string
@@ -226,7 +226,7 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 
 // ListHostSummaries returns host_summary rows for the given org,
 // optionally filtered by pqc_status. Analytics Phase 4A.
-func (s *PostgresStore) ListHostSummaries(ctx context.Context, orgID string, pqcStatusFilter string) ([]HostSummary, error) {
+func (s *PostgresStore) ListHostSummaries(ctx context.Context, orgID, pqcStatusFilter string) ([]HostSummary, error) {
 	baseQuery := `SELECT
 		org_id, hostname, scan_id, scanned_at,
 		total_findings, safe_findings, transitional_findings, deprecated_findings, unsafe_findings,

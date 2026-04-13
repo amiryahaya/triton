@@ -325,9 +325,9 @@ func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request) {
 	var dataAsOf time.Time
 	if len(rows) > 0 {
 		dataAsOf = rows[0].RefreshedAt
-		for _, row := range rows[1:] {
-			if row.RefreshedAt.Before(dataAsOf) {
-				dataAsOf = row.RefreshedAt
+		for i := 1; i < len(rows); i++ {
+			if rows[i].RefreshedAt.Before(dataAsOf) {
+				dataAsOf = rows[i].RefreshedAt
 			}
 		}
 	}
@@ -355,8 +355,9 @@ func (s *Server) handleTrends(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
-		for _, row := range rows {
-			if row.Hostname == hostname {
+		for i := range rows {
+			if rows[i].Hostname == hostname {
+				row := &rows[i]
 				writeJSON(w, http.StatusOK, map[string]any{
 					"monthlyPoints": row.Sparkline,
 					"direction":     row.TrendDirection,

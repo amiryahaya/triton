@@ -75,6 +75,13 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	// threaded srv.ctx so Shutdown cancels the janitor deterministically.
 	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
 
+	// Wire stale-seat reaping threshold into the store. Type-assert to
+	// the concrete PostgresStore since SetStaleThreshold is not part of
+	// the Store interface (it's a deployment knob, not a storage contract).
+	if ps, ok := s.(*licensestore.PostgresStore); ok && cfg.StaleActivationThreshold > 0 {
+		ps.SetStaleThreshold(cfg.StaleActivationThreshold)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)

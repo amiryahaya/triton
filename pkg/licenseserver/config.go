@@ -2,6 +2,7 @@ package licenseserver
 
 import (
 	"crypto/ed25519"
+	"time"
 
 	"github.com/amiryahaya/triton/internal/auth"
 )
@@ -58,4 +59,10 @@ type Config struct {
 	// 15min lockout) applies. Tests inject a fast-cycle config here to
 	// exercise lockout behavior without 15-minute sleeps.
 	LoginRateLimiterConfig *auth.LoginRateLimiterConfig
+
+	// StaleActivationThreshold is the duration after which an
+	// activation with no heartbeat is eligible for automatic reaping
+	// during seat-full scenarios. Default: 336h (14 days).
+	// Configurable via TRITON_LICENSE_SERVER_STALE_THRESHOLD.
+	StaleActivationThreshold time.Duration
 }

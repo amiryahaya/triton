@@ -816,3 +816,173 @@ func TestDeleteUserCascadesSessions(t *testing.T) {
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
 }
+
+// --- ReapStaleActivations Tests ---
+
+func TestReapStaleActivations_ReapsOnlyStale(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.Seats = 3
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	act1 := makeActivation(t, lic.ID)
+	act2 := makeActivation(t, lic.ID)
+	act3 := makeActivation(t, lic.ID)
+	require.NoError(t, s.Activate(ctx, act1))
+	require.NoError(t, s.Activate(ctx, act2))
+	require.NoError(t, s.Activate(ctx, act3))
+
+	fifteenDaysAgo := time.Now().Add(-15 * 24 * time.Hour)
+	_, err := s.ExecForTest(ctx, `UPDATE activations SET last_seen_at = $1 WHERE id = $2`, fifteenDaysAgo, act1.ID)
+	require.NoError(t, err)
+	_, err = s.ExecForTest(ctx, `UPDATE activations SET last_seen_at = $1 WHERE id = $2`, fifteenDaysAgo, act2.ID)
+	require.NoError(t, err)
+
+	reaped, err := s.ReapStaleActivations(ctx, lic.ID, 14*24*time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, 2, reaped)
+
+	count, err := s.CountActiveSeats(ctx, lic.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	got1, err := s.GetActivation(ctx, act1.ID)
+	require.NoError(t, err)
+	assert.False(t, got1.Active)
+	assert.NotNil(t, got1.DeactivatedAt)
+
+	got3, err := s.GetActivation(ctx, act3.ID)
+	require.NoError(t, err)
+	assert.True(t, got3.Active)
+}
+
+func TestReapStaleActivations_NoStaleReturnsZero(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	lic := makeLicense(t, org.ID)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+	act := makeActivation(t, lic.ID)
+	require.NoError(t, s.Activate(ctx, act))
+
+	reaped, err := s.ReapStaleActivations(ctx, lic.ID, 14*24*time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, 0, reaped)
+}
+
+func TestReapStaleActivations_DifferentLicenseNotAffected(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic1 := makeLicense(t, org.ID)
+	lic2 := makeLicense(t, org.ID)
+	require.NoError(t, s.CreateLicense(ctx, lic1))
+	require.NoError(t, s.CreateLicense(ctx, lic2))
+
+	act1 := makeActivation(t, lic1.ID)
+	act2 := makeActivation(t, lic2.ID)
+	require.NoError(t, s.Activate(ctx, act1))
+	require.NoError(t, s.Activate(ctx, act2))
+
+	stale := time.Now().Add(-15 * 24 * time.Hour)
+	_, err := s.ExecForTest(ctx, `UPDATE activations SET last_seen_at = $1 WHERE id = $2`, stale, act1.ID)
+	require.NoError(t, err)
+	_, err = s.ExecForTest(ctx, `UPDATE activations SET last_seen_at = $1 WHERE id = $2`, stale, act2.ID)
+	require.NoError(t, err)
+
+	reaped, err := s.ReapStaleActivations(ctx, lic1.ID, 14*24*time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, 1, reaped)
+
+	got2, err := s.GetActivation(ctx, act2.ID)
+	require.NoError(t, err)
+	assert.True(t, got2.Active)
+}
+
+// --- Activate with reaping Tests ---
+
+func TestActivate_ReapsStaleOnFull(t *testing.T) {
+	s := openTestStore(t)
+	s.SetStaleThreshold(14 * 24 * time.Hour)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.Seats = 2
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	act1 := makeActivation(t, lic.ID)
+	act2 := makeActivation(t, lic.ID)
+	require.NoError(t, s.Activate(ctx, act1))
+	require.NoError(t, s.Activate(ctx, act2))
+
+	stale := time.Now().Add(-15 * 24 * time.Hour)
+	_, err := s.ExecForTest(ctx, `UPDATE activations SET last_seen_at = $1 WHERE id = $2`, stale, act1.ID)
+	require.NoError(t, err)
+
+	act3 := makeActivation(t, lic.ID)
+	err = s.Activate(ctx, act3)
+	require.NoError(t, err, "activation should succeed after reaping stale seat")
+
+	got1, err := s.GetActivation(ctx, act1.ID)
+	require.NoError(t, err)
+	assert.False(t, got1.Active, "stale act1 should be reaped")
+
+	count, err := s.CountActiveSeats(ctx, lic.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, count, "act2 + act3 should be active")
+}
+
+func TestActivate_StillFullAfterReap(t *testing.T) {
+	s := openTestStore(t)
+	s.SetStaleThreshold(14 * 24 * time.Hour)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.Seats = 2
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	act1 := makeActivation(t, lic.ID)
+	act2 := makeActivation(t, lic.ID)
+	require.NoError(t, s.Activate(ctx, act1))
+	require.NoError(t, s.Activate(ctx, act2))
+
+	act3 := makeActivation(t, lic.ID)
+	err := s.Activate(ctx, act3)
+	var sf *licensestore.ErrSeatsFull
+	assert.ErrorAs(t, err, &sf, "should still return ErrSeatsFull when no stale seats to reap")
+}
+
+func TestActivate_NoReapWhenThresholdZero(t *testing.T) {
+	s := openTestStore(t)
+	// StaleThreshold is zero (default) — no reaping
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.Seats = 1
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	act1 := makeActivation(t, lic.ID)
+	require.NoError(t, s.Activate(ctx, act1))
+
+	stale := time.Now().Add(-15 * 24 * time.Hour)
+	_, err := s.ExecForTest(ctx, `UPDATE activations SET last_seen_at = $1 WHERE id = $2`, stale, act1.ID)
+	require.NoError(t, err)
+
+	act2 := makeActivation(t, lic.ID)
+	err = s.Activate(ctx, act2)
+	var sf *licensestore.ErrSeatsFull
+	assert.ErrorAs(t, err, &sf, "should return ErrSeatsFull when threshold is zero even if stale seats exist")
+}

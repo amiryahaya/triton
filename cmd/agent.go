@@ -133,6 +133,18 @@ type resolvedAgentConfig struct {
 	profileDowngraded  bool                // true when requested != effective
 	formatsFilteredOut []string            // formats the tier rejected
 	alsoLocal          bool                // tee mode: write locally AND submit to server
+	licenseServer      string              // license server URL for seat management
+	licenseID          string              // license UUID to activate against
+}
+
+// seatState tracks whether the agent successfully registered with
+// the license server. Used by the heartbeat and shutdown paths to
+// know whether to call validate/deactivate.
+type seatState struct {
+	activated bool
+	client    *license.ServerClient
+	licenseID string
+	token     string
 }
 
 // validProfiles is the closed set of scan profiles the scanner
@@ -212,6 +224,9 @@ func resolveAgentConfig(cmd *cobra.Command) (*resolvedAgentConfig, error) {
 		alsoLocal = agentAlsoLocal
 	}
 
+	licenseServer := strings.TrimRight(fileCfg.LicenseServer, "/")
+	licenseID := fileCfg.LicenseID
+
 	return &resolvedAgentConfig{
 		source:           fileCfg,
 		licenseToken:     fileCfg.LicenseKey,
@@ -221,6 +236,8 @@ func resolveAgentConfig(cmd *cobra.Command) (*resolvedAgentConfig, error) {
 		outputDir:        fileCfg.ResolveOutputDir(),
 		requestedFormats: fileCfg.Formats,
 		alsoLocal:        alsoLocal,
+		licenseServer:    licenseServer,
+		licenseID:        licenseID,
 	}, nil
 }
 
@@ -338,6 +355,89 @@ func profileDowngradeChain(requested string) []string {
 	return full
 }
 
+// activateWithLicenseServer attempts to register this machine with
+// the license server. On success it returns a seatState with
+// activated=true and overwrites resolved.licenseToken with the
+// server-issued token. On any failure it logs a warning and returns
+// a zero seatState (activated=false) — the agent continues with
+// whatever license_key was already resolved, degrading to free tier
+// if none.
+func activateWithLicenseServer(resolved *resolvedAgentConfig) seatState {
+	if resolved.licenseServer == "" || resolved.licenseID == "" {
+		return seatState{}
+	}
+
+	client := license.NewServerClient(resolved.licenseServer)
+	resp, err := client.Activate(resolved.licenseID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"warning: license server activation failed: %v — continuing with existing license\n", err)
+		return seatState{client: client, licenseID: resolved.licenseID}
+	}
+
+	// Activation succeeded — use the server-issued token
+	resolved.licenseToken = resp.Token
+	fmt.Printf("  seat:        registered (%d/%d seats used, expires %s)\n",
+		resp.SeatsUsed, resp.Seats, resp.ExpiresAt)
+
+	return seatState{
+		activated: true,
+		client:    client,
+		licenseID: resolved.licenseID,
+		token:     resp.Token,
+	}
+}
+
+// heartbeat calls the license server's validate endpoint to update
+// last_seen_at and detect tier changes or revocations. Returns the
+// updated guard if the tier changed, or the original guard if
+// validation failed or was skipped. Mutates seat.activated to false
+// on invalid response (stops future heartbeats).
+func heartbeat(seat *seatState, currentGuard *license.Guard) *license.Guard {
+	if !seat.activated || seat.client == nil {
+		return currentGuard
+	}
+
+	resp, err := seat.client.Validate(seat.licenseID, seat.token)
+	if err != nil {
+		fmt.Fprintf(os.Stderr,
+			"warning: license server heartbeat failed: %v — continuing with current tier\n", err)
+		return currentGuard
+	}
+
+	if !resp.Valid {
+		fmt.Fprintf(os.Stderr,
+			"warning: license server reports license invalid — degrading to free tier\n")
+		seat.activated = false
+		return license.NewGuard("") // free tier
+	}
+
+	// Check if tier changed (admin upgraded/downgraded the license)
+	if resp.Tier != "" && license.Tier(resp.Tier) != currentGuard.Tier() {
+		fmt.Printf("  license tier changed: %s → %s\n", currentGuard.Tier(), resp.Tier)
+		return license.NewGuard(seat.token)
+	}
+
+	return currentGuard
+}
+
+// deactivateOnShutdown unregisters this machine from the license
+// server, freeing the seat for reuse. Best-effort: errors are
+// logged and ignored — the 14-day stale reaper handles ghost seats
+// from unclean shutdowns.
+func deactivateOnShutdown(seat *seatState) {
+	if !seat.activated || seat.client == nil {
+		return
+	}
+
+	if err := seat.client.Deactivate(seat.licenseID); err != nil {
+		fmt.Fprintf(os.Stderr,
+			"warning: license server deactivation failed: %v (seat will be reclaimed after 14 days)\n", err)
+		return
+	}
+	fmt.Println("  seat:        deactivated (seat freed)")
+}
+
 func runAgent(cmd *cobra.Command, _ []string) error {
 	resolved, err := resolveAgentConfig(cmd)
 	if err != nil {
@@ -369,6 +469,20 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 			"warning: --license-key flag overrides license_key in %s\n",
 			resolved.source.LoadedFrom())
 	}
+
+	// Attempt license server activation (seat registration).
+	// On success this overwrites resolved.licenseToken with the
+	// server-issued token, which then flows into activeGuard below.
+	seat := activateWithLicenseServer(resolved)
+
+	// If activation gave us a fresh token, rebuild the guard from it.
+	if seat.activated {
+		activeGuard = license.NewGuard(resolved.licenseToken)
+	}
+
+	// Deactivate on shutdown — covers both SIGINT/SIGTERM (loop exit
+	// via ctx.Done()) and one-shot completion (agentInterval == 0).
+	defer deactivateOnShutdown(&seat)
 
 	// Now that activeGuard reflects the final tier, tier-filter
 	// the resolved settings so the banner and the scan loop see
@@ -425,6 +539,9 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	}
 
 	for {
+		// Heartbeat: update last_seen_at and detect tier changes.
+		activeGuard = heartbeat(&seat, activeGuard)
+
 		if err := runAgentScan(ctx, activeGuard, resolved, client); err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
 		}

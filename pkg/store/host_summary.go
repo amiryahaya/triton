@@ -37,13 +37,25 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		return fmt.Errorf("RefreshHostSummary latest scan: %w", err)
 	}
 
-	// Step 2: count findings by pqc_status.
+	// Step 2: count findings by pqc_status, excluding resolved and non-expired accepted findings.
 	counts := map[string]int{}
 	rows, err := tx.Query(ctx,
-		`SELECT pqc_status, COUNT(*) FROM findings
-		 WHERE scan_id = $1
-		 GROUP BY pqc_status`,
-		scanID,
+		`WITH latest_status AS (
+		   SELECT DISTINCT ON (finding_key) finding_key, status, expires_at
+		   FROM finding_status
+		   WHERE org_id = $1
+		   ORDER BY finding_key, changed_at DESC
+		 )
+		 SELECT f.pqc_status, COUNT(*)
+		 FROM findings f
+		 LEFT JOIN latest_status ls ON ls.finding_key =
+		   encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex')
+		 WHERE f.scan_id = $2
+		   AND (ls.status IS NULL
+		        OR ls.status IN ('open', 'in_progress')
+		        OR (ls.status = 'accepted' AND ls.expires_at IS NOT NULL AND ls.expires_at < NOW()))
+		 GROUP BY f.pqc_status`,
+		orgID, scanID,
 	)
 	if err != nil {
 		return fmt.Errorf("RefreshHostSummary status counts: %w", err)
@@ -108,6 +120,28 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 	).Scan(&maxPriority)
 	if err != nil {
 		return fmt.Errorf("RefreshHostSummary max_priority: %w", err)
+	}
+
+	// Step 4b: count resolved and accepted findings.
+	var resolvedCount, acceptedCount int
+	err = tx.QueryRow(ctx,
+		`WITH latest_status AS (
+		   SELECT DISTINCT ON (finding_key) finding_key, status, expires_at
+		   FROM finding_status
+		   WHERE org_id = $1
+		   ORDER BY finding_key, changed_at DESC
+		 )
+		 SELECT
+		   COUNT(*) FILTER (WHERE ls.status = 'resolved'),
+		   COUNT(*) FILTER (WHERE ls.status = 'accepted' AND (ls.expires_at IS NULL OR ls.expires_at >= NOW()))
+		 FROM findings f
+		 JOIN latest_status ls ON ls.finding_key =
+		   encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex')
+		 WHERE f.scan_id = $2`,
+		orgID, scanID,
+	).Scan(&resolvedCount, &acceptedCount)
+	if err != nil {
+		return fmt.Errorf("RefreshHostSummary resolved/accepted counts: %w", err)
 	}
 
 	// Step 5: readiness percentage.
@@ -176,6 +210,30 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		}
 	}
 
+	// Step 7b: auto-reopen resolved findings that reappeared in the latest scan.
+	_, err = tx.Exec(ctx,
+		`WITH scan_keys AS (
+		   SELECT DISTINCT encode(sha256(
+		     (f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea
+		   ), 'hex') AS fkey
+		   FROM findings f WHERE f.scan_id = $1
+		 ),
+		 resolved_keys AS (
+		   SELECT DISTINCT ON (finding_key) finding_key, status
+		   FROM finding_status WHERE org_id = $2
+		   ORDER BY finding_key, changed_at DESC
+		 )
+		 INSERT INTO finding_status (finding_key, org_id, status, reason, changed_by, changed_at)
+		 SELECT rk.finding_key, $2, 'open', 'finding reappeared in scan', 'system', NOW()
+		 FROM resolved_keys rk
+		 JOIN scan_keys sk ON rk.finding_key = sk.fkey
+		 WHERE rk.status = 'resolved'`,
+		scanID, orgID,
+	)
+	if err != nil {
+		return fmt.Errorf("RefreshHostSummary auto-reopen: %w", err)
+	}
+
 	// Step 8: marshal sparkline for JSONB column.
 	sparklineJSON, err := json.Marshal(sparkline)
 	if err != nil {
@@ -188,12 +246,14 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		   org_id, hostname, scan_id, scanned_at,
 		   total_findings, safe_findings, transitional_findings, deprecated_findings, unsafe_findings,
 		   readiness_pct, certs_expiring_30d, certs_expiring_90d, certs_expired,
-		   max_priority, trend_direction, trend_delta_pct, sparkline, refreshed_at
+		   max_priority, trend_direction, trend_delta_pct, sparkline,
+		   resolved_count, accepted_count, refreshed_at
 		 ) VALUES (
 		   $1, $2, $3, $4,
 		   $5, $6, $7, $8, $9,
 		   $10, $11, $12, $13,
-		   $14, $15, $16, $17, NOW()
+		   $14, $15, $16, $17,
+		   $18, $19, NOW()
 		 )
 		 ON CONFLICT (org_id, hostname) DO UPDATE SET
 		   scan_id               = EXCLUDED.scan_id,
@@ -211,11 +271,14 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		   trend_direction       = EXCLUDED.trend_direction,
 		   trend_delta_pct       = EXCLUDED.trend_delta_pct,
 		   sparkline             = EXCLUDED.sparkline,
+		   resolved_count        = EXCLUDED.resolved_count,
+		   accepted_count        = EXCLUDED.accepted_count,
 		   refreshed_at          = NOW()`,
 		orgID, hostname, scanID, scannedAt,
 		totalFindings, safeFindings, transitionalFindings, deprecatedFindings, unsafeFindings,
 		readinessPct, certsExpiring30d, certsExpiring90d, certsExpired,
 		maxPriority, trendDirection, trendDeltaPct, sparklineJSON,
+		resolvedCount, acceptedCount,
 	)
 	if err != nil {
 		return fmt.Errorf("RefreshHostSummary upsert: %w", err)

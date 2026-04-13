@@ -58,6 +58,22 @@ type ExpiringCertRow struct {
 	Status        string    `json:"status"`
 }
 
+// FilterParams holds optional filter criteria for analytics queries.
+// Zero values mean "no filter" (show all).
+type FilterParams struct {
+	Hostname  string // exact match on hostname
+	Algorithm string // exact match on algorithm
+	PQCStatus string // exact match on pqc_status (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
+}
+
+// FilterOptions holds the distinct values available for filtering,
+// returned by GET /api/v1/filters.
+type FilterOptions struct {
+	Hostnames   []string `json:"hostnames"`
+	Algorithms  []string `json:"algorithms"`
+	PQCStatuses []string `json:"pqcStatuses"`
+}
+
 // PriorityRow is one row in the Migration Priority view.
 //
 // Module is the scanner module name ("certificate", "library", ...);

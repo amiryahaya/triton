@@ -166,6 +166,25 @@ func (m *pipelineMockStore) ListHostSummaries(_ context.Context, _ string, _ str
 func (m *pipelineMockStore) GetOrgSnapshot(_ context.Context, _ string) (*OrgSnapshot, error) {
 	panic("not implemented")
 }
+
+// --- Remediation stubs ---
+
+func (m *pipelineMockStore) SetFindingStatus(_ context.Context, _ *FindingStatusEntry) error {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) GetFindingHistory(_ context.Context, _ string) ([]FindingStatusEntry, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) GetRemediationSummary(_ context.Context, _ string) (*RemediationSummary, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListRemediationFindings(_ context.Context, _ string, _, _, _ string) ([]RemediationRow, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) GetFindingByID(_ context.Context, _, _ string) (*Finding, error) {
+	panic("not implemented")
+}
+
 func (m *pipelineMockStore) Close() error {
 	return nil
 }

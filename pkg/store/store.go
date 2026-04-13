@@ -157,6 +157,25 @@ type Store interface {
 	// is older than the latest finding. Used by the cold-start rebuilder.
 	ListStaleHosts(ctx context.Context) ([]PipelineJob, error)
 
+	// --- Remediation (Phase 4B) ---
+
+	// SetFindingStatus inserts a new status row for the given finding_key.
+	SetFindingStatus(ctx context.Context, entry *FindingStatusEntry) error
+
+	// GetFindingHistory returns all status changes for a finding_key,
+	// sorted by changed_at DESC (newest first). Scoped to org for
+	// tenant isolation (defense-in-depth alongside the org-embedded hash).
+	GetFindingHistory(ctx context.Context, findingKey, orgID string) ([]FindingStatusEntry, error)
+
+	// GetRemediationSummary returns counts by status for the given org.
+	GetRemediationSummary(ctx context.Context, orgID string) (*RemediationSummary, error)
+
+	// ListRemediationFindings returns findings enriched with remediation status.
+	ListRemediationFindings(ctx context.Context, orgID string, statusFilter, hostnameFilter, pqcFilter string) ([]RemediationRow, error)
+
+	// GetFindingByID returns a single finding by ID, scoped to org.
+	GetFindingByID(ctx context.Context, findingID, orgID string) (*Finding, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }

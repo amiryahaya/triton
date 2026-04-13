@@ -166,3 +166,42 @@ type PipelineStatus struct {
 	JobsProcessedTotal int64     `json:"jobsProcessedTotal"`
 	JobsFailedTotal    int64     `json:"jobsFailedTotal"`
 }
+
+// FindingStatusEntry is one row from the finding_status table.
+// Analytics Phase 4B.
+type FindingStatusEntry struct {
+	ID         int64      `json:"id"`
+	FindingKey string     `json:"findingKey"`
+	OrgID      string     `json:"orgId"`
+	Status     string     `json:"status"`
+	Reason     string     `json:"reason"`
+	ChangedBy  string     `json:"changedBy"`
+	ChangedAt  time.Time  `json:"changedAt"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+}
+
+// RemediationRow is one finding enriched with its current remediation
+// status, returned by GET /api/v1/remediation. Analytics Phase 4B.
+type RemediationRow struct {
+	FindingID  string     `json:"findingId"`
+	Hostname   string     `json:"hostname"`
+	Algorithm  string     `json:"algorithm"`
+	KeySize    int        `json:"keySize,omitempty"`
+	PQCStatus  string     `json:"pqcStatus"`
+	Module     string     `json:"module"`
+	Priority   int        `json:"priority"`
+	Status     string     `json:"status"`
+	ChangedAt  *time.Time `json:"changedAt"`
+	ChangedBy  string     `json:"changedBy"`
+	FindingKey string     `json:"findingKey"`
+}
+
+// RemediationSummary is the response for GET /api/v1/remediation/summary.
+// Analytics Phase 4B.
+type RemediationSummary struct {
+	Open       int `json:"open"`
+	InProgress int `json:"inProgress"`
+	Resolved   int `json:"resolved"`
+	Accepted   int `json:"accepted"`
+	Total      int `json:"total"`
+}

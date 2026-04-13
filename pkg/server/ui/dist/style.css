@@ -1126,3 +1126,12 @@ td[colspan] {
 .btn-primary { background: var(--accent); color: #fff; border: none; }
 .btn-primary:hover { opacity: 0.9; }
 .btn-cancel { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+
+/* Export buttons — Phase 5 */
+.page-header { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.page-header h2 { margin: 0; }
+.export-buttons { display: flex; gap: 0.5rem; margin-left: auto; }
+.btn-export { padding: 0.4rem 1rem; border-radius: 4px; background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border); cursor: pointer; font-size: 0.85rem; transition: border-color 0.2s, opacity 0.2s; }
+.btn-export:hover { border-color: var(--accent); }
+.btn-export:disabled { opacity: 0.5; cursor: not-allowed; }
+.export-error { color: #f87171; font-size: 0.8rem; margin-top: 0.25rem; width: 100%; }

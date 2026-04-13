@@ -569,7 +569,14 @@
         }),
       ]);
 
-      let html = '<h2>Organization Overview</h2>';
+      let html = '<div class="page-header">' +
+        '<h2>Organization Overview</h2>' +
+        '<div class="export-buttons">' +
+          '<button class="btn-export" id="btn-export-pdf" onclick="exportReport(\'pdf\')">PDF Report</button>' +
+          '<button class="btn-export" id="btn-export-xlsx" onclick="exportReport(\'xlsx\')">Excel Export</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="export-error" class="export-error"></div>';
       if (exec) {
         html += renderExecSummaryBar(exec);
       }
@@ -1476,3 +1483,41 @@
   // (e.g., page reload with a stored JWT).
   scheduleTokenRefresh();
 })();
+
+// exportReport triggers a blob download for the given format ('pdf' or 'xlsx').
+// Defined outside the IIFE so onclick handlers in rendered HTML can reach it.
+function exportReport(format) {
+  var btn = document.getElementById('btn-export-' + format);
+  if (!btn) return;
+  var origText = btn.textContent;
+  btn.textContent = 'Generating...';
+  btn.disabled = true;
+
+  var headers = {};
+  var token = localStorage.getItem('tritonJWT');
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
+  fetch('/api/v1/export/' + format, { headers: headers })
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('Export failed (' + resp.status + ')');
+      return resp.blob();
+    })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'triton-pqc-report.' + (format === 'xlsx' ? 'xlsx' : 'pdf');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    })
+    .catch(function(err) {
+      var msgEl = document.getElementById('export-error');
+      if (msgEl) msgEl.textContent = err.message;
+    })
+    .finally(function() {
+      btn.textContent = origText;
+      btn.disabled = false;
+    });
+}

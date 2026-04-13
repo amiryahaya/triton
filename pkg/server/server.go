@@ -133,6 +133,11 @@ type Server struct {
 	// errors into the log until the goroutine's timeout expired.
 	// Analytics Phase 1 — /pensive:full-review action item B2.
 	backfillWG sync.WaitGroup
+
+	// pipeline runs the T2+T3 analytics transforms in the background.
+	// Started after the findings backfill completes, stopped in Shutdown.
+	// Analytics Phase 4A.
+	pipeline *store.Pipeline
 }
 
 // BackfillInProgress exposes the atomic flag so cmd/server.go can flip
@@ -162,6 +167,24 @@ func (s *Server) Context() context.Context {
 // goroutine's defer block. Analytics Phase 1.
 func (s *Server) BackfillWG() *sync.WaitGroup {
 	return &s.backfillWG
+}
+
+// Pipeline returns the analytics pipeline for lifecycle wiring in cmd/server.go.
+func (s *Server) Pipeline() *store.Pipeline {
+	return s.pipeline
+}
+
+// EnqueuePipelineJob queues a T2+T3 refresh for the given org/hostname.
+// No-op if the pipeline is nil (testing without pipeline).
+func (s *Server) EnqueuePipelineJob(orgID, hostname, scanID string) {
+	if s.pipeline == nil {
+		return
+	}
+	s.pipeline.Enqueue(store.PipelineJob{
+		OrgID:    orgID,
+		Hostname: hostname,
+		ScanID:   scanID,
+	})
 }
 
 // auditSemDepth is the max number of concurrent writeAudit
@@ -256,6 +279,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		auditSem:       make(chan struct{}, auditSemDepth),
 		sessionCache:   sessCache,
 	}
+	srv.pipeline = store.NewPipeline(s)
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
 	// memory over time. Phase 5 Sprint 2 (N1) replaced the previous
@@ -417,6 +441,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	// It returns no sensitive data (only {"status":"ok"}).
 	r.Get("/api/v1/health", srv.handleHealth)
 
+	// Pipeline status — operational endpoint for the UI's staleness bar.
+	// No tenant auth required; returns no sensitive data.
+	r.Get("/api/v1/pipeline/status", srv.handlePipelineStatus)
+
 	// Metrics endpoint — Phase 5 Sprint 3 B4. Also outside the auth
 	// group because Prometheus scrapers typically cannot
 	// authenticate as a user. Operators restrict access via network
@@ -479,6 +507,11 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/priority", s.handlePriorityFindings)
 		r.Get("/executive", s.handleExecutiveSummary)
 
+		// Analytics Phase 4A — pre-computed host summaries, trend
+		// sparklines, and pipeline staleness metadata.
+		r.Get("/systems", s.handleSystems)
+		r.Get("/trends", s.handleTrends)
+
 		// Destructive operations require org_admin (Arch #7 from
 		// Phase 2 review). org_user can read but cannot delete scans.
 		r.Group(func(r chi.Router) {
@@ -516,6 +549,9 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.pipeline != nil {
+		s.pipeline.Stop()
 	}
 	if err := s.http.Shutdown(ctx); err != nil {
 		return err

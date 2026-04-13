@@ -86,11 +86,11 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 
 	// Step 3: aggregate across all hosts.
 	var totalFindings, safeFindings, resolvedTotal, acceptedTotal int
-	for _, h := range hosts {
-		totalFindings += h.totalFindings
-		safeFindings += h.safeFindings
-		resolvedTotal += h.resolvedCount
-		acceptedTotal += h.acceptedCount
+	for i := range hosts {
+		totalFindings += hosts[i].totalFindings
+		safeFindings += hosts[i].safeFindings
+		resolvedTotal += hosts[i].resolvedCount
+		acceptedTotal += hosts[i].acceptedCount
 	}
 	var readinessPct float64
 	if totalFindings > 0 {
@@ -100,11 +100,11 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 	// Step 4: machine health tiers.
 	machinesTotal := len(hosts)
 	var machinesRed, machinesYellow, machinesGreen int
-	for _, h := range hosts {
+	for i := range hosts {
 		switch {
-		case h.unsafeFindings > 0:
+		case hosts[i].unsafeFindings > 0:
 			machinesRed++
-		case h.deprecatedFindings > 0:
+		case hosts[i].deprecatedFindings > 0:
 			machinesYellow++
 		default:
 			machinesGreen++
@@ -118,7 +118,8 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 		total int
 	}
 	monthMap := map[string]*monthAccum{}
-	for _, h := range hosts {
+	for i := range hosts {
+		h := &hosts[i]
 		for _, pt := range h.sparkline {
 			if _, ok := monthMap[pt.Month]; !ok {
 				monthMap[pt.Month] = &monthAccum{}
@@ -263,10 +264,10 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 
 	// Step 10: certificate rollup — sum from host_summary rows.
 	var certsExpiring30d, certsExpiring90d, certsExpired int
-	for _, h := range hosts {
-		certsExpiring30d += h.certsExpiring30d
-		certsExpiring90d += h.certsExpiring90d
-		certsExpired += h.certsExpired
+	for i := range hosts {
+		certsExpiring30d += hosts[i].certsExpiring30d
+		certsExpiring90d += hosts[i].certsExpiring90d
+		certsExpired += hosts[i].certsExpired
 	}
 
 	// Step 11: policy verdicts — empty for Phase 4A.

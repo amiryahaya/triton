@@ -89,7 +89,7 @@ func (s *PostgresStore) GetRemediationSummary(ctx context.Context, orgID string)
 	return &summary, nil
 }
 
-func (s *PostgresStore) ListRemediationFindings(ctx context.Context, orgID string, statusFilter, hostnameFilter, pqcFilter string) ([]RemediationRow, error) {
+func (s *PostgresStore) ListRemediationFindings(ctx context.Context, orgID, statusFilter, hostnameFilter, pqcFilter string) ([]RemediationRow, error) {
 	query := `WITH latest_scans AS (
 		SELECT DISTINCT ON (hostname) id FROM scans
 		WHERE org_id = $1 ORDER BY hostname, timestamp DESC

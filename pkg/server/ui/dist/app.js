@@ -34,6 +34,14 @@
       const c = auth.getClaims();
       return !!(c && c.mcp);
     },
+    // isTokenExpired returns true if the stored JWT's exp claim is in the
+    // past (or unparseable). Returns false if there is no token at all
+    // (caller should check getToken() separately for that case).
+    isTokenExpired: () => {
+      const c = auth.getClaims();
+      if (!c || !c.exp) return true;
+      return Date.now() / 1000 >= c.exp;
+    },
   };
 
   // Analytics Phase 1 — backfill banner state. The api() helper syncs
@@ -150,6 +158,18 @@
     const parts = hash.slice(2).split('/');
     const view = parts[0] || '';
     const param = parts[1] || '';
+
+    // Auth gate: proactively check token expiry BEFORE rendering any
+    // view. Without this, the UI renders stale logged-in chrome (sidebar
+    // user-info, sign-out button) from the decodable-but-expired JWT
+    // payload, while the next API call 401s — producing an inconsistent
+    // "half logged-in" state. Clearing the token and redirecting here
+    // ensures a clean transition to the login screen.
+    if (view !== 'login' && auth.getToken() && auth.isTokenExpired()) {
+      auth.clearToken();
+      location.hash = '#/login';
+      return;
+    }
 
     // Auth gate: if the user has a JWT and it says they must change
     // their password, force them to the change-password screen first.
@@ -269,6 +289,7 @@
       }
       const data = await resp.json();
       auth.setToken(data.token);
+      scheduleTokenRefresh();
       // If the response says the user must change their password, route
       // them there. Otherwise drop them onto the overview.
       if (data.mustChangePassword) {
@@ -284,7 +305,8 @@
 
   // ─── Change password view (Phase 3.4) ───────────────────────────────
   function renderChangePassword() {
-    if (!auth.getToken()) {
+    if (!auth.getToken() || auth.isTokenExpired()) {
+      auth.clearToken();
       location.hash = '#/login';
       return;
     }
@@ -335,6 +357,7 @@
       // gate on every page load). Clear local state and force re-login.
       if (data && data.token) {
         auth.setToken(data.token);
+        scheduleTokenRefresh();
         location.hash = '#/';
       } else {
         auth.clearToken();
@@ -1377,6 +1400,67 @@
     }
   }
 
+  // ─── Session lifecycle ───────────────────────────────────────────────
+  // checkSessionExpiry is the single source of truth for client-side
+  // expiry detection. It checks the JWT exp claim and, if expired,
+  // clears the token and bounces to login. Returns true if expired.
+  function checkSessionExpiry() {
+    if (auth.getToken() && auth.isTokenExpired()) {
+      auth.clearToken();
+      location.hash = '#/login';
+      return true;
+    }
+    return false;
+  }
+
+  // Proactive token refresh — calls POST /auth/refresh ~5 minutes
+  // before the JWT expires. On success, stores the new token and
+  // re-schedules. On failure, the 401 handler or expiry check will
+  // bounce the user to login at expiry time.
+  let refreshTimer = null;
+  function scheduleTokenRefresh() {
+    if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+    const claims = auth.getClaims();
+    if (!claims || !claims.exp) return;
+    const msUntilExpiry = (claims.exp * 1000) - Date.now();
+    // Refresh 5 minutes before expiry; if less than 30s remain, don't
+    // bother — the expiry check will handle it.
+    const refreshIn = msUntilExpiry - (5 * 60 * 1000);
+    if (refreshIn < 30000) return;
+    refreshTimer = setTimeout(async function() {
+      try {
+        const data = await api('/auth/refresh', { method: 'POST' });
+        if (data && data.token) {
+          auth.setToken(data.token);
+          scheduleTokenRefresh();
+        }
+      } catch (_) {
+        // Refresh failed — let the expiry check or next api() 401 handle it.
+      }
+    }, refreshIn);
+  }
+
+  // Tab-return detection: when the user switches back to this tab after
+  // leaving it overnight, re-validate the session immediately rather
+  // than waiting for the next API call or the 60s interval.
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+      if (!checkSessionExpiry()) {
+        // Token still valid — reschedule refresh in case the timer
+        // drifted while the tab was backgrounded (browsers throttle
+        // setTimeout in hidden tabs).
+        scheduleTokenRefresh();
+      }
+    }
+  });
+
+  // Periodic expiry check — catches silent expiry even when the tab
+  // stays focused. 60s is well below the 24h JWT TTL so the user
+  // never sits on a stale session for more than a minute.
+  setInterval(function() {
+    checkSessionExpiry();
+  }, 60000);
+
   // Init
   // The renderOverview() initial call will hit the API. In single-tenant
   // mode (Guard provides tenant context), it returns 200 and the UI
@@ -1385,4 +1469,7 @@
   // to #/login, and the user signs in.
   window.addEventListener('hashchange', route);
   route();
+  // Kick off token refresh scheduling if we already have a valid token
+  // (e.g., page reload with a stored JWT).
+  scheduleTokenRefresh();
 })();

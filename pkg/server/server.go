@@ -441,6 +441,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	// It returns no sensitive data (only {"status":"ok"}).
 	r.Get("/api/v1/health", srv.handleHealth)
 
+	// Pipeline status — operational endpoint for the UI's staleness bar.
+	// No tenant auth required; returns no sensitive data.
+	r.Get("/api/v1/pipeline/status", srv.handlePipelineStatus)
+
 	// Metrics endpoint — Phase 5 Sprint 3 B4. Also outside the auth
 	// group because Prometheus scrapers typically cannot
 	// authenticate as a user. Operators restrict access via network
@@ -502,6 +506,11 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/certificates/expiring", s.handleExpiringCertificates)
 		r.Get("/priority", s.handlePriorityFindings)
 		r.Get("/executive", s.handleExecutiveSummary)
+
+		// Analytics Phase 4A — pre-computed host summaries, trend
+		// sparklines, and pipeline staleness metadata.
+		r.Get("/systems", s.handleSystems)
+		r.Get("/trends", s.handleTrends)
 
 		// Destructive operations require org_admin (Arch #7 from
 		// Phase 2 review). org_user can read but cannot delete scans.

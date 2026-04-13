@@ -303,6 +303,115 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 	return out, nil
 }
 
+// GET /api/v1/systems?pqc_status=X
+//
+// Returns per-host summary rows from the pre-computed host_summary table.
+// Sorted by readiness_pct ASC (worst first). Includes staleness metadata.
+func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request) {
+	orgID := TenantFromContext(r.Context())
+	pqcFilter := r.URL.Query().Get("pqc_status")
+
+	rows, err := s.store.ListHostSummaries(r.Context(), orgID, pqcFilter)
+	if err != nil {
+		log.Printf("systems: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if rows == nil {
+		rows = []store.HostSummary{}
+	}
+
+	// Staleness: oldest refreshed_at across all rows
+	var dataAsOf time.Time
+	if len(rows) > 0 {
+		dataAsOf = rows[0].RefreshedAt
+		for _, row := range rows[1:] {
+			if row.RefreshedAt.Before(dataAsOf) {
+				dataAsOf = row.RefreshedAt
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":        rows,
+		"dataAsOf":    dataAsOf,
+		"pipelineLag": int(time.Since(dataAsOf).Seconds()),
+	})
+}
+
+// GET /api/v1/trends?hostname=X
+//
+// Returns monthly trend data. Without hostname: org-wide from org_snapshot.
+// With hostname: per-host from host_summary sparkline.
+func (s *Server) handleTrends(w http.ResponseWriter, r *http.Request) {
+	orgID := TenantFromContext(r.Context())
+	hostname := r.URL.Query().Get("hostname")
+
+	if hostname != "" {
+		// Per-host trend: find the host in host_summary
+		rows, err := s.store.ListHostSummaries(r.Context(), orgID, "")
+		if err != nil {
+			log.Printf("trends: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+		for _, row := range rows {
+			if row.Hostname == hostname {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"monthlyPoints": row.Sparkline,
+					"direction":     row.TrendDirection,
+					"deltaPct":      row.TrendDeltaPct,
+					"dataAsOf":      row.RefreshedAt,
+					"pipelineLag":   int(time.Since(row.RefreshedAt).Seconds()),
+				})
+				return
+			}
+		}
+		// Host not found — return empty
+		writeJSON(w, http.StatusOK, map[string]any{
+			"monthlyPoints": []store.SparklinePoint{},
+			"direction":     "insufficient",
+			"deltaPct":      0,
+		})
+		return
+	}
+
+	// Org-wide trend from org_snapshot
+	snap, err := s.store.GetOrgSnapshot(r.Context(), orgID)
+	if err != nil {
+		log.Printf("trends: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if snap == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"monthlyPoints": []store.SparklinePoint{},
+			"direction":     "insufficient",
+			"deltaPct":      0,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"monthlyPoints": snap.MonthlyTrend,
+		"direction":     snap.TrendDirection,
+		"deltaPct":      snap.TrendDeltaPct,
+		"dataAsOf":      snap.RefreshedAt,
+		"pipelineLag":   int(time.Since(snap.RefreshedAt).Seconds()),
+	})
+}
+
+// GET /api/v1/pipeline/status
+//
+// Returns the current pipeline processing state. Used by the UI's
+// staleness bar to show "Processing..." when jobs are queued.
+func (s *Server) handlePipelineStatus(w http.ResponseWriter, r *http.Request) {
+	if s.pipeline == nil {
+		writeJSON(w, http.StatusOK, store.PipelineStatus{Status: "idle"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.pipeline.Status())
+}
+
 // worstVerdict returns the more severe of two policy verdicts.
 // Severity order: FAIL > WARN > PASS. Unknown strings fail-safe
 // to FAIL (/pensive:full-review B-D4).

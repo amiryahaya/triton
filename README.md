@@ -20,7 +20,7 @@ An enterprise-grade, cross-platform CLI + server tool for generating Software Bi
 - **REST API server** — go-chi based HTTP server with embedded web UI dashboard
 - **PostgreSQL storage** — scan history, diff/trend analysis, incremental scanning
 - **3-tier licensing** — Ed25519-signed licence keys with free/pro/enterprise feature gating
-- **License server** — Centralized seat pool management, online validation, admin web UI
+- **License server** — Centralized seat pool management, online validation, admin web UI, automatic agent seat tracking with stale reaping
 - **Government-format Excel reports** — Jadual 1 (SBOM) and Jadual 2 (CBOM) in a single `.xlsx` workbook
 - **Multiple output formats** — CycloneDX 1.7 CBOM JSON, HTML dashboard, Excel (`.xlsx`), SARIF
 - **Cross-platform** — macOS (primary), Linux, Windows
@@ -262,7 +262,7 @@ Triton includes two built-in compliance policies. Without `--policy`, Triton sca
 │  Triton CLI (Cobra + BubbleTea TUI)         Licence Guard        │
 │  ├─ triton scan (default)                   ├─ Ed25519 signed    │
 │  ├─ triton server (report server, ent.)     ├─ 3-tier gating     │
-│  ├─ triton agent (enterprise)               └─ graceful degrade  │
+│  ├─ triton agent (enterprise, auto-seat)     └─ graceful degrade  │
 │  ├─ triton diff/trend/history (pro+)                             │
 │  ├─ triton policy (pro+)                                         │
 │  └─ triton license show/verify                                   │
@@ -446,6 +446,16 @@ go test -bench=. -benchmem ./pkg/scanner/ ./pkg/crypto/
 - [x] PostgreSQL-backed license store with serializable seat enforcement
 - [x] Containerized deployment with Docker Compose
 
+### v3.3 License Seat Management (This Release)
+
+- [x] **Agent-to-license-server activation** — agent calls `/activate` on startup, consuming a seat; graceful degradation to free tier if seats are full, server unreachable, or license revoked/expired
+- [x] **Heartbeat** — agent calls `/validate` between scan iterations (continuous mode), keeping `last_seen_at` fresh for fleet visibility
+- [x] **Clean shutdown deactivation** — agent calls `/deactivate` on SIGINT/SIGTERM, immediately freeing the seat
+- [x] **On-demand stale seat reaping** — when `Activate()` hits seats-full, the server reaps activations with `last_seen_at` older than the configurable threshold (default 14 days) before returning `ErrSeatsFull`
+- [x] **New `agent.yaml` fields** — `license_server` (URL) and `license_id` (UUID) enable seat management alongside existing `license_key`
+- [x] **Configurable threshold** — `TRITON_LICENSE_SERVER_STALE_THRESHOLD` env var (default `336h` / 14 days, minimum `24h`)
+- [x] **Audit trail** — `auto_reap` events logged in the license server audit log when ghost seats are reclaimed
+
 ## Licensing
 
 Triton uses a 3-tier licence system. Without a licence key, Triton runs in **free tier** — fully functional but limited to quick profile, JSON output, and 3 scanner modules (certificates, keys, packages).
@@ -486,16 +496,25 @@ Precedence: CLI flag > environment variable > file.
 
 ### License Server (Centralized Management)
 
-For organizations managing multiple machines, the license server provides centralized seat pool management:
+For organizations managing multiple machines, the license server provides centralized seat pool management with automatic fleet tracking:
 
 ```bash
-# Activate this machine (one-time setup)
+# Manual activation (one-time setup)
 triton license activate \
   --license-server http://license-server:8081 \
   --license-id <license-uuid>
 
 # Deactivate when decommissioning
 triton license deactivate
+```
+
+**Agent seat management:** When `license_server` and `license_id` are set in `agent.yaml`, the agent automatically registers on startup, heartbeats between scans, and deactivates on shutdown. Ghost seats from unclean uninstalls are automatically reclaimed after the configurable staleness threshold (default 14 days). See `TRITON_LICENSE_SERVER_STALE_THRESHOLD` to tune.
+
+```yaml
+# agent.yaml — seat management fields
+license_server: "https://license.example.com:8081"
+license_id: "550e8400-e29b-41d4-a716-446655440000"
+license_key: "eyJ..."  # still needed for report server auth
 ```
 
 #### Agent installation — bundle and one-liner
@@ -637,6 +656,7 @@ For the token chain to work, these three components must share the same Ed25519 
 - **Continuous scanning**: pass `--interval 24h` to keep the agent running and rescan on a schedule (with ±10% jitter). Interval mode is enterprise-tier only.
 - **Local-only mode**: omit `report_server` in `agent.yaml`. The agent writes reports to `output_dir` in every format the tier allows. No server needed.
 - **Compressed submission**: enabled by default — scan bodies ship as `Content-Encoding: gzip` and are transparently decoded by the report server's middleware (capped at 32 MiB decompressed to prevent bomb amplification).
+- **Seat management**: add `license_server` and `license_id` to `agent.yaml` to register each agent as a seat. The agent heartbeats between scans and deactivates on shutdown. Ghost seats from unclean uninstalls are reaped automatically after the staleness threshold (default 14 days).
 
 ## CI/CD
 

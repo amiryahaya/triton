@@ -240,6 +240,7 @@
       case 'inventory': renderInventory(); break;
       case 'certificates': renderCertificates(); break;
       case 'priority': renderPriority(); break;
+      case 'systems': if (window.renderSystems) window.renderSystems(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;

@@ -299,4 +299,27 @@ var migrations = []string{
 		certs_expired         INT NOT NULL DEFAULT 0,
 		refreshed_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);`,
+
+	// Version 13: Remediation tracking — append-only finding_status table.
+	// Analytics Phase 4B.
+	`CREATE TABLE IF NOT EXISTS finding_status (
+		id          BIGSERIAL PRIMARY KEY,
+		finding_key TEXT NOT NULL,
+		org_id      UUID NOT NULL,
+		status      TEXT NOT NULL CHECK (status IN ('open','in_progress','resolved','accepted')),
+		reason      TEXT NOT NULL DEFAULT '',
+		changed_by  TEXT NOT NULL,
+		changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		expires_at  TIMESTAMPTZ
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_finding_status_key ON finding_status(finding_key, changed_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_finding_status_org ON finding_status(org_id);`,
+
+	// Version 14: Add resolved/accepted counts to host_summary and org_snapshot.
+	// Analytics Phase 4B.
+	`ALTER TABLE host_summary ADD COLUMN IF NOT EXISTS resolved_count INT NOT NULL DEFAULT 0;
+	ALTER TABLE host_summary ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;
+	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS resolved_count INT NOT NULL DEFAULT 0;
+	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;`,
 }

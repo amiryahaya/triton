@@ -596,6 +596,10 @@ func (s *PostgresStore) UpdateLastSeen(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *PostgresStore) ReapStaleActivations(ctx context.Context, licenseID string, threshold time.Duration) (int, error) {
+	return 0, fmt.Errorf("not implemented")
+}
+
 // --- Audit ---
 
 func (s *PostgresStore) WriteAudit(ctx context.Context, entry *AuditEntry) error {

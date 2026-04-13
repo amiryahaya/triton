@@ -309,7 +309,8 @@ func addSystemsHealthSection(m core.Maroto, data *AnalyticsReportData) {
 	evenBG := &props.Cell{BackgroundColor: &props.Color{Red: 240, Green: 244, Blue: 250}}
 	cell := tableCellProps()
 
-	for i, h := range data.Hosts {
+	for i := range data.Hosts {
+		h := &data.Hosts[i]
 		var rowStyle *props.Cell
 		if i%2 == 0 {
 			rowStyle = evenBG

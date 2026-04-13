@@ -13,11 +13,11 @@ func GenerateAnalyticsExcel(data *AnalyticsExcelData, outputPath string) error {
 	defer func() { _ = f.Close() }()
 
 	// Rename default sheet and create additional sheets in order.
-	f.SetSheetName("Sheet1", "Executive Summary")
-	f.NewSheet("Systems Health")
-	f.NewSheet("Top Blockers")
-	f.NewSheet("Expiring Certificates")
-	f.NewSheet("Remediation Log")
+	_ = f.SetSheetName("Sheet1", "Executive Summary")
+	_, _ = f.NewSheet("Systems Health")
+	_, _ = f.NewSheet("Top Blockers")
+	_, _ = f.NewSheet("Expiring Certificates")
+	_, _ = f.NewSheet("Remediation Log")
 
 	populateExecSummary(f, data)
 	populateSystemsHealth(f, data)
@@ -120,7 +120,8 @@ func populateSystemsHealth(f *excelize.File, data *AnalyticsExcelData) {
 		_ = f.SetCellValue(sheet, fmt.Sprintf("%s1", col), h)
 	}
 
-	for i, host := range data.Hosts {
+	for i := range data.Hosts {
+		host := &data.Hosts[i]
 		r := i + 2
 		_ = f.SetCellValue(sheet, fmt.Sprintf("A%d", r), host.Hostname)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("B%d", r), fmt.Sprintf("%.1f%%", host.ReadinessPct))
@@ -184,7 +185,8 @@ func populateExpiringCerts(f *excelize.File, data *AnalyticsExcelData) {
 		_ = f.SetCellValue(sheet, fmt.Sprintf("%s1", col), h)
 	}
 
-	for i, c := range data.Certs {
+	for i := range data.Certs {
+		c := &data.Certs[i]
 		r := i + 2
 		_ = f.SetCellValue(sheet, fmt.Sprintf("A%d", r), c.Hostname)
 		_ = f.SetCellValue(sheet, fmt.Sprintf("B%d", r), c.Subject)

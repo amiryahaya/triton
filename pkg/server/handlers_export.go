@@ -30,7 +30,7 @@ func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpPath := tmpFile.Name()
 	_ = tmpFile.Close()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if err := report.GenerateAnalyticsPDF(data, tmpPath); err != nil {
 		log.Printf("export pdf: generate: %v", err)
@@ -91,7 +91,7 @@ func (s *Server) handleExportExcel(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpPath := tmpFile.Name()
 	_ = tmpFile.Close()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if err := report.GenerateAnalyticsExcel(data, tmpPath); err != nil {
 		log.Printf("export xlsx: generate: %v", err)

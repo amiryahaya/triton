@@ -30,6 +30,7 @@ func run() error {
 	tlsCert := envOr("TRITON_LICENSE_SERVER_TLS_CERT", "")
 	tlsKey := envOr("TRITON_LICENSE_SERVER_TLS_KEY", "")
 	binariesDir := envOr("TRITON_LICENSE_SERVER_BINARIES_DIR", "/opt/triton/binaries")
+	staleThresholdStr := envOr("TRITON_LICENSE_SERVER_STALE_THRESHOLD", "336h")
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_DB_URL is required")
@@ -53,6 +54,14 @@ func run() error {
 
 	if err := os.MkdirAll(binariesDir, 0o755); err != nil {
 		return fmt.Errorf("creating binaries directory: %w", err)
+	}
+
+	staleThreshold, err := time.ParseDuration(staleThresholdStr)
+	if err != nil {
+		return fmt.Errorf("parsing TRITON_LICENSE_SERVER_STALE_THRESHOLD: %w", err)
+	}
+	if staleThreshold < 24*time.Hour {
+		return fmt.Errorf("TRITON_LICENSE_SERVER_STALE_THRESHOLD must be at least 24h (got %s)", staleThreshold)
 	}
 
 	adminKeys := strings.Split(adminKey, ",")
@@ -146,6 +155,7 @@ func run() error {
 		PublicURL:              publicURL,
 		Mailer:                 mailer,
 		ReportServerInviteURL:  reportInviteURL,
+		StaleActivationThreshold: staleThreshold,
 	}
 
 	srv := licenseserver.New(cfg, store)

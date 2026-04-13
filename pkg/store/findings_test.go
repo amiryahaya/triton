@@ -154,7 +154,7 @@ func TestSaveScanWithFindings_OnConflictSkipsDuplicates(t *testing.T) {
 
 func TestListInventory_EmptyOrg(t *testing.T) {
 	s := testStore(t)
-	rows, err := s.ListInventory(context.Background(), testUUID("empty-org"))
+	rows, err := s.ListInventory(context.Background(), testUUID("empty-org", store.FilterParams{}))
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -166,7 +166,7 @@ func TestListInventory_SingleFinding(t *testing.T) {
 		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "DEPRECATED", MigrationPriority: 80}),
 	)
 
-	rows, err := s.ListInventory(context.Background(), orgID)
+	rows, err := s.ListInventory(context.Background(), orgID, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "RSA", rows[0].Algorithm)
@@ -186,7 +186,7 @@ func TestListInventory_GroupsByAlgorithmAndSize(t *testing.T) {
 		cryptoFinding("key", "/c", &model.CryptoAsset{Algorithm: "RSA", KeySize: 4096, PQCStatus: "SAFE", MigrationPriority: 0}),
 	)
 
-	rows, err := s.ListInventory(context.Background(), orgID)
+	rows, err := s.ListInventory(context.Background(), orgID, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 
@@ -213,12 +213,12 @@ func TestListInventory_TenantIsolation(t *testing.T) {
 		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "AES", KeySize: 256, PQCStatus: "SAFE"}),
 	)
 
-	rowsA, err := s.ListInventory(context.Background(), orgA)
+	rowsA, err := s.ListInventory(context.Background(), orgA, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rowsA, 1)
 	assert.Equal(t, "RSA", rowsA[0].Algorithm)
 
-	rowsB, err := s.ListInventory(context.Background(), orgB)
+	rowsB, err := s.ListInventory(context.Background(), orgB, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rowsB, 1)
 	assert.Equal(t, "AES", rowsB[0].Algorithm)
@@ -243,7 +243,7 @@ func TestListInventory_UnknownStatusRank(t *testing.T) {
 		cryptoFinding("key", "/rsa", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, PQCStatus: "UNSAFE"}),
 	)
 
-	rows, err := s.ListInventory(context.Background(), orgID)
+	rows, err := s.ListInventory(context.Background(), orgID, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	// Sorted by status rank ASC: UNSAFE first, blank last.
@@ -273,7 +273,7 @@ func TestListInventory_LatestScanPerHostOnly(t *testing.T) {
 	}
 	require.NoError(t, s.SaveScanWithFindings(context.Background(), newScan, ExtractFindings(newScan)))
 
-	rows, err := s.ListInventory(context.Background(), orgID)
+	rows, err := s.ListInventory(context.Background(), orgID, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "only the latest scan per host counts")
 	assert.Equal(t, 4096, rows[0].KeySize)
@@ -283,7 +283,7 @@ func TestListInventory_LatestScanPerHostOnly(t *testing.T) {
 
 func TestListExpiringCerts_EmptyOrg(t *testing.T) {
 	s := testStore(t)
-	rows, err := s.ListExpiringCertificates(context.Background(), testUUID("cert-empty"), 90*24*time.Hour)
+	rows, err := s.ListExpiringCertificates(context.Background(), testUUID("cert-empty"), 90*24*time.Hour, store.FilterParams{})
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -299,7 +299,7 @@ func TestListExpiringCerts_WithinWindow(t *testing.T) {
 		cryptoFinding("certificate", "/later.crt", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, NotAfter: &in200, Subject: "CN=later"}),
 	)
 
-	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "only the 30-day cert is inside the 90-day window")
 	assert.Equal(t, "CN=soon", rows[0].Subject)
@@ -315,7 +315,7 @@ func TestListExpiringCerts_AlreadyExpiredAlwaysIncluded(t *testing.T) {
 	)
 
 	// Even a 1-hour window includes already-expired certs.
-	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 1*time.Hour)
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 1*time.Hour, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "CN=dead", rows[0].Subject)
@@ -330,7 +330,7 @@ func TestListExpiringCerts_NullNotAfterExcluded(t *testing.T) {
 		cryptoFinding("key", "/k", &model.CryptoAsset{Algorithm: "AES", KeySize: 256}),
 	)
 
-	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour, store.FilterParams{})
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -348,7 +348,7 @@ func TestListExpiringCerts_SortedAscending(t *testing.T) {
 		cryptoFinding("certificate", "/5.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &in5, Subject: "CN=five"}),
 	)
 
-	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour)
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 90*24*time.Hour, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 3)
 	assert.Equal(t, "CN=five", rows[0].Subject)
@@ -365,7 +365,7 @@ func TestListExpiringCerts_LargeWithinReturnsFuture(t *testing.T) {
 		cryptoFinding("certificate", "/far.crt", &model.CryptoAsset{Algorithm: "RSA", NotAfter: &inYear, Subject: "CN=far"}),
 	)
 
-	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 100*365*24*time.Hour)
+	rows, err := s.ListExpiringCertificates(context.Background(), orgID, 100*365*24*time.Hour, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "CN=far", rows[0].Subject)
@@ -375,7 +375,7 @@ func TestListExpiringCerts_LargeWithinReturnsFuture(t *testing.T) {
 
 func TestListPriority_EmptyOrg(t *testing.T) {
 	s := testStore(t)
-	rows, err := s.ListTopPriorityFindings(context.Background(), testUUID("prio-empty"), 20)
+	rows, err := s.ListTopPriorityFindings(context.Background(), testUUID("prio-empty"), 20, store.FilterParams{})
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -389,7 +389,7 @@ func TestListPriority_SortedDescending(t *testing.T) {
 		cryptoFinding("key", "/c", &model.CryptoAsset{Algorithm: "SHA-1", MigrationPriority: 80}),
 	)
 
-	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20)
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 3)
 	assert.Equal(t, 95, rows[0].Priority)
@@ -406,11 +406,11 @@ func TestListPriority_LimitRespected(t *testing.T) {
 	}
 	_ = saveScan(t, s, testUUID("prio-limit-1"), "host-1", orgID, findings...)
 
-	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 10)
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 10, store.FilterParams{})
 	require.NoError(t, err)
 	assert.Len(t, rows, 10)
 
-	rowsAll, err := s.ListTopPriorityFindings(context.Background(), orgID, 100)
+	rowsAll, err := s.ListTopPriorityFindings(context.Background(), orgID, 100, store.FilterParams{})
 	require.NoError(t, err)
 	assert.Len(t, rowsAll, 30)
 }
@@ -423,7 +423,7 @@ func TestListPriority_ExcludesZeroPriority(t *testing.T) {
 		cryptoFinding("key", "/b", &model.CryptoAsset{Algorithm: "RSA", KeySize: 2048, MigrationPriority: 50}),
 	)
 
-	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20)
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 20, store.FilterParams{})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "RSA", rows[0].Algorithm)
@@ -438,7 +438,7 @@ func TestListPriority_LimitZeroDefaultsTo20(t *testing.T) {
 	}
 	_ = saveScan(t, s, testUUID("prio-default-1"), "host-1", orgID, findings...)
 
-	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 0)
+	rows, err := s.ListTopPriorityFindings(context.Background(), orgID, 0, store.FilterParams{})
 	require.NoError(t, err)
 	assert.Len(t, rows, 20)
 }

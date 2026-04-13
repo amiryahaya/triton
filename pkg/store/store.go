@@ -112,20 +112,25 @@ type Store interface {
 	// for the given org, filtered to the latest scan per hostname.
 	// Sorted by worst PQC status first, then instances descending.
 	// Returns an empty slice (not nil) when there are no findings.
-	ListInventory(ctx context.Context, orgID string) ([]InventoryRow, error)
+	ListInventory(ctx context.Context, orgID string, fp FilterParams) ([]InventoryRow, error)
 
 	// ListExpiringCertificates returns findings with not_after set,
 	// filtered to the latest scan per hostname, expiring within the
 	// given duration from now. Already-expired certs are ALWAYS
 	// included regardless of the window. Callers wanting "all future
 	// expiries" pass a large duration (e.g. 100 years).
-	ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration) ([]ExpiringCertRow, error)
+	ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration, fp FilterParams) ([]ExpiringCertRow, error)
 
 	// ListTopPriorityFindings returns the top N findings by
 	// migration_priority descending, filtered to the latest scan per
 	// hostname. Findings with priority 0 are excluded. limit=0 is
 	// treated as limit=20.
-	ListTopPriorityFindings(ctx context.Context, orgID string, limit int) ([]PriorityRow, error)
+	ListTopPriorityFindings(ctx context.Context, orgID string, limit int, fp FilterParams) ([]PriorityRow, error)
+
+	// ListFilterOptions returns the distinct hostnames, algorithms, and
+	// PQC statuses available for filtering, derived from the latest scan
+	// per hostname. PQC statuses are hardcoded.
+	ListFilterOptions(ctx context.Context, orgID string) (FilterOptions, error)
 
 	// Close releases any resources held by the store.
 	Close() error

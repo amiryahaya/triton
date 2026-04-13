@@ -473,6 +473,7 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		// Analytics Phase 1 — three new aggregation endpoints backed
 		// by the denormalized findings table. All three are tenant-
 		// scoped via the surrounding RequireTenant middleware.
+		r.Get("/filters", s.handleFilterOptions)
 		r.Get("/inventory", s.handleInventory)
 		r.Get("/certificates/expiring", s.handleExpiringCertificates)
 		r.Get("/priority", s.handlePriorityFindings)

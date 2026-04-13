@@ -1139,14 +1139,75 @@
     }
   };
 
-  // ─── Analytics Phase 1 views ────────────────────────────────────────
+  // ─── Analytics Phase 3 — category filters ──────────────────────────
+
+  var filterOptionsCache = null;
+  var inventoryFilters = {hostname: '', pqcStatus: ''};
+  var certFilters = {hostname: '', algorithm: ''};
+  var priorityFilters = {hostname: '', pqcStatus: ''};
+
+  async function getFilterOptions() {
+    if (filterOptionsCache) return filterOptionsCache;
+    try {
+      filterOptionsCache = await api('/filters');
+    } catch (e) {
+      filterOptionsCache = {hostnames: [], algorithms: [], pqcStatuses: []};
+    }
+    return filterOptionsCache;
+  }
+
+  function renderFilterBar(filters, activeValues, onChange) {
+    var html = '<div class="filter-bar">';
+    for (var i = 0; i < filters.length; i++) {
+      var f = filters[i];
+      html += '<label class="filter-label">' + escapeHtml(f.label) + ': ';
+      html += '<select data-filter-key="' + f.key + '">';
+      html += '<option value="">All</option>';
+      for (var j = 0; j < f.options.length; j++) {
+        var opt = f.options[j];
+        var selected = activeValues[f.key] === opt ? ' selected' : '';
+        html += '<option value="' + escapeHtml(opt) + '"' + selected + '>' + escapeHtml(opt) + '</option>';
+      }
+      html += '</select></label>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function wireFilterBar(container, activeValues, onChange) {
+    var selects = container.querySelectorAll('.filter-bar select');
+    for (var i = 0; i < selects.length; i++) {
+      (function(sel) {
+        sel.addEventListener('change', function() {
+          activeValues[sel.dataset.filterKey] = sel.value;
+          onChange();
+        });
+      })(selects[i]);
+    }
+  }
+
+  function buildFilterQuery(params) {
+    var parts = [];
+    for (var key in params) {
+      if (params[key]) parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(params[key]));
+    }
+    return parts.length ? '&' + parts.join('&') : '';
+  }
+
+  // ─── Analytics Phase 1 views (extended with Phase 3 filters) ──────
 
   async function renderInventory() {
     content.innerHTML = '<div class="loading">Loading crypto inventory...</div>';
     try {
-      const rows = await api('/inventory');
+      var opts = await getFilterOptions();
+      var qp = buildFilterQuery({hostname: inventoryFilters.hostname, pqc_status: inventoryFilters.pqcStatus});
+      const rows = await api('/inventory?' + qp);
       let html = '<h2>Crypto Inventory</h2>' +
-        '<p class="subtitle">Aggregated by algorithm and key size across all machines in your organization (latest scan per host).</p>';
+        '<p class="subtitle">Aggregated by algorithm and key size across all machines in your organization (latest scan per host).</p>' +
+        renderFilterBar([
+          {label: 'Hostname', key: 'hostname', options: opts.hostnames || []},
+          {label: 'PQC Status', key: 'pqcStatus', options: opts.pqcStatuses || []}
+        ], inventoryFilters, renderInventory);
       if (!rows || rows.length === 0) {
         html += '<div class="empty-state">No findings yet — run a scan to see your crypto inventory.</div>';
       } else {
@@ -1167,6 +1228,7 @@
         html += '</tbody></table>';
       }
       content.innerHTML = html;
+      wireFilterBar(content, inventoryFilters, renderInventory);
       renderBackfillBanner(content);
     } catch (e) {
       content.innerHTML = '<div class="error">Failed to load inventory: ' + escapeHtml(e.message) + '</div>';
@@ -1181,8 +1243,10 @@
   async function renderCertificates() {
     content.innerHTML = '<div class="loading">Loading certificates...</div>';
     try {
+      var opts = await getFilterOptions();
       const param = certFilterDays === 'all' ? 'all' : String(certFilterDays);
-      const rows = await api('/certificates/expiring?within=' + param);
+      var cfp = buildFilterQuery({hostname: certFilters.hostname, algorithm: certFilters.algorithm});
+      const rows = await api('/certificates/expiring?within=' + param + cfp);
 
       // Summary counts computed from the rows we just fetched. Note
       // these reflect only what the current window returned — to see
@@ -1196,6 +1260,10 @@
 
       let html = '<h2>Expiring Certificates</h2>' +
         '<p class="subtitle">Latest-scan certificates sorted by soonest expiry. Already-expired certs are always included regardless of the filter.</p>' +
+        renderFilterBar([
+          {label: 'Hostname', key: 'hostname', options: opts.hostnames || []},
+          {label: 'Algorithm', key: 'algorithm', options: opts.algorithms || []}
+        ], certFilters, renderCertificates) +
         '<div class="summary-chips">' +
           '<div class="summary-chip critical"><strong>' + expired + '</strong> expired</div>' +
           '<div class="summary-chip urgent"><strong>' + urgent + '</strong> within 30 days</div>' +
@@ -1233,6 +1301,7 @@
       }
 
       content.innerHTML = html;
+      wireFilterBar(content, certFilters, renderCertificates);
       renderBackfillBanner(content);
 
       // Wire up filter chip buttons. Each click updates the module-
@@ -1253,7 +1322,9 @@
   async function renderPriority() {
     content.innerHTML = '<div class="loading">Loading priority findings...</div>';
     try {
-      const rows = await api('/priority?limit=20');
+      var opts = await getFilterOptions();
+      var pfp = buildFilterQuery({hostname: priorityFilters.hostname, pqc_status: priorityFilters.pqcStatus});
+      const rows = await api('/priority?limit=20' + pfp);
 
       // Bucket counts for the summary cards.
       let critical = 0, high = 0, medium = 0;
@@ -1265,6 +1336,10 @@
 
       let html = '<h2>Migration Priority</h2>' +
         '<p class="subtitle">Top findings to fix first, ranked by migration priority score (latest scan per host, top 20).</p>' +
+        renderFilterBar([
+          {label: 'Hostname', key: 'hostname', options: opts.hostnames || []},
+          {label: 'PQC Status', key: 'pqcStatus', options: opts.pqcStatuses || []}
+        ], priorityFilters, renderPriority) +
         '<div class="card-grid">' +
           '<div class="card unsafe"><div class="value">' + critical + '</div><div class="label">Critical (≥80)</div></div>' +
           '<div class="card deprecated"><div class="value">' + high + '</div><div class="label">High (60–79)</div></div>' +
@@ -1295,6 +1370,7 @@
       }
 
       content.innerHTML = html;
+      wireFilterBar(content, priorityFilters, renderPriority);
       renderBackfillBanner(content);
     } catch (e) {
       content.innerHTML = '<div class="error">Failed to load priority findings: ' + escapeHtml(e.message) + '</div>';

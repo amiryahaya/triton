@@ -1052,3 +1052,32 @@ td[colspan] {
   white-space: nowrap;
   text-decoration: none;
 }
+
+/* ─── Analytics Phase 3 — Filter bar ────────────────────────────── */
+.filter-bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.filter-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #8899aa);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-bar select {
+  background: var(--surface, #1a2332);
+  color: var(--text, #e0e6ed);
+  border: 1px solid var(--border, #2a3a4a);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  min-width: 140px;
+}
+.filter-bar select:focus {
+  outline: none;
+  border-color: var(--accent, #4ea8de);
+}

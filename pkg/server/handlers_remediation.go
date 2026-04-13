@@ -207,7 +207,7 @@ func (s *Server) handleFindingHistory(w http.ResponseWriter, r *http.Request) {
 
 	findingKey := store.ComputeFindingKey(orgID, finding.Hostname, finding.Algorithm, finding.KeySize, finding.Module)
 
-	history, err := s.store.GetFindingHistory(r.Context(), findingKey)
+	history, err := s.store.GetFindingHistory(r.Context(), findingKey, orgID)
 	if err != nil {
 		log.Printf("handleFindingHistory: GetFindingHistory: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")

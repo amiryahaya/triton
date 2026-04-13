@@ -12,10 +12,17 @@ import (
 )
 
 // ComputeFindingKey produces a stable identifier for a crypto finding
-// across scans. The key is a hex-encoded SHA-256 hash of the
-// concatenation of org_id, hostname, algorithm, key_size, and module.
+// across scans. The key is a hex-encoded SHA-256 hash of the fields
+// separated by null bytes to prevent boundary collisions (e.g.,
+// hostname="webRSA" + algorithm="" vs hostname="web" + algorithm="RSA").
+//
+// Note: file_path is intentionally excluded — findings with the same
+// algorithm on the same host from the same module are grouped together.
+// Marking one as resolved marks all of them. This is the desired
+// behavior for migration tracking (you migrate the algorithm, not
+// individual files).
 func ComputeFindingKey(orgID, hostname, algorithm string, keySize int, module string) string {
-	data := orgID + hostname + algorithm + strconv.Itoa(keySize) + module
+	data := orgID + "\x00" + hostname + "\x00" + algorithm + "\x00" + strconv.Itoa(keySize) + "\x00" + module
 	h := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(h[:])
 }
@@ -32,13 +39,13 @@ func (s *PostgresStore) SetFindingStatus(ctx context.Context, entry *FindingStat
 	return nil
 }
 
-func (s *PostgresStore) GetFindingHistory(ctx context.Context, findingKey string) ([]FindingStatusEntry, error) {
+func (s *PostgresStore) GetFindingHistory(ctx context.Context, findingKey, orgID string) ([]FindingStatusEntry, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, finding_key, org_id, status, reason, changed_by, changed_at, expires_at
 		 FROM finding_status
-		 WHERE finding_key = $1
+		 WHERE finding_key = $1 AND org_id = $2
 		 ORDER BY changed_at DESC`,
-		findingKey,
+		findingKey, orgID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("GetFindingHistory: %w", err)
@@ -80,7 +87,7 @@ func (s *PostgresStore) GetRemediationSummary(ctx context.Context, orgID string)
 		FROM findings f
 		JOIN latest_scans lsc ON f.scan_id = lsc.id
 		LEFT JOIN latest_status ls ON ls.finding_key =
-			encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex')`,
+			encode(sha256((f.org_id::text || chr(0) || f.hostname || chr(0) || f.algorithm || chr(0) || f.key_size::text || chr(0) || f.module)::bytea), 'hex')`,
 		orgID,
 	).Scan(&summary.Open, &summary.InProgress, &summary.Resolved, &summary.Accepted, &summary.Total)
 	if err != nil {
@@ -103,20 +110,23 @@ func (s *PostgresStore) ListRemediationFindings(ctx context.Context, orgID, stat
 		f.migration_priority,
 		COALESCE(ls.status, 'open') AS current_status,
 		ls.changed_at, COALESCE(ls.changed_by, ''),
-		encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex') AS finding_key
+		encode(sha256((f.org_id::text || chr(0) || f.hostname || chr(0) || f.algorithm || chr(0) || f.key_size::text || chr(0) || f.module)::bytea), 'hex') AS finding_key
 	FROM findings f
 	JOIN latest_scans lsc ON f.scan_id = lsc.id
 	LEFT JOIN latest_status ls ON ls.finding_key =
-		encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex')
+		encode(sha256((f.org_id::text || chr(0) || f.hostname || chr(0) || f.algorithm || chr(0) || f.key_size::text || chr(0) || f.module)::bytea), 'hex')
 	WHERE 1=1`
 
 	args := []any{orgID}
 	argIdx := 2
 
 	if statusFilter != "" {
-		if statusFilter == "open" {
+		switch statusFilter {
+		case "open":
 			query += ` AND (COALESCE(ls.status, 'open') = 'open' OR (ls.status = 'accepted' AND ls.expires_at IS NOT NULL AND ls.expires_at < NOW()))`
-		} else {
+		case "accepted":
+			query += ` AND ls.status = 'accepted' AND (ls.expires_at IS NULL OR ls.expires_at >= NOW())`
+		default:
 			query += fmt.Sprintf(` AND ls.status = $%d`, argIdx)
 			args = append(args, statusFilter)
 			argIdx++

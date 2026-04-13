@@ -172,7 +172,7 @@ func (m *pipelineMockStore) GetOrgSnapshot(_ context.Context, _ string) (*OrgSna
 func (m *pipelineMockStore) SetFindingStatus(_ context.Context, _ *FindingStatusEntry) error {
 	panic("not implemented")
 }
-func (m *pipelineMockStore) GetFindingHistory(_ context.Context, _ string) ([]FindingStatusEntry, error) {
+func (m *pipelineMockStore) GetFindingHistory(_ context.Context, _, _ string) ([]FindingStatusEntry, error) {
 	panic("not implemented")
 }
 func (m *pipelineMockStore) GetRemediationSummary(_ context.Context, _ string) (*RemediationSummary, error) {

@@ -37,6 +37,32 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		return fmt.Errorf("RefreshHostSummary latest scan: %w", err)
 	}
 
+	// Step 1b: auto-reopen resolved findings that reappeared in the latest scan.
+	// This runs BEFORE the status counts (Step 2) so that the counts reflect
+	// the post-reopen state. Accepted findings are NOT reopened.
+	_, err = tx.Exec(ctx,
+		`WITH scan_keys AS (
+		   SELECT DISTINCT encode(sha256(
+		     (f.org_id::text || chr(0) || f.hostname || chr(0) || f.algorithm || chr(0) || f.key_size::text || chr(0) || f.module)::bytea
+		   ), 'hex') AS fkey
+		   FROM findings f WHERE f.scan_id = $1
+		 ),
+		 resolved_keys AS (
+		   SELECT DISTINCT ON (finding_key) finding_key, status
+		   FROM finding_status WHERE org_id = $2
+		   ORDER BY finding_key, changed_at DESC
+		 )
+		 INSERT INTO finding_status (finding_key, org_id, status, reason, changed_by, changed_at)
+		 SELECT rk.finding_key, $2, 'open', 'finding reappeared in scan', 'system', NOW()
+		 FROM resolved_keys rk
+		 JOIN scan_keys sk ON rk.finding_key = sk.fkey
+		 WHERE rk.status = 'resolved'`,
+		scanID, orgID,
+	)
+	if err != nil {
+		return fmt.Errorf("RefreshHostSummary auto-reopen: %w", err)
+	}
+
 	// Step 2: count findings by pqc_status, excluding resolved and non-expired accepted findings.
 	counts := map[string]int{}
 	rows, err := tx.Query(ctx,
@@ -49,7 +75,7 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		 SELECT f.pqc_status, COUNT(*)
 		 FROM findings f
 		 LEFT JOIN latest_status ls ON ls.finding_key =
-		   encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex')
+		   encode(sha256((f.org_id::text || chr(0) || f.hostname || chr(0) || f.algorithm || chr(0) || f.key_size::text || chr(0) || f.module)::bytea), 'hex')
 		 WHERE f.scan_id = $2
 		   AND (ls.status IS NULL
 		        OR ls.status IN ('open', 'in_progress')
@@ -136,7 +162,7 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		   COUNT(*) FILTER (WHERE ls.status = 'accepted' AND (ls.expires_at IS NULL OR ls.expires_at >= NOW()))
 		 FROM findings f
 		 JOIN latest_status ls ON ls.finding_key =
-		   encode(sha256((f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea), 'hex')
+		   encode(sha256((f.org_id::text || chr(0) || f.hostname || chr(0) || f.algorithm || chr(0) || f.key_size::text || chr(0) || f.module)::bytea), 'hex')
 		 WHERE f.scan_id = $2`,
 		orgID, scanID,
 	).Scan(&resolvedCount, &acceptedCount)
@@ -208,30 +234,6 @@ func (s *PostgresStore) RefreshHostSummary(ctx context.Context, orgID, hostname 
 		default:
 			trendDirection = "stable"
 		}
-	}
-
-	// Step 7b: auto-reopen resolved findings that reappeared in the latest scan.
-	_, err = tx.Exec(ctx,
-		`WITH scan_keys AS (
-		   SELECT DISTINCT encode(sha256(
-		     (f.org_id::text || f.hostname || f.algorithm || f.key_size::text || f.module)::bytea
-		   ), 'hex') AS fkey
-		   FROM findings f WHERE f.scan_id = $1
-		 ),
-		 resolved_keys AS (
-		   SELECT DISTINCT ON (finding_key) finding_key, status
-		   FROM finding_status WHERE org_id = $2
-		   ORDER BY finding_key, changed_at DESC
-		 )
-		 INSERT INTO finding_status (finding_key, org_id, status, reason, changed_by, changed_at)
-		 SELECT rk.finding_key, $2, 'open', 'finding reappeared in scan', 'system', NOW()
-		 FROM resolved_keys rk
-		 JOIN scan_keys sk ON rk.finding_key = sk.fkey
-		 WHERE rk.status = 'resolved'`,
-		scanID, orgID,
-	)
-	if err != nil {
-		return fmt.Errorf("RefreshHostSummary auto-reopen: %w", err)
 	}
 
 	// Step 8: marshal sparkline for JSONB column.

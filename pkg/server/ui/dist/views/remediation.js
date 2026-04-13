@@ -447,7 +447,9 @@
       }
 
       modalEl.innerHTML = '';
-      postStatus(findingId, 'accepted', reason, expiry);
+      // Convert YYYY-MM-DD from date input to RFC 3339 for the server
+      var expiresAt = expiry ? (expiry + 'T00:00:00Z') : '';
+      postStatus(findingId, 'accepted', reason, expiresAt);
     });
   }
 

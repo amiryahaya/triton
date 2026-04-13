@@ -163,8 +163,9 @@ type Store interface {
 	SetFindingStatus(ctx context.Context, entry *FindingStatusEntry) error
 
 	// GetFindingHistory returns all status changes for a finding_key,
-	// sorted by changed_at DESC (newest first).
-	GetFindingHistory(ctx context.Context, findingKey string) ([]FindingStatusEntry, error)
+	// sorted by changed_at DESC (newest first). Scoped to org for
+	// tenant isolation (defense-in-depth alongside the org-embedded hash).
+	GetFindingHistory(ctx context.Context, findingKey, orgID string) ([]FindingStatusEntry, error)
 
 	// GetRemediationSummary returns counts by status for the given org.
 	GetRemediationSummary(ctx context.Context, orgID string) (*RemediationSummary, error)

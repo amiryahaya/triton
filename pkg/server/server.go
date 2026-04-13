@@ -512,11 +512,21 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/systems", s.handleSystems)
 		r.Get("/trends", s.handleTrends)
 
+		// Analytics Phase 4B — remediation tracking (read-only routes).
+		// Mutation routes (status set / revert) require org_admin and
+		// are registered in the RequireScanAdmin group below.
+		r.Get("/remediation", s.handleListRemediation)
+		r.Get("/remediation/summary", s.handleRemediationSummary)
+		r.Get("/findings/{id}/history", s.handleFindingHistory)
+
 		// Destructive operations require org_admin (Arch #7 from
 		// Phase 2 review). org_user can read but cannot delete scans.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireScanAdmin)
 			r.Delete("/scans/{id}", s.handleDeleteScan)
+			// Analytics Phase 4B — remediation status mutations.
+			r.Post("/findings/{id}/status", s.handleSetFindingStatus)
+			r.Post("/findings/{id}/revert", s.handleRevertFinding)
 		})
 	})
 }

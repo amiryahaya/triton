@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-//go:embed ui/dist/*
+//go:embed all:ui/dist
 var uiFS embed.FS
 
 // uiHandler returns an http.Handler that serves the embedded web UI.

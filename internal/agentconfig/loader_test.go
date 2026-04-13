@@ -228,3 +228,44 @@ func TestLoad_ReportServerTrimmed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://reports.example.com", cfg.ReportServer)
 }
+
+// TestLoad_LicenseServerFields verifies that the license_server
+// and license_id fields round-trip through yaml parse and get
+// whitespace-trimmed like other credential-shaped fields.
+func TestLoad_LicenseServerFields(t *testing.T) {
+	exeDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, os.WriteFile(
+		filepath.Join(exeDir, "agent.yaml"),
+		[]byte(`
+license_server: "https://license.example.com"
+license_id: "550e8400-e29b-41d4-a716-446655440000"
+license_key: "eyJ0ZXN0Ijp0cnVlfQ.sig"
+`),
+		0600,
+	))
+
+	cfg, err := Load(exeDir)
+	require.NoError(t, err)
+	assert.Equal(t, "https://license.example.com", cfg.LicenseServer)
+	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", cfg.LicenseID)
+	assert.Equal(t, "eyJ0ZXN0Ijp0cnVlfQ.sig", cfg.LicenseKey)
+}
+
+// TestLoad_LicenseServerTrimmed verifies block-scalar whitespace
+// trimming on the license_server and license_id fields, matching
+// the existing trim behavior for license_key and report_server.
+func TestLoad_LicenseServerTrimmed(t *testing.T) {
+	exeDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, os.WriteFile(
+		filepath.Join(exeDir, "agent.yaml"),
+		[]byte("license_server: |\n  https://license.example.com\nlicense_id: |\n  some-uuid\n"),
+		0600,
+	))
+
+	cfg, err := Load(exeDir)
+	require.NoError(t, err)
+	assert.Equal(t, "https://license.example.com", cfg.LicenseServer)
+	assert.Equal(t, "some-uuid", cfg.LicenseID)
+}

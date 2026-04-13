@@ -241,6 +241,7 @@
       case 'certificates': renderCertificates(); break;
       case 'priority': renderPriority(); break;
       case 'systems': if (window.renderSystems) window.renderSystems(); break;
+      case 'trends': if (window.renderTrends) window.renderTrends(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;

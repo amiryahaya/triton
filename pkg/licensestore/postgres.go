@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"time"
 
@@ -661,13 +662,17 @@ func (s *PostgresStore) reapAndRecount(ctx context.Context, tx pgx.Tx, licenseID
 		return currentCount, nil
 	}
 
-	// Audit: log the reap event inside the transaction.
+	// Audit: log the reap event inside the transaction. Non-fatal —
+	// the reap itself already succeeded; a failed audit write should
+	// not roll back the seat reclamation.
 	details, _ := json.Marshal(map[string]any{"reaped": reaped, "threshold": s.StaleThreshold.String()})
-	_, _ = tx.Exec(ctx,
+	if _, auditErr := tx.Exec(ctx,
 		`INSERT INTO audit_log (timestamp, event_type, license_id, actor, details)
 		 VALUES (NOW(), 'auto_reap', $1, 'system', $2)`,
 		licenseID, details,
-	)
+	); auditErr != nil {
+		log.Printf("warning: auto_reap audit write failed: %v", auditErr)
+	}
 
 	var newCount int
 	if err := tx.QueryRow(ctx,

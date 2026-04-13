@@ -372,7 +372,7 @@ func activateWithLicenseServer(resolved *resolvedAgentConfig) seatState {
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server activation failed: %v — continuing with existing license\n", err)
-		return seatState{client: client, licenseID: resolved.licenseID}
+		return seatState{}
 	}
 
 	// Activation succeeded — use the server-issued token
@@ -412,10 +412,14 @@ func heartbeat(seat *seatState, currentGuard *license.Guard) *license.Guard {
 		return license.NewGuard("") // free tier
 	}
 
-	// Check if tier changed (admin upgraded/downgraded the license)
+	// Tier changes (admin upgraded/downgraded) take effect on next
+	// agent restart, when /activate issues a fresh token with the new
+	// tier baked in. We cannot rebuild the guard mid-run because the
+	// signed token still carries the old tier. Log it so the operator
+	// knows a restart is needed.
 	if resp.Tier != "" && license.Tier(resp.Tier) != currentGuard.Tier() {
-		fmt.Printf("  license tier changed: %s → %s\n", currentGuard.Tier(), resp.Tier)
-		return license.NewGuard(seat.token)
+		fmt.Printf("  notice: license tier changed on server (%s → %s) — restart agent to apply\n",
+			currentGuard.Tier(), resp.Tier)
 	}
 
 	return currentGuard

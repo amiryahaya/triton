@@ -98,7 +98,8 @@ func TestHeartbeat_Valid(t *testing.T) {
 
 	result := heartbeat(seat, guard)
 	assert.True(t, seat.activated, "should remain activated")
-	_ = result
+	// Tier changes take effect on next restart — guard is unchanged
+	assert.Equal(t, guard, result, "guard should be unchanged (tier changes need restart)")
 }
 
 func TestHeartbeat_Invalid(t *testing.T) {

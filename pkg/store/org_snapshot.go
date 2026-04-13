@@ -25,7 +25,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 		`SELECT hostname, total_findings, safe_findings, transitional_findings,
 		        deprecated_findings, unsafe_findings, readiness_pct,
 		        certs_expiring_30d, certs_expiring_90d, certs_expired,
-		        sparkline
+		        sparkline, resolved_count, accepted_count
 		 FROM host_summary WHERE org_id = $1`,
 		orgID,
 	)
@@ -46,6 +46,8 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 		certsExpiring90d     int
 		certsExpired         int
 		sparkline            []SparklinePoint
+		resolvedCount        int
+		acceptedCount        int
 	}
 
 	var hosts []hostRow
@@ -57,7 +59,7 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 			&h.totalFindings, &h.safeFindings, &h.transitionalFindings,
 			&h.deprecatedFindings, &h.unsafeFindings, &h.readinessPct,
 			&h.certsExpiring30d, &h.certsExpiring90d, &h.certsExpired,
-			&sparklineRaw,
+			&sparklineRaw, &h.resolvedCount, &h.acceptedCount,
 		); err != nil {
 			return fmt.Errorf("RefreshOrgSnapshot host_summary scan: %w", err)
 		}
@@ -83,10 +85,12 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 	}
 
 	// Step 3: aggregate across all hosts.
-	var totalFindings, safeFindings int
+	var totalFindings, safeFindings, resolvedTotal, acceptedTotal int
 	for _, h := range hosts {
 		totalFindings += h.totalFindings
 		safeFindings += h.safeFindings
+		resolvedTotal += h.resolvedCount
+		acceptedTotal += h.acceptedCount
 	}
 	var readinessPct float64
 	if totalFindings > 0 {
@@ -290,14 +294,14 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 		   trend_direction, trend_delta_pct, monthly_trend, projection_status,
 		   projected_year, target_pct, deadline_year, policy_verdicts,
 		   top_blockers, certs_expiring_30d, certs_expiring_90d, certs_expired,
-		   refreshed_at
+		   resolved_count, accepted_count, refreshed_at
 		 ) VALUES (
 		   $1, $2, $3, $4,
 		   $5, $6, $7, $8,
 		   $9, $10, $11, $12,
 		   $13, $14, $15, $16,
 		   $17, $18, $19, $20,
-		   NOW()
+		   $21, $22, NOW()
 		 )
 		 ON CONFLICT (org_id) DO UPDATE SET
 		   readiness_pct         = EXCLUDED.readiness_pct,
@@ -319,12 +323,15 @@ func (s *PostgresStore) RefreshOrgSnapshot(ctx context.Context, orgID string) er
 		   certs_expiring_30d    = EXCLUDED.certs_expiring_30d,
 		   certs_expiring_90d    = EXCLUDED.certs_expiring_90d,
 		   certs_expired         = EXCLUDED.certs_expired,
+		   resolved_count        = EXCLUDED.resolved_count,
+		   accepted_count        = EXCLUDED.accepted_count,
 		   refreshed_at          = NOW()`,
 		orgID, readinessPct, totalFindings, safeFindings,
 		machinesTotal, machinesRed, machinesYellow, machinesGreen,
 		trendDirection, trendDeltaPct, monthlyTrendJSON, projectionStatus,
 		projectedYear, targetPct, deadlineYear, policyVerdictsJSON,
 		topBlockersJSON, certsExpiring30d, certsExpiring90d, certsExpired,
+		resolvedTotal, acceptedTotal,
 	)
 	if err != nil {
 		return fmt.Errorf("RefreshOrgSnapshot upsert: %w", err)

@@ -176,6 +176,11 @@ type Store interface {
 	// GetFindingByID returns a single finding by ID, scoped to org.
 	GetFindingByID(ctx context.Context, findingID, orgID string) (*Finding, error)
 
+	// ListFindingStatusLog returns finding_status entries for the org,
+	// ordered by changed_at DESC. Limited by the limit parameter.
+	// Used by the Excel Remediation Log sheet. Phase 5.
+	ListFindingStatusLog(ctx context.Context, orgID string, limit int) ([]FindingStatusEntry, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }

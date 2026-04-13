@@ -184,6 +184,9 @@ func (m *pipelineMockStore) ListRemediationFindings(_ context.Context, _ string,
 func (m *pipelineMockStore) GetFindingByID(_ context.Context, _, _ string) (*Finding, error) {
 	panic("not implemented")
 }
+func (m *pipelineMockStore) ListFindingStatusLog(_ context.Context, _ string, _ int) ([]FindingStatusEntry, error) {
+	panic("not implemented")
+}
 
 func (m *pipelineMockStore) Close() error {
 	return nil

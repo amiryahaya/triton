@@ -512,6 +512,10 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/systems", s.handleSystems)
 		r.Get("/trends", s.handleTrends)
 
+		// Analytics Phase 5 — PDF and Excel export endpoints.
+		r.Get("/export/pdf", s.handleExportPDF)
+		r.Get("/export/xlsx", s.handleExportExcel)
+
 		// Analytics Phase 4B — remediation tracking (read-only routes).
 		// Mutation routes (status set / revert) require org_admin and
 		// are registered in the RequireScanAdmin group below.

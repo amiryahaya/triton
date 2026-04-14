@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,7 +134,8 @@ func buildFinding(path, sectionName string, c crypto.ClassifiedOID) *model.Findi
 		Algorithm: c.Entry.Algorithm,
 		KeySize:   c.Entry.KeySize,
 		Library:   filepath.Base(path),
-		Function:  fmt.Sprintf("OID %s in %s", c.OID, sectionName),
+		Function:  functionForFamily(c.Entry.Family),
+		OID:       c.OID,
 		PQCStatus: string(c.Entry.Status),
 	}
 	return &model.Finding{
@@ -145,12 +145,29 @@ func buildFinding(path, sectionName string, c crypto.ClassifiedOID) *model.Findi
 			Type:            "file",
 			Path:            path,
 			DetectionMethod: "asn1-oid",
+			Evidence:        sectionName,
 		},
 		CryptoAsset: asset,
 		Confidence:  0.95, // OID match is high-confidence by construction
 		Module:      "asn1_oid",
 		Timestamp:   time.Now().UTC(),
 	}
+}
+
+// functionForFamily maps an OID family to a coarse cryptographic function
+// label. Returns "" when the family doesn't map cleanly.
+func functionForFamily(family string) string {
+	switch family {
+	case "RSA", "ECDSA", "EdDSA", "DSA", "ML-DSA", "SLH-DSA", "Falcon":
+		return "Digital signature"
+	case "SHA", "SHA3", "MD5", "Hash":
+		return "Hash"
+	case "AES", "DES", "3DES", "ChaCha20":
+		return "Symmetric encryption"
+	case "ECDH", "DH", "ML-KEM", "KEM":
+		return "Key agreement"
+	}
+	return ""
 }
 
 // looksLikeBinary performs a 4-byte magic check to quickly reject

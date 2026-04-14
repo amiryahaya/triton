@@ -154,6 +154,7 @@ type FindingSource struct {
 	DetectionMethod string `json:"detectionMethod,omitempty"` // symbol, string, import, api-call, command, configuration, library-linkage
 	ContainerImage  string `json:"containerImage,omitempty"`
 	ContainerLayer  string `json:"containerLayer,omitempty"`
+	Evidence        string `json:"evidence,omitempty"` // free-form provenance, e.g. ELF section name
 }
 
 // CryptoAsset represents a cryptographic discovery for Jadual 2 rows.
@@ -190,7 +191,10 @@ type CryptoAsset struct {
 	DependencyPath []string `json:"dependencyPath,omitempty"` // import chain: ["myapp", "github.com/foo/bar", "crypto/des"]
 
 	// Binary/library analysis
-	Language        string   `json:"language,omitempty"`        // Go, Rust, C/C++, Python, etc.
+	Language string `json:"language,omitempty"` // Go, Rust, C/C++, Python, etc.
+	// OID is the ASN.1 Object Identifier (dotted decimal) when discovery
+	// was OID-based or when the asset has an authoritative OID mapping.
+	OID             string   `json:"oid,omitempty"`
 	State           string   `json:"state,omitempty"`           // IN_TRANSIT, AT_REST, IN_USE
 	CryptoLibraries []string `json:"cryptoLibraries,omitempty"` // OpenSSL, BoringSSL, etc.
 

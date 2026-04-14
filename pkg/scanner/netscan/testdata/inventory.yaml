@@ -1,0 +1,28 @@
+version: 1
+
+defaults:
+  port: 22
+  scan_timeout: 5m
+  sudo: false
+
+devices:
+  - name: web-srv1
+    type: unix
+    address: 10.0.1.10
+    credential: prod-ssh-key
+
+  - name: edge-router-1
+    type: cisco-iosxe
+    address: 10.0.0.1
+    credential: cisco-tacacs
+    enable_credential: cisco-enable
+
+  - name: core-srx-1
+    type: juniper-junos
+    address: 10.0.0.2
+    port: 830
+    credential: juniper-netconf
+
+groups:
+  - name: production
+    members: [web-srv1, edge-router-1]

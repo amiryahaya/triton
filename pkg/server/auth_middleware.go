@@ -103,6 +103,22 @@ const (
 	claimsContextKey contextKey = "auth_claims"
 )
 
+// Role identifiers stored in the users.role column and JWT claims.
+// Mapping to onboarding design spec §5:
+//
+//	RoleOwner    (org_admin)   — full CRUD on inventory, credentials, scans, users
+//	RoleEngineer (org_user)    — CRUD on inventory, credentials, scans (no user mgmt)
+//	RoleOfficer  (org_officer) — view-only + trigger scans on existing groups
+//
+// Introduced by migration Version 15. Existing call sites in this
+// package still compare against the string literals directly; new
+// code should prefer these constants.
+const (
+	RoleOwner    = "org_admin"
+	RoleEngineer = "org_user"
+	RoleOfficer  = "org_officer"
+)
+
 // UserFromContext returns the authenticated user stored by JWTAuth
 // middleware, or nil if the request was not authenticated.
 func UserFromContext(ctx context.Context) *store.User {

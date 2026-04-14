@@ -322,4 +322,16 @@ var migrations = []string{
 	ALTER TABLE host_summary ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;
 	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS resolved_count INT NOT NULL DEFAULT 0;
 	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;`,
+
+	// Version 15: Add org_officer role for onboarding RBAC.
+	// Per Onboarding design spec §5: Officer is view-only + can trigger
+	// scans on pre-defined groups. Engineer equals existing org_user;
+	// Owner equals existing org_admin. The original CHECK constraint
+	// from Version 4 is inlined on the column (no named constraint),
+	// so we drop the implicit one by name pattern ("users_role_check"
+	// is the PG default for a column CHECK) if present, then add the
+	// expanded constraint explicitly so future migrations can name-drop it.
+	`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+	ALTER TABLE users ADD CONSTRAINT users_role_check
+		CHECK (role IN ('org_admin', 'org_user', 'org_officer'));`,
 }

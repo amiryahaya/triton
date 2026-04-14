@@ -172,7 +172,11 @@ type JARHit struct {
 
 // ScanJAR walks a JAR/WAR/EAR (ZIP archive) and returns every UTF-8
 // constant-pool string from every .class entry it contains. Non-class
-// entries are ignored. Manifest parsing is a separate function.
+// entries are ignored.
+//
+// Manifest parsing (META-INF/MANIFEST.MF for Main-Class, Class-Path,
+// Sealed attributes, and signature info) is not currently implemented —
+// see docs/scanners/java_bytecode.md "What's NOT detected".
 //
 // Large JARs are processed lazily — entries are read one at a time, so
 // memory stays bounded to the largest individual .class file.

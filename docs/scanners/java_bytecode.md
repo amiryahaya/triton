@@ -30,6 +30,15 @@ strings (BC, BCFIPS, BCPQC).
 - Algorithm names loaded from runtime config files (those are caught by `config.go`)
 - Provider-internal APIs that bypass the JCA layer
 - Classes inside encrypted/signed JARs where the attacker stripped the pool
+- Manifest metadata (`META-INF/MANIFEST.MF` — `Main-Class`, `Class-Path`,
+  `Sealed`, signature attributes) is not parsed. Code signing of JARs is
+  handled by `codesign_pe_jar.go` (`jarsigner -verify`), not by this
+  scanner.
+- Dependency JARs nested inside WAR/EAR archives (`WEB-INF/lib/*.jar` are
+  not recursively scanned). Spring Boot WARs and Jakarta EE EARs commonly
+  pack crypto-carrying libraries like `spring-security-crypto` this way.
+  A scan of the outer WAR/EAR will miss those unless they're extracted
+  first. Recursive scanning is a planned follow-up.
 
 ## Limitations
 

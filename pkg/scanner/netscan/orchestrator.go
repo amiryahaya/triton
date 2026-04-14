@@ -23,6 +23,8 @@ type Orchestrator struct {
 	Concurrency      int
 	PerDeviceTimeout time.Duration
 	ReportServerURL  string
+	KnownHostsFile   string // path to SSH known_hosts (required unless InsecureHostKey=true)
+	InsecureHostKey  bool   // explicit opt-in for lab use; skips host key verification
 }
 
 // Scan scans all given devices concurrently. Submits results to the
@@ -44,8 +46,16 @@ func (o *Orchestrator) Scan(ctx context.Context, devices []Device) error {
 
 	for i := range devices {
 		d := devices[i]
+		// Acquire semaphore with context awareness so Ctrl-C during
+		// a long scan unblocks the dispatcher instead of waiting for
+		// all in-flight workers to drain.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			// Report parent cancellation after wg drains in-flight work.
+			goto done
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
@@ -63,14 +73,29 @@ func (o *Orchestrator) Scan(ctx context.Context, devices []Device) error {
 			}
 
 			if o.ReportServerURL != "" && result != nil {
-				o.submitResult(devCtx, result)
+				// Submit with the parent ctx (not devCtx) so that a
+				// device that consumed its full PerDeviceTimeout can
+				// still submit its result — submission latency should
+				// not be tied to scan duration.
+				submitCtx, cancelSubmit := context.WithTimeout(ctx, 30*time.Second)
+				o.submitResult(submitCtx, result)
+				cancelSubmit()
 			}
 		}()
 	}
+done:
 	wg.Wait()
 
-	fmt.Printf("Scan complete: %d succeeded, %d failed\n",
-		atomic.LoadInt64(&succeeded), atomic.LoadInt64(&failed))
+	totalFailed := atomic.LoadInt64(&failed)
+	totalSucceeded := atomic.LoadInt64(&succeeded)
+	fmt.Printf("Scan complete: %d succeeded, %d failed\n", totalSucceeded, totalFailed)
+
+	// Surface fleet-wide failure so continuous mode (--interval) can
+	// distinguish "all devices broken" (e.g., bad credentials file)
+	// from "normal scan with a few flaky hosts".
+	if totalSucceeded == 0 && totalFailed > 0 {
+		return fmt.Errorf("all %d devices failed — check credentials and network connectivity", totalFailed)
+	}
 	return nil
 }
 
@@ -92,12 +117,15 @@ func (o *Orchestrator) scanDevice(ctx context.Context, d Device) (*model.ScanRes
 	}
 }
 
-// scanUnix performs a minimal SSH probe for MVP: verifies connectivity
-// and returns a result with no findings. Full Tier 1 module execution
-// over SSH is a follow-up — it requires plumbing FileReader through
-// the scanner engine which is more invasive than this MVP scope.
+// scanUnix performs a minimal SSH connectivity probe for MVP. It
+// verifies the scanner host can reach the target and authenticate.
+// The FileReader/SshReader infrastructure is in place; wiring the
+// scanner engine's 30 Tier 1 modules to run against an SshReader
+// is a tracked follow-up (see docs/plans/2026-04-14-agentless-scanning-mvp-design.md
+// §"Future Phases"). A log line per host makes the current limitation
+// visible to operators rather than silently returning empty findings.
 func (o *Orchestrator) scanUnix(ctx context.Context, d Device, cred *Credential) (*model.ScanResult, error) {
-	sshCfg, err := credToSSHConfig(d, cred)
+	sshCfg, err := o.credToSSHConfig(d, cred)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +140,8 @@ func (o *Orchestrator) scanUnix(ctx context.Context, d Device, cred *Credential)
 		return nil, fmt.Errorf("ssh probe: %w", err)
 	}
 
+	log.Printf("device %s: SSH probe OK (MVP: module execution over SSH not yet wired — empty findings)", d.Name)
+
 	return &model.ScanResult{
 		Metadata: model.ScanMetadata{
 			Hostname:    d.Name,
@@ -125,7 +155,7 @@ func (o *Orchestrator) scanUnix(ctx context.Context, d Device, cred *Credential)
 }
 
 func (o *Orchestrator) scanCisco(ctx context.Context, d Device, cred *Credential) (*model.ScanResult, error) {
-	sshCfg, err := credToSSHConfig(d, cred)
+	sshCfg, err := o.credToSSHConfig(d, cred)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +179,7 @@ func (o *Orchestrator) scanCisco(ctx context.Context, d Device, cred *Credential
 }
 
 func (o *Orchestrator) scanJuniper(ctx context.Context, d Device, cred *Credential) (*model.ScanResult, error) {
-	sshCfg, err := credToSSHConfig(d, cred)
+	sshCfg, err := o.credToSSHConfig(d, cred)
 	if err != nil {
 		return nil, err
 	}
@@ -210,11 +240,13 @@ func (o *Orchestrator) submitResult(ctx context.Context, result *model.ScanResul
 	}
 }
 
-func credToSSHConfig(d Device, cred *Credential) (transport.SSHConfig, error) {
+func (o *Orchestrator) credToSSHConfig(d Device, cred *Credential) (transport.SSHConfig, error) {
 	cfg := transport.SSHConfig{
-		Address:  fmt.Sprintf("%s:%d", d.Address, d.Port),
-		Username: cred.Username,
-		Password: cred.Password,
+		Address:         fmt.Sprintf("%s:%d", d.Address, d.Port),
+		Username:        cred.Username,
+		Password:        cred.Password,
+		KnownHostsFile:  o.KnownHostsFile,
+		InsecureHostKey: o.InsecureHostKey,
 	}
 	if cred.PrivateKeyPath != "" {
 		data, err := os.ReadFile(cred.PrivateKeyPath)

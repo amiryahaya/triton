@@ -30,15 +30,17 @@ The encryption key for credentials must be in TRITON_SCANNER_CRED_KEY
 }
 
 var (
-	nsInventory    string
-	nsCredentials  string
-	nsGroup        string
-	nsDevice       string
-	nsConcurrency  int
-	nsTimeout      time.Duration
-	nsDryRun       bool
-	nsInterval     time.Duration
-	nsReportServer string
+	nsInventory       string
+	nsCredentials     string
+	nsGroup           string
+	nsDevice          string
+	nsConcurrency     int
+	nsTimeout         time.Duration
+	nsDryRun          bool
+	nsInterval        time.Duration
+	nsReportServer    string
+	nsKnownHosts      string
+	nsInsecureHostKey bool
 )
 
 func init() {
@@ -51,6 +53,8 @@ func init() {
 	networkScanCmd.Flags().BoolVar(&nsDryRun, "dry-run", false, "validate inventory + credentials, no scan")
 	networkScanCmd.Flags().DurationVar(&nsInterval, "interval", 0, "continuous mode: repeat every interval")
 	networkScanCmd.Flags().StringVar(&nsReportServer, "report-server", "", "report server URL")
+	networkScanCmd.Flags().StringVar(&nsKnownHosts, "known-hosts", "", "path to SSH known_hosts file (required unless --insecure-host-key)")
+	networkScanCmd.Flags().BoolVar(&nsInsecureHostKey, "insecure-host-key", false, "accept any host key (lab/test only; not for production)")
 
 	rootCmd.AddCommand(networkScanCmd)
 }
@@ -93,6 +97,8 @@ func runNetworkScan(_ *cobra.Command, _ []string) error {
 		Concurrency:      nsConcurrency,
 		PerDeviceTimeout: nsTimeout,
 		ReportServerURL:  nsReportServer,
+		KnownHostsFile:   nsKnownHosts,
+		InsecureHostKey:  nsInsecureHostKey,
 	}
 
 	for {

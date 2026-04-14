@@ -91,6 +91,13 @@ func (s *SshReader) Walk(ctx context.Context, root string, fn WalkFunc) error {
 		return fmt.Errorf("ssh walk %s: %w", root, err)
 	}
 
+	// skipPrefixes tracks directories for which SkipDir was returned.
+	// Because find emits a flat sorted list, we honor SkipDir by
+	// filtering out any subsequent entry whose path is under a
+	// skipped prefix. This preserves the filepath.WalkDir contract
+	// for depth limits and exclude patterns.
+	var skipPrefixes []string
+
 	for _, line := range strings.Split(out, "\n") {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -102,25 +109,45 @@ func (s *SshReader) Walk(ctx context.Context, root string, fn WalkFunc) error {
 		if len(fields) != 3 {
 			continue
 		}
+
+		path := fields[0]
+		// Skip any entry under a previously-pruned directory.
+		if isUnderSkipped(path, skipPrefixes) {
+			continue
+		}
+
 		size, _ := strconv.ParseInt(fields[2], 10, 64)
 		entry := &remoteDirEntry{
-			name:    filepath.Base(fields[0]),
+			name:    filepath.Base(path),
 			isDir:   fields[1] == "d",
 			typeBit: typeFromFindCode(fields[1]),
 			size:    size,
 		}
-		if err := fn(fields[0], entry, nil); err != nil {
+		if err := fn(path, entry, nil); err != nil {
 			if err == filepath.SkipDir {
-				// Best-effort: with a flat find output, skipping a
-				// subtree requires a prefix filter. For MVP, swallow
-				// SkipDir and continue — depth limits in walker.go
-				// still work because they're checked per-entry.
+				// Prune this subtree from future iterations.
+				skipPrefixes = append(skipPrefixes, path)
 				continue
 			}
 			return err
 		}
 	}
 	return nil
+}
+
+// isUnderSkipped reports whether path is equal to or under any of the
+// given prefixes (which are directory paths).
+func isUnderSkipped(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if path == p {
+			return true
+		}
+		// Match "/etc/proc/foo" under "/etc/proc" but not "/etc/proc-helper".
+		if strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // --- helpers ---
@@ -211,9 +238,12 @@ func parseStatOutput(name, out string) (fs.FileInfo, error) {
 	mtimeUnix, _ := strconv.ParseInt(fields[1], 10, 64)
 	modeOctal, _ := strconv.ParseUint(fields[2], 8, 32)
 	mode := fs.FileMode(modeOctal)
-	if strings.Contains(fields[3], "directory") {
+	// GNU stat produces lowercase ("directory"), BSD/macOS stat produces
+	// title case ("Directory"). Normalize to lowercase for matching.
+	typeStr := strings.ToLower(fields[3])
+	if strings.Contains(typeStr, "directory") {
 		mode |= fs.ModeDir
-	} else if strings.Contains(fields[3], "symbolic link") {
+	} else if strings.Contains(typeStr, "symbolic link") {
 		mode |= fs.ModeSymlink
 	}
 	return &remoteFileInfo{

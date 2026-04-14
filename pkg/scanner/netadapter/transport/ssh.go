@@ -10,18 +10,47 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// resolveHostKeyCallback determines the host-key verification policy
+// from the config in priority order:
+//  1. Explicit HostKeyCB (test injection or custom resolver)
+//  2. KnownHostsFile (production path — pins host keys)
+//  3. InsecureHostKey=true (explicit opt-in for lab use)
+//
+// If none are set, returns an error forcing the operator to make a
+// conscious security decision rather than silently defaulting to MITM-
+// vulnerable "accept any host key".
+func resolveHostKeyCallback(cfg SSHConfig) (ssh.HostKeyCallback, error) {
+	if cfg.HostKeyCB != nil {
+		return cfg.HostKeyCB, nil
+	}
+	if cfg.KnownHostsFile != "" {
+		cb, err := knownhosts.New(cfg.KnownHostsFile)
+		if err != nil {
+			return nil, fmt.Errorf("load known_hosts %s: %w", cfg.KnownHostsFile, err)
+		}
+		return cb, nil
+	}
+	if cfg.InsecureHostKey {
+		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator opt-in
+	}
+	return nil, fmt.Errorf("no host key verification: set KnownHostsFile or InsecureHostKey=true explicitly")
+}
 
 // SSHConfig specifies how to connect to a remote host.
 type SSHConfig struct {
-	Address     string // host:port
-	Username    string
-	Password    string              // optional; empty means use key
-	PrivateKey  []byte              // optional; empty means use password
-	Passphrase  string              // for PrivateKey if encrypted
-	HostKeyCB   ssh.HostKeyCallback // nil = ssh.InsecureIgnoreHostKey() (MVP only)
-	DialTimeout time.Duration       // default 10s
-	CmdTimeout  time.Duration       // default 30s per command
+	Address         string // host:port
+	Username        string
+	Password        string              // optional; empty means use key
+	PrivateKey      []byte              // optional; empty means use password
+	Passphrase      string              // for PrivateKey if encrypted
+	HostKeyCB       ssh.HostKeyCallback // if set, overrides KnownHostsFile
+	KnownHostsFile  string              // path to known_hosts; empty = see InsecureHostKey
+	InsecureHostKey bool                // if true AND no HostKeyCB/KnownHostsFile, accept any host key (opt-in)
+	DialTimeout     time.Duration       // default 10s
+	CmdTimeout      time.Duration       // default 30s per command
 }
 
 // SSHClient wraps an ssh.Client and implements CommandRunner.
@@ -50,10 +79,9 @@ func NewSSHClient(ctx context.Context, cfg SSHConfig) (*SSHClient, error) {
 		return nil, err
 	}
 
-	hostKeyCB := cfg.HostKeyCB
-	if hostKeyCB == nil {
-		//nolint:gosec // MVP documented limitation; production needs known_hosts
-		hostKeyCB = ssh.InsecureIgnoreHostKey()
+	hostKeyCB, err := resolveHostKeyCallback(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	sshCfg := &ssh.ClientConfig{

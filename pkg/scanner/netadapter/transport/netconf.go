@@ -23,7 +23,6 @@ type NetconfClient struct {
 
 // NewNetconfClient opens the 'netconf' SSH subsystem and exchanges hello messages.
 func NewNetconfClient(ctx context.Context, sshClient *SSHClient) (*NetconfClient, error) {
-	_ = ctx
 	sess, err := sshClient.Client().NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("netconf session: %w", err)
@@ -58,7 +57,7 @@ func NewNetconfClient(ctx context.Context, sshClient *SSHClient) (*NetconfClient
 		return nil, fmt.Errorf("netconf hello: %w", err)
 	}
 	// Read and discard server hello
-	if _, err := nc.readMessage(); err != nil {
+	if _, err := nc.readMessage(ctx); err != nil {
 		_ = sess.Close()
 		return nil, fmt.Errorf("netconf server hello: %w", err)
 	}
@@ -68,7 +67,6 @@ func NewNetconfClient(ctx context.Context, sshClient *SSHClient) (*NetconfClient
 // GetConfig issues <get-config source=running> with an optional XML filter.
 // Returns the <data> payload bytes.
 func (n *NetconfClient) GetConfig(ctx context.Context, filter string) ([]byte, error) {
-	_ = ctx
 	rpc := fmt.Sprintf(`<?xml version="1.0"?>
 <rpc xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
   <get-config>
@@ -79,7 +77,7 @@ func (n *NetconfClient) GetConfig(ctx context.Context, filter string) ([]byte, e
 	if _, err := n.stdin.Write([]byte(rpc)); err != nil {
 		return nil, err
 	}
-	return n.readMessage()
+	return n.readMessage(ctx)
 }
 
 // Close terminates the session.
@@ -88,21 +86,50 @@ func (n *NetconfClient) Close() error {
 	return n.sess.Close()
 }
 
+// maxNetconfResponseBytes caps the reply size to prevent memory
+// exhaustion from a misbehaving or malicious device.
+const maxNetconfResponseBytes = 64 * 1024 * 1024 // 64 MB
+
 // readMessage reads bytes up to the NETCONF end-of-message marker.
-func (n *NetconfClient) readMessage() ([]byte, error) {
-	var buf bytes.Buffer
-	tmp := make([]byte, 4096)
-	for {
-		nb, err := n.stdout.Read(tmp)
-		if nb > 0 {
-			buf.Write(tmp[:nb])
-			if idx := bytes.Index(buf.Bytes(), []byte(netconfEOM)); idx >= 0 {
-				return buf.Bytes()[:idx], nil
+// Honors context cancellation by running the blocking read in a
+// goroutine and racing it against ctx.Done().
+func (n *NetconfClient) readMessage(ctx context.Context) ([]byte, error) {
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result, 1)
+
+	go func() {
+		var buf bytes.Buffer
+		tmp := make([]byte, 4096)
+		for {
+			nb, err := n.stdout.Read(tmp)
+			if nb > 0 {
+				buf.Write(tmp[:nb])
+				if buf.Len() > maxNetconfResponseBytes {
+					done <- result{nil, fmt.Errorf("netconf response exceeded %d bytes", maxNetconfResponseBytes)}
+					return
+				}
+				if idx := bytes.Index(buf.Bytes(), []byte(netconfEOM)); idx >= 0 {
+					done <- result{buf.Bytes()[:idx], nil}
+					return
+				}
+			}
+			if err != nil {
+				done <- result{nil, err}
+				return
 			}
 		}
-		if err != nil {
-			return nil, err
-		}
+	}()
+
+	select {
+	case r := <-done:
+		return r.data, r.err
+	case <-ctx.Done():
+		// Close the session to unblock the goroutine's Read.
+		_ = n.sess.Close()
+		return nil, ctx.Err()
 	}
 }
 

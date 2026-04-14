@@ -14,11 +14,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
+	"github.com/amiryahaya/triton/pkg/server/inventory"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -194,6 +197,23 @@ func runServer(_ *cobra.Command, _ []string) error {
 	srv, err := server.New(cfg, db)
 	if err != nil {
 		return fmt.Errorf("initializing server: %w", err)
+	}
+
+	// Inventory — Onboarding Phase 1 §4. Mounted here (not inside
+	// pkg/server.New) because pkg/server/inventory already imports
+	// pkg/server for ClaimsFromContext/RequireRole; wiring from cmd
+	// keeps the import graph acyclic. Requires JWT auth; skipped in
+	// single-tenant deployments that don't configure JWT signing.
+	if cfg.JWTSigningKey != nil {
+		invHandlers := &inventory.Handlers{
+			Store: inventory.NewPostgresStore(db.Pool()),
+			Audit: server.NewAuditAdapter(srv),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage", func(r chi.Router) {
+			inventory.MountRoutes(r, invHandlers)
+		}); err != nil {
+			return fmt.Errorf("mounting inventory routes: %w", err)
+		}
 	}
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill

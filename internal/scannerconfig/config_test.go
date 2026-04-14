@@ -18,6 +18,8 @@ func TestLoadQuickProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "certificates")
 	assert.Contains(t, cfg.Modules, "keys")
 	assert.Contains(t, cfg.Modules, "packages")
+	// ASN.1 OID byte scanner is comprehensive-only (heavy).
+	assert.NotContains(t, cfg.Modules, "asn1_oid")
 
 	maxWorkers := 4
 	if maxWorkers > runtime.NumCPU() {
@@ -52,6 +54,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "messaging")
 	// Wave 3 — Database at-rest encryption scanner.
 	assert.Contains(t, cfg.Modules, "db_atrest")
+	// ASN.1 OID byte scanner is comprehensive-only (heavy).
+	assert.NotContains(t, cfg.Modules, "asn1_oid")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -102,6 +106,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "fido2")
 	assert.Contains(t, cfg.Modules, "blockchain")
 	assert.Contains(t, cfg.Modules, "helm_chart")
+	// ASN.1 OID byte scanner is comprehensive-only (heavy).
+	assert.Contains(t, cfg.Modules, "asn1_oid")
 
 	// Should have process and network targets
 	hasProcess := false

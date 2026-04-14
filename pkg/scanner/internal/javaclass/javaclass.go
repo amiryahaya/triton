@@ -160,7 +160,7 @@ func ScanJAR(path string) ([]JARHit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("javaclass: open %s: %w", path, err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	var hits []JARHit
 	for _, f := range r.File {
@@ -189,7 +189,7 @@ func readClassFromZip(f *zip.File) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, err

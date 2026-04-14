@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -209,7 +210,7 @@ func (m *BinaryModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found, err := m.scanBinaryFile(path)
 			if err != nil {
 				return nil // Skip errors

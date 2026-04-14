@@ -14,6 +14,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
 // CodeSignModule verifies code signing on executables, apps, and packages.
@@ -43,7 +44,7 @@ func (m *CodeSignModule) Scan(ctx context.Context, target model.ScanTarget, find
 		target:    target,
 		config:    m.config,
 		matchFile: isCodeSignCandidate,
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found := m.checkCodeSign(ctx, path)
 			for _, f := range found {
 				select {

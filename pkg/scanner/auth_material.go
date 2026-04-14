@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -68,8 +68,8 @@ func (m *AuthMaterialModule) Scan(ctx context.Context, target model.ScanTarget, 
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			for _, f := range m.parseFile(path) {
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			for _, f := range m.parseFile(ctx, reader, path) {
 				if f == nil {
 					continue
 				}
@@ -142,7 +142,7 @@ func isAuthMaterialFile(path string) bool {
 // need file contents (keytab, wpa_supplicant, systemd); others
 // work purely from the filename (DNSSEC keys) or just check for
 // sibling files (Tor). Each path is individually fault-tolerant.
-func (m *AuthMaterialModule) parseFile(path string) []*model.Finding {
+func (m *AuthMaterialModule) parseFile(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
 	base := filepath.Base(path)
 
 	// DNSSEC: filename alone tells us the algorithm.
@@ -155,7 +155,7 @@ func (m *AuthMaterialModule) parseFile(path string) []*model.Finding {
 		return m.parseTorHiddenServiceKey(path)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil
 	}

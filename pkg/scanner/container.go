@@ -16,6 +16,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -109,7 +110,7 @@ func (m *ContainerModule) Scan(ctx context.Context, target model.ScanTarget, fin
 		filesMatched: &matched,
 		store:        m.store,
 		matchFile:    isContainerFile,
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			return m.processContainerFile(ctx, path, findings)
 		},
 	}

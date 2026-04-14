@@ -11,11 +11,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 
 	"github.com/google/uuid"
 
@@ -74,8 +75,8 @@ func (m *ContainerSignaturesModule) Scan(ctx context.Context, target model.ScanT
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			data, err := os.ReadFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			data, err := reader.ReadFile(ctx, path)
 			if err != nil {
 				return nil
 			}

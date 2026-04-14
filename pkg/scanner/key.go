@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -91,8 +91,8 @@ func (m *KeyModule) Scan(ctx context.Context, target model.ScanTarget, findings 
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			finding, err := m.parseKeyFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			finding, err := m.parseKeyFile(ctx, reader, path)
 			if err != nil || finding == nil {
 				return nil
 			}
@@ -146,8 +146,8 @@ func (m *KeyModule) isKeyFile(path string) bool {
 
 // parseKeyFile reads a file and produces a finding only if it contains a recognized
 // key PEM header or SSH public key format. Returns (nil, nil) if no key content found.
-func (m *KeyModule) parseKeyFile(path string) (*model.Finding, error) {
-	data, err := os.ReadFile(path)
+func (m *KeyModule) parseKeyFile(ctx context.Context, reader fsadapter.FileReader, path string) (*model.Finding, error) {
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil, err
 	}

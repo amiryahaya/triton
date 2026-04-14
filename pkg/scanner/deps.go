@@ -17,6 +17,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
 // goModuleAnalyzer abstracts Go module analysis for testability.
@@ -80,7 +81,7 @@ func (m *DepsModule) Scan(ctx context.Context, target model.ScanTarget, findings
 		filesScanned: &scanned,
 		filesMatched: &matched,
 		matchFile:    isGoModFile,
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			return m.analyzeGoModule(ctx, filepath.Dir(path), path, findings)
 		},
 	}

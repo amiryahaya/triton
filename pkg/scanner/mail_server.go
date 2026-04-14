@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -66,8 +66,8 @@ func (m *MailServerModule) Scan(ctx context.Context, target model.ScanTarget, fi
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			for _, f := range m.parseFile(path) {
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			for _, f := range m.parseFile(ctx, reader, path) {
 				if f == nil {
 					continue
 				}
@@ -108,35 +108,35 @@ func isMailServerConfigFile(path string) bool {
 	return false
 }
 
-func (m *MailServerModule) parseFile(path string) []*model.Finding {
+func (m *MailServerModule) parseFile(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
 	base := filepath.Base(path)
 	switch {
 	case base == "main.cf" || base == "master.cf":
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}
 		return m.parsePostfix(path, data)
 	case base == "sendmail.cf" || base == "submit.cf":
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}
 		return m.parseSendmail(path, data)
 	case base == "exim4.conf" || base == "exim.conf":
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}
 		return m.parseExim(path, data)
 	case base == "KeyTable":
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}
 		return m.parseDKIMKeyTable(path, data)
 	case base == "opendkim.conf":
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}

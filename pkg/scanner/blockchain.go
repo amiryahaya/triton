@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -58,8 +58,8 @@ func (m *BlockchainModule) Scan(ctx context.Context, target model.ScanTarget, fi
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			results := m.parseFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			results := m.parseFile(ctx, reader, path)
 			for _, f := range results {
 				if f == nil {
 					continue
@@ -99,7 +99,7 @@ func isBlockchainFile(path string) bool {
 }
 
 // parseFile dispatches to the right sub-parser.
-func (m *BlockchainModule) parseFile(path string) []*model.Finding {
+func (m *BlockchainModule) parseFile(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
 	base := filepath.Base(path)
 	lower := strings.ToLower(path)
 
@@ -107,7 +107,7 @@ func (m *BlockchainModule) parseFile(path string) []*model.Finding {
 	case base == "wallet.dat" && strings.Contains(lower, "bitcoin"):
 		return m.parseBitcoinWallet(path)
 	case strings.Contains(lower, "ethereum") && strings.Contains(lower, "keystore"):
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}

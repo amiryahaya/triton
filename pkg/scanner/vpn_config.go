@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -63,8 +63,8 @@ func (m *VPNModule) Scan(ctx context.Context, target model.ScanTarget, findings 
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			data, err := os.ReadFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			data, err := reader.ReadFile(ctx, path)
 			if err != nil {
 				return nil
 			}

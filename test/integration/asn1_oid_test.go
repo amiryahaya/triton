@@ -99,8 +99,11 @@ func TestASN1OID_ScansSystemOpenSSL(t *testing.T) {
 }
 
 // findOpenSSLInstallRoot walks upward from opensslBin looking for a directory
-// that contains both a "lib" subdir and a crypto library within. Returns the
-// install prefix (to be scanned) or "" if nothing suitable was found.
+// that contains a libcrypto.* file, and returns the libcrypto file's *parent
+// directory* (not the install prefix). This bounds the scan to the lib dir
+// (~10-50MB) rather than the entire install prefix (which on Debian/Ubuntu
+// resolves to /usr and gigabytes of unrelated binaries, timing out CI).
+// Returns "" if no libcrypto is found within 4 levels up.
 func findOpenSSLInstallRoot(opensslBin string) string {
 	dir := filepath.Dir(opensslBin) // .../bin
 	for i := 0; i < 4; i++ {        // walk up at most 4 levels
@@ -108,24 +111,24 @@ func findOpenSSLInstallRoot(opensslBin string) string {
 		if dir == "/" || dir == "." {
 			break
 		}
-		if hasLibCrypto(dir) {
-			return dir
+		if libDir := findLibCryptoDir(dir); libDir != "" {
+			return libDir
 		}
 	}
 	return ""
 }
 
-// hasLibCrypto reports whether root contains a libcrypto.* file somewhere
-// beneath it (checked via a bounded-depth walk).
-func hasLibCrypto(root string) bool {
+// findLibCryptoDir reports the parent directory of the first libcrypto.* file
+// found beneath root (bounded-depth walk), or "" if none exists.
+func findLibCryptoDir(root string) string {
 	rootDepth := depthOf(root)
-	found := false
+	var libDir string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			// Cap relative depth at 4 levels below root to keep scan cheap.
+			// Cap relative depth at 4 levels below root to keep probe cheap.
 			if depthOf(path)-rootDepth > 4 {
 				return filepath.SkipDir
 			}
@@ -134,12 +137,12 @@ func hasLibCrypto(root string) bool {
 		name := d.Name()
 		// Match libcrypto.so*, libcrypto.*.dylib, libcrypto-*.dll, etc.
 		if len(name) >= 9 && name[:9] == "libcrypto" {
-			found = true
+			libDir = filepath.Dir(path)
 			return filepath.SkipAll
 		}
 		return nil
 	})
-	return found
+	return libDir
 }
 
 // depthOf returns the number of path separators in an absolute path,

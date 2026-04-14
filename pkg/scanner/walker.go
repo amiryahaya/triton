@@ -127,6 +127,12 @@ func checkFileChanged(ctx context.Context, s store.Store, path string) (skip boo
 }
 
 // hashFile computes the SHA-256 hex digest of a file.
+//
+// NOTE: this uses os.Open directly and bypasses wc.reader.
+// Incremental mode requires local filesystem access and is not
+// compatible with agentless (SSH-based) scans. scanUnix sets
+// DBUrl="" which keeps wc.store == nil, so this path is not taken
+// on agentless scans.
 func hashFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {

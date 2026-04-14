@@ -34,7 +34,13 @@ func GetAlgorithmInfo(name string) (AlgorithmInfo, bool) {
 	return info, ok
 }
 
-// algorithmRegistry maps algorithm names to their PQC status.
+// algorithmRegistry is the authoritative source of truth for algorithm Status,
+// Family, and KeySize classifications. Format-specific registries (oidRegistry,
+// tlsGroupRegistry, javaAlgorithmRegistry) MUST align to this map when their
+// entry's Algorithm field names an algorithm defined here.
+//
+// On drift (caught by TestCoreAlgorithmsConsistent): update the format-specific
+// registry, not this map. Exceptions require an ADR documenting why.
 var algorithmRegistry = map[string]AlgorithmInfo{
 	// ===== SAFE algorithms (quantum-resistant) =====
 

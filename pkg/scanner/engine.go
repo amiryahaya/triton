@@ -36,8 +36,17 @@ type StoreAware interface {
 	SetStore(s store.Store)
 }
 
-// FileReaderAware is implemented by modules that can scan over an
-// abstract filesystem (local or remote via SSH).
+// FileReaderAware is implemented by modules that support agentless scanning
+// over an injected filesystem adapter.
+//
+// CONTRACT: implementing SetFileReader means the module MUST route all file
+// I/O for scan targets through the injected reader. Modules that call
+// os.Open, os.ReadFile, zip.OpenReader, or os.Readlink directly for target
+// paths MUST NOT implement this interface — engine injection would be a
+// silent no-op and remote scans would miss files.
+//
+// If you implement this, ensure EVERY file read path uses the reader,
+// including helpers called from the module's Scan loop.
 type FileReaderAware interface {
 	SetFileReader(r fsadapter.FileReader)
 }

@@ -25,6 +25,11 @@ func TestFileReaderAware_OnlyAgentlessCompatibleModules(t *testing.T) {
 	deadAdapterModules := map[string]bool{
 		"asn1_oid":      true,
 		"java_bytecode": true,
+		// config: parseSSHConfig and parseJavaSecurity call os.Open
+		// directly despite the walker being wired to the reader.
+		// SetFileReader has been removed for now; if re-added before
+		// the parsers are plumbed, this guard catches it.
+		"config": true,
 	}
 
 	for _, m := range e.modules {

@@ -162,6 +162,9 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 
 	// ===== TRANSITIONAL algorithms (need migration plan) =====
 
+	// AES (generic, no key size specified — conservative classification)
+	"AES": {Name: "AES", Family: "AES", KeySize: 0, Status: TRANSITIONAL, NISTStandard: true},
+
 	// AES-128 (Grover's halves to 64-bit — borderline)
 	"AES-128-GCM": {Name: "AES-128-GCM", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
 	"AES-128-CBC": {Name: "AES-128-CBC", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
@@ -193,10 +196,37 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	"X25519":     {Name: "X25519", Family: "ECDH", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2035},
 	"X448":       {Name: "X448", Family: "ECDH", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
 
+	// Lowercase-IANA aliases for tlsGroupRegistry entries X25519 / X448.
+	// These let ClassifyCryptoAsset and downstream consumers resolve the
+	// IANA-form name (as emitted by LookupTLSGroup / nginx ssl_ecdh_curve
+	// directives) to the same Status as the canonical uppercase name above.
+	// Status intentionally mirrors the uppercase entry (Shor-vulnerable);
+	// the tlsGroupRegistry entries share this classification.
+	"x25519": {Name: "X25519", Family: "ECDH", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2035},
+	"x448":   {Name: "X448", Family: "ECDH", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
+
 	// ECDSA (generic, no curve specified)
 	"ECDSA": {Name: "ECDSA", Family: "ECDSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2030},
 	// RSA (generic, no key size specified)
 	"RSA": {Name: "RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
+
+	// Java JCA signature composites (digest+key algorithm literals as emitted
+	// by constant-pool scanning). Status mirrors javaAlgorithmRegistry so
+	// downstream classification is stable whether the literal is consumed
+	// via LookupJavaAlgorithm or via the generic algorithm registry.
+	"SHA256withRSA":        {Name: "SHA256withRSA", Family: "RSA", Status: TRANSITIONAL},
+	"SHA384withRSA":        {Name: "SHA384withRSA", Family: "RSA", Status: SAFE},
+	"SHA512withRSA":        {Name: "SHA512withRSA", Family: "RSA", Status: SAFE},
+	"SHA224withRSA":        {Name: "SHA224withRSA", Family: "RSA", Status: TRANSITIONAL},
+	"SHA1withRSA":          {Name: "SHA1withRSA", Family: "RSA", Status: DEPRECATED},
+	"MD5withRSA":           {Name: "MD5withRSA", Family: "RSA", Status: UNSAFE},
+	"SHA256withRSA-PSS":    {Name: "SHA256withRSA-PSS", Family: "RSA", Status: TRANSITIONAL},
+	"SHA1withDSA":          {Name: "SHA1withDSA", Family: "DSA", Status: DEPRECATED},
+	"SHA256withDSA":        {Name: "SHA256withDSA", Family: "DSA", Status: DEPRECATED},
+	"SHA1withECDSA":        {Name: "SHA1withECDSA", Family: "ECDSA", Status: DEPRECATED},
+	"SHA256withECDSA":      {Name: "SHA256withECDSA", Family: "ECDSA", Status: TRANSITIONAL},
+	"SHA384withECDSA":      {Name: "SHA384withECDSA", Family: "ECDSA", Status: SAFE},
+	"SHA512withECDSA":      {Name: "SHA512withECDSA", Family: "ECDSA", Status: SAFE},
 
 	// DH (Shor-vulnerable)
 	"DH":      {Name: "DH", Family: "DH", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},

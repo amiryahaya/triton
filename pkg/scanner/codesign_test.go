@@ -50,7 +50,7 @@ Signature size=4442`
 	require.Len(t, findings, 1)
 	f := findings[0]
 	assert.Equal(t, "Code signing certificate", f.CryptoAsset.Function)
-	assert.Equal(t, "SHA-256", f.CryptoAsset.Algorithm)
+	assert.Equal(t, "SHA256withRSA", f.CryptoAsset.Algorithm)
 	assert.Contains(t, f.CryptoAsset.Purpose, "valid")
 	assert.Contains(t, f.CryptoAsset.Purpose, "Software Signing")
 	assert.Equal(t, 4, f.Category)
@@ -103,13 +103,13 @@ func TestCodeSignModule_ParseRPMVerify(t *testing.T) {
 		{
 			name:     "valid RSA signature",
 			output:   "package.rpm: rsa sha256 (md5) pgp md5 OK",
-			wantAlgo: "SHA-256",
+			wantAlgo: "SHA256withRSA",
 			wantOK:   true,
 		},
 		{
 			name:     "missing signature",
 			output:   "package.rpm: MISSING KEYS: RSA sha256",
-			wantAlgo: "SHA-256",
+			wantAlgo: "SHA256withRSA",
 			wantOK:   false,
 		},
 	}
@@ -212,7 +212,7 @@ Signature size=4442`
 
 	findings := m.parseMacOSCodeSign("/usr/bin/test", "", nil, displayOut, nil)
 	require.Len(t, findings, 1)
-	assert.Equal(t, "SHA-256", findings[0].CryptoAsset.Algorithm)
+	assert.Equal(t, "SHA256withRSA", findings[0].CryptoAsset.Algorithm)
 	assert.NotEmpty(t, findings[0].CryptoAsset.PQCStatus)
 }
 

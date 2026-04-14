@@ -104,7 +104,7 @@ func (h *Handlers) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.audit(r.Context(), "inventory.group.create", created.ID.String(), map[string]any{"name": created.Name})
+	h.audit(r.Context(), EventGroupCreate, created.ID.String(), map[string]any{"name": created.Name})
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -166,7 +166,7 @@ func (h *Handlers) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	h.audit(r.Context(), "inventory.group.update", updated.ID.String(), map[string]any{"name": updated.Name})
+	h.audit(r.Context(), EventGroupUpdate, updated.ID.String(), map[string]any{"name": updated.Name})
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -185,7 +185,7 @@ func (h *Handlers) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.audit(r.Context(), "inventory.group.delete", id.String(), nil)
+	h.audit(r.Context(), EventGroupDelete, id.String(), nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -256,7 +256,7 @@ func (h *Handlers) CreateHost(w http.ResponseWriter, r *http.Request) {
 		}
 		created.Tags = p.Tags
 	}
-	h.audit(r.Context(), "inventory.host.create", created.ID.String(), map[string]any{
+	h.audit(r.Context(), EventHostCreate, created.ID.String(), map[string]any{
 		"hostname": created.Hostname, "group_id": created.GroupID.String(),
 	})
 	writeJSON(w, http.StatusCreated, created)
@@ -348,7 +348,7 @@ func (h *Handlers) UpdateHost(w http.ResponseWriter, r *http.Request) {
 		}
 		updated.Tags = *p.Tags
 	}
-	h.audit(r.Context(), "inventory.host.update", updated.ID.String(), nil)
+	h.audit(r.Context(), EventHostUpdate, updated.ID.String(), nil)
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -367,7 +367,7 @@ func (h *Handlers) DeleteHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.audit(r.Context(), "inventory.host.delete", id.String(), nil)
+	h.audit(r.Context(), EventHostDelete, id.String(), nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

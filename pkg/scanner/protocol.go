@@ -98,6 +98,25 @@ func (m *ProtocolModule) emitFinding(ctx context.Context, addr string, asset *mo
 	return nil
 }
 
+// tlsGroupToAsset converts a negotiated TLS named group (from
+// tls.ConnectionState.CurveID) into a CryptoAsset. Returns nil if the group
+// is not in the registry — unknown groups are skipped to avoid emitting
+// findings without classification.
+func tlsGroupToAsset(id tls.CurveID) *model.CryptoAsset {
+	g, ok := crypto.LookupTLSGroup(uint16(id))
+	if !ok {
+		return nil
+	}
+	return &model.CryptoAsset{
+		Algorithm:           g.Name,
+		Function:            "Key agreement",
+		KeySize:             g.KeySize,
+		PQCStatus:           string(g.Status),
+		IsHybrid:            g.IsHybrid,
+		ComponentAlgorithms: g.ComponentAlgorithms,
+	}
+}
+
 // probeTLS performs a TLS handshake and extracts cipher suite and certificate info.
 func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings chan<- *model.Finding) error {
 	dialer := newDialer(ctx)
@@ -179,6 +198,17 @@ func (m *ProtocolModule) probeTLS(ctx context.Context, addr string, findings cha
 			CRLDistPoints: cert.CRLDistributionPoints,
 		}, findings); err != nil {
 			return err
+		}
+	}
+
+	// Emit negotiated TLS named group (key agreement) finding, including hybrid PQC.
+	if state.CurveID != 0 {
+		if groupAsset := tlsGroupToAsset(state.CurveID); groupAsset != nil {
+			groupAsset.ID = uuid.Must(uuid.NewV7()).String()
+			groupAsset.Purpose = fmt.Sprintf("Negotiated TLS named group for %s (%s)", addr, tlsVersion)
+			if err := m.emitFinding(ctx, addr, groupAsset, findings); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -174,9 +174,12 @@ func findingToComponent(f *model.Finding) CDXComponent {
 		}
 	}
 
-	// Populate OID from reverse lookup
+	// Populate OID: prefer the finding's authoritative OID (e.g. from asn1_oid
+	// byte scanner). Fall back to reverse-lookup by algorithm name.
 	if comp.CryptoProperties != nil {
-		if oid := crypto.OIDForAlgorithm(asset.Algorithm); oid != "" {
+		if asset.OID != "" {
+			comp.CryptoProperties.OID = asset.OID
+		} else if oid := crypto.OIDForAlgorithm(asset.Algorithm); oid != "" {
 			comp.CryptoProperties.OID = oid
 		}
 	}

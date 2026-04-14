@@ -139,6 +139,19 @@ func TestDecodeOID_Empty(t *testing.T) {
 	assert.Equal(t, "", decodeOID([]byte{}))
 }
 
+func TestDecodeOID_TruncatedArc(t *testing.T) {
+	// Last byte has continuation bit set — arc is truncated.
+	// Should be rejected.
+	assert.Equal(t, "", decodeOID([]byte{0x60, 0x86}))
+}
+
+func TestParseOID_LargeFirstArc(t *testing.T) {
+	// OID 2.100.3 — first component 180 requires multi-byte base-128 encoding.
+	// Content: 0x81 0x34 (combined=180 → firstArc=2, secondArc=100) then 0x03.
+	data := []byte{0x06, 0x03, 0x81, 0x34, 0x03}
+	assert.Equal(t, "2.100.3", parseOID(data))
+}
+
 func TestParseOID(t *testing.T) {
 	// Tag 0x06, length 9, then the OID bytes for 2.16.840.1.101.3.4.3.17
 	data := []byte{0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x11}

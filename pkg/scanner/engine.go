@@ -203,6 +203,12 @@ func (e *Engine) RegisterDefaultModules() {
 	// Wave 4 — Helm chart CBOM scanner. Chart.yaml identity,
 	// values.yaml TLS/cert-manager references. Pro tier.
 	e.RegisterModule(NewHelmChartModule(e.config))
+
+	// ASN.1 OID byte scanner (heavy). Always registered; profile gating is
+	// enforced via the per-profile module list in internal/scannerconfig
+	// (asn1_oid appears only in the comprehensive profile). shouldRunModule
+	// skips unlisted modules at dispatch time.
+	e.RegisterModule(NewASN1OIDModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

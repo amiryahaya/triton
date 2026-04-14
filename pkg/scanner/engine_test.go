@@ -54,7 +54,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 44 modules:
+	// Should register all 45 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
@@ -65,10 +65,10 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + messaging (Wave 3) + db_atrest (Wave 3) + secrets_mgr (Wave 3)
 	// + supply_chain (Wave 3) + kerberos_runtime (Wave 3)
 	// + enrollment (Wave 3) + fido2 (Wave 4) + blockchain (Wave 4)
-	// + helm_chart (Wave 4).
+	// + helm_chart (Wave 4) + asn1_oid (comprehensive-only byte scanner).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 44)
+	assert.Len(t, eng.modules, 45)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {

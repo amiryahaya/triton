@@ -550,3 +550,40 @@ func testTokenWithOrg(t *testing.T, tier Tier, org string, priv ed25519.PrivateK
 	require.NoError(t, err)
 	return token
 }
+
+func TestFilterConfig_ASN1OIDModule_FreeStripped(t *testing.T) {
+	g := NewGuardFromToken("", nil) // free tier
+	cfg := &scannerconfig.Config{
+		Profile: "comprehensive",
+		Modules: []string{"certificates", "asn1_oid", "binaries"},
+	}
+	g.FilterConfig(cfg)
+
+	for _, m := range cfg.Modules {
+		if m == "asn1_oid" {
+			t.Error("asn1_oid should be stripped from free-tier config")
+		}
+	}
+}
+
+func TestFilterConfig_ASN1OIDModule_ProKept(t *testing.T) {
+	pub, priv := testKeypair(t)
+	token := testToken(t, TierPro, priv)
+	g := NewGuardFromToken(token, pub)
+
+	cfg := &scannerconfig.Config{
+		Profile: "comprehensive",
+		Modules: []string{"certificates", "asn1_oid", "binaries"},
+	}
+	g.FilterConfig(cfg)
+
+	found := false
+	for _, m := range cfg.Modules {
+		if m == "asn1_oid" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("asn1_oid should be retained for Pro tier")
+	}
+}

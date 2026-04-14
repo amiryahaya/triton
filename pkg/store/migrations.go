@@ -386,4 +386,25 @@ var migrations = []string{
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_inventory_tags_kv ON inventory_tags(key, value);`,
+
+	// Version 17: Replace the (org_id, hostname) unique constraint with
+	// partial unique indexes so both named hosts AND address-only hosts
+	// are deduped per org. The original Version 16 constraint
+	// `UNIQUE (org_id, hostname)` allowed unlimited NULL hostnames,
+	// meaning two address-only hosts with identical IPs in the same
+	// org were stored as separate rows. Migrations are append-only,
+	// so this fixes it forward rather than editing v16.
+	//
+	// The implicit constraint name PostgreSQL assigns to an inline
+	// `UNIQUE (col1, col2)` on CREATE TABLE is `<table>_<cols>_key` —
+	// verified via \d inventory_hosts to be inventory_hosts_org_id_hostname_key.
+	`ALTER TABLE inventory_hosts DROP CONSTRAINT IF EXISTS inventory_hosts_org_id_hostname_key;
+
+	CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_hosts_org_hostname
+		ON inventory_hosts(org_id, hostname)
+		WHERE hostname IS NOT NULL;
+
+	CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_hosts_org_address
+		ON inventory_hosts(org_id, address)
+		WHERE hostname IS NULL AND address IS NOT NULL;`,
 }

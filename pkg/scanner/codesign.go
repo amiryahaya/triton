@@ -211,11 +211,12 @@ func (m *CodeSignModule) parseMacOSCodeSign(path, verifyOut string, verifyErr er
 	}
 
 	if sigAlgo == "" {
-		// Default to the signing key algorithm when display output
-		// does not expose a Hash type line. The crypto registry now
-		// classifies JCA-style composites ("SHA256withRSA") directly,
-		// so when sigAlgo IS populated below it is preserved verbatim
-		// through ClassifyCryptoAsset.
+		// Default to the signing key algorithm (RSA), NOT the
+		// hash+sig-algo string. The crypto registry's
+		// substring classifier rewrites "SHA256withRSA" to
+		// "SHA-256" (hash family wins), which silently
+		// reclassifies the codesign finding as a hash function.
+		// "RSA" keeps the finding semantically correct.
 		sigAlgo = "RSA"
 	}
 

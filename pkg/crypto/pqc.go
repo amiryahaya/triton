@@ -210,24 +210,6 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	// RSA (generic, no key size specified)
 	"RSA": {Name: "RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
 
-	// Java JCA signature composites (digest+key algorithm literals as emitted
-	// by constant-pool scanning). Status mirrors javaAlgorithmRegistry so
-	// downstream classification is stable whether the literal is consumed
-	// via LookupJavaAlgorithm or via the generic algorithm registry.
-	"SHA256withRSA":     {Name: "SHA256withRSA", Family: "RSA", Status: TRANSITIONAL},
-	"SHA384withRSA":     {Name: "SHA384withRSA", Family: "RSA", Status: SAFE},
-	"SHA512withRSA":     {Name: "SHA512withRSA", Family: "RSA", Status: SAFE},
-	"SHA224withRSA":     {Name: "SHA224withRSA", Family: "RSA", Status: TRANSITIONAL},
-	"SHA1withRSA":       {Name: "SHA1withRSA", Family: "RSA", Status: DEPRECATED},
-	"MD5withRSA":        {Name: "MD5withRSA", Family: "RSA", Status: UNSAFE},
-	"SHA256withRSA-PSS": {Name: "SHA256withRSA-PSS", Family: "RSA", Status: TRANSITIONAL},
-	"SHA1withDSA":       {Name: "SHA1withDSA", Family: "DSA", Status: DEPRECATED},
-	"SHA256withDSA":     {Name: "SHA256withDSA", Family: "DSA", Status: DEPRECATED},
-	"SHA1withECDSA":     {Name: "SHA1withECDSA", Family: "ECDSA", Status: DEPRECATED},
-	"SHA256withECDSA":   {Name: "SHA256withECDSA", Family: "ECDSA", Status: TRANSITIONAL},
-	"SHA384withECDSA":   {Name: "SHA384withECDSA", Family: "ECDSA", Status: SAFE},
-	"SHA512withECDSA":   {Name: "SHA512withECDSA", Family: "ECDSA", Status: SAFE},
-
 	// DH (Shor-vulnerable)
 	"DH":      {Name: "DH", Family: "DH", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},
 	"ElGamal": {Name: "ElGamal", Family: "ElGamal", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2035},

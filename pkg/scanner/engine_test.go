@@ -65,10 +65,11 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + messaging (Wave 3) + db_atrest (Wave 3) + secrets_mgr (Wave 3)
 	// + supply_chain (Wave 3) + kerberos_runtime (Wave 3)
 	// + enrollment (Wave 3) + fido2 (Wave 4) + blockchain (Wave 4)
-	// + helm_chart (Wave 4) + asn1_oid (comprehensive-only byte scanner).
+	// + helm_chart (Wave 4) + asn1_oid (comprehensive-only byte scanner)
+	// + java_bytecode (comprehensive-only .class/.jar scanner).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 45)
+	assert.Len(t, eng.modules, 46)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {

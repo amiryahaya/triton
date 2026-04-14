@@ -131,18 +131,30 @@ func buildFinding(path, sectionName string, c crypto.ClassifiedOID) *model.Findi
 	}
 }
 
-// functionForFamily maps an OID family to a coarse cryptographic function
-// label. Returns "" when the family doesn't map cleanly.
+// functionForFamily maps an OID/registry family label to a coarse
+// cryptographic function string. Returns "" when the family doesn't map
+// cleanly.
+//
+// Family values come from the crypto registries (pkg/crypto/oid_data_*.go,
+// pkg/crypto/pqc.go, pkg/crypto/java_algorithms.go). PQC algorithms live
+// under broad family buckets — ML-KEM and FrodoKEM under "Lattice" (KEM),
+// ML-DSA and FN-DSA also under "Lattice" (signature), and SLH-DSA/LMS/XMSS
+// under "Hash-Based" (signature). We can't distinguish KEM vs signature
+// from the family alone for "Lattice", so we surface both functions.
 func functionForFamily(family string) string {
 	switch family {
-	case "RSA", "ECDSA", "EdDSA", "DSA", "ML-DSA", "SLH-DSA", "Falcon":
+	case "RSA", "ECDSA", "EdDSA", "DSA":
 		return "Digital signature"
 	case "SHA", "SHA3", "MD5", "Hash":
 		return "Hash"
 	case "AES", "DES", "3DES", "ChaCha20":
 		return "Symmetric encryption"
-	case "ECDH", "DH", "ML-KEM", "KEM":
+	case "ECDH", "DH", "KEM":
 		return "Key agreement"
+	case "Lattice":
+		return "Key encapsulation / Digital signature"
+	case "Hash-Based":
+		return "Digital signature"
 	}
 	return ""
 }

@@ -20,6 +20,8 @@ func TestLoadQuickProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "packages")
 	// ASN.1 OID byte scanner is comprehensive-only (heavy).
 	assert.NotContains(t, cfg.Modules, "asn1_oid")
+	// Java bytecode scanner is comprehensive-only (heavy).
+	assert.NotContains(t, cfg.Modules, "java_bytecode")
 
 	maxWorkers := 4
 	if maxWorkers > runtime.NumCPU() {
@@ -56,6 +58,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "db_atrest")
 	// ASN.1 OID byte scanner is comprehensive-only (heavy).
 	assert.NotContains(t, cfg.Modules, "asn1_oid")
+	// Java bytecode scanner is comprehensive-only (heavy).
+	assert.NotContains(t, cfg.Modules, "java_bytecode")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -108,6 +112,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "helm_chart")
 	// ASN.1 OID byte scanner is comprehensive-only (heavy).
 	assert.Contains(t, cfg.Modules, "asn1_oid")
+	// Java bytecode scanner is comprehensive-only (heavy).
+	assert.Contains(t, cfg.Modules, "java_bytecode")
 
 	// Should have process and network targets
 	hasProcess := false

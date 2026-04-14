@@ -212,7 +212,7 @@ func classicalOIDs() map[string]OIDEntry {
 
 		// ─── Kerberos (RFC 1964, RFC 4121) ───
 		"1.2.840.113554.1.2.2":   {OID: "1.2.840.113554.1.2.2", Algorithm: "Kerberos", Family: "Kerberos", Status: TRANSITIONAL},
-		"1.2.840.113554.1.2.2.3": {OID: "1.2.840.113554.1.2.2.3", Algorithm: "Kerberos-SPNEGO", Family: "Kerberos", Status: TRANSITIONAL},
+		"1.2.840.113554.1.2.2.3": {OID: "1.2.840.113554.1.2.2.3", Algorithm: "Kerberos-UserToUser", Family: "Kerberos", Status: TRANSITIONAL},
 		"1.3.6.1.5.2.5":          {OID: "1.3.6.1.5.2.5", Algorithm: "Kerberos-PKINIT", Family: "Kerberos", Status: TRANSITIONAL},
 		"1.3.6.1.5.5.2":          {OID: "1.3.6.1.5.5.2", Algorithm: "SPNEGO", Family: "Kerberos", Status: TRANSITIONAL},
 
@@ -233,7 +233,7 @@ func classicalOIDs() map[string]OIDEntry {
 		"1.2.840.113549.1.5.3":       {OID: "1.2.840.113549.1.5.3", Algorithm: "PBE-MD5-DES", Family: "KDF", Status: UNSAFE},
 		"1.2.840.113549.1.5.10":      {OID: "1.2.840.113549.1.5.10", Algorithm: "PBE-SHA1-DES", Family: "KDF", Status: UNSAFE},
 		"1.2.840.113549.1.5.11":      {OID: "1.2.840.113549.1.5.11", Algorithm: "PBE-SHA1-RC2", Family: "KDF", Status: UNSAFE},
-		"1.2.840.113549.1.9.16.3.9":  {OID: "1.2.840.113549.1.9.16.3.9", Algorithm: "HKDF", Family: "KDF", Status: TRANSITIONAL},
+		"1.2.840.113549.1.9.16.3.9":  {OID: "1.2.840.113549.1.9.16.3.9", Algorithm: "PWRI-KEK", Family: "KeyWrap", Status: TRANSITIONAL},
 		"1.2.840.113549.1.9.16.3.28": {OID: "1.2.840.113549.1.9.16.3.28", Algorithm: "HKDF-SHA256", Family: "KDF", Status: TRANSITIONAL},
 		"1.2.840.113549.1.9.16.3.29": {OID: "1.2.840.113549.1.9.16.3.29", Algorithm: "HKDF-SHA384", Family: "KDF", Status: SAFE},
 		"1.2.840.113549.1.9.16.3.30": {OID: "1.2.840.113549.1.9.16.3.30", Algorithm: "HKDF-SHA512", Family: "KDF", Status: SAFE},

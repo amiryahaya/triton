@@ -18,57 +18,12 @@ var oidRegistry map[string]OIDEntry
 var reverseOIDMap map[string]string
 
 func init() {
-	oidRegistry = map[string]OIDEntry{
-		// === ML-KEM (FIPS 203) ===
-		"2.16.840.1.101.3.4.4.1": {OID: "2.16.840.1.101.3.4.4.1", Algorithm: "ML-KEM-512", Family: "Lattice", KeySize: 512, Status: SAFE},
-		"2.16.840.1.101.3.4.4.2": {OID: "2.16.840.1.101.3.4.4.2", Algorithm: "ML-KEM-768", Family: "Lattice", KeySize: 768, Status: SAFE},
-		"2.16.840.1.101.3.4.4.3": {OID: "2.16.840.1.101.3.4.4.3", Algorithm: "ML-KEM-1024", Family: "Lattice", KeySize: 1024, Status: SAFE},
-
-		// === ML-DSA (FIPS 204) ===
-		"2.16.840.1.101.3.4.3.17": {OID: "2.16.840.1.101.3.4.3.17", Algorithm: "ML-DSA-44", Family: "Lattice", KeySize: 0, Status: SAFE},
-		"2.16.840.1.101.3.4.3.18": {OID: "2.16.840.1.101.3.4.3.18", Algorithm: "ML-DSA-65", Family: "Lattice", KeySize: 0, Status: SAFE},
-		"2.16.840.1.101.3.4.3.19": {OID: "2.16.840.1.101.3.4.3.19", Algorithm: "ML-DSA-87", Family: "Lattice", KeySize: 0, Status: SAFE},
-
-		// === SLH-DSA (FIPS 205) — 12 variants: sha2/shake x 128/192/256 x s/f ===
-		"2.16.840.1.101.3.4.3.20": {OID: "2.16.840.1.101.3.4.3.20", Algorithm: "SLH-DSA-SHA2-128s", Family: "Hash-Based", KeySize: 128, Status: SAFE},
-		"2.16.840.1.101.3.4.3.21": {OID: "2.16.840.1.101.3.4.3.21", Algorithm: "SLH-DSA-SHA2-128f", Family: "Hash-Based", KeySize: 128, Status: SAFE},
-		"2.16.840.1.101.3.4.3.22": {OID: "2.16.840.1.101.3.4.3.22", Algorithm: "SLH-DSA-SHA2-192s", Family: "Hash-Based", KeySize: 192, Status: SAFE},
-		"2.16.840.1.101.3.4.3.23": {OID: "2.16.840.1.101.3.4.3.23", Algorithm: "SLH-DSA-SHA2-192f", Family: "Hash-Based", KeySize: 192, Status: SAFE},
-		"2.16.840.1.101.3.4.3.24": {OID: "2.16.840.1.101.3.4.3.24", Algorithm: "SLH-DSA-SHA2-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE},
-		"2.16.840.1.101.3.4.3.25": {OID: "2.16.840.1.101.3.4.3.25", Algorithm: "SLH-DSA-SHA2-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE},
-		"2.16.840.1.101.3.4.3.26": {OID: "2.16.840.1.101.3.4.3.26", Algorithm: "SLH-DSA-SHAKE-128s", Family: "Hash-Based", KeySize: 128, Status: SAFE},
-		"2.16.840.1.101.3.4.3.27": {OID: "2.16.840.1.101.3.4.3.27", Algorithm: "SLH-DSA-SHAKE-128f", Family: "Hash-Based", KeySize: 128, Status: SAFE},
-		"2.16.840.1.101.3.4.3.28": {OID: "2.16.840.1.101.3.4.3.28", Algorithm: "SLH-DSA-SHAKE-192s", Family: "Hash-Based", KeySize: 192, Status: SAFE},
-		"2.16.840.1.101.3.4.3.29": {OID: "2.16.840.1.101.3.4.3.29", Algorithm: "SLH-DSA-SHAKE-192f", Family: "Hash-Based", KeySize: 192, Status: SAFE},
-		"2.16.840.1.101.3.4.3.30": {OID: "2.16.840.1.101.3.4.3.30", Algorithm: "SLH-DSA-SHAKE-256s", Family: "Hash-Based", KeySize: 256, Status: SAFE},
-		"2.16.840.1.101.3.4.3.31": {OID: "2.16.840.1.101.3.4.3.31", Algorithm: "SLH-DSA-SHAKE-256f", Family: "Hash-Based", KeySize: 256, Status: SAFE},
-
-		// === FN-DSA (FIPS 206) — provisional NIST CSOR OIDs, may change when standard is finalized ===
-		"2.16.840.1.101.3.4.3.32": {OID: "2.16.840.1.101.3.4.3.32", Algorithm: "FN-DSA-512", Family: "Lattice", KeySize: 512, Status: SAFE},
-		"2.16.840.1.101.3.4.3.33": {OID: "2.16.840.1.101.3.4.3.33", Algorithm: "FN-DSA-1024", Family: "Lattice", KeySize: 1024, Status: SAFE},
-
-		// === Composite Signature OIDs (IETF LAMPS draft-ietf-lamps-pq-composite-sigs) ===
-		"2.16.840.1.114027.80.8.1.1":  {OID: "2.16.840.1.114027.80.8.1.1", Algorithm: "ML-DSA-44-RSA-2048", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.2":  {OID: "2.16.840.1.114027.80.8.1.2", Algorithm: "ML-DSA-44-RSA-2048-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.3":  {OID: "2.16.840.1.114027.80.8.1.3", Algorithm: "ML-DSA-44-Ed25519", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.4":  {OID: "2.16.840.1.114027.80.8.1.4", Algorithm: "ML-DSA-44-ECDSA-P256", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.5":  {OID: "2.16.840.1.114027.80.8.1.5", Algorithm: "ML-DSA-65-RSA-3072", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.6":  {OID: "2.16.840.1.114027.80.8.1.6", Algorithm: "ML-DSA-65-RSA-3072-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.7":  {OID: "2.16.840.1.114027.80.8.1.7", Algorithm: "ML-DSA-65-RSA-4096", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.8":  {OID: "2.16.840.1.114027.80.8.1.8", Algorithm: "ML-DSA-65-RSA-4096-PSS", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.9":  {OID: "2.16.840.1.114027.80.8.1.9", Algorithm: "ML-DSA-65-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.10": {OID: "2.16.840.1.114027.80.8.1.10", Algorithm: "ML-DSA-65-Ed25519", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.11": {OID: "2.16.840.1.114027.80.8.1.11", Algorithm: "ML-DSA-87-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
-		"2.16.840.1.114027.80.8.1.12": {OID: "2.16.840.1.114027.80.8.1.12", Algorithm: "ML-DSA-87-Ed448", Family: "Composite", KeySize: 0, Status: SAFE},
-
-		// === Classical algorithms (for reference/cross-lookup) ===
-		"1.2.840.113549.1.1.1":  {OID: "1.2.840.113549.1.1.1", Algorithm: "RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL},
-		"1.2.840.113549.1.1.11": {OID: "1.2.840.113549.1.1.11", Algorithm: "SHA256-RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL},
-		"1.2.840.113549.1.1.12": {OID: "1.2.840.113549.1.1.12", Algorithm: "SHA384-RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL},
-		"1.2.840.113549.1.1.13": {OID: "1.2.840.113549.1.1.13", Algorithm: "SHA512-RSA", Family: "RSA", KeySize: 0, Status: TRANSITIONAL},
-		"1.2.840.10045.2.1":     {OID: "1.2.840.10045.2.1", Algorithm: "EC", Family: "ECDSA", KeySize: 0, Status: TRANSITIONAL},
-		"1.3.101.112":           {OID: "1.3.101.112", Algorithm: "Ed25519", Family: "EdDSA", KeySize: 256, Status: TRANSITIONAL},
-		"1.3.101.113":           {OID: "1.3.101.113", Algorithm: "Ed448", Family: "EdDSA", KeySize: 448, Status: TRANSITIONAL},
+	oidRegistry = make(map[string]OIDEntry)
+	for oid, entry := range classicalOIDs() {
+		oidRegistry[oid] = entry
+	}
+	for oid, entry := range pqcOIDs() {
+		oidRegistry[oid] = entry
 	}
 
 	// Build reverse map: algorithm name → OID

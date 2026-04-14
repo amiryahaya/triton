@@ -42,6 +42,7 @@ import (
 type ContainerSignaturesModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -56,7 +57,8 @@ func (m *ContainerSignaturesModule) Category() model.ModuleCategory { return mod
 func (m *ContainerSignaturesModule) ScanTargetType() model.ScanTargetType {
 	return model.TargetFilesystem
 }
-func (m *ContainerSignaturesModule) SetStore(s store.Store) { m.store = s }
+func (m *ContainerSignaturesModule) SetStore(s store.Store)               { m.store = s }
+func (m *ContainerSignaturesModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *ContainerSignaturesModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -75,6 +77,7 @@ func (m *ContainerSignaturesModule) Scan(ctx context.Context, target model.ScanT
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

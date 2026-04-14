@@ -142,9 +142,11 @@ type WebAppModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *WebAppModule) SetStore(s store.Store) { m.store = s }
+func (m *WebAppModule) SetStore(s store.Store)               { m.store = s }
+func (m *WebAppModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewWebAppModule(cfg *scannerconfig.Config) *WebAppModule {
 	return &WebAppModule{config: cfg}
@@ -177,6 +179,7 @@ func (m *WebAppModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			found, err := m.scanWebAppFile(ctx, reader, path)
 			if err != nil {

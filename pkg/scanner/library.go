@@ -50,9 +50,11 @@ type LibraryModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *LibraryModule) SetStore(s store.Store) { m.store = s }
+func (m *LibraryModule) SetStore(s store.Store)               { m.store = s }
+func (m *LibraryModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewLibraryModule(cfg *scannerconfig.Config) *LibraryModule {
 	return &LibraryModule{config: cfg}
@@ -85,6 +87,7 @@ func (m *LibraryModule) Scan(ctx context.Context, target model.ScanTarget, findi
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			finding := m.createLibraryFinding(path)
 			if finding == nil {

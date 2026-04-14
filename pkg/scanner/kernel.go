@@ -32,9 +32,11 @@ type KernelModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *KernelModule) SetStore(s store.Store) { m.store = s }
+func (m *KernelModule) SetStore(s store.Store)               { m.store = s }
+func (m *KernelModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewKernelModule(cfg *scannerconfig.Config) *KernelModule {
 	return &KernelModule{config: cfg}
@@ -81,6 +83,7 @@ func (m *KernelModule) scanKernelModules(ctx context.Context, target model.ScanT
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found, err := m.scanKernelModuleFile(path)
 			if err != nil {

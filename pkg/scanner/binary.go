@@ -175,9 +175,11 @@ type BinaryModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *BinaryModule) SetStore(s store.Store) { m.store = s }
+func (m *BinaryModule) SetStore(s store.Store)               { m.store = s }
+func (m *BinaryModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewBinaryModule(cfg *scannerconfig.Config) *BinaryModule {
 	return &BinaryModule{config: cfg}
@@ -210,6 +212,7 @@ func (m *BinaryModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found, err := m.scanBinaryFile(path)
 			if err != nil {

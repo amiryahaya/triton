@@ -22,16 +22,21 @@ import (
 
 // ConfigModule scans configuration files for cryptographic settings.
 // Supports sshd_config, crypto-policies, and java.security.
+//
+// Agentless limitation: parseSSHConfig and parseJavaSecurity call os.Open
+// directly against the local filesystem. Wiring fsadapter.FileReader on
+// the walker alone would produce a dead adapter — the walker would match
+// remote files, but the parsers would miss them. FileReaderAware is
+// intentionally NOT implemented until the parsers are plumbed through
+// the reader. See engine.go's FileReaderAware contract.
 type ConfigModule struct {
 	config      *scannerconfig.Config
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
-	reader      fsadapter.FileReader
 }
 
-func (m *ConfigModule) SetStore(s store.Store)               { m.store = s }
-func (m *ConfigModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
+func (m *ConfigModule) SetStore(s store.Store) { m.store = s }
 
 func NewConfigModule(cfg *scannerconfig.Config) *ConfigModule {
 	return &ConfigModule{config: cfg}
@@ -64,7 +69,6 @@ func (m *ConfigModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			results := m.parseConfigFile(ctx, reader, path)
 			for _, finding := range results {

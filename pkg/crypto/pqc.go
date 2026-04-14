@@ -34,7 +34,13 @@ func GetAlgorithmInfo(name string) (AlgorithmInfo, bool) {
 	return info, ok
 }
 
-// algorithmRegistry maps algorithm names to their PQC status.
+// algorithmRegistry is the authoritative source of truth for algorithm Status,
+// Family, and KeySize classifications. Format-specific registries (oidRegistry,
+// tlsGroupRegistry, javaAlgorithmRegistry) MUST align to this map when their
+// entry's Algorithm field names an algorithm defined here.
+//
+// On drift (caught by TestCoreAlgorithmsConsistent): update the format-specific
+// registry, not this map. Exceptions require an ADR documenting why.
 var algorithmRegistry = map[string]AlgorithmInfo{
 	// ===== SAFE algorithms (quantum-resistant) =====
 
@@ -162,6 +168,9 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 
 	// ===== TRANSITIONAL algorithms (need migration plan) =====
 
+	// AES (generic, no key size specified — conservative classification)
+	"AES": {Name: "AES", Family: "AES", KeySize: 0, Status: TRANSITIONAL, NISTStandard: true},
+
 	// AES-128 (Grover's halves to 64-bit — borderline)
 	"AES-128-GCM": {Name: "AES-128-GCM", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
 	"AES-128-CBC": {Name: "AES-128-CBC", Family: "AES", KeySize: 128, Status: TRANSITIONAL, NISTStandard: true},
@@ -192,6 +201,15 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	"Ed448":      {Name: "Ed448", Family: "EdDSA", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
 	"X25519":     {Name: "X25519", Family: "ECDH", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2035},
 	"X448":       {Name: "X448", Family: "ECDH", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
+
+	// Lowercase-IANA aliases for tlsGroupRegistry entries X25519 / X448.
+	// These let ClassifyCryptoAsset and downstream consumers resolve the
+	// IANA-form name (as emitted by LookupTLSGroup / nginx ssl_ecdh_curve
+	// directives) to the same Status as the canonical uppercase name above.
+	// Status intentionally mirrors the uppercase entry (Shor-vulnerable);
+	// the tlsGroupRegistry entries share this classification.
+	"x25519": {Name: "X25519", Family: "ECDH", KeySize: 256, Status: TRANSITIONAL, BreakYear: 2035},
+	"x448":   {Name: "X448", Family: "ECDH", KeySize: 448, Status: TRANSITIONAL, BreakYear: 2040},
 
 	// ECDSA (generic, no curve specified)
 	"ECDSA": {Name: "ECDSA", Family: "ECDSA", KeySize: 0, Status: TRANSITIONAL, BreakYear: 2030},
@@ -224,7 +242,7 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	"DSA":        {Name: "DSA", Family: "DSA", KeySize: 0, Status: DEPRECATED, BreakYear: 2025},
 	"ECDSA-P192": {Name: "ECDSA-P192", Family: "ECDSA", KeySize: 192, Status: DEPRECATED, BreakYear: 2025},
 	"SHA-1":      {Name: "SHA-1", Family: "SHA1", KeySize: 160, Status: DEPRECATED, BreakYear: 2025},
-	"MD5":        {Name: "MD5", Family: "MD5", KeySize: 128, Status: DEPRECATED, BreakYear: 2020},
+	"MD5":        {Name: "MD5", Family: "MD5", KeySize: 128, Status: UNSAFE, BreakYear: 2020},
 	"3DES":       {Name: "3DES", Family: "DES", KeySize: 168, Status: DEPRECATED, BreakYear: 2025},
 	"Blowfish":   {Name: "Blowfish", Family: "Blowfish", KeySize: 128, Status: DEPRECATED, BreakYear: 2025},
 	"CAST5":      {Name: "CAST5", Family: "CAST5", KeySize: 128, Status: DEPRECATED, BreakYear: 2025},

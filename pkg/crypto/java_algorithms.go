@@ -80,10 +80,10 @@ func buildJavaAlgRegistry() map[string]JavaAlgEntry {
 	add([]string{"DSA"}, "DSA", "DSA", DEPRECATED)
 	add([]string{"EC", "ECDSA", "ECDH"}, "ECDSA", "ECDSA", TRANSITIONAL)
 	add([]string{"Ed25519", "EdDSA"}, "Ed25519", "EdDSA", TRANSITIONAL)
-	add([]string{"Ed448"}, "Ed448", "EdDSA", SAFE)
+	add([]string{"Ed448"}, "Ed448", "EdDSA", TRANSITIONAL)
 	add([]string{"DH", "DiffieHellman"}, "DH", "DH", TRANSITIONAL)
 	add([]string{"X25519"}, "X25519", "ECDH", TRANSITIONAL)
-	add([]string{"X448"}, "X448", "ECDH", SAFE)
+	add([]string{"X448"}, "X448", "ECDH", TRANSITIONAL)
 
 	// --- Hash functions ---
 	add([]string{"MD2"}, "MD2", "MD2", UNSAFE)
@@ -94,7 +94,7 @@ func buildJavaAlgRegistry() map[string]JavaAlgEntry {
 	add([]string{"SHA-256", "SHA256"}, "SHA-256", "SHA", TRANSITIONAL)
 	add([]string{"SHA-384", "SHA384"}, "SHA-384", "SHA", SAFE)
 	add([]string{"SHA-512", "SHA512"}, "SHA-512", "SHA", SAFE)
-	add([]string{"SHA3-224"}, "SHA3-224", "SHA3", SAFE)
+	add([]string{"SHA3-224"}, "SHA3-224", "SHA3", TRANSITIONAL)
 	add([]string{"SHA3-256"}, "SHA3-256", "SHA3", SAFE)
 	add([]string{"SHA3-384"}, "SHA3-384", "SHA3", SAFE)
 	add([]string{"SHA3-512"}, "SHA3-512", "SHA3", SAFE)

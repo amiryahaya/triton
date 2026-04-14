@@ -19,6 +19,11 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
+// NOTE: This module does not currently support agentless (remote) scanning.
+// Section extraction / ZIP reading uses stdlib os.Open and zip.OpenReader
+// which are filesystem-local. Remote agentless support requires an
+// io.ReaderAt-capable FileReader adapter — tracked as a follow-up.
+
 // JavaBytecodeModule scans compiled Java artifacts (.class, .jar, .war, .ear)
 // for crypto-API string literals embedded in the constant pool. Complements
 // the source-code scanner (webapp.go) by reaching into artifacts where
@@ -28,9 +33,8 @@ import (
 // internal/scannerconfig because JAR walking + class-file parsing is IO/CPU
 // heavy on large application servers.
 type JavaBytecodeModule struct {
-	cfg    *scannerconfig.Config
-	store  store.Store
-	reader fsadapter.FileReader
+	cfg   *scannerconfig.Config
+	store store.Store
 }
 
 // NewJavaBytecodeModule constructs the module.
@@ -50,9 +54,6 @@ func (m *JavaBytecodeModule) ScanTargetType() model.ScanTargetType { return mode
 // SetStore wires the incremental-scan store (StoreAware).
 func (m *JavaBytecodeModule) SetStore(s store.Store) { m.store = s }
 
-// SetFileReader wires an agentless filesystem adapter (FileReaderAware).
-func (m *JavaBytecodeModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
-
 // Scan walks target.Value, matching .class/.jar/.war/.ear files and extracting
 // classified crypto literals from each.
 func (m *JavaBytecodeModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
@@ -65,7 +66,6 @@ func (m *JavaBytecodeModule) Scan(ctx context.Context, target model.ScanTarget, 
 		config:    m.cfg,
 		matchFile: looksLikeJavaArtifact,
 		store:     m.store,
-		reader:    m.reader,
 		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			m.scanArtifact(ctx, path, findings)
 			return nil

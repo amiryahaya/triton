@@ -15,6 +15,8 @@ func TestLookupJavaAlgorithm_JCAStandardNames(t *testing.T) {
 		{"RSA/ECB/OAEPWithSHA-256AndMGF1Padding", "RSA", TRANSITIONAL},
 		{"SHA-256", "SHA-256", TRANSITIONAL},
 		{"SHA-1", "SHA-1", DEPRECATED},
+		// MD5 is UNSAFE per algorithmRegistry (collision attacks, not just deprecated).
+		// Status must match algorithmRegistry["MD5"] — see TestCoreAlgorithmsConsistent.
 		{"MD5", "MD5", UNSAFE},
 		{"SHA256withRSA", "SHA256withRSA", TRANSITIONAL},
 		{"SHA1withDSA", "SHA1withDSA", DEPRECATED},

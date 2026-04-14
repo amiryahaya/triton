@@ -126,8 +126,8 @@ func TestAssessAssetAgility_SAFESymmetric(t *testing.T) {
 
 func TestAssessAssetAgility_DEPRECATED(t *testing.T) {
 	asset := model.CryptoAsset{
-		Algorithm: "MD5",
-		KeySize:   128,
+		Algorithm: "SHA-1",
+		KeySize:   160,
 	}
 	text := AssessAssetAgility(&asset)
 	assert.Contains(t, text, "Terhad")

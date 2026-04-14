@@ -36,8 +36,17 @@ type StoreAware interface {
 	SetStore(s store.Store)
 }
 
-// FileReaderAware is implemented by modules that can scan over an
-// abstract filesystem (local or remote via SSH).
+// FileReaderAware is implemented by modules that support agentless scanning
+// over an injected filesystem adapter.
+//
+// CONTRACT: implementing SetFileReader means the module MUST route all file
+// I/O for scan targets through the injected reader. Modules that call
+// os.Open, os.ReadFile, zip.OpenReader, or os.Readlink directly for target
+// paths MUST NOT implement this interface — engine injection would be a
+// silent no-op and remote scans would miss files.
+//
+// If you implement this, ensure EVERY file read path uses the reader,
+// including helpers called from the module's Scan loop.
 type FileReaderAware interface {
 	SetFileReader(r fsadapter.FileReader)
 }
@@ -99,148 +108,70 @@ func (e *Engine) RegisterModule(m Module) {
 	e.modules = append(e.modules, m)
 }
 
-// RegisterDefaultModules registers the built-in scanner modules.
+// defaultModuleFactories enumerates every Module constructor registered by
+// the engine on startup. Adding a new scanner: append its factory here and
+// add a profile entry in internal/scannerconfig/config.go. Engine dispatch
+// (getTargetsForModule + shouldRunModule) handles per-profile / per-tier
+// filtering, so registration itself is a pure enumeration.
+//
+// Registration order is preserved for deterministic iteration in tests;
+// concurrent execution at scan time means runtime ordering is not observable
+// to users.
+var defaultModuleFactories = []func(*scannerconfig.Config) Module{
+	func(c *scannerconfig.Config) Module { return NewCertificateModule(c) },
+	func(c *scannerconfig.Config) Module { return NewKeyModule(c) },
+	func(c *scannerconfig.Config) Module { return NewPackageModule(c) },
+	func(c *scannerconfig.Config) Module { return NewLibraryModule(c) },
+	func(c *scannerconfig.Config) Module { return NewBinaryModule(c) },
+	func(c *scannerconfig.Config) Module { return NewKernelModule(c) },
+	func(c *scannerconfig.Config) Module { return NewConfigModule(c) },
+	func(c *scannerconfig.Config) Module { return NewScriptModule(c) },
+	func(c *scannerconfig.Config) Module { return NewWebAppModule(c) },
+	func(c *scannerconfig.Config) Module { return NewProcessModule(c) },
+	func(c *scannerconfig.Config) Module { return NewNetworkModule(c) },
+	func(c *scannerconfig.Config) Module { return NewProtocolModule(c) },
+	func(c *scannerconfig.Config) Module { return NewContainerModule(c) },
+	func(c *scannerconfig.Config) Module { return NewCertStoreModule(c) },
+	func(c *scannerconfig.Config) Module { return NewDatabaseModule(c) },
+	func(c *scannerconfig.Config) Module { return NewHSMModule(c) },
+	func(c *scannerconfig.Config) Module { return NewLDAPModule(c) },
+	func(c *scannerconfig.Config) Module { return NewCodeSignModule(c) },
+	func(c *scannerconfig.Config) Module { return NewDepsModule(c) },
+	func(c *scannerconfig.Config) Module { return NewWebServerModule(c) },
+	func(c *scannerconfig.Config) Module { return NewVPNModule(c) },
+	func(c *scannerconfig.Config) Module { return NewContainerSignaturesModule(c) },
+	func(c *scannerconfig.Config) Module { return NewPasswordHashModule(c) },
+	func(c *scannerconfig.Config) Module { return NewAuthMaterialModule(c) },
+	func(c *scannerconfig.Config) Module { return NewDepsEcosystemsModule(c) },
+	func(c *scannerconfig.Config) Module { return NewServiceMeshModule(c) },
+	func(c *scannerconfig.Config) Module { return NewXMLDSigModule(c) },
+	func(c *scannerconfig.Config) Module { return NewMailServerModule(c) },
+	func(c *scannerconfig.Config) Module { return NewOCIImageModule(c) },
+	func(c *scannerconfig.Config) Module { return NewOIDCProbeModule(c) },
+	func(c *scannerconfig.Config) Module { return NewK8sLiveModule(c) },
+	func(c *scannerconfig.Config) Module { return NewDNSSECModule(c) },
+	func(c *scannerconfig.Config) Module { return NewVPNRuntimeModule(c) },
+	func(c *scannerconfig.Config) Module { return NewNetInfraModule(c) },
+	func(c *scannerconfig.Config) Module { return NewFirmwareModule(c) },
+	func(c *scannerconfig.Config) Module { return NewMessagingModule(c) },
+	func(c *scannerconfig.Config) Module { return NewDBAtRestModule(c) },
+	func(c *scannerconfig.Config) Module { return NewSecretsMgrModule(c) },
+	func(c *scannerconfig.Config) Module { return NewSupplyChainModule(c) },
+	func(c *scannerconfig.Config) Module { return NewKerberosRuntimeModule(c) },
+	func(c *scannerconfig.Config) Module { return NewEnrollmentModule(c) },
+	func(c *scannerconfig.Config) Module { return NewFIDO2Module(c) },
+	func(c *scannerconfig.Config) Module { return NewBlockchainModule(c) },
+	func(c *scannerconfig.Config) Module { return NewHelmChartModule(c) },
+	func(c *scannerconfig.Config) Module { return NewASN1OIDModule(c) },
+	func(c *scannerconfig.Config) Module { return NewJavaBytecodeModule(c) },
+}
+
+// RegisterDefaultModules registers every factory in defaultModuleFactories.
+// Per-profile / per-tier filtering happens later in the dispatch pipeline.
 func (e *Engine) RegisterDefaultModules() {
-	// Phase 1 & 2: Passive file scanners (Categories 2-5)
-	e.RegisterModule(NewCertificateModule(e.config))
-	e.RegisterModule(NewKeyModule(e.config))
-	e.RegisterModule(NewPackageModule(e.config))
-	e.RegisterModule(NewLibraryModule(e.config))
-	e.RegisterModule(NewBinaryModule(e.config))
-	e.RegisterModule(NewKernelModule(e.config))
-	e.RegisterModule(NewConfigModule(e.config))
-
-	// Phase 3: Code analysis (Categories 6-7)
-	e.RegisterModule(NewScriptModule(e.config))
-	e.RegisterModule(NewWebAppModule(e.config))
-
-	// Phase 3: Runtime & network (Categories 1, 8, 9)
-	e.RegisterModule(NewProcessModule(e.config))
-	e.RegisterModule(NewNetworkModule(e.config))
-	e.RegisterModule(NewProtocolModule(e.config))
-
-	// Phase 8: Container & OS certificate store
-	e.RegisterModule(NewContainerModule(e.config))
-	e.RegisterModule(NewCertStoreModule(e.config))
-
-	// Phase 9: Database encryption auditing & HSM scanning
-	e.RegisterModule(NewDatabaseModule(e.config))
-	e.RegisterModule(NewHSMModule(e.config))
-
-	// Phase 10: P-Cert-inspired features
-	e.RegisterModule(NewLDAPModule(e.config))
-	e.RegisterModule(NewCodeSignModule(e.config))
-
-	// Phase 12: Dependency crypto reachability
-	e.RegisterModule(NewDepsModule(e.config))
-
-	// Sprint A1+A3+C1: web server TLS configs, VPN configs,
-	// container supply-chain signatures. Each is a config-file
-	// scanner targeting TargetFilesystem; they share the
-	// walker/finding pipeline used by the older config module.
-	e.RegisterModule(NewWebServerModule(e.config))
-	e.RegisterModule(NewVPNModule(e.config))
-	e.RegisterModule(NewContainerSignaturesModule(e.config))
-
-	// Fast Wins sprint: password hashing posture and
-	// miscellaneous auth material (Kerberos keytabs, GPG keys,
-	// Tor v3 onion keys, DNSSEC zone-signing keys, 802.1X
-	// supplicant configs, systemd encrypted credentials).
-	// certstore gains Windows Root store + Java cacerts
-	// support via internal extensions (no new module).
-	e.RegisterModule(NewPasswordHashModule(e.config))
-	e.RegisterModule(NewAuthMaterialModule(e.config))
-
-	// Enterprise sprint: multi-language dependency reachability
-	// (Python/Node/Java), service mesh workload identity certs
-	// (Istio/Linkerd/Consul Connect), XML DSig (SAML IdP/SP
-	// metadata), mail server crypto (Postfix/Sendmail/Exim/DKIM).
-	e.RegisterModule(NewDepsEcosystemsModule(e.config))
-	e.RegisterModule(NewServiceMeshModule(e.config))
-	e.RegisterModule(NewXMLDSigModule(e.config))
-	e.RegisterModule(NewMailServerModule(e.config))
-
-	// Wave 0 — OCI image scanner. Not in any profile's default module
-	// list; only runs when --image is supplied, which adds TargetOCIImage
-	// entries to cfg.ScanTargets. Engine dispatch naturally skips it
-	// when no OCI targets exist.
-	e.RegisterModule(NewOCIImageModule(e.config))
-
-	// Wave 2 — OIDC/JWKS discovery probe. Not in any profile's
-	// default module list; only runs when --oidc-endpoint is supplied,
-	// which adds TargetNetwork entries to cfg.ScanTargets. Engine
-	// dispatch naturally skips it when no OIDC targets exist.
-	e.RegisterModule(NewOIDCProbeModule(e.config))
-
-	// Sprint 1b — live Kubernetes cluster scanner. Enterprise-only.
-	// Only runs when --kubeconfig is supplied, which adds a
-	// TargetKubernetesCluster entry to cfg.ScanTargets. Engine
-	// dispatch naturally skips it when no Kubernetes targets exist.
-	e.RegisterModule(NewK8sLiveModule(e.config))
-
-	// Wave 2 §6.1 — DNSSEC zone file scanner. Parses BIND/NSD/Knot
-	// zone files for DNSKEY/DS/RRSIG algorithm inventory. Pro tier.
-	e.RegisterModule(NewDNSSECModule(e.config))
-
-	// Wave 2 §6.3 — Live VPN state scanner. Runs ipsec statusall,
-	// wg show, openvpn status to capture negotiated algorithms.
-	// Pro tier, TargetProcess.
-	e.RegisterModule(NewVPNRuntimeModule(e.config))
-
-	// Wave 2 §6.5 — Network infrastructure config scanner. Parses
-	// SNMPv3, BGP, NTS, syslog-TLS, 802.1X/RADIUS configs. Pro tier.
-	e.RegisterModule(NewNetInfraModule(e.config))
-
-	// Wave 2 §6.4 — Firmware / Secure Boot scanner. EFI variables,
-	// MOK chain, TPM version. Linux-first, Pro tier.
-	e.RegisterModule(NewFirmwareModule(e.config))
-
-	// Wave 3 — Messaging broker TLS/SASL config scanner. Kafka,
-	// RabbitMQ, NATS, Mosquitto, Redis. Pro tier.
-	e.RegisterModule(NewMessagingModule(e.config))
-
-	// Wave 3 — Database at-rest encryption scanner. Oracle Wallet,
-	// MySQL keyring, MSSQL TDE, PostgreSQL TDE, LUKS crypttab. Pro tier.
-	e.RegisterModule(NewDBAtRestModule(e.config))
-
-	// Wave 3 — Secrets manager config scanner. Vault seal/TLS,
-	// SOPS key refs, AWS KMS refs. Enterprise tier.
-	e.RegisterModule(NewSecretsMgrModule(e.config))
-
-	// Wave 3 — CI/CD provenance and supply chain signing scanner.
-	// SLSA, in-toto, Sigstore/Fulcio, GitHub Actions OIDC. Pro tier.
-	e.RegisterModule(NewSupplyChainModule(e.config))
-
-	// Wave 3 — Kerberos runtime enctype enumeration. klist -e +
-	// krb5.conf. Enterprise tier.
-	e.RegisterModule(NewKerberosRuntimeModule(e.config))
-
-	// Wave 3 — SCEP/EST/ACME enrollment scanner. Certbot keys,
-	// renewal configs, step-ca. Pro tier.
-	e.RegisterModule(NewEnrollmentModule(e.config))
-
-	// Wave 4 — FIDO2/WebAuthn credential scanner. pam-u2f keys,
-	// WebAuthn RP pubKeyCredParams. Pro tier.
-	e.RegisterModule(NewFIDO2Module(e.config))
-
-	// Wave 4 — Blockchain wallet scanner. Bitcoin wallet.dat,
-	// Ethereum keystore cipher/KDF, Solana keypair. Pro tier.
-	e.RegisterModule(NewBlockchainModule(e.config))
-
-	// Wave 4 — Helm chart CBOM scanner. Chart.yaml identity,
-	// values.yaml TLS/cert-manager references. Pro tier.
-	e.RegisterModule(NewHelmChartModule(e.config))
-
-	// ASN.1 OID byte scanner (heavy). Always registered; profile gating is
-	// enforced via the per-profile module list in internal/scannerconfig
-	// (asn1_oid appears only in the comprehensive profile). shouldRunModule
-	// skips unlisted modules at dispatch time.
-	e.RegisterModule(NewASN1OIDModule(e.config))
-
-	// Java bytecode scanner (heavy). Always registered; profile gating is
-	// enforced via the per-profile module list in internal/scannerconfig
-	// (java_bytecode appears only in the comprehensive profile).
-	e.RegisterModule(NewJavaBytecodeModule(e.config))
+	for _, factory := range defaultModuleFactories {
+		e.RegisterModule(factory(e.config))
+	}
 }
 
 // Scan executes all registered modules against configured targets.

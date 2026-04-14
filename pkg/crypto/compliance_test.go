@@ -63,7 +63,7 @@ func TestGetCompliance_WarningUnsafe(t *testing.T) {
 }
 
 func TestGetCompliance_WarningDeprecated(t *testing.T) {
-	ci := GetCompliance("MD5")
+	ci := GetCompliance("SHA-1")
 	assert.Contains(t, ci.Warning, "deprecated")
 }
 

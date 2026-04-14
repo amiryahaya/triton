@@ -156,3 +156,23 @@ func TestScanJAR_RejectsZipBomb(t *testing.T) {
 	}
 }
 
+// TestParseClass_RejectsTruncatedLong verifies the fixed-size-entry bounds
+// check in cpEntrySize. A Long entry declares 8 body bytes; if we truncate
+// the file so only 2 of those 8 bytes are present, the parser should error
+// cleanly instead of walking past len(data) on the next iteration.
+func TestParseClass_RejectsTruncatedLong(t *testing.T) {
+	// Header: magic + version + cp_count=3 (i.e. 2 actual entries, but Long
+	// consumes two slots, so only 1 Long entry fits).
+	var buf bytes.Buffer
+	buf.Write([]byte{0xCA, 0xFE, 0xBA, 0xBE})
+	binary.Write(&buf, binary.BigEndian, uint16(0))
+	binary.Write(&buf, binary.BigEndian, uint16(55))
+	binary.Write(&buf, binary.BigEndian, uint16(3)) // cp_count
+	buf.WriteByte(tagLong)
+	buf.Write([]byte{0x00, 0x00}) // only 2 of the required 8 body bytes
+
+	_, err := ParseClass(buf.Bytes())
+	if err == nil {
+		t.Error("expected error on truncated Long body; got nil")
+	}
+}

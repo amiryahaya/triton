@@ -119,6 +119,11 @@ func equalMagic(b []byte) bool {
 // cpEntrySize returns the size in bytes of a constant-pool entry body (excluding
 // the tag byte, which has already been consumed). consumesTwoSlots is true for
 // Long/Double which advance the pool index by 2 instead of 1.
+//
+// Every branch bounds-checks against len(data) so a truncated fixed-size entry
+// (Long/Double/Class/Methodref/…) is rejected cleanly instead of silently
+// accepted — the subsequent `off += size` would then walk off the end of the
+// buffer and raise a far-less-helpful error on the next iteration.
 func cpEntrySize(tag byte, data []byte, off int) (size int, consumesTwoSlots bool, err error) {
 	switch tag {
 	case tagUtf8:
@@ -128,15 +133,30 @@ func cpEntrySize(tag byte, data []byte, off int) (size int, consumesTwoSlots boo
 		strLen := int(binary.BigEndian.Uint16(data[off : off+2]))
 		return 2 + strLen, false, nil
 	case tagInteger, tagFloat:
+		if off+4 > len(data) {
+			return 0, false, fmt.Errorf("integer/float body truncated at offset %d", off)
+		}
 		return 4, false, nil
 	case tagLong, tagDouble:
+		if off+8 > len(data) {
+			return 0, false, fmt.Errorf("long/double body truncated at offset %d", off)
+		}
 		return 8, true, nil
 	case tagClass, tagString, tagMethodType, tagModule, tagPackage:
+		if off+2 > len(data) {
+			return 0, false, fmt.Errorf("class/string/methodtype/module/package index truncated at offset %d", off)
+		}
 		return 2, false, nil
 	case tagFieldref, tagMethodref, tagInterfaceMethodref,
 		tagNameAndType, tagDynamic, tagInvokeDynamic:
+		if off+4 > len(data) {
+			return 0, false, fmt.Errorf("ref/nameandtype/dynamic body truncated at offset %d", off)
+		}
 		return 4, false, nil
 	case tagMethodHandle:
+		if off+3 > len(data) {
+			return 0, false, fmt.Errorf("methodhandle body truncated at offset %d", off)
+		}
 		return 3, false, nil
 	default:
 		return 0, false, fmt.Errorf("unknown constant-pool tag %d", tag)

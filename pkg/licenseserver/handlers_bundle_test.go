@@ -62,8 +62,8 @@ func TestHandleDownloadBundle_LinuxTarGz(t *testing.T) {
 	defer gr.Close()
 
 	tr := tar.NewReader(gr)
-	files := make(map[string]string)     // name → content
-	modes := make(map[string]int64)      // name → mode
+	files := make(map[string]string) // name → content
+	modes := make(map[string]int64)  // name → mode
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {

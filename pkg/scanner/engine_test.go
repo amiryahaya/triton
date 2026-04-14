@@ -600,6 +600,17 @@ func TestRegisterDefaultModules_AllKnownModulesPresent(t *testing.T) {
 	for _, name := range expected {
 		assert.Truef(t, got[name], "missing module: %s", name)
 	}
+	// F6: surfacing surplus modules with specific names gives a clearer
+	// failure message than the count-mismatch assertion below.
+	expectedSet := make(map[string]bool, len(expected))
+	for _, n := range expected {
+		expectedSet[n] = true
+	}
+	for _, m := range eng.modules {
+		if !expectedSet[m.Name()] {
+			t.Errorf("unexpected module registered (add to expected list): %s", m.Name())
+		}
+	}
 	assert.Len(t, eng.modules, len(expected),
 		"module count drift: expected %d, got %d", len(expected), len(eng.modules))
 }

@@ -6,23 +6,32 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 )
 
-// TestFileReaderAware_OnlyAgentlessCompatibleModules asserts that only
-// modules which actually honor the injected FileReader implement
-// FileReaderAware. Prevents the "dead adapter" pattern from returning —
-// i.e. modules that store the reader but call os.Open / zip.OpenReader
-// directly, which would silently miss remote files in agentless scans.
+// TestFileReaderAware_OnlyAgentlessCompatibleModules asserts that the
+// modules known to read the local filesystem directly (os.Open,
+// archive/zip.OpenReader, os.Readlink) do NOT implement FileReaderAware
+// — implementing the interface without honoring the reader produces a
+// "dead adapter" that silently misses remote files in agentless scans.
 //
-// The modules named in deadAdapterModules below read the local filesystem
-// via stdlib (os.Open, archive/zip.OpenReader) and cannot service a
-// non-local FileReader today. If one of them re-adds SetFileReader
-// without also plumbing the reader into section extraction / ZIP
-// decoding, this test will fail with a clear explanation of why.
+// This test guards against two regression cases:
+//  1. A dead-listed module re-adds SetFileReader without plumbing the
+//     reader into its file-I/O helpers (e.g. section extraction, ZIP
+//     decoding, config parsing).
+//  2. A new scanner is added to the dead-adapter set (listed here) but
+//     forgets to drop SetFileReader.
+//
+// Ideal future state: invert to a fullyWiredModules allowlist so every
+// FileReaderAware implementer must explicitly justify itself via the
+// audited list. Deferred pending a full audit of the ~25 existing
+// FileReaderAware implementers.
 func TestFileReaderAware_OnlyAgentlessCompatibleModules(t *testing.T) {
 	cfg := &scannerconfig.Config{}
 	e := New(cfg)
 	e.RegisterDefaultModules()
 
-	deadAdapterModules := map[string]bool{
+	knownDeadAdapterModules := map[string]bool{
+		// asn1_oid, java_bytecode: read ELF/Mach-O/PE sections and ZIP
+		// entries through stdlib directly; the injected reader would
+		// never be consulted. See engine.go's FileReaderAware contract.
 		"asn1_oid":      true,
 		"java_bytecode": true,
 		// config: parseSSHConfig and parseJavaSecurity call os.Open
@@ -34,7 +43,7 @@ func TestFileReaderAware_OnlyAgentlessCompatibleModules(t *testing.T) {
 
 	for _, m := range e.modules {
 		name := m.Name()
-		if _, implements := m.(FileReaderAware); implements && deadAdapterModules[name] {
+		if _, implements := m.(FileReaderAware); implements && knownDeadAdapterModules[name] {
 			t.Errorf(
 				"%s implements FileReaderAware but does not honor the reader "+
 					"(it reads via os.Open / zip.OpenReader). Remove SetFileReader "+

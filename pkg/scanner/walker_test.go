@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
 func TestWalkTargetDepthEnforcement(t *testing.T) {
@@ -59,7 +61,7 @@ func TestWalkTargetDepthEnforcement(t *testing.T) {
 				},
 				config:    &scannerconfig.Config{},
 				matchFile: func(path string) bool { return filepath.Ext(path) == ".pem" },
-				processFile: func(path string) error {
+				processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 					found = append(found, path)
 					return nil
 				},
@@ -93,7 +95,7 @@ func TestWalkTargetMaxFileSize(t *testing.T) {
 			MaxFileSize: 500, // Only files under 500 bytes
 		},
 		matchFile: func(path string) bool { return true },
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found = append(found, filepath.Base(path))
 			return nil
 		},
@@ -123,7 +125,7 @@ func TestWalkTargetExcludePatterns(t *testing.T) {
 			ExcludePatterns: []string{".git"},
 		},
 		matchFile: func(path string) bool { return filepath.Ext(path) == ".pem" },
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found = append(found, filepath.Base(path))
 			return nil
 		},
@@ -167,7 +169,7 @@ func TestWalkerFileCounters(t *testing.T) {
 		},
 		config:       &scannerconfig.Config{},
 		matchFile:    func(path string) bool { return filepath.Ext(path) == ".pem" },
-		processFile:  func(path string) error { return nil },
+		processFile:  func(_ context.Context, _ fsadapter.FileReader, path string) error { return nil },
 		filesScanned: &scanned,
 		filesMatched: &matched,
 	})
@@ -192,7 +194,7 @@ func TestWalkerFileCountersNil(t *testing.T) {
 		},
 		config:    &scannerconfig.Config{},
 		matchFile: func(path string) bool { return true },
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			found = append(found, path)
 			return nil
 		},

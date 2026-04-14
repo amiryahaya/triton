@@ -11,6 +11,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
 // Compile-time interface check
@@ -184,7 +185,7 @@ func main() {
 
 	// Test the pattern matching directly
 	m := NewWebAppModule(&scannerconfig.Config{})
-	found, err := m.scanWebAppFile(goFile)
+	found, err := m.scanWebAppFile(context.Background(), fsadapter.NewLocalReader(), goFile)
 	require.NoError(t, err)
 	require.NotEmpty(t, found, "should find crypto patterns in Go source")
 }

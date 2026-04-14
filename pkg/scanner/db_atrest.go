@@ -36,6 +36,7 @@ import (
 type DBAtRestModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -49,6 +50,7 @@ func (m *DBAtRestModule) Name() string                         { return "db_atre
 func (m *DBAtRestModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *DBAtRestModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *DBAtRestModule) SetStore(s store.Store)               { m.store = s }
+func (m *DBAtRestModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *DBAtRestModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -71,6 +73,7 @@ func (m *DBAtRestModule) Scan(ctx context.Context, target model.ScanTarget, find
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			results := m.parseFile(ctx, reader, path)
 			for _, f := range results {

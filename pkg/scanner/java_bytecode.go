@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -93,13 +94,20 @@ func (m *JavaBytecodeModule) scanArtifact(ctx context.Context, path string, find
 		if err != nil {
 			return
 		}
-		// Group by class path for cleaner evidence trail.
+		// Group by class path for cleaner evidence trail. Sort class paths
+		// before emission so diff/trend comparisons and test assertions see
+		// a deterministic finding order (Go map iteration is randomized).
 		byClass := map[string][]string{}
 		for _, h := range hits {
 			byClass[h.ClassPath] = append(byClass[h.ClassPath], h.Value)
 		}
-		for classPath, values := range byClass {
-			m.classifyAndEmit(ctx, path, classPath, values, findings)
+		classPaths := make([]string, 0, len(byClass))
+		for cp := range byClass {
+			classPaths = append(classPaths, cp)
+		}
+		sort.Strings(classPaths)
+		for _, classPath := range classPaths {
+			m.classifyAndEmit(ctx, path, classPath, byClass[classPath], findings)
 		}
 	}
 }

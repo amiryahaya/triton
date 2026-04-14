@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // classMagic is the big-endian 4-byte header every JVM class file starts with.
@@ -180,8 +181,10 @@ func ScanJAR(path string) ([]JARHit, error) {
 }
 
 func isClassEntry(name string) bool {
-	n := len(name)
-	return n > 6 && name[n-6:] == ".class"
+	// Use strings.HasSuffix so a hypothetical entry literally named
+	// ".class" (legal, but weird) is still matched, and so we avoid the
+	// off-by-one hazard of a hand-rolled suffix check.
+	return strings.HasSuffix(name, ".class")
 }
 
 func readClassFromZip(f *zip.File) ([]string, error) {

@@ -61,17 +61,7 @@ func TestASN1OIDModule_ScansSelfExecutable(t *testing.T) {
 	t.Logf("self-scan produced %d findings", len(collected))
 }
 
-func TestASN1OIDModule_SkipsSystemDirs(t *testing.T) {
-	if !shouldSkipOIDDir("/proc") {
-		t.Error("should skip /proc")
-	}
-	if !shouldSkipOIDDir("/sys") {
-		t.Error("should skip /sys")
-	}
-	if !shouldSkipOIDDir("/home/user/.git/objects") {
-		t.Error("should skip paths inside .git")
-	}
-	if shouldSkipOIDDir("/usr/bin") {
-		t.Error("should NOT skip /usr/bin")
-	}
-}
+// Note: system-dir skip (/proc, /sys, .git) is now enforced by the shared
+// walkTarget helper via the default exclude patterns in
+// internal/scannerconfig. Covered by walker tests and by
+// TestDefaultExcludePatterns in the config test suite.

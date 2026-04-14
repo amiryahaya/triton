@@ -2,9 +2,7 @@ package scanner
 
 import (
 	"context"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +11,7 @@ import (
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner/binsections"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 // ASN1OIDModule walks executable binaries, extracts read-only data sections,
@@ -20,11 +19,12 @@ import (
 // registry. This catches algorithms embedded in stripped binaries where
 // symbol-based and string-based scanners miss them.
 //
-// Detection method: "asn1-oid". Runs only in the comprehensive profile
-// because section extraction on large binaries is IO + CPU heavy (~50-200ms
-// per binary). Not suited for quick/standard profiles.
+// Detection method: "asn1-oid". Gated to the comprehensive profile in
+// internal/scannerconfig because section extraction on large binaries is
+// IO + CPU heavy (~50-200ms per binary).
 type ASN1OIDModule struct {
-	cfg *scannerconfig.Config
+	cfg   *scannerconfig.Config
+	store store.Store
 }
 
 // NewASN1OIDModule constructs an ASN1OIDModule for the given config.
@@ -41,65 +41,30 @@ func (m *ASN1OIDModule) Category() model.ModuleCategory { return model.CategoryP
 // ScanTargetType returns the target type this module handles.
 func (m *ASN1OIDModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 
-// Scan walks target.Path (expected to be a filesystem root), finds executable
-// binaries, extracts their read-only sections, and emits a Finding for each
-// classified OID.
+// SetStore wires the incremental-scan store (StoreAware). Matches BinaryModule.
+func (m *ASN1OIDModule) SetStore(s store.Store) { m.store = s }
+
+// Scan walks target.Value using the shared walkTarget helper (inherits depth
+// limits, exclude patterns, max file size, symlink skip, and incremental
+// hash-based skip when a store is attached), then for each file whose magic
+// bytes match a supported binary format extracts read-only sections and emits
+// a Finding per classified OID.
 func (m *ASN1OIDModule) Scan(ctx context.Context, target model.ScanTarget, findings chan<- *model.Finding) error {
-	root := target.Value
-	if root == "" {
+	if target.Value == "" {
 		return nil
 	}
 
-	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if d.IsDir() {
-			if shouldSkipOIDDir(path) {
-				return filepath.SkipDir
-			}
+	return walkTarget(walkerConfig{
+		ctx:       ctx,
+		target:    target,
+		config:    m.cfg,
+		matchFile: binsections.LooksLikeBinary,
+		store:     m.store,
+		processFile: func(path string) error {
+			m.scanBinary(ctx, path, findings)
 			return nil
-		}
-		info, err := d.Info()
-		if err != nil || !info.Mode().IsRegular() {
-			return nil
-		}
-		// Cap per-file size to avoid unbounded work on huge artifacts
-		// (container images, VM disks, core dumps). 500 MB is generous
-		// relative to typical stripped binaries (<50 MB).
-		if info.Size() > 500*1024*1024 {
-			return nil
-		}
-		// Fast-reject non-binaries by magic. ExtractSections does this too,
-		// but doing it here avoids allocating the full file descriptor path.
-		if !looksLikeBinary(path) {
-			return nil
-		}
-		m.scanBinary(ctx, path, findings)
-		return nil
+		},
 	})
-}
-
-// skippedSystemDirs is the set of kernel/virtual filesystem roots that
-// must never be walked — they contain synthetic files that block, recurse
-// infinitely, or expose sensitive state.
-var skippedSystemDirs = map[string]bool{
-	"/proc": true, "/sys": true, "/dev": true, "/run": true,
-}
-
-// shouldSkipOIDDir returns true for directories the ASN.1 OID walker must
-// avoid: kernel virtual filesystems and git internals anywhere in tree.
-func shouldSkipOIDDir(path string) bool {
-	if skippedSystemDirs[path] {
-		return true
-	}
-	if strings.Contains(path, "/.git/") || strings.HasSuffix(path, "/.git") {
-		return true
-	}
-	return false
 }
 
 func (m *ASN1OIDModule) scanBinary(ctx context.Context, path string, findings chan<- *model.Finding) {
@@ -168,42 +133,4 @@ func functionForFamily(family string) string {
 		return "Key agreement"
 	}
 	return ""
-}
-
-// looksLikeBinary performs a 4-byte magic check to quickly reject
-// non-binaries during the filesystem walk.
-func looksLikeBinary(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = f.Close() }()
-	var head [4]byte
-	n, _ := f.Read(head[:])
-	if n < 2 {
-		return false
-	}
-	// ELF
-	if n >= 4 && head[0] == 0x7f && head[1] == 'E' && head[2] == 'L' && head[3] == 'F' {
-		return true
-	}
-	// Mach-O (single arch, 64 or 32 bit, either endian, or fat)
-	if n >= 4 {
-		magicHead := [4]byte{head[0], head[1], head[2], head[3]}
-		for _, magic := range [][4]byte{
-			{0xCF, 0xFA, 0xED, 0xFE},
-			{0xFE, 0xED, 0xFA, 0xCF},
-			{0xCE, 0xFA, 0xED, 0xFE},
-			{0xCA, 0xFE, 0xBA, 0xBE},
-		} {
-			if magicHead == magic {
-				return true
-			}
-		}
-	}
-	// PE (MZ header)
-	if head[0] == 'M' && head[1] == 'Z' {
-		return true
-	}
-	return false
 }

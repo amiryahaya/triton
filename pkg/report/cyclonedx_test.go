@@ -277,7 +277,7 @@ func TestFindingToComponent_OIDPopulation(t *testing.T) {
 	require.NotNil(t, comp.CryptoProperties)
 	assert.Equal(t, "2.16.840.1.101.3.4.4.2", comp.CryptoProperties.OID, "ML-KEM-768 should have OID populated")
 
-	// AES-256-GCM has no OID — should be empty
+	// AES-256-GCM now has an OID in the expanded registry (NIST AES-256-GCM)
 	f2 := &model.Finding{
 		Module: "configs",
 		CryptoAsset: &model.CryptoAsset{
@@ -289,7 +289,20 @@ func TestFindingToComponent_OIDPopulation(t *testing.T) {
 	}
 	comp2 := findingToComponent(f2)
 	require.NotNil(t, comp2.CryptoProperties)
-	assert.Equal(t, "", comp2.CryptoProperties.OID, "AES-256-GCM has no OID")
+	assert.Equal(t, "2.16.840.1.101.3.4.1.46", comp2.CryptoProperties.OID, "AES-256-GCM should have OID from expanded registry")
+
+	// Genuinely unregistered algorithm — should be empty
+	f3 := &model.Finding{
+		Module: "configs",
+		CryptoAsset: &model.CryptoAsset{
+			ID:        "a3",
+			Algorithm: "totally-not-a-real-algorithm",
+			Function:  "Unknown",
+		},
+	}
+	comp3 := findingToComponent(f3)
+	require.NotNil(t, comp3.CryptoProperties)
+	assert.Equal(t, "", comp3.CryptoProperties.OID, "unknown algorithm should have no OID")
 }
 
 func TestFindingToComponent_AES256NISTLevel(t *testing.T) {

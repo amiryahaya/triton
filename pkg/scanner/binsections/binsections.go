@@ -38,7 +38,7 @@ func ExtractSections(path string) ([]Section, error) {
 	}
 	var header [4]byte
 	n, _ := f.Read(header[:])
-	f.Close()
+	_ = f.Close()
 	if n < 2 {
 		return nil, ErrUnsupportedFormat
 	}

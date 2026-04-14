@@ -19,7 +19,7 @@ func ExtractPESections(path string) ([]Section, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pe.Open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	out := make([]Section, 0, 4)
 	for _, s := range f.Sections {

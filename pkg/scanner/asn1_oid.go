@@ -128,7 +128,7 @@ func looksLikeBinary(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var head [4]byte
 	n, _ := f.Read(head[:])
 	if n < 2 {

@@ -28,13 +28,13 @@ func ExtractMachOSections(path string) ([]Section, error) {
 		if ferr != nil {
 			return nil, fmt.Errorf("macho.Open %s: %w", path, err)
 		}
-		defer fat.Close()
+		defer func() { _ = fat.Close() }()
 		if len(fat.Arches) == 0 {
 			return nil, fmt.Errorf("macho fat %s: no arches", path)
 		}
 		return extractMachOFile(fat.Arches[0].File), nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return extractMachOFile(f), nil
 }
 

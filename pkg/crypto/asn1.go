@@ -49,7 +49,7 @@ func FindOIDsInBuffer(buf []byte) []FoundOID {
 // tryDecodeOIDAt attempts to decode a DER OID starting at offset. Returns
 // the OID, total bytes consumed (tag+len+content), and ok=false if any
 // validity rule fails.
-func tryDecodeOIDAt(buf []byte, offset int) (string, int, bool) {
+func tryDecodeOIDAt(buf []byte, offset int) (oid string, consumed int, ok bool) {
 	if offset+2 > len(buf) || buf[offset] != 0x06 {
 		return "", 0, false
 	}

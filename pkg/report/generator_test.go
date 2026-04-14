@@ -309,3 +309,45 @@ func TestGenerateHTMLNoPolicySummary(t *testing.T) {
 	assert.NotContains(t, html, "Violations by Rule")
 	assert.NotContains(t, html, "Per-System Policy Results")
 }
+
+func TestGenerateHTMLHybridBadge(t *testing.T) {
+	tmpFile := t.TempDir() + "/hybrid.html"
+	g := New("")
+	result := &model.ScanResult{
+		ID: "hybrid-scan",
+		Metadata: model.ScanMetadata{
+			Timestamp:   time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC),
+			Hostname:    "host",
+			ScanProfile: "comprehensive",
+		},
+		Systems: []model.System{
+			{
+				ID:               "sys-hybrid",
+				Name:             "TLS 1.3 w/ X25519MLKEM768",
+				CriticalityLevel: "Tinggi",
+				InUse:            true,
+				CryptoAssets: []model.CryptoAsset{
+					{
+						Algorithm:           "X25519MLKEM768",
+						Function:            "Key agreement",
+						KeySize:             256,
+						PQCStatus:           "SAFE",
+						IsHybrid:            true,
+						ComponentAlgorithms: []string{"X25519", "ML-KEM-768"},
+					},
+				},
+				CBOMRefs: []string{"CBOM #1"},
+			},
+		},
+	}
+
+	require.NoError(t, g.GenerateHTML(result, tmpFile))
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	out := string(content)
+
+	assert.Contains(t, out, "X25519MLKEM768")
+	assert.Contains(t, out, "hybrid-badge")
+	assert.Contains(t, out, ">HYBRID<")
+	assert.Contains(t, out, "Hybrid: X25519 + ML-KEM-768")
+}

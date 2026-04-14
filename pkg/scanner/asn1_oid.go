@@ -24,14 +24,20 @@ import (
 // internal/scannerconfig because section extraction on large binaries is
 // IO + CPU heavy (~50-200ms per binary).
 type ASN1OIDModule struct {
-	cfg   *scannerconfig.Config
-	store store.Store
+	cfg    *scannerconfig.Config
+	store  store.Store
+	reader fsadapter.FileReader
 }
 
 // NewASN1OIDModule constructs an ASN1OIDModule for the given config.
 func NewASN1OIDModule(cfg *scannerconfig.Config) *ASN1OIDModule {
 	return &ASN1OIDModule{cfg: cfg}
 }
+
+// SetFileReader wires an agentless filesystem adapter (FileReaderAware).
+// Matches the pattern adopted by every other comprehensive-profile module
+// so asn1_oid participates in agentless scans when a remote reader is set.
+func (m *ASN1OIDModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 // Name returns the module's canonical name.
 func (m *ASN1OIDModule) Name() string { return "asn1_oid" }
@@ -61,6 +67,7 @@ func (m *ASN1OIDModule) Scan(ctx context.Context, target model.ScanTarget, findi
 		config:    m.cfg,
 		matchFile: binsections.LooksLikeBinary,
 		store:     m.store,
+		reader:    m.reader,
 		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			m.scanBinary(ctx, path, findings)
 			return nil
@@ -103,6 +110,10 @@ func buildFinding(path, sectionName string, c crypto.ClassifiedOID) *model.Findi
 		Function:  functionForFamily(c.Entry.Family),
 		OID:       c.OID,
 		PQCStatus: string(c.Entry.Status),
+	}
+	if crypto.IsCompositeOID(c.OID) {
+		asset.IsHybrid = true
+		asset.ComponentAlgorithms = crypto.CompositeComponents(c.Entry.Algorithm)
 	}
 	return &model.Finding{
 		ID:       uuid.New().String(),

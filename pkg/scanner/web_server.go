@@ -208,7 +208,7 @@ func (m *WebServerModule) matchNginxLine(path, line string, out *[]*model.Findin
 		}
 	case "ssl_ecdh_curve":
 		for _, c := range strings.Split(value, ":") {
-			appendNonNil(out, m.curveFinding(path, "nginx", c))
+			appendNonNil(out, m.groupOrCurveFinding(path, "nginx", c))
 		}
 	case "add_header":
 		if strings.Contains(strings.ToLower(value), "strict-transport-security") {
@@ -276,6 +276,22 @@ func (m *WebServerModule) matchApacheLine(path, line string, out *[]*model.Findi
 	case "header":
 		if strings.Contains(strings.ToLower(line), "strict-transport-security") {
 			appendNonNil(out, m.hstsFinding(path, "apache", line))
+		}
+	case "sslopensslconfcmd":
+		// Apache exposes OpenSSL config commands directly, e.g.
+		//   SSLOpenSSLConfCmd Groups X25519MLKEM768:X25519
+		// The first arg is the OpenSSL directive name; we only care
+		// about `Groups` (TLS supported groups list) for hybrid PQC
+		// detection. Other directives are silently skipped.
+		if len(parts) < 3 {
+			return
+		}
+		if !strings.EqualFold(parts[1], "Groups") {
+			return
+		}
+		raw := strings.Trim(strings.Join(parts[2:], " "), `"`)
+		for _, g := range strings.Split(raw, ":") {
+			appendNonNil(out, m.groupOrCurveFinding(path, "apache", g))
 		}
 	}
 }
@@ -353,7 +369,7 @@ func (m *WebServerModule) parseCaddyfile(path string, data []byte) []*model.Find
 			}
 		case "curves":
 			for _, c := range parts[1:] {
-				appendNonNil(&out, m.curveFinding(path, "caddy", c))
+				appendNonNil(&out, m.groupOrCurveFinding(path, "caddy", c))
 			}
 		case "header":
 			if strings.Contains(strings.ToLower(stripped), "strict-transport-security") {
@@ -443,6 +459,51 @@ func (m *WebServerModule) curveFinding(path, server, raw string) *model.Finding 
 		KeySize:   info.KeySize,
 		Purpose:   server + " ssl_ecdh_curve / curves",
 	}
+	crypto.ClassifyCryptoAsset(asset)
+	return webServerFinding(path, asset)
+}
+
+// groupOrCurveFinding first consults the TLS group registry (which
+// carries PQC/hybrid metadata like X25519MLKEM768 →
+// ComponentAlgorithms=["X25519","ML-KEM-768"]). If the token isn't
+// a known TLS group, it falls back to the classical curve path so
+// existing behavior for ECDHE curves is preserved.
+//
+// Callers invoke this once per group token, so a multi-group
+// directive like `ssl_ecdh_curve X25519MLKEM768:X25519` produces
+// one finding per token (hybrid + classical emitted separately).
+func (m *WebServerModule) groupOrCurveFinding(path, server, raw string) *model.Finding {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return nil
+	}
+	g, ok := crypto.LookupTLSGroupByName(name)
+	if !ok {
+		// Unknown in the TLS group registry — fall back to the
+		// algorithm classifier (handles "X25519", "secp384r1", etc.).
+		return m.curveFinding(path, server, name)
+	}
+	function := "TLS ECDH curve"
+	if g.IsHybrid {
+		function = "TLS key exchange group"
+	}
+	asset := &model.CryptoAsset{
+		ID:                  uuid.Must(uuid.NewV7()).String(),
+		Function:            function,
+		Algorithm:           g.Name,
+		KeySize:             g.KeySize,
+		Purpose:             server + " ssl_ecdh_curve / SSLOpenSSLConfCmd Groups / curves",
+		PQCStatus:           string(g.Status),
+		IsHybrid:            g.IsHybrid,
+		ComponentAlgorithms: g.ComponentAlgorithms,
+	}
+	// Run the standard classifier so downstream consumers see the
+	// same MigrationPriority/BreakYear/NACSALabel fields as every
+	// other finding. ClassifyCryptoAsset does not touch
+	// IsHybrid/ComponentAlgorithms, so the registry-provided hybrid
+	// metadata survives. PQCStatus is overwritten, but the
+	// algorithm classifier has matching SAFE/TRANSITIONAL entries
+	// for every hybrid group in the TLS registry.
 	crypto.ClassifyCryptoAsset(asset)
 	return webServerFinding(path, asset)
 }

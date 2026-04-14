@@ -347,6 +347,71 @@ func TestWebServerModule_ScanWalk(t *testing.T) {
 	}
 }
 
+// --- Hybrid PQC TLS groups (Phase 4 / Task 4) ---
+
+// TestWebServerScan_DetectsHybridTLSGroup loads the nginx-hybrid.conf
+// fixture and asserts the parser emits a finding for the hybrid
+// X25519MLKEM768 group with IsHybrid=true and populated
+// ComponentAlgorithms. Tests the ssl_ecdh_curve path (nginx).
+func TestWebServerScan_DetectsHybridTLSGroup(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("testdata", "nginx-hybrid.conf"))
+	require.NoError(t, err)
+
+	m := NewWebServerModule(&scannerconfig.Config{})
+	findings := m.parseNginx("/etc/nginx/nginx-hybrid.conf", data)
+
+	var hybrid *model.Finding
+	for _, f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.IsHybrid && f.CryptoAsset.Algorithm == "X25519MLKEM768" {
+			hybrid = f
+			break
+		}
+	}
+	require.NotNil(t, hybrid, "expected X25519MLKEM768 hybrid group finding, got %d findings", len(findings))
+	assert.True(t, hybrid.CryptoAsset.IsHybrid)
+	assert.NotEmpty(t, hybrid.CryptoAsset.ComponentAlgorithms, "expected ComponentAlgorithms populated")
+	assert.NotEmpty(t, hybrid.CryptoAsset.PQCStatus, "expected PQCStatus populated from registry")
+	assert.Equal(t, "TLS key exchange group", hybrid.CryptoAsset.Function,
+		"hybrid groups should emit Function='TLS key exchange group'")
+
+	// The classical X25519 from the same directive should still be
+	// emitted as a separate non-hybrid finding — and preserve the
+	// pre-existing "TLS ECDH curve" Function string to avoid a
+	// reporting-contract break for downstream consumers.
+	var classical *model.Finding
+	for _, f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Algorithm == "X25519" && !f.CryptoAsset.IsHybrid {
+			classical = f
+			break
+		}
+	}
+	require.NotNil(t, classical, "expected separate X25519 classical finding")
+	assert.Equal(t, "TLS ECDH curve", classical.CryptoAsset.Function,
+		"classical curves must preserve Function='TLS ECDH curve' (backward-compat)")
+}
+
+// TestWebServerScan_DetectsHybridTLSGroupApache asserts the Apache
+// SSLOpenSSLConfCmd Groups directive recognizes hybrid group names.
+func TestWebServerScan_DetectsHybridTLSGroupApache(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("testdata", "apache-hybrid.conf"))
+	require.NoError(t, err)
+
+	m := NewWebServerModule(&scannerconfig.Config{})
+	findings := m.parseApache("/etc/apache2/sites-enabled/hybrid.conf", data)
+
+	var hybrid *model.Finding
+	for _, f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.IsHybrid && f.CryptoAsset.Algorithm == "X25519MLKEM768" {
+			hybrid = f
+			break
+		}
+	}
+	require.NotNil(t, hybrid, "expected X25519MLKEM768 hybrid finding from Apache SSLOpenSSLConfCmd Groups, got %d findings", len(findings))
+	assert.NotEmpty(t, hybrid.CryptoAsset.ComponentAlgorithms)
+}
+
 // --- Test helpers ---
 
 func collectAlgorithms(findings []*model.Finding) []string {

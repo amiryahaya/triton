@@ -61,12 +61,13 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `library.go`, `binary.go`, `kernel.go` — Libraries, binaries, kernel modules (Categories 2-4)
   - `package.go`, `config.go` — Package manager and config file scanning
   - `script.go`, `webapp.go` — Source code scanning (Categories 6-7)
-  - `process.go`, `network.go`, `protocol.go` — Runtime and network scanning (Categories 1, 8-9); protocol.go includes enhanced TLS probing (cipher enumeration, version range, preference order, KX/PFS, chain validation)
+  - `process.go`, `network.go`, `protocol.go` — Runtime and network scanning (Categories 1, 8-9); protocol.go includes enhanced TLS probing (cipher enumeration, version range, preference order, KX/PFS, chain validation) and hybrid PQC named-group classification (X25519MLKEM768, SecP256r1MLKEM768, draft Kyber hybrids) via post-handshake `tls.ConnectionState.CurveID` lookup
   - `container.go`, `certstore.go` — Container and OS cert store scanning
   - `database.go`, `hsm.go`, `ldap.go`, `codesign.go` — Specialized scanners
   - `deps.go` — Go dependency crypto reachability analysis (direct/transitive/unreachable classification)
   - `asn1_oid.go` — ASN.1 OID byte scanner: walks ELF/Mach-O/PE read-only sections for DER-encoded OIDs, classifies via `pkg/crypto/oid.go` registry (comprehensive profile + Pro+ tier only)
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
+  - `tls_groups.go` — IANA TLS named group registry with hybrid PQC classification (composite ML-KEM + classical ECDHE groups, draft Kyber hybrids, pure PQ KEMs)
 - **`pkg/model/`** — Data structures for SBOM, CBOM, findings, components
 - **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON. HTML report includes policy analysis summary (verdict banner, violations-by-rule table, threshold violations) when `--policy` is used.
 - **`pkg/store/`** — PostgreSQL storage via pgx/v5

@@ -521,3 +521,39 @@ func TestEndToEnd_FindingCompliance_MLKEM1024(t *testing.T) {
 	require.NotNil(t, comp.CryptoProperties.AlgorithmProperties)
 	assert.Equal(t, 5, comp.CryptoProperties.AlgorithmProperties.NISTQuantumSecurityLevel)
 }
+
+func TestFindingToComponent_HybridSurfaced(t *testing.T) {
+	// A hybrid TLS-group finding from the protocol scanner should flow
+	// IsHybrid + ComponentAlgorithms into the CycloneDX algorithm properties,
+	// with the composite name becoming the parameterSetIdentifier.
+	asset := &model.CryptoAsset{
+		ID:                  "hybrid-1",
+		Algorithm:           "X25519MLKEM768",
+		Function:            "Key agreement",
+		KeySize:             256,
+		PQCStatus:           string(crypto.SAFE),
+		IsHybrid:            true,
+		ComponentAlgorithms: []string{"X25519", "ML-KEM-768"},
+	}
+	finding := &model.Finding{
+		ID:          "f-hybrid",
+		Category:    1,
+		Module:      "protocol",
+		CryptoAsset: asset,
+	}
+	comp := findingToComponent(finding)
+	require.NotNil(t, comp.CryptoProperties)
+	require.NotNil(t, comp.CryptoProperties.AlgorithmProperties)
+	algo := comp.CryptoProperties.AlgorithmProperties
+	assert.True(t, algo.IsHybrid, "expected IsHybrid=true on hybrid finding")
+	assert.Equal(t, []string{"X25519", "ML-KEM-768"}, algo.ComponentAlgorithms)
+	assert.Equal(t, "X25519MLKEM768", algo.ParameterSetIdentifier,
+		"hybrid composite name should be used as parameterSetIdentifier")
+
+	// Sanity: JSON round-trip preserves the new fields.
+	raw, err := json.Marshal(comp)
+	require.NoError(t, err)
+	s := string(raw)
+	assert.Contains(t, s, `"isHybrid":true`)
+	assert.Contains(t, s, `"componentAlgorithms":["X25519","ML-KEM-768"]`)
+}

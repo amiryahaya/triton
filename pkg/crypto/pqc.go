@@ -125,6 +125,21 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	"ML-DSA-87-ECDSA-P384":   {Name: "ML-DSA-87-ECDSA-P384", Family: "Composite", KeySize: 0, Status: SAFE},
 	"ML-DSA-87-Ed448":        {Name: "ML-DSA-87-Ed448", Family: "Composite", KeySize: 0, Status: SAFE},
 
+	// Hybrid TLS key-exchange groups (classical ECDHE + PQ KEM).
+	// Keyed by the canonical name emitted by LookupTLSGroup so ClassifyCryptoAsset
+	// preserves SAFE status after protocol-scanner emission. IsHybrid/ComponentAlgorithms
+	// are set upstream by tlsGroupToAsset and survive classification.
+	"X25519MLKEM768":           {Name: "X25519MLKEM768", Family: "Composite", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SecP256r1MLKEM768":        {Name: "SecP256r1MLKEM768", Family: "Composite", KeySize: 256, Status: SAFE, NISTStandard: true},
+	"SecP384r1MLKEM1024":       {Name: "SecP384r1MLKEM1024", Family: "Composite", KeySize: 384, Status: SAFE, NISTStandard: true},
+	"X25519Kyber768Draft00":    {Name: "X25519Kyber768Draft00", Family: "Composite", KeySize: 256, Status: SAFE},
+	"SecP256r1Kyber768Draft00": {Name: "SecP256r1Kyber768Draft00", Family: "Composite", KeySize: 256, Status: SAFE},
+	"X25519Kyber512Draft00":    {Name: "X25519Kyber512Draft00", Family: "Composite", KeySize: 256, Status: SAFE},
+	"X25519Kyber768Draft00Old": {Name: "X25519Kyber768Draft00Old", Family: "Composite", KeySize: 256, Status: SAFE},
+	"MLKEM512":                 {Name: "MLKEM512", Family: "Lattice", KeySize: 512, Status: SAFE, NISTStandard: true},
+	"MLKEM768":                 {Name: "MLKEM768", Family: "Lattice", KeySize: 768, Status: SAFE, NISTStandard: true},
+	"MLKEM1024":                {Name: "MLKEM1024", Family: "Lattice", KeySize: 1024, Status: SAFE, NISTStandard: true},
+
 	// FN-DSA (FIPS 206)
 	"FN-DSA":      {Name: "FN-DSA", Family: "Lattice", KeySize: 0, Status: SAFE, NISTStandard: true},
 	"FN-DSA-512":  {Name: "FN-DSA-512", Family: "Lattice", KeySize: 512, Status: SAFE, NISTStandard: true},

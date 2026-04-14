@@ -58,11 +58,13 @@ type CDXCryptoProperties struct {
 
 // CDXAlgorithmProperties describes an algorithm component.
 type CDXAlgorithmProperties struct {
-	Primitive                string `json:"primitive,omitempty"`
-	ParameterSetIdentifier   string `json:"parameterSetIdentifier,omitempty"`
-	Mode                     string `json:"mode,omitempty"`
-	ClassicalSecurityLevel   int    `json:"classicalSecurityLevel,omitempty"`
-	NISTQuantumSecurityLevel int    `json:"nistQuantumSecurityLevel,omitempty"`
+	Primitive                string   `json:"primitive,omitempty"`
+	ParameterSetIdentifier   string   `json:"parameterSetIdentifier,omitempty"`
+	Mode                     string   `json:"mode,omitempty"`
+	ClassicalSecurityLevel   int      `json:"classicalSecurityLevel,omitempty"`
+	NISTQuantumSecurityLevel int      `json:"nistQuantumSecurityLevel,omitempty"`
+	IsHybrid                 bool     `json:"isHybrid,omitempty"`
+	ComponentAlgorithms      []string `json:"componentAlgorithms,omitempty"`
 }
 
 // CDXCertificateProperties describes a certificate component.
@@ -162,14 +164,22 @@ func findingToComponent(f *model.Finding) CDXComponent {
 		}
 
 	default: // algorithm
+		paramSet := deriveParameterSet(asset.Algorithm, asset.KeySize)
+		if asset.IsHybrid {
+			// For hybrid composite assets, use the composite name as the parameter
+			// set identifier (per CycloneDX 1.6/1.7 CBOM guidance for hybrids).
+			paramSet = asset.Algorithm
+		}
 		comp.CryptoProperties = &CDXCryptoProperties{
 			AssetType: "algorithm",
 			AlgorithmProperties: &CDXAlgorithmProperties{
 				Primitive:                derivePrimitive(asset.Algorithm, asset.Function),
-				ParameterSetIdentifier:   deriveParameterSet(asset.Algorithm, asset.KeySize),
+				ParameterSetIdentifier:   paramSet,
 				Mode:                     deriveMode(asset.Algorithm),
 				ClassicalSecurityLevel:   asset.KeySize,
 				NISTQuantumSecurityLevel: deriveNISTQuantumLevel(asset.Algorithm),
+				IsHybrid:                 asset.IsHybrid,
+				ComponentAlgorithms:      asset.ComponentAlgorithms,
 			},
 		}
 	}

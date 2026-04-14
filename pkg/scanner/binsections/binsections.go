@@ -62,3 +62,34 @@ func isMachOMagic(h []byte) bool {
 	}
 	return false
 }
+
+// LooksLikeBinary reports whether the first 4 bytes of path match ELF,
+// Mach-O (any variant, including fat), or PE. Returns false on any read
+// error or unknown format. Intended as a cheap pre-filter during
+// filesystem walks before calling ExtractSections.
+//
+// TODO: pkg/scanner/binary.go carries its own copy of these magic
+// constants. Once that module is refactored to share a single source of
+// truth, delete the duplicates there.
+func LooksLikeBinary(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	var header [4]byte
+	n, _ := f.Read(header[:])
+	if n < 2 {
+		return false
+	}
+	if n >= 4 && bytes.Equal(header[:4], elfMagic) {
+		return true
+	}
+	if n >= 4 && isMachOMagic(header[:4]) {
+		return true
+	}
+	if bytes.Equal(header[:2], peMagic) {
+		return true
+	}
+	return false
+}

@@ -480,9 +480,13 @@ func (m *WebServerModule) groupOrCurveFinding(path, server, raw string) *model.F
 		// algorithm classifier (handles "X25519", "secp384r1", etc.).
 		return m.curveFinding(path, server, name)
 	}
+	function := "TLS ECDH curve"
+	if g.IsHybrid {
+		function = "TLS key exchange group"
+	}
 	asset := &model.CryptoAsset{
 		ID:                  uuid.Must(uuid.NewV7()).String(),
-		Function:            "TLS key exchange group",
+		Function:            function,
 		Algorithm:           g.Name,
 		KeySize:             g.KeySize,
 		Purpose:             server + " ssl_ecdh_curve / SSLOpenSSLConfCmd Groups / curves",

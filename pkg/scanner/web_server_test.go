@@ -372,9 +372,13 @@ func TestWebServerScan_DetectsHybridTLSGroup(t *testing.T) {
 	assert.True(t, hybrid.CryptoAsset.IsHybrid)
 	assert.NotEmpty(t, hybrid.CryptoAsset.ComponentAlgorithms, "expected ComponentAlgorithms populated")
 	assert.NotEmpty(t, hybrid.CryptoAsset.PQCStatus, "expected PQCStatus populated from registry")
+	assert.Equal(t, "TLS key exchange group", hybrid.CryptoAsset.Function,
+		"hybrid groups should emit Function='TLS key exchange group'")
 
 	// The classical X25519 from the same directive should still be
-	// emitted as a separate non-hybrid finding.
+	// emitted as a separate non-hybrid finding — and preserve the
+	// pre-existing "TLS ECDH curve" Function string to avoid a
+	// reporting-contract break for downstream consumers.
 	var classical *model.Finding
 	for _, f := range findings {
 		if f.CryptoAsset != nil && f.CryptoAsset.Algorithm == "X25519" && !f.CryptoAsset.IsHybrid {
@@ -382,7 +386,9 @@ func TestWebServerScan_DetectsHybridTLSGroup(t *testing.T) {
 			break
 		}
 	}
-	assert.NotNil(t, classical, "expected separate X25519 classical finding")
+	require.NotNil(t, classical, "expected separate X25519 classical finding")
+	assert.Equal(t, "TLS ECDH curve", classical.CryptoAsset.Function,
+		"classical curves must preserve Function='TLS ECDH curve' (backward-compat)")
 }
 
 // TestWebServerScan_DetectsHybridTLSGroupApache asserts the Apache

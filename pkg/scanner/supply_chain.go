@@ -33,6 +33,7 @@ import (
 type SupplyChainModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -46,6 +47,7 @@ func (m *SupplyChainModule) Name() string                         { return "supp
 func (m *SupplyChainModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *SupplyChainModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *SupplyChainModule) SetStore(s store.Store)               { m.store = s }
+func (m *SupplyChainModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *SupplyChainModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -63,6 +65,7 @@ func (m *SupplyChainModule) Scan(ctx context.Context, target model.ScanTarget, f
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

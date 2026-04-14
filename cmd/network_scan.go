@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/scanner/netscan"
 )
 
@@ -22,6 +23,9 @@ and credentials from an encrypted YAML file. No binary deployed on targets.
 
 The encryption key for credentials must be in TRITON_SCANNER_CRED_KEY
 (32 hex bytes = 64 hex chars).`,
+	PreRunE: func(_ *cobra.Command, _ []string) error {
+		return guard.EnforceFeature(license.FeatureNetworkScan)
+	},
 	RunE: runNetworkScan,
 }
 

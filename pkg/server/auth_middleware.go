@@ -231,10 +231,13 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore, cache *sessioncach
 				return
 			}
 			// Defense in depth: a JWT only validates if the user still
-			// has an org-level role. Anything else (e.g., a stale token
-			// from a deleted-then-recreated user with a different role)
-			// is rejected.
-			if user.Role != "org_admin" && user.Role != "org_user" {
+			// has a known org-level role. Anything else (e.g., a stale
+			// token from a deleted-then-recreated user with an unknown
+			// role) is rejected. Uses roleRank so adding a new role in
+			// rbac.go automatically admits it here too — previously
+			// hardcoding "org_admin" || "org_user" blocked org_officer
+			// with a 401 before RequireRole ever ran.
+			if roleRank[user.Role] == 0 {
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
@@ -295,7 +298,7 @@ func RequireAnyOrgRole(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		if user.Role != "org_admin" && user.Role != "org_user" {
+		if roleRank[user.Role] == 0 {
 			writeError(w, http.StatusForbidden, "org role required")
 			return
 		}

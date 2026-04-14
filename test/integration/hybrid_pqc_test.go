@@ -48,8 +48,8 @@ func TestProtocolScanner_DetectsHybridPQC(t *testing.T) {
 			uint16(state.CurveID))
 	}
 
-	t.Logf("registry hit: name=%s family=%s hybrid=%v components=%v status=%s",
-		group.Name, group.Family, group.IsHybrid, group.ComponentAlgorithms, group.Status)
+	t.Logf("registry hit: name=%s hybrid=%v components=%v status=%s",
+		group.Name, group.IsHybrid, group.ComponentAlgorithms, group.Status)
 
 	if group.IsHybrid {
 		if len(group.ComponentAlgorithms) < 2 {

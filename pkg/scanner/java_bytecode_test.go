@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -97,6 +98,33 @@ func TestJavaBytecodeModule_DedupByLiteralNotAlgorithm(t *testing.T) {
 	}
 	if !seenEvidence["Foo.class: AES/ECB/NoPadding"] {
 		t.Error("missing AES/ECB/NoPadding finding")
+	}
+}
+
+// TestFunctionForFamily_PQCLatticeHashBased verifies that buildFinding populates
+// Function for registry Family values "Lattice" and "Hash-Based" — the names
+// actually used by pkg/crypto/oid_data_pqc.go and pkg/crypto/pqc.go. Previously
+// functionForFamily only checked algorithm-specific names (ML-DSA, SLH-DSA),
+// which the registry never emits, so all PQC findings had Function="".
+func TestFunctionForFamily_PQCLatticeHashBased(t *testing.T) {
+	if got := functionForFamily("Lattice"); got == "" {
+		t.Error("functionForFamily(\"Lattice\") returned empty; want non-empty PQC label")
+	}
+	if got := functionForFamily("Hash-Based"); got == "" {
+		t.Error("functionForFamily(\"Hash-Based\") returned empty; want non-empty PQC label")
+	}
+	// End-to-end through buildFinding for an ML-KEM-768 OID entry (Lattice).
+	oid := "2.16.840.1.101.3.4.4.2"
+	entry, ok := crypto.LookupOID(oid)
+	if !ok {
+		t.Fatalf("registry missing ML-KEM-768 OID %s", oid)
+	}
+	f := buildFinding("/tmp/foo.so", ".rodata", crypto.ClassifiedOID{
+		FoundOID: crypto.FoundOID{OID: oid},
+		Entry:    entry,
+	})
+	if f.CryptoAsset == nil || f.CryptoAsset.Function == "" {
+		t.Errorf("ML-KEM-768 finding Function is empty; want PQC label")
 	}
 }
 

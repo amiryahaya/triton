@@ -43,3 +43,12 @@ emitting it would create an unactionable finding.
 - Only scans read-only data sections; OIDs in `.text` (inlined constants) are missed
 - PE long-form length encoding rejected (<0.1% of real crypto OIDs use it)
 - Universal Mach-O (fat) binaries: only the first architecture slice is scanned
+
+## Agentless / remote scanning
+
+Not supported. This scanner reads local filesystem files via stdlib
+`os.Open` and parses ELF/Mach-O/PE sections with readers that require
+random access to a local file descriptor. Agentless (remote) binary
+scanning requires an `io.ReaderAt`-capable `FileReader` adapter and
+section-extraction plumbing that accepts it — planned as a follow-up.
+In agentless scans today this module is effectively a no-op.

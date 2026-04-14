@@ -46,3 +46,12 @@ strings (BC, BCFIPS, BCPQC).
   this scanner and caught (if at all) by source scanning.
 - ProGuard's `-repackage` does not affect constant pool literals, so the
   scanner still works on obfuscated JARs.
+
+## Agentless / remote scanning
+
+Not supported. This scanner reads local filesystem files via stdlib
+`os.Open` and `archive/zip.OpenReader`, both of which require a local
+file descriptor. Agentless (remote) JAR/class scanning requires an
+`io.ReaderAt`-capable `FileReader` adapter plus a ZIP decoder that
+accepts it — planned as a follow-up. In agentless scans today this
+module is effectively a no-op.

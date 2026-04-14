@@ -104,6 +104,10 @@ func buildFinding(path, sectionName string, c crypto.ClassifiedOID) *model.Findi
 		OID:       c.OID,
 		PQCStatus: string(c.Entry.Status),
 	}
+	if crypto.IsCompositeOID(c.OID) {
+		asset.IsHybrid = true
+		asset.ComponentAlgorithms = crypto.CompositeComponents(c.Entry.Algorithm)
+	}
 	return &model.Finding{
 		ID:       uuid.New().String(),
 		Category: int(model.CategoryPassiveFile),

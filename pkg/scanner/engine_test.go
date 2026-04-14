@@ -548,3 +548,58 @@ func TestEngine_NoFilesystemTargetsDoesNotPanic(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Empty(t, result.Findings)
 }
+
+// TestRegisterDefaultModules_AllKnownModulesPresent is the regression fence
+// for the typed-factory refactor of RegisterDefaultModules. Enumerates the
+// authoritative set of module Name() values and asserts every one is
+// registered, plus that the total count matches.
+//
+// If a new scanner is added: update defaultModuleFactories in engine.go AND
+// append its Name() here. Both changes in the same commit.
+func TestRegisterDefaultModules_AllKnownModulesPresent(t *testing.T) {
+	eng := New(testConfig())
+	eng.RegisterDefaultModules()
+
+	got := make(map[string]bool, len(eng.modules))
+	for _, m := range eng.modules {
+		got[m.Name()] = true
+	}
+
+	expected := []string{
+		"certificates", "keys", "packages", "libraries", "binaries",
+		"kernel", "configs",
+		"scripts", "webapp",
+		"processes", "network", "protocol",
+		"containers", "certstore",
+		"database", "hsm",
+		"ldap", "codesign",
+		"deps",
+		"web_server", "vpn", "container_signatures",
+		"password_hash", "auth_material",
+		"deps_ecosystems", "service_mesh", "xml_dsig", "mail_server",
+		"oci_image",
+		"oidc_probe",
+		"k8s_live",
+		"dnssec",
+		"vpn_runtime",
+		"netinfra",
+		"firmware",
+		"messaging",
+		"db_atrest",
+		"secrets_mgr",
+		"supply_chain",
+		"kerberos_runtime",
+		"enrollment",
+		"fido2",
+		"blockchain",
+		"helm_chart",
+		"asn1_oid",
+		"java_bytecode",
+	}
+
+	for _, name := range expected {
+		assert.Truef(t, got[name], "missing module: %s", name)
+	}
+	assert.Len(t, eng.modules, len(expected),
+		"module count drift: expected %d, got %d", len(expected), len(eng.modules))
+}

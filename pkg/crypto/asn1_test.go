@@ -79,3 +79,23 @@ func TestFindOIDsInBuffer_RejectsInvalidFirstArc(t *testing.T) {
 		t.Errorf("expected rejection of invalid first arc, got %d hits", len(found))
 	}
 }
+
+func TestClassifyFoundOIDs(t *testing.T) {
+	found := []FoundOID{
+		{OID: "1.2.840.113549.1.1.11", Offset: 100},  // SHA256-RSA (registered)
+		{OID: "2.16.840.1.101.3.4.4.1", Offset: 200}, // ML-KEM-512 (registered)
+		{OID: "9.9.9.9.9.9", Offset: 300},            // unknown (valid-looking but not in registry)
+	}
+
+	classified := ClassifyFoundOIDs(found)
+
+	if len(classified) != 2 {
+		t.Fatalf("expected 2 classified results (unknown filtered out), got %d", len(classified))
+	}
+	if classified[0].Entry.Algorithm != "SHA256-RSA" {
+		t.Errorf("first entry: got %q, want SHA256-RSA", classified[0].Entry.Algorithm)
+	}
+	if classified[1].Entry.Algorithm != "ML-KEM-512" {
+		t.Errorf("second entry: got %q, want ML-KEM-512", classified[1].Entry.Algorithm)
+	}
+}

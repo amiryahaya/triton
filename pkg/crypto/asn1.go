@@ -109,3 +109,24 @@ func tryDecodeOIDAt(buf []byte, offset int) (string, int, bool) {
 
 	return strings.Join(arcs, "."), 2 + contentLen, true
 }
+
+// ClassifiedOID pairs a byte-scanner hit with its registry metadata.
+type ClassifiedOID struct {
+	FoundOID
+	Entry OIDEntry
+}
+
+// ClassifyFoundOIDs filters a slice of FoundOID down to entries present in
+// the OID registry and attaches their metadata. Unknown OIDs are dropped —
+// emitting them would create unclassifiable findings that can't be acted on.
+func ClassifyFoundOIDs(found []FoundOID) []ClassifiedOID {
+	out := make([]ClassifiedOID, 0, len(found))
+	for _, f := range found {
+		entry, ok := oidRegistry[f.OID]
+		if !ok {
+			continue
+		}
+		out = append(out, ClassifiedOID{FoundOID: f, Entry: entry})
+	}
+	return out
+}

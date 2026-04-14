@@ -334,4 +334,56 @@ var migrations = []string{
 	`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 	ALTER TABLE users ADD CONSTRAINT users_role_check
 		CHECK (role IN ('org_admin', 'org_user', 'org_officer'));`,
+
+	// Version 16: Inventory schema — groups, hosts, tags.
+	// Onboarding Phase 1, design spec §6. Top-level public-schema
+	// tables (matches existing organizations/users/sessions convention;
+	// we intentionally do NOT introduce a separate identity/inventory
+	// schema).
+	//
+	// inventory_groups: org-scoped named buckets (unique name per org).
+	// inventory_hosts : per-host row, group_id REQUIRED (RESTRICT on
+	//   group delete so we never orphan a host). mode is agentless by
+	//   default; engine_id + last_scan_id + last_seen are populated
+	//   later by the scan pipeline. (hostname, address) unique per
+	//   org on hostname only — address is informational/optional.
+	// inventory_tags  : free-form key/value labels, one row per (host, key).
+	`CREATE TABLE IF NOT EXISTS inventory_groups (
+		id          UUID PRIMARY KEY,
+		org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		name        TEXT NOT NULL,
+		description TEXT,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_by  UUID REFERENCES users(id),
+		UNIQUE (org_id, name)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_inventory_groups_org ON inventory_groups(org_id);
+
+	CREATE TABLE IF NOT EXISTS inventory_hosts (
+		id           UUID PRIMARY KEY,
+		org_id       UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		group_id     UUID NOT NULL REFERENCES inventory_groups(id) ON DELETE RESTRICT,
+		hostname     TEXT,
+		address      INET,
+		os           TEXT CHECK (os IS NULL OR os IN ('linux', 'windows', 'macos', 'cisco-iosxe', 'juniper-junos', 'unknown')),
+		mode         TEXT NOT NULL DEFAULT 'agentless' CHECK (mode IN ('agentless', 'agent')),
+		engine_id    UUID,
+		last_scan_id UUID,
+		last_seen    TIMESTAMPTZ,
+		created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		UNIQUE (org_id, hostname)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_inventory_hosts_group ON inventory_hosts(group_id);
+	CREATE INDEX IF NOT EXISTS idx_inventory_hosts_org   ON inventory_hosts(org_id);
+
+	CREATE TABLE IF NOT EXISTS inventory_tags (
+		host_id UUID NOT NULL REFERENCES inventory_hosts(id) ON DELETE CASCADE,
+		key     TEXT NOT NULL,
+		value   TEXT NOT NULL,
+		PRIMARY KEY (host_id, key)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_inventory_tags_kv ON inventory_tags(key, value);`,
 }

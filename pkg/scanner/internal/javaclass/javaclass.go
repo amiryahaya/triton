@@ -187,15 +187,37 @@ func isClassEntry(name string) bool {
 	return strings.HasSuffix(name, ".class")
 }
 
+// maxDecompressedClass caps the decompressed size of any single .class entry
+// read from a JAR/WAR/EAR. Defends against ZIP-bomb entries that advertise a
+// small compressed size but balloon to gigabytes on decompression. 256 MB is
+// far larger than any legitimate .class file (realistic ceiling is ~1 MB) yet
+// small enough that a hostile archive can't OOM the scanner.
+//
+// Exposed as a var (not const) so tests can lower the bound without having
+// to synthesise a 256 MB fixture. Production callers never mutate it.
+var maxDecompressedClass int64 = 256 * 1024 * 1024
+
 func readClassFromZip(f *zip.File) ([]string, error) {
+	// Pre-check the declared uncompressed size. This is cheap (header field,
+	// no decompression work) and rejects obviously-malicious entries before
+	// we allocate anything.
+	if f.UncompressedSize64 > uint64(maxDecompressedClass) {
+		return nil, fmt.Errorf("class entry %q declared decompressed size %d exceeds limit %d",
+			f.Name, f.UncompressedSize64, maxDecompressedClass)
+	}
 	rc, err := f.Open()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rc.Close() }()
-	data, err := io.ReadAll(rc)
+	// Defence-in-depth: even if the header lied about UncompressedSize64,
+	// cap the actual read. +1 lets us detect overshoot after ReadAll.
+	data, err := io.ReadAll(io.LimitReader(rc, maxDecompressedClass+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(data)) > maxDecompressedClass {
+		return nil, fmt.Errorf("class entry %q exceeded decompressed size limit %d", f.Name, maxDecompressedClass)
 	}
 	return ParseClass(data)
 }

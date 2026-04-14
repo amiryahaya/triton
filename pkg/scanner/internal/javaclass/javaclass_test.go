@@ -1,8 +1,11 @@
 package javaclass
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -99,3 +102,57 @@ func TestScanJAR_RejectsNonZIP(t *testing.T) {
 		t.Error("expected error scanning non-ZIP file")
 	}
 }
+
+// TestScanJAR_RejectsZipBomb verifies readClassFromZip refuses a class entry
+// whose declared UncompressedSize64 exceeds the per-entry cap. We temporarily
+// lower maxDecompressedClass so the test doesn't have to produce a 256 MB
+// fixture, then build a small JAR with a class entry slightly over the cap.
+// A naive implementation would have ReadAll'd the whole thing.
+func TestScanJAR_RejectsZipBomb(t *testing.T) {
+	orig := maxDecompressedClass
+	maxDecompressedClass = 512 // small cap for this test
+	t.Cleanup(func() { maxDecompressedClass = orig })
+
+	// Build a minimum-valid class payload larger than the test cap so the
+	// UncompressedSize64 header will reflect that size when zip.Writer flushes.
+	payload := buildMinimalClassFile(t, []string{"AES", "RSA"})
+	// Pad with zero bytes so the uncompressed size exceeds the cap. The pad
+	// lives past the constant-pool parser's reach, so ParseClass wouldn't
+	// notice — but readClassFromZip should reject it before ParseClass runs.
+	padded := append([]byte{}, payload...)
+	padded = append(padded, bytes.Repeat([]byte{0}, 1024)...) // 1024 > 512 cap
+
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "bomb.jar")
+	jarFile, err := os.Create(jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(jarFile)
+	w, err := zw.Create("Bomb.class")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(padded); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := jarFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// ScanJAR should succeed at the archive level (other entries still scan)
+	// but return no hits — the bomb entry is skipped cleanly, not OOM'd.
+	hits, err := ScanJAR(jarPath)
+	if err != nil {
+		t.Fatalf("ScanJAR returned error: %v", err)
+	}
+	for _, h := range hits {
+		if h.ClassPath == "Bomb.class" {
+			t.Errorf("expected Bomb.class to be rejected, got hit: %+v", h)
+		}
+	}
+}
+

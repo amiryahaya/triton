@@ -272,20 +272,56 @@ func decodeOID(data []byte) string {
 	if len(data) == 0 {
 		return ""
 	}
+	// Reject truncated arc encoding: last byte must not have continuation bit set.
+	// Matches the validity rule in asn1.go's tryDecodeOIDAt.
+	if data[len(data)-1]&0x80 != 0 {
+		return ""
+	}
 
-	// First byte encodes first two components
+	// Decode first component. If data[0] has the continuation bit set, the
+	// first ASN.1 component uses multi-byte base-128 encoding — valid only for
+	// firstArc==2 with secondArc >= 48 (combined value >= 128).
+	var combined int
+	i := 0
+	for i < len(data) {
+		// Guard: bound combined so that combined << 7 on the next iteration cannot overflow int.
+		// Max safe pre-shift value is (1<<56); after << 7 this yields (1<<63) which still fits in int64.
+		if combined > 1<<56 {
+			return ""
+		}
+		b := data[i]
+		combined = (combined << 7) | int(b&0x7F)
+		i++
+		if b&0x80 == 0 {
+			break
+		}
+	}
+	if i == 0 {
+		return ""
+	}
+
+	// Split combined value into first and second arc per X.690 §8.19.4.
+	var firstArc, secondArc int
+	switch {
+	case combined < 40:
+		firstArc, secondArc = 0, combined
+	case combined < 80:
+		firstArc, secondArc = 1, combined-40
+	default:
+		firstArc, secondArc = 2, combined-80
+	}
+
 	result := make([]byte, 0, 64)
-	first := int(data[0]) / 40
-	second := int(data[0]) % 40
-	result = appendInt(result, first)
+	result = appendInt(result, firstArc)
 	result = append(result, '.')
-	result = appendInt(result, second)
+	result = appendInt(result, secondArc)
 
-	// Subsequent bytes encode remaining components in base-128
+	// Remaining bytes encode remaining components in base-128
 	value := 0
-	for i := 1; i < len(data); i++ {
-		// Guard against int overflow: if value is already huge, bail out
-		if value > 1<<24 {
+	for ; i < len(data); i++ {
+		// Guard: bound value so that value << 7 on the next iteration cannot overflow int.
+		// Max safe pre-shift value is (1<<56); after << 7 this yields (1<<63) which still fits in int64.
+		if value > 1<<56 {
 			return ""
 		}
 		value = (value << 7) | int(data[i]&0x7F)

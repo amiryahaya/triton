@@ -77,23 +77,48 @@ func tryDecodeOIDAt(buf []byte, offset int) (oid string, consumed int, ok bool) 
 		return "", 0, false
 	}
 
-	// First-arc validation: X.690 restricts first arc to {0, 1, 2}.
-	first := int(content[0])
-	firstArc := first / 40
-	secondArc := first % 40
-	if firstArc > 2 {
-		return "", 0, false
+	// Decode first component. If content[0] has the continuation bit set, the
+	// first ASN.1 component uses multi-byte base-128 encoding — valid only for
+	// firstArc==2 with secondArc >= 48 (combined value >= 128).
+	var combined uint64
+	i := 0
+	for i < len(content) {
+		// Guard: bound combined so that combined << 7 on the next iteration cannot overflow uint64.
+		// Max safe pre-shift value is (1<<56); after << 7 this yields (1<<63) which fits.
+		if combined > (1 << 56) {
+			return "", 0, false
+		}
+		b := content[i]
+		combined = (combined << 7) | uint64(b&0x7F)
+		i++
+		if b&0x80 == 0 {
+			break
+		}
 	}
-	if firstArc < 2 && secondArc >= 40 {
+	if i == 0 {
 		return "", 0, false
 	}
 
-	// Decode arcs
+	// Split combined value into first and second arc per X.690 §8.19.4.
+	var firstArc, secondArc uint64
+	switch {
+	case combined < 40:
+		firstArc, secondArc = 0, combined
+	case combined < 80:
+		firstArc, secondArc = 1, combined-40
+	default:
+		firstArc, secondArc = 2, combined-80
+	}
+
 	arcs := make([]string, 0, 8)
-	arcs = append(arcs, strconv.Itoa(firstArc), strconv.Itoa(secondArc))
+	arcs = append(arcs, strconv.FormatUint(firstArc, 10), strconv.FormatUint(secondArc, 10))
+
+	// Remaining arcs from offset i onward
 	var v uint64
-	for i := 1; i < len(content); i++ {
-		if v > (1 << 56) { // overflow guard
+	for ; i < len(content); i++ {
+		// Guard: bound v so that v << 7 on the next iteration cannot overflow uint64.
+		// Max safe pre-shift value is (1<<56); after << 7 this yields (1<<63) which fits.
+		if v > (1 << 56) {
 			return "", 0, false
 		}
 		v = (v << 7) | uint64(content[i]&0x7F)
@@ -106,7 +131,6 @@ func tryDecodeOIDAt(buf []byte, offset int) (oid string, consumed int, ok bool) 
 	if len(arcs) < minArcCount || len(arcs) > maxArcCount {
 		return "", 0, false
 	}
-
 	return strings.Join(arcs, "."), 2 + contentLen, true
 }
 

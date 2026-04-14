@@ -69,14 +69,29 @@ func TestFindOIDsInBuffer_DedupesByOffset(t *testing.T) {
 	}
 }
 
-func TestFindOIDsInBuffer_RejectsInvalidFirstArc(t *testing.T) {
-	// OID claiming first arc = 3 (invalid — must be 0, 1, or 2)
-	// First content byte = 3*40 + 0 = 120 (0x78), which decodes to first arc 3 under normal rules...
-	// But our decoder produces arc 3.0. We should reject because X.690 limits first arc to 0/1/2.
-	badFirstArc := []byte{0x06, 0x03, 0x78, 0x01, 0x02}
-	found := FindOIDsInBuffer(badFirstArc)
-	if len(found) != 0 {
-		t.Errorf("expected rejection of invalid first arc, got %d hits", len(found))
+func TestFindOIDsInBuffer_DecodesLargeSecondArc(t *testing.T) {
+	// First content byte = 0x78 (120): combined=120, firstArc=2, secondArc=40.
+	// X.690 §8.19.4 allows any secondArc when firstArc==2, so this is a valid OID 2.40.1.2.
+	buf := []byte{0x06, 0x03, 0x78, 0x01, 0x02}
+	found := FindOIDsInBuffer(buf)
+	if len(found) != 1 {
+		t.Fatalf("expected 1 hit for valid OID with firstArc=2, got %d", len(found))
+	}
+	if found[0].OID != "2.40.1.2" {
+		t.Errorf("got %q, want 2.40.1.2", found[0].OID)
+	}
+}
+
+func TestFindOIDsInBuffer_SupportsLargeFirstArc(t *testing.T) {
+	// OID 2.100.3 (first component value 180 = 0x81 0x34 in base-128 multi-byte).
+	// Tag=0x06, Len=3, Content = 0x81 0x34 0x03
+	der := []byte{0x06, 0x03, 0x81, 0x34, 0x03}
+	found := FindOIDsInBuffer(der)
+	if len(found) != 1 {
+		t.Fatalf("expected 1 hit, got %d", len(found))
+	}
+	if found[0].OID != "2.100.3" {
+		t.Errorf("got %q, want 2.100.3", found[0].OID)
 	}
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 )
 
@@ -20,7 +21,10 @@ var roleRank = map[string]int{
 // Returns 401 if no claims are present (misconfiguration — JWTAuth not
 // chained) and 403 if the caller's role ranks below the minimum.
 func RequireRole(minRole string) func(http.Handler) http.Handler {
-	minRank := roleRank[minRole]
+	minRank, ok := roleRank[minRole]
+	if !ok {
+		panic(fmt.Sprintf("RequireRole: unknown minRole %q", minRole))
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := ClaimsFromContext(r.Context())

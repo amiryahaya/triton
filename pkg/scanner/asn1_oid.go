@@ -10,7 +10,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
-	"github.com/amiryahaya/triton/pkg/scanner/binsections"
+	"github.com/amiryahaya/triton/pkg/scanner/internal/binsections"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 

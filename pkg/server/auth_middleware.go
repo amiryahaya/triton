@@ -133,6 +133,14 @@ func ClaimsFromContext(ctx context.Context) *auth.UserClaims {
 	return v
 }
 
+// contextWithClaims is the internal counterpart to ClaimsFromContext,
+// used by tests to inject claims without running the full JWTAuth
+// middleware. The context key is unexported so this helper keeps it
+// that way; test files in package server call it directly.
+func contextWithClaims(ctx context.Context, c *auth.UserClaims) context.Context {
+	return context.WithValue(ctx, claimsContextKey, c)
+}
+
 // JWTAuth verifies the Bearer JWT, looks up the associated session
 // row, loads the user from the store, and attaches both to the
 // request context. Subsequent middleware/handlers can call

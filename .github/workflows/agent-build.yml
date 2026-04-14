@@ -168,11 +168,15 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           EXPECTED_PUBKEY: ${{ needs.preflight.outputs.pubkey }}
         run: |
-          # Sanity check: `strings` the binary and confirm the hex
-          # shows up exactly once. Catches accidental ldflags typos
-          # that silently fall back to the zeroed embedded default.
+          # Sanity check: `strings` the binary and confirm the hex is
+          # embedded. Catches accidental ldflags typos that silently
+          # fall back to the zeroed embedded default.
+          # Use -F (fixed string) without line anchors: `strings` may
+          # emit the hex concatenated with adjacent rodata, so an
+          # anchored match fails even when the pubkey is correctly
+          # embedded.
           bin="dist/triton-${VERSION}-${GOOS}-${GOARCH}/triton"
-          if ! strings "$bin" | grep -q "^${EXPECTED_PUBKEY}$"; then
+          if ! strings "$bin" | grep -qF "$EXPECTED_PUBKEY"; then
             echo "::error::Embedded pubkey not found in $bin — ldflags injection failed."
             exit 1
           fi

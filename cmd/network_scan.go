@@ -112,18 +112,18 @@ func runNetworkScan(_ *cobra.Command, _ []string) error {
 }
 
 func filterDevicesByName(devices []netscan.Device, name string) []netscan.Device {
-	for _, d := range devices {
-		if d.Name == name {
-			return []netscan.Device{d}
+	for i := range devices {
+		if devices[i].Name == name {
+			return []netscan.Device{devices[i]}
 		}
 	}
 	return nil
 }
 
 func runDryRun(devices []netscan.Device, creds *netscan.CredentialStore) error {
-	for _, d := range devices {
-		if creds.Get(d.Credential) == nil {
-			return fmt.Errorf("device %s: credential %q not found", d.Name, d.Credential)
+	for i := range devices {
+		if creds.Get(devices[i].Credential) == nil {
+			return fmt.Errorf("device %s: credential %q not found", devices[i].Name, devices[i].Credential)
 		}
 	}
 	fmt.Printf("Validated %d devices, all credentials resolved.\n", len(devices))

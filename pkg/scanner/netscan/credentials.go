@@ -131,7 +131,9 @@ func encryptAES256GCM(key, plaintext []byte) ([]byte, error) {
 		return nil, err
 	}
 	ct := gcm.Seal(nil, nonce, plaintext, nil)
-	raw := append(nonce, ct...)
+	raw := make([]byte, 0, len(nonce)+len(ct))
+	raw = append(raw, nonce...)
+	raw = append(raw, ct...)
 	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(raw)))
 	base64.StdEncoding.Encode(encoded, raw)
 	return encoded, nil

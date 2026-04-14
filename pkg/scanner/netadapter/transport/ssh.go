@@ -14,14 +14,14 @@ import (
 
 // SSHConfig specifies how to connect to a remote host.
 type SSHConfig struct {
-	Address    string              // host:port
-	Username   string
-	Password   string              // optional; empty means use key
-	PrivateKey []byte              // optional; empty means use password
-	Passphrase string              // for PrivateKey if encrypted
-	HostKeyCB  ssh.HostKeyCallback // nil = ssh.InsecureIgnoreHostKey() (MVP only)
-	DialTimeout time.Duration      // default 10s
-	CmdTimeout  time.Duration      // default 30s per command
+	Address     string // host:port
+	Username    string
+	Password    string              // optional; empty means use key
+	PrivateKey  []byte              // optional; empty means use password
+	Passphrase  string              // for PrivateKey if encrypted
+	HostKeyCB   ssh.HostKeyCallback // nil = ssh.InsecureIgnoreHostKey() (MVP only)
+	DialTimeout time.Duration       // default 10s
+	CmdTimeout  time.Duration       // default 30s per command
 }
 
 // SSHClient wraps an ssh.Client and implements CommandRunner.

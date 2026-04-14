@@ -114,10 +114,10 @@ func (o *Orchestrator) scanUnix(ctx context.Context, d Device, cred *Credential)
 
 	return &model.ScanResult{
 		Metadata: model.ScanMetadata{
-			Hostname:  d.Name,
-			AgentID:   "triton-netscan",
+			Hostname:    d.Name,
+			AgentID:     "triton-netscan",
 			ScanProfile: "agentless-unix",
-			Timestamp: time.Now().UTC(),
+			Timestamp:   time.Now().UTC(),
 		},
 		// Findings empty for MVP. Follow-up wires Tier 1 scanner engine
 		// against an SshReader.

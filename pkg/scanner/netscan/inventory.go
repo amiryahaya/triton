@@ -105,14 +105,16 @@ func (inv *Inventory) Validate() error {
 func (inv *Inventory) applyDefaults() {
 	for i := range inv.Devices {
 		d := &inv.Devices[i]
-		if d.Port == 0 {
-			if d.Type == "juniper-junos" {
-				d.Port = 830 // NETCONF default
-			} else if inv.Defaults.Port != 0 {
-				d.Port = inv.Defaults.Port
-			} else {
-				d.Port = 22
-			}
+		if d.Port != 0 {
+			continue
+		}
+		switch {
+		case d.Type == "juniper-junos":
+			d.Port = 830 // NETCONF default
+		case inv.Defaults.Port != 0:
+			d.Port = inv.Defaults.Port
+		default:
+			d.Port = 22
 		}
 	}
 }
@@ -124,19 +126,20 @@ func (inv *Inventory) DevicesByGroup(groupName string) ([]Device, error) {
 		return inv.Devices, nil
 	}
 	for _, g := range inv.Groups {
-		if g.Name == groupName {
-			members := make(map[string]bool)
-			for _, m := range g.Members {
-				members[m] = true
-			}
-			var out []Device
-			for _, d := range inv.Devices {
-				if members[d.Name] {
-					out = append(out, d)
-				}
-			}
-			return out, nil
+		if g.Name != groupName {
+			continue
 		}
+		members := make(map[string]bool)
+		for _, m := range g.Members {
+			members[m] = true
+		}
+		var out []Device
+		for i := range inv.Devices {
+			if members[inv.Devices[i].Name] {
+				out = append(out, inv.Devices[i])
+			}
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("group not found: %s", groupName)
 }

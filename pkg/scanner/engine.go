@@ -236,6 +236,11 @@ func (e *Engine) RegisterDefaultModules() {
 	// (asn1_oid appears only in the comprehensive profile). shouldRunModule
 	// skips unlisted modules at dispatch time.
 	e.RegisterModule(NewASN1OIDModule(e.config))
+
+	// Java bytecode scanner (heavy). Always registered; profile gating is
+	// enforced via the per-profile module list in internal/scannerconfig
+	// (java_bytecode appears only in the comprehensive profile).
+	e.RegisterModule(NewJavaBytecodeModule(e.config))
 }
 
 // Scan executes all registered modules against configured targets.

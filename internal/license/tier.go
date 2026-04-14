@@ -171,6 +171,7 @@ func proModules() []string {
 		"blockchain",
 		"helm_chart",
 		"asn1_oid",
+		"java_bytecode",
 		// k8s_live, secrets_mgr, kerberos_runtime are enterprise-only — do NOT add.
 	}
 }

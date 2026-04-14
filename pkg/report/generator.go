@@ -224,7 +224,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			if len(row.asset.ComponentAlgorithms) > 0 {
 				title = "Hybrid: " + strings.Join(row.asset.ComponentAlgorithms, " + ")
 			}
-			algoCell += fmt.Sprintf(`<span class="hybrid-badge" title="%s">HYBRID</span>`, html.EscapeString(title))
+			algoCell += fmt.Sprintf(`<span class="hybrid-badge" title=%q>HYBRID</span>`, html.EscapeString(title))
 		}
 		b.WriteString(fmt.Sprintf(`		<tr>
 			<td>CBOM #%d</td>

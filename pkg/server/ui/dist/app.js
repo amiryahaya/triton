@@ -34,6 +34,14 @@
       const c = auth.getClaims();
       return !!(c && c.mcp);
     },
+    // isTokenExpired returns true if the stored JWT's exp claim is in the
+    // past (or unparseable). Returns false if there is no token at all
+    // (caller should check getToken() separately for that case).
+    isTokenExpired: () => {
+      const c = auth.getClaims();
+      if (!c || !c.exp) return true;
+      return Date.now() / 1000 >= c.exp;
+    },
   };
 
   // Analytics Phase 1 — backfill banner state. The api() helper syncs
@@ -151,6 +159,18 @@
     const view = parts[0] || '';
     const param = parts[1] || '';
 
+    // Auth gate: proactively check token expiry BEFORE rendering any
+    // view. Without this, the UI renders stale logged-in chrome (sidebar
+    // user-info, sign-out button) from the decodable-but-expired JWT
+    // payload, while the next API call 401s — producing an inconsistent
+    // "half logged-in" state. Clearing the token and redirecting here
+    // ensures a clean transition to the login screen.
+    if (view !== 'login' && auth.getToken() && auth.isTokenExpired()) {
+      auth.clearToken();
+      location.hash = '#/login';
+      return;
+    }
+
     // Auth gate: if the user has a JWT and it says they must change
     // their password, force them to the change-password screen first.
     // No other view is reachable until the flag is cleared.
@@ -220,6 +240,9 @@
       case 'inventory': renderInventory(); break;
       case 'certificates': renderCertificates(); break;
       case 'priority': renderPriority(); break;
+      case 'systems': if (window.renderSystems) window.renderSystems(); break;
+      case 'trends': if (window.renderTrends) window.renderTrends(); break;
+      case 'remediation': if (window.renderRemediation) window.renderRemediation(); break;
       case '':
       case 'overview': renderOverview(); break;
       case 'machines': param ? renderMachineDetail(param) : renderMachines(); break;
@@ -269,6 +292,7 @@
       }
       const data = await resp.json();
       auth.setToken(data.token);
+      scheduleTokenRefresh();
       // If the response says the user must change their password, route
       // them there. Otherwise drop them onto the overview.
       if (data.mustChangePassword) {
@@ -284,7 +308,8 @@
 
   // ─── Change password view (Phase 3.4) ───────────────────────────────
   function renderChangePassword() {
-    if (!auth.getToken()) {
+    if (!auth.getToken() || auth.isTokenExpired()) {
+      auth.clearToken();
       location.hash = '#/login';
       return;
     }
@@ -335,6 +360,7 @@
       // gate on every page load). Clear local state and force re-login.
       if (data && data.token) {
         auth.setToken(data.token);
+        scheduleTokenRefresh();
         location.hash = '#/';
       } else {
         auth.clearToken();
@@ -543,7 +569,14 @@
         }),
       ]);
 
-      let html = '<h2>Organization Overview</h2>';
+      let html = '<div class="page-header">' +
+        '<h2>Organization Overview</h2>' +
+        '<div class="export-buttons">' +
+          '<button class="btn-export" id="btn-export-pdf" onclick="exportReport(\'pdf\')">PDF Report</button>' +
+          '<button class="btn-export" id="btn-export-xlsx" onclick="exportReport(\'xlsx\')">Excel Export</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="export-error" class="export-error"></div>';
       if (exec) {
         html += renderExecSummaryBar(exec);
       }
@@ -1139,14 +1172,75 @@
     }
   };
 
-  // ─── Analytics Phase 1 views ────────────────────────────────────────
+  // ─── Analytics Phase 3 — category filters ──────────────────────────
+
+  var filterOptionsCache = null;
+  var inventoryFilters = {hostname: '', pqcStatus: ''};
+  var certFilters = {hostname: '', algorithm: ''};
+  var priorityFilters = {hostname: '', pqcStatus: ''};
+
+  async function getFilterOptions() {
+    if (filterOptionsCache) return filterOptionsCache;
+    try {
+      filterOptionsCache = await api('/filters');
+    } catch (e) {
+      filterOptionsCache = {hostnames: [], algorithms: [], pqcStatuses: []};
+    }
+    return filterOptionsCache;
+  }
+
+  function renderFilterBar(filters, activeValues, onChange) {
+    var html = '<div class="filter-bar">';
+    for (var i = 0; i < filters.length; i++) {
+      var f = filters[i];
+      html += '<label class="filter-label">' + escapeHtml(f.label) + ': ';
+      html += '<select data-filter-key="' + f.key + '">';
+      html += '<option value="">All</option>';
+      for (var j = 0; j < f.options.length; j++) {
+        var opt = f.options[j];
+        var selected = activeValues[f.key] === opt ? ' selected' : '';
+        html += '<option value="' + escapeHtml(opt) + '"' + selected + '>' + escapeHtml(opt) + '</option>';
+      }
+      html += '</select></label>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function wireFilterBar(container, activeValues, onChange) {
+    var selects = container.querySelectorAll('.filter-bar select');
+    for (var i = 0; i < selects.length; i++) {
+      (function(sel) {
+        sel.addEventListener('change', function() {
+          activeValues[sel.dataset.filterKey] = sel.value;
+          onChange();
+        });
+      })(selects[i]);
+    }
+  }
+
+  function buildFilterQuery(params) {
+    var parts = [];
+    for (var key in params) {
+      if (params[key]) parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(params[key]));
+    }
+    return parts.length ? '&' + parts.join('&') : '';
+  }
+
+  // ─── Analytics Phase 1 views (extended with Phase 3 filters) ──────
 
   async function renderInventory() {
     content.innerHTML = '<div class="loading">Loading crypto inventory...</div>';
     try {
-      const rows = await api('/inventory');
+      var opts = await getFilterOptions();
+      var qp = buildFilterQuery({hostname: inventoryFilters.hostname, pqc_status: inventoryFilters.pqcStatus});
+      const rows = await api('/inventory?' + qp);
       let html = '<h2>Crypto Inventory</h2>' +
-        '<p class="subtitle">Aggregated by algorithm and key size across all machines in your organization (latest scan per host).</p>';
+        '<p class="subtitle">Aggregated by algorithm and key size across all machines in your organization (latest scan per host).</p>' +
+        renderFilterBar([
+          {label: 'Hostname', key: 'hostname', options: opts.hostnames || []},
+          {label: 'PQC Status', key: 'pqcStatus', options: opts.pqcStatuses || []}
+        ], inventoryFilters, renderInventory);
       if (!rows || rows.length === 0) {
         html += '<div class="empty-state">No findings yet — run a scan to see your crypto inventory.</div>';
       } else {
@@ -1167,6 +1261,7 @@
         html += '</tbody></table>';
       }
       content.innerHTML = html;
+      wireFilterBar(content, inventoryFilters, renderInventory);
       renderBackfillBanner(content);
     } catch (e) {
       content.innerHTML = '<div class="error">Failed to load inventory: ' + escapeHtml(e.message) + '</div>';
@@ -1181,8 +1276,10 @@
   async function renderCertificates() {
     content.innerHTML = '<div class="loading">Loading certificates...</div>';
     try {
+      var opts = await getFilterOptions();
       const param = certFilterDays === 'all' ? 'all' : String(certFilterDays);
-      const rows = await api('/certificates/expiring?within=' + param);
+      var cfp = buildFilterQuery({hostname: certFilters.hostname, algorithm: certFilters.algorithm});
+      const rows = await api('/certificates/expiring?within=' + param + cfp);
 
       // Summary counts computed from the rows we just fetched. Note
       // these reflect only what the current window returned — to see
@@ -1196,6 +1293,10 @@
 
       let html = '<h2>Expiring Certificates</h2>' +
         '<p class="subtitle">Latest-scan certificates sorted by soonest expiry. Already-expired certs are always included regardless of the filter.</p>' +
+        renderFilterBar([
+          {label: 'Hostname', key: 'hostname', options: opts.hostnames || []},
+          {label: 'Algorithm', key: 'algorithm', options: opts.algorithms || []}
+        ], certFilters, renderCertificates) +
         '<div class="summary-chips">' +
           '<div class="summary-chip critical"><strong>' + expired + '</strong> expired</div>' +
           '<div class="summary-chip urgent"><strong>' + urgent + '</strong> within 30 days</div>' +
@@ -1233,6 +1334,7 @@
       }
 
       content.innerHTML = html;
+      wireFilterBar(content, certFilters, renderCertificates);
       renderBackfillBanner(content);
 
       // Wire up filter chip buttons. Each click updates the module-
@@ -1253,7 +1355,9 @@
   async function renderPriority() {
     content.innerHTML = '<div class="loading">Loading priority findings...</div>';
     try {
-      const rows = await api('/priority?limit=20');
+      var opts = await getFilterOptions();
+      var pfp = buildFilterQuery({hostname: priorityFilters.hostname, pqc_status: priorityFilters.pqcStatus});
+      const rows = await api('/priority?limit=20' + pfp);
 
       // Bucket counts for the summary cards.
       let critical = 0, high = 0, medium = 0;
@@ -1265,6 +1369,10 @@
 
       let html = '<h2>Migration Priority</h2>' +
         '<p class="subtitle">Top findings to fix first, ranked by migration priority score (latest scan per host, top 20).</p>' +
+        renderFilterBar([
+          {label: 'Hostname', key: 'hostname', options: opts.hostnames || []},
+          {label: 'PQC Status', key: 'pqcStatus', options: opts.pqcStatuses || []}
+        ], priorityFilters, renderPriority) +
         '<div class="card-grid">' +
           '<div class="card unsafe"><div class="value">' + critical + '</div><div class="label">Critical (≥80)</div></div>' +
           '<div class="card deprecated"><div class="value">' + high + '</div><div class="label">High (60–79)</div></div>' +
@@ -1295,11 +1403,73 @@
       }
 
       content.innerHTML = html;
+      wireFilterBar(content, priorityFilters, renderPriority);
       renderBackfillBanner(content);
     } catch (e) {
       content.innerHTML = '<div class="error">Failed to load priority findings: ' + escapeHtml(e.message) + '</div>';
     }
   }
+
+  // ─── Session lifecycle ───────────────────────────────────────────────
+  // checkSessionExpiry is the single source of truth for client-side
+  // expiry detection. It checks the JWT exp claim and, if expired,
+  // clears the token and bounces to login. Returns true if expired.
+  function checkSessionExpiry() {
+    if (auth.getToken() && auth.isTokenExpired()) {
+      auth.clearToken();
+      location.hash = '#/login';
+      return true;
+    }
+    return false;
+  }
+
+  // Proactive token refresh — calls POST /auth/refresh ~5 minutes
+  // before the JWT expires. On success, stores the new token and
+  // re-schedules. On failure, the 401 handler or expiry check will
+  // bounce the user to login at expiry time.
+  let refreshTimer = null;
+  function scheduleTokenRefresh() {
+    if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+    const claims = auth.getClaims();
+    if (!claims || !claims.exp) return;
+    const msUntilExpiry = (claims.exp * 1000) - Date.now();
+    // Refresh 5 minutes before expiry; if less than 30s remain, don't
+    // bother — the expiry check will handle it.
+    const refreshIn = msUntilExpiry - (5 * 60 * 1000);
+    if (refreshIn < 30000) return;
+    refreshTimer = setTimeout(async function() {
+      try {
+        const data = await api('/auth/refresh', { method: 'POST' });
+        if (data && data.token) {
+          auth.setToken(data.token);
+          scheduleTokenRefresh();
+        }
+      } catch (_) {
+        // Refresh failed — let the expiry check or next api() 401 handle it.
+      }
+    }, refreshIn);
+  }
+
+  // Tab-return detection: when the user switches back to this tab after
+  // leaving it overnight, re-validate the session immediately rather
+  // than waiting for the next API call or the 60s interval.
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+      if (!checkSessionExpiry()) {
+        // Token still valid — reschedule refresh in case the timer
+        // drifted while the tab was backgrounded (browsers throttle
+        // setTimeout in hidden tabs).
+        scheduleTokenRefresh();
+      }
+    }
+  });
+
+  // Periodic expiry check — catches silent expiry even when the tab
+  // stays focused. 60s is well below the 24h JWT TTL so the user
+  // never sits on a stale session for more than a minute.
+  setInterval(function() {
+    checkSessionExpiry();
+  }, 60000);
 
   // Init
   // The renderOverview() initial call will hit the API. In single-tenant
@@ -1309,4 +1479,45 @@
   // to #/login, and the user signs in.
   window.addEventListener('hashchange', route);
   route();
+  // Kick off token refresh scheduling if we already have a valid token
+  // (e.g., page reload with a stored JWT).
+  scheduleTokenRefresh();
 })();
+
+// exportReport triggers a blob download for the given format ('pdf' or 'xlsx').
+// Defined outside the IIFE so onclick handlers in rendered HTML can reach it.
+function exportReport(format) {
+  var btn = document.getElementById('btn-export-' + format);
+  if (!btn) return;
+  var origText = btn.textContent;
+  btn.textContent = 'Generating...';
+  btn.disabled = true;
+
+  var headers = {};
+  var token = localStorage.getItem('tritonJWT');
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
+  fetch('/api/v1/export/' + format, { headers: headers })
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('Export failed (' + resp.status + ')');
+      return resp.blob();
+    })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'triton-pqc-report.' + (format === 'xlsx' ? 'xlsx' : 'pdf');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    })
+    .catch(function(err) {
+      var msgEl = document.getElementById('export-error');
+      if (msgEl) msgEl.textContent = err.message;
+    })
+    .finally(function() {
+      btn.textContent = origText;
+      btn.disabled = false;
+    });
+}

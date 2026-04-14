@@ -244,4 +244,82 @@ var migrations = []string{
 		ADD COLUMN IF NOT EXISTS image_ref TEXT;
 	ALTER TABLE findings
 		ADD COLUMN IF NOT EXISTS image_digest TEXT;`,
+
+	// Version 12: Analytics Stage 2+3 summary tables (Phase 4A ETL pipeline).
+	// host_summary: per-(org, hostname) aggregates, refreshed by pipeline T2.
+	// org_snapshot: per-org rollup, refreshed by pipeline T3.
+	// Both are derived read-models — rebuildable from the findings table.
+	`CREATE TABLE IF NOT EXISTS host_summary (
+		org_id                UUID NOT NULL,
+		hostname              TEXT NOT NULL,
+		scan_id               UUID NOT NULL,
+		scanned_at            TIMESTAMPTZ NOT NULL,
+		total_findings        INT NOT NULL DEFAULT 0,
+		safe_findings         INT NOT NULL DEFAULT 0,
+		transitional_findings INT NOT NULL DEFAULT 0,
+		deprecated_findings   INT NOT NULL DEFAULT 0,
+		unsafe_findings       INT NOT NULL DEFAULT 0,
+		readiness_pct         NUMERIC(5,2) NOT NULL DEFAULT 0,
+		certs_expiring_30d    INT NOT NULL DEFAULT 0,
+		certs_expiring_90d    INT NOT NULL DEFAULT 0,
+		certs_expired         INT NOT NULL DEFAULT 0,
+		max_priority          INT NOT NULL DEFAULT 0,
+		trend_direction       TEXT NOT NULL DEFAULT 'insufficient',
+		trend_delta_pct       NUMERIC(5,2) NOT NULL DEFAULT 0,
+		sparkline             JSONB NOT NULL DEFAULT '[]',
+		refreshed_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (org_id, hostname)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_host_summary_readiness
+		ON host_summary(org_id, readiness_pct ASC);
+	CREATE INDEX IF NOT EXISTS idx_host_summary_unsafe
+		ON host_summary(org_id, unsafe_findings DESC);
+
+	CREATE TABLE IF NOT EXISTS org_snapshot (
+		org_id                UUID PRIMARY KEY,
+		readiness_pct         NUMERIC(5,2) NOT NULL DEFAULT 0,
+		total_findings        INT NOT NULL DEFAULT 0,
+		safe_findings         INT NOT NULL DEFAULT 0,
+		machines_total        INT NOT NULL DEFAULT 0,
+		machines_red          INT NOT NULL DEFAULT 0,
+		machines_yellow       INT NOT NULL DEFAULT 0,
+		machines_green        INT NOT NULL DEFAULT 0,
+		trend_direction       TEXT NOT NULL DEFAULT 'insufficient',
+		trend_delta_pct       NUMERIC(5,2) NOT NULL DEFAULT 0,
+		monthly_trend         JSONB NOT NULL DEFAULT '[]',
+		projection_status     TEXT NOT NULL DEFAULT 'insufficient-history',
+		projected_year        INT,
+		target_pct            NUMERIC(5,2) NOT NULL DEFAULT 80.0,
+		deadline_year         INT NOT NULL DEFAULT 2030,
+		policy_verdicts       JSONB NOT NULL DEFAULT '[]',
+		top_blockers          JSONB NOT NULL DEFAULT '[]',
+		certs_expiring_30d    INT NOT NULL DEFAULT 0,
+		certs_expiring_90d    INT NOT NULL DEFAULT 0,
+		certs_expired         INT NOT NULL DEFAULT 0,
+		refreshed_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);`,
+
+	// Version 13: Remediation tracking — append-only finding_status table.
+	// Analytics Phase 4B.
+	`CREATE TABLE IF NOT EXISTS finding_status (
+		id          BIGSERIAL PRIMARY KEY,
+		finding_key TEXT NOT NULL,
+		org_id      UUID NOT NULL,
+		status      TEXT NOT NULL CHECK (status IN ('open','in_progress','resolved','accepted')),
+		reason      TEXT NOT NULL DEFAULT '',
+		changed_by  TEXT NOT NULL,
+		changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		expires_at  TIMESTAMPTZ
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_finding_status_key ON finding_status(finding_key, changed_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_finding_status_org ON finding_status(org_id);`,
+
+	// Version 14: Add resolved/accepted counts to host_summary and org_snapshot.
+	// Analytics Phase 4B.
+	`ALTER TABLE host_summary ADD COLUMN IF NOT EXISTS resolved_count INT NOT NULL DEFAULT 0;
+	ALTER TABLE host_summary ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;
+	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS resolved_count INT NOT NULL DEFAULT 0;
+	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;`,
 }

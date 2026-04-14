@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -184,8 +185,8 @@ func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error 
 // given org, filtered to the latest scan per hostname. Sorted by worst
 // PQC status first, then instances descending. Returns an empty slice
 // (not nil) when there are no findings.
-func (s *PostgresStore) ListInventory(ctx context.Context, orgID string) ([]InventoryRow, error) {
-	const q = `
+func (s *PostgresStore) ListInventory(ctx context.Context, orgID string, fp FilterParams) ([]InventoryRow, error) {
+	q := `
 WITH latest_scans AS (
     SELECT DISTINCT ON (hostname) id, org_id
     FROM scans
@@ -209,11 +210,14 @@ SELECT
     COALESCE(MAX(f.migration_priority), 0) AS max_priority
 FROM findings f
 WHERE f.org_id = $1
-  AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
+  AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)`
+	args := []any{orgID}
+	q, args = appendFilterClauses(q, args, fp)
+	q += `
 GROUP BY f.algorithm, f.key_size
 ORDER BY status_rank ASC, instances DESC
 `
-	rows, err := s.pool.Query(ctx, q, orgID)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ListInventory query: %w", err)
 	}
@@ -252,8 +256,8 @@ func pqcStatusFromRank(rank int) string {
 // ListExpiringCertificates returns findings with not_after IS NOT NULL,
 // filtered to the latest scan per hostname, expiring within the given
 // duration from now. Already-expired certs are ALWAYS included.
-func (s *PostgresStore) ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration) ([]ExpiringCertRow, error) {
-	const q = `
+func (s *PostgresStore) ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration, fp FilterParams) ([]ExpiringCertRow, error) {
+	q := `
 WITH latest_scans AS (
     SELECT DISTINCT ON (hostname) id, org_id
     FROM scans
@@ -265,11 +269,14 @@ FROM findings f
 WHERE f.org_id = $1
   AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
   AND f.not_after IS NOT NULL
-  AND (f.not_after <= NOW() + $2::interval OR f.not_after < NOW())
+  AND (f.not_after <= NOW() + $2::interval OR f.not_after < NOW())`
+	interval := fmt.Sprintf("%d seconds", int64(within.Seconds()))
+	args := []any{orgID, interval}
+	q, args = appendFilterClauses(q, args, fp)
+	q += `
 ORDER BY f.not_after ASC
 `
-	interval := fmt.Sprintf("%d seconds", int64(within.Seconds()))
-	rows, err := s.pool.Query(ctx, q, orgID, interval)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ListExpiringCertificates query: %w", err)
 	}
@@ -311,11 +318,11 @@ func certStatusFromDays(days int) string {
 // migration_priority descending, filtered to the latest scan per
 // hostname. limit=0 is treated as limit=20. Findings with priority 0
 // are excluded.
-func (s *PostgresStore) ListTopPriorityFindings(ctx context.Context, orgID string, limit int) ([]PriorityRow, error) {
+func (s *PostgresStore) ListTopPriorityFindings(ctx context.Context, orgID string, limit int, fp FilterParams) ([]PriorityRow, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	const q = `
+	q := `
 WITH latest_scans AS (
     SELECT DISTINCT ON (hostname) id, org_id
     FROM scans
@@ -327,11 +334,14 @@ SELECT f.id, f.migration_priority, f.algorithm, f.key_size, f.pqc_status,
 FROM findings f
 WHERE f.org_id = $1
   AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
-  AND f.migration_priority > 0
+  AND f.migration_priority > 0`
+	args := []any{orgID, limit}
+	q, args = appendFilterClauses(q, args, fp)
+	q += `
 ORDER BY f.migration_priority DESC
 LIMIT $2
 `
-	rows, err := s.pool.Query(ctx, q, orgID, limit)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ListTopPriorityFindings query: %w", err)
 	}
@@ -379,4 +389,73 @@ func (s *PostgresStore) ListScansOrderedByTime(ctx context.Context, orgID string
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// appendFilterClauses appends optional AND clauses for FilterParams.
+func appendFilterClauses(q string, args []any, fp FilterParams) (query string, outArgs []any) {
+	if fp.Hostname != "" {
+		args = append(args, fp.Hostname)
+		q += fmt.Sprintf("\n  AND f.hostname = $%d", len(args))
+	}
+	if fp.Algorithm != "" {
+		args = append(args, fp.Algorithm)
+		q += fmt.Sprintf("\n  AND f.algorithm = $%d", len(args))
+	}
+	if fp.PQCStatus != "" {
+		args = append(args, fp.PQCStatus)
+		q += fmt.Sprintf("\n  AND f.pqc_status = $%d", len(args))
+	}
+	return q, args
+}
+
+// ListFilterOptions returns the distinct hostnames and algorithms
+// from the latest scan per hostname, plus hardcoded PQC statuses.
+func (s *PostgresStore) ListFilterOptions(ctx context.Context, orgID string) (FilterOptions, error) {
+	const q = `
+WITH latest_scans AS (
+    SELECT DISTINCT ON (hostname) id, org_id
+    FROM scans
+    WHERE org_id = $1
+    ORDER BY hostname, timestamp DESC
+)
+SELECT DISTINCT f.hostname, f.algorithm
+FROM findings f
+WHERE f.org_id = $1
+  AND (f.scan_id, f.org_id) IN (SELECT id, org_id FROM latest_scans)
+ORDER BY f.hostname, f.algorithm
+`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return FilterOptions{}, fmt.Errorf("ListFilterOptions query: %w", err)
+	}
+	defer rows.Close()
+
+	hostnameSet := make(map[string]bool)
+	algorithmSet := make(map[string]bool)
+	for rows.Next() {
+		var hostname, algorithm string
+		if err := rows.Scan(&hostname, &algorithm); err != nil {
+			return FilterOptions{}, fmt.Errorf("ListFilterOptions scan: %w", err)
+		}
+		hostnameSet[hostname] = true
+		algorithmSet[algorithm] = true
+	}
+	if err := rows.Err(); err != nil {
+		return FilterOptions{}, err
+	}
+
+	return FilterOptions{
+		Hostnames:   sortedKeys(hostnameSet),
+		Algorithms:  sortedKeys(algorithmSet),
+		PQCStatuses: []string{"SAFE", "TRANSITIONAL", "DEPRECATED", "UNSAFE"},
+	}, nil
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

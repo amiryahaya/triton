@@ -34,12 +34,31 @@ import (
 // Returns the crypto inventory aggregated by (algorithm, key_size)
 // for the authenticated tenant, filtered to the latest scan per host.
 // No query parameters. Empty array if no findings yet.
+// GET /api/v1/filters
+//
+// Returns distinct hostnames, algorithms, and PQC statuses for the
+// org's latest scans. Used to populate filter dropdowns in the UI.
+func (s *Server) handleFilterOptions(w http.ResponseWriter, r *http.Request) {
+	orgID := TenantFromContext(r.Context())
+	opts, err := s.store.ListFilterOptions(r.Context(), orgID)
+	if err != nil {
+		log.Printf("filters: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, opts)
+}
+
 func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
 	if s.backfillInProgress.Load() {
 		w.Header().Set("X-Backfill-In-Progress", "true")
 	}
 	orgID := TenantFromContext(r.Context())
-	rows, err := s.store.ListInventory(r.Context(), orgID)
+	fp := store.FilterParams{
+		Hostname:  r.URL.Query().Get("hostname"),
+		PQCStatus: r.URL.Query().Get("pqc_status"),
+	}
+	rows, err := s.store.ListInventory(r.Context(), orgID, fp)
 	if err != nil {
 		log.Printf("inventory: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -84,7 +103,11 @@ func (s *Server) handleExpiringCertificates(w http.ResponseWriter, r *http.Reque
 		within = time.Duration(days) * 24 * time.Hour
 	}
 
-	rows, err := s.store.ListExpiringCertificates(r.Context(), orgID, within)
+	certFP := store.FilterParams{
+		Hostname:  r.URL.Query().Get("hostname"),
+		Algorithm: r.URL.Query().Get("algorithm"),
+	}
+	rows, err := s.store.ListExpiringCertificates(r.Context(), orgID, within, certFP)
 	if err != nil {
 		log.Printf("expiring certs: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -119,7 +142,11 @@ func (s *Server) handlePriorityFindings(w http.ResponseWriter, r *http.Request) 
 		limit = n
 	}
 
-	rows, err := s.store.ListTopPriorityFindings(r.Context(), orgID, limit)
+	prioFP := store.FilterParams{
+		Hostname:  r.URL.Query().Get("hostname"),
+		PQCStatus: r.URL.Query().Get("pqc_status"),
+	}
+	rows, err := s.store.ListTopPriorityFindings(r.Context(), orgID, limit, prioFP)
 	if err != nil {
 		log.Printf("priority: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -182,7 +209,7 @@ func (s *Server) handleExecutiveSummary(w http.ResponseWriter, r *http.Request) 
 	readiness := analytics.ComputeReadiness(latestPerHost)
 
 	// Top-5 blockers from Phase 1 store method.
-	topBlockers, err := s.store.ListTopPriorityFindings(r.Context(), orgID, 5)
+	topBlockers, err := s.store.ListTopPriorityFindings(r.Context(), orgID, 5, store.FilterParams{})
 	if err != nil {
 		log.Printf("executive: top blockers: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -274,6 +301,116 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 		})
 	}
 	return out, nil
+}
+
+// GET /api/v1/systems?pqc_status=X
+//
+// Returns per-host summary rows from the pre-computed host_summary table.
+// Sorted by readiness_pct ASC (worst first). Includes staleness metadata.
+func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request) {
+	orgID := TenantFromContext(r.Context())
+	pqcFilter := r.URL.Query().Get("pqc_status")
+
+	rows, err := s.store.ListHostSummaries(r.Context(), orgID, pqcFilter)
+	if err != nil {
+		log.Printf("systems: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if rows == nil {
+		rows = []store.HostSummary{}
+	}
+
+	// Staleness: oldest refreshed_at across all rows
+	var dataAsOf time.Time
+	if len(rows) > 0 {
+		dataAsOf = rows[0].RefreshedAt
+		for i := 1; i < len(rows); i++ {
+			if rows[i].RefreshedAt.Before(dataAsOf) {
+				dataAsOf = rows[i].RefreshedAt
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":        rows,
+		"dataAsOf":    dataAsOf,
+		"pipelineLag": int(time.Since(dataAsOf).Seconds()),
+	})
+}
+
+// GET /api/v1/trends?hostname=X
+//
+// Returns monthly trend data. Without hostname: org-wide from org_snapshot.
+// With hostname: per-host from host_summary sparkline.
+func (s *Server) handleTrends(w http.ResponseWriter, r *http.Request) {
+	orgID := TenantFromContext(r.Context())
+	hostname := r.URL.Query().Get("hostname")
+
+	if hostname != "" {
+		// Per-host trend: find the host in host_summary
+		rows, err := s.store.ListHostSummaries(r.Context(), orgID, "")
+		if err != nil {
+			log.Printf("trends: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+		for i := range rows {
+			if rows[i].Hostname == hostname {
+				row := &rows[i]
+				writeJSON(w, http.StatusOK, map[string]any{
+					"monthlyPoints": row.Sparkline,
+					"direction":     row.TrendDirection,
+					"deltaPct":      row.TrendDeltaPct,
+					"dataAsOf":      row.RefreshedAt,
+					"pipelineLag":   int(time.Since(row.RefreshedAt).Seconds()),
+				})
+				return
+			}
+		}
+		// Host not found — return empty
+		writeJSON(w, http.StatusOK, map[string]any{
+			"monthlyPoints": []store.SparklinePoint{},
+			"direction":     "insufficient",
+			"deltaPct":      0,
+		})
+		return
+	}
+
+	// Org-wide trend from org_snapshot
+	snap, err := s.store.GetOrgSnapshot(r.Context(), orgID)
+	if err != nil {
+		log.Printf("trends: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if snap == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"monthlyPoints": []store.SparklinePoint{},
+			"direction":     "insufficient",
+			"deltaPct":      0,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"monthlyPoints": snap.MonthlyTrend,
+		"direction":     snap.TrendDirection,
+		"deltaPct":      snap.TrendDeltaPct,
+		"dataAsOf":      snap.RefreshedAt,
+		"pipelineLag":   int(time.Since(snap.RefreshedAt).Seconds()),
+	})
+}
+
+// GET /api/v1/pipeline/status
+//
+// Returns the current pipeline processing state. Used by the UI's
+// staleness bar to show "Processing..." when jobs are queued.
+func (s *Server) handlePipelineStatus(w http.ResponseWriter, r *http.Request) {
+	if s.pipeline == nil {
+		writeJSON(w, http.StatusOK, store.PipelineStatus{Status: "idle"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.pipeline.Status())
 }
 
 // worstVerdict returns the more severe of two policy verdicts.

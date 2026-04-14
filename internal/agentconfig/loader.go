@@ -88,6 +88,16 @@ type Config struct {
 	// yaml when explicitly set on the command line.
 	AlsoLocal bool `yaml:"also_local"`
 
+	// LicenseServer is the URL of the Triton License Server for seat
+	// management. When set alongside LicenseID, the agent registers
+	// itself on startup and heartbeats on each scan interval. When
+	// empty, no seat tracking occurs (backward compatible).
+	LicenseServer string `yaml:"license_server"`
+
+	// LicenseID is the license UUID to activate against. Required
+	// when LicenseServer is set; ignored otherwise.
+	LicenseID string `yaml:"license_id"`
+
 	// loadedFrom records the absolute path the Config was read from.
 	// Empty when the loader returned the zero-value default (no
 	// file found).
@@ -198,5 +208,7 @@ func loadFile(path string) (*Config, error) {
 	cfg.LicenseKey = strings.TrimSpace(cfg.LicenseKey)
 	cfg.ReportServer = strings.TrimSpace(cfg.ReportServer)
 	cfg.Profile = strings.TrimSpace(cfg.Profile)
+	cfg.LicenseServer = strings.TrimSpace(cfg.LicenseServer)
+	cfg.LicenseID = strings.TrimSpace(cfg.LicenseID)
 	return &cfg, nil
 }

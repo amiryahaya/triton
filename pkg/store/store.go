@@ -112,20 +112,74 @@ type Store interface {
 	// for the given org, filtered to the latest scan per hostname.
 	// Sorted by worst PQC status first, then instances descending.
 	// Returns an empty slice (not nil) when there are no findings.
-	ListInventory(ctx context.Context, orgID string) ([]InventoryRow, error)
+	ListInventory(ctx context.Context, orgID string, fp FilterParams) ([]InventoryRow, error)
 
 	// ListExpiringCertificates returns findings with not_after set,
 	// filtered to the latest scan per hostname, expiring within the
 	// given duration from now. Already-expired certs are ALWAYS
 	// included regardless of the window. Callers wanting "all future
 	// expiries" pass a large duration (e.g. 100 years).
-	ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration) ([]ExpiringCertRow, error)
+	ListExpiringCertificates(ctx context.Context, orgID string, within time.Duration, fp FilterParams) ([]ExpiringCertRow, error)
 
 	// ListTopPriorityFindings returns the top N findings by
 	// migration_priority descending, filtered to the latest scan per
 	// hostname. Findings with priority 0 are excluded. limit=0 is
 	// treated as limit=20.
-	ListTopPriorityFindings(ctx context.Context, orgID string, limit int) ([]PriorityRow, error)
+	ListTopPriorityFindings(ctx context.Context, orgID string, limit int, fp FilterParams) ([]PriorityRow, error)
+
+	// ListFilterOptions returns the distinct hostnames, algorithms, and
+	// PQC statuses available for filtering, derived from the latest scan
+	// per hostname. PQC statuses are hardcoded.
+	ListFilterOptions(ctx context.Context, orgID string) (FilterOptions, error)
+
+	// --- Analytics Pipeline (Phase 4A) ---
+
+	// RefreshHostSummary recomputes the host_summary row for a single
+	// (org, hostname) pair from the findings table. Called by pipeline T2.
+	RefreshHostSummary(ctx context.Context, orgID, hostname string) error
+
+	// RefreshOrgSnapshot recomputes the org_snapshot row for an org
+	// from all host_summary rows. Called by pipeline T3.
+	RefreshOrgSnapshot(ctx context.Context, orgID string) error
+
+	// ListHostSummaries returns all host_summary rows for the given org,
+	// sorted by readiness_pct ASC (worst first). pqcStatusFilter filters
+	// by PQC status: "UNSAFE" returns hosts with unsafe > 0, etc.
+	// Empty string means no filter.
+	ListHostSummaries(ctx context.Context, orgID string, pqcStatusFilter string) ([]HostSummary, error)
+
+	// GetOrgSnapshot returns the pre-computed org snapshot, or nil if
+	// the pipeline hasn't run yet for this org.
+	GetOrgSnapshot(ctx context.Context, orgID string) (*OrgSnapshot, error)
+
+	// ListStaleHosts returns distinct (org_id, hostname) pairs from the
+	// findings table that have no host_summary row or whose host_summary
+	// is older than the latest finding. Used by the cold-start rebuilder.
+	ListStaleHosts(ctx context.Context) ([]PipelineJob, error)
+
+	// --- Remediation (Phase 4B) ---
+
+	// SetFindingStatus inserts a new status row for the given finding_key.
+	SetFindingStatus(ctx context.Context, entry *FindingStatusEntry) error
+
+	// GetFindingHistory returns all status changes for a finding_key,
+	// sorted by changed_at DESC (newest first). Scoped to org for
+	// tenant isolation (defense-in-depth alongside the org-embedded hash).
+	GetFindingHistory(ctx context.Context, findingKey, orgID string) ([]FindingStatusEntry, error)
+
+	// GetRemediationSummary returns counts by status for the given org.
+	GetRemediationSummary(ctx context.Context, orgID string) (*RemediationSummary, error)
+
+	// ListRemediationFindings returns findings enriched with remediation status.
+	ListRemediationFindings(ctx context.Context, orgID string, statusFilter, hostnameFilter, pqcFilter string) ([]RemediationRow, error)
+
+	// GetFindingByID returns a single finding by ID, scoped to org.
+	GetFindingByID(ctx context.Context, findingID, orgID string) (*Finding, error)
+
+	// ListFindingStatusLog returns finding_status entries for the org,
+	// ordered by changed_at DESC. Limited by the limit parameter.
+	// Used by the Excel Remediation Log sheet. Phase 5.
+	ListFindingStatusLog(ctx context.Context, orgID string, limit int) ([]FindingStatusEntry, error)
 
 	// Close releases any resources held by the store.
 	Close() error

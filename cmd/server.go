@@ -225,6 +225,16 @@ func runServer(_ *cobra.Command, _ []string) error {
 		}
 	}()
 
+	// Analytics Phase 4A — start the ETL pipeline worker.
+	srv.Pipeline().Start()
+	go func() {
+		// Wait for backfill to finish before checking for stale summaries.
+		srv.BackfillWG().Wait()
+		if err := srv.Pipeline().RebuildStale(srv.Context()); err != nil {
+			log.Printf("pipeline cold-start rebuild: %v", err)
+		}
+	}()
+
 	// Graceful shutdown.
 	errCh := make(chan error, 1)
 	go func() {

@@ -30,6 +30,12 @@ type Store interface {
 	ListActivations(ctx context.Context, filter ActivationFilter) ([]Activation, error)
 	CountActiveSeats(ctx context.Context, licenseID string) (int, error)
 	UpdateLastSeen(ctx context.Context, id string) error
+	// ReapStaleActivations marks active seats as inactive when their
+	// last_seen_at exceeds the given threshold. Returns the count of
+	// reaped activations. Standalone non-transactional variant for
+	// admin tooling and tests. The production Activate path uses an
+	// internal transactional reap (reapAndRecount) instead.
+	ReapStaleActivations(ctx context.Context, licenseID string, threshold time.Duration) (int, error)
 
 	// Audit
 	WriteAudit(ctx context.Context, entry *AuditEntry) error

@@ -92,6 +92,8 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.EnqueuePipelineJob(result.OrgID, result.Metadata.Hostname, result.ID)
+
 	writeJSON(w, http.StatusCreated, map[string]string{"id": result.ID, "status": "saved"})
 }
 

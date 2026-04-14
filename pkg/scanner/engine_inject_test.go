@@ -8,6 +8,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
+	"github.com/amiryahaya/triton/pkg/scanner/netadapter"
 )
 
 type stubReader struct{}
@@ -43,6 +44,40 @@ func TestEngineInjectsFileReader(t *testing.T) {
 
 	if m.reader == nil {
 		t.Fatal("expected FileReader to be injected into module")
+	}
+}
+
+type stubRunner struct{}
+
+func (stubRunner) Run(ctx context.Context, cmd string) (string, error) { return "", nil }
+func (stubRunner) Close() error                                        { return nil }
+
+type stubCRAware struct {
+	name   string
+	runner netadapter.CommandRunner
+}
+
+func (s *stubCRAware) Name() string                         { return s.name }
+func (s *stubCRAware) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
+func (s *stubCRAware) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
+func (s *stubCRAware) Scan(ctx context.Context, t model.ScanTarget, f chan<- *model.Finding) error {
+	return nil
+}
+func (s *stubCRAware) SetCommandRunner(r netadapter.CommandRunner) { s.runner = r }
+
+func TestEngineInjectsCommandRunner(t *testing.T) {
+	cfg := &scannerconfig.Config{Workers: 1}
+	eng := New(cfg)
+	m := &stubCRAware{name: "stub-cr"}
+	eng.RegisterModule(m)
+	r := stubRunner{}
+	eng.SetCommandRunner(r)
+
+	progressCh := make(chan Progress, 4)
+	eng.Scan(context.Background(), progressCh)
+
+	if m.runner == nil {
+		t.Fatal("expected CommandRunner to be injected into module")
 	}
 }
 

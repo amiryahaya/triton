@@ -41,8 +41,51 @@ permissions:
   contents: read
 
 jobs:
+  # Preflight resolves the tenant pubkey once and decides whether the
+  # matrix build should run. On a `push` event without a configured
+  # pubkey we skip cleanly (so every merge to main doesn't turn the
+  # actions tab red for repos that haven't bootstrapped their
+  # PRODUCTION_TENANT_PUBKEY variable yet). On `workflow_dispatch` the
+  # operator asked for a build explicitly, so missing config is a hard
+  # error.
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      pubkey: ${{ steps.pubkey.outputs.pubkey }}
+      should-build: ${{ steps.pubkey.outputs.should-build }}
+    steps:
+      - name: Resolve tenant pubkey
+        id: pubkey
+        env:
+          DISPATCH_PUBKEY: ${{ github.event.inputs.tenant_pubkey }}
+          DEFAULT_PUBKEY: ${{ vars.PRODUCTION_TENANT_PUBKEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          pubkey="${DISPATCH_PUBKEY:-$DEFAULT_PUBKEY}"
+          if [ -z "$pubkey" ]; then
+            if [ "$EVENT" = "workflow_dispatch" ]; then
+              echo "::error::No tenant pubkey available. Set vars.PRODUCTION_TENANT_PUBKEY or pass tenant_pubkey on dispatch."
+              exit 1
+            fi
+            echo "::warning::PRODUCTION_TENANT_PUBKEY not configured — skipping agent build. Set the repo variable to enable."
+            echo "should-build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Shape check: 64 hex chars == 32 bytes. A malformed value is
+          # ALWAYS an error — we'd rather fail loudly than ship a binary
+          # with a garbage embedded pubkey.
+          if ! printf '%s' "$pubkey" | grep -qE '^[0-9a-fA-F]{64}$'; then
+            echo "::error::tenant pubkey must be 64 hex characters (32 bytes). Got ${#pubkey} chars."
+            exit 1
+          fi
+          echo "pubkey=$pubkey" >> "$GITHUB_OUTPUT"
+          echo "should-build=true" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: preflight
+    if: needs.preflight.outputs.should-build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -92,35 +135,13 @@ jobs:
             echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Resolve tenant pubkey
-        id: pubkey
-        env:
-          # Manual-dispatch override wins; fall back to the repo
-          # variable set by the operator during bootstrap.
-          DISPATCH_PUBKEY: ${{ github.event.inputs.tenant_pubkey }}
-          DEFAULT_PUBKEY: ${{ vars.PRODUCTION_TENANT_PUBKEY }}
-        run: |
-          pubkey="${DISPATCH_PUBKEY:-$DEFAULT_PUBKEY}"
-          if [ -z "$pubkey" ]; then
-            echo "::error::No tenant pubkey available. Set the vars.PRODUCTION_TENANT_PUBKEY repo variable or pass tenant_pubkey on workflow_dispatch."
-            exit 1
-          fi
-          # Shape check: 64 hex chars == 32 bytes.
-          if ! printf '%s' "$pubkey" | grep -qE '^[0-9a-fA-F]{64}$'; then
-            echo "::error::tenant pubkey must be 64 hex characters (32 bytes). Got ${#pubkey} chars."
-            exit 1
-          fi
-          # Mark as output so the build step can read it. Safe to
-          # expose — this is a PUBLIC key, not a secret.
-          echo "pubkey=$pubkey" >> "$GITHUB_OUTPUT"
-
       - name: Build agent binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
           VERSION: ${{ steps.version.outputs.version }}
-          PUBKEY: ${{ steps.pubkey.outputs.pubkey }}
+          PUBKEY: ${{ needs.preflight.outputs.pubkey }}
         run: |
           # Build into a staging directory whose name is ALWAYS
           # distinct from the archive name. This avoids a collision
@@ -145,7 +166,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           VERSION: ${{ steps.version.outputs.version }}
-          EXPECTED_PUBKEY: ${{ steps.pubkey.outputs.pubkey }}
+          EXPECTED_PUBKEY: ${{ needs.preflight.outputs.pubkey }}
         run: |
           # Sanity check: `strings` the binary and confirm the hex
           # shows up exactly once. Catches accidental ldflags typos

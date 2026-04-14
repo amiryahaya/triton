@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,10 +59,19 @@ func (m *ASN1OIDModule) Scan(ctx context.Context, target model.ScanTarget, findi
 			return ctx.Err()
 		}
 		if d.IsDir() {
+			if shouldSkipOIDDir(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		info, err := d.Info()
 		if err != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		// Cap per-file size to avoid unbounded work on huge artifacts
+		// (container images, VM disks, core dumps). 500 MB is generous
+		// relative to typical stripped binaries (<50 MB).
+		if info.Size() > 500*1024*1024 {
 			return nil
 		}
 		// Fast-reject non-binaries by magic. ExtractSections does this too,
@@ -74,6 +84,25 @@ func (m *ASN1OIDModule) Scan(ctx context.Context, target model.ScanTarget, findi
 	})
 }
 
+// skippedSystemDirs is the set of kernel/virtual filesystem roots that
+// must never be walked — they contain synthetic files that block, recurse
+// infinitely, or expose sensitive state.
+var skippedSystemDirs = map[string]bool{
+	"/proc": true, "/sys": true, "/dev": true, "/run": true,
+}
+
+// shouldSkipOIDDir returns true for directories the ASN.1 OID walker must
+// avoid: kernel virtual filesystems and git internals anywhere in tree.
+func shouldSkipOIDDir(path string) bool {
+	if skippedSystemDirs[path] {
+		return true
+	}
+	if strings.Contains(path, "/.git/") || strings.HasSuffix(path, "/.git") {
+		return true
+	}
+	return false
+}
+
 func (m *ASN1OIDModule) scanBinary(ctx context.Context, path string, findings chan<- *model.Finding) {
 	sections, err := binsections.ExtractSections(path)
 	if err != nil {
@@ -81,6 +110,9 @@ func (m *ASN1OIDModule) scanBinary(ctx context.Context, path string, findings ch
 	}
 	seen := make(map[string]bool) // dedupe by OID within a single binary
 	for _, s := range sections {
+		if ctx.Err() != nil {
+			return
+		}
 		hits := crypto.FindOIDsInBuffer(s.Data)
 		classified := crypto.ClassifyFoundOIDs(hits)
 		for _, c := range classified {

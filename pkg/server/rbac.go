@@ -19,8 +19,8 @@ var roleRank = map[string]int{
 //
 // Returns 401 if no claims are present (misconfiguration — JWTAuth not
 // chained) and 403 if the caller's role ranks below the minimum.
-func RequireRole(min string) func(http.Handler) http.Handler {
-	minRank := roleRank[min]
+func RequireRole(minRole string) func(http.Handler) http.Handler {
+	minRank := roleRank[minRole]
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := ClaimsFromContext(r.Context())

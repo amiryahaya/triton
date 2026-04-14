@@ -35,6 +35,7 @@ import (
 type ServiceMeshModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -48,6 +49,7 @@ func (m *ServiceMeshModule) Name() string                         { return "serv
 func (m *ServiceMeshModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *ServiceMeshModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *ServiceMeshModule) SetStore(s store.Store)               { m.store = s }
+func (m *ServiceMeshModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *ServiceMeshModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -67,6 +69,7 @@ func (m *ServiceMeshModule) Scan(ctx context.Context, target model.ScanTarget, f
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

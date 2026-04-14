@@ -62,6 +62,44 @@ func TestJavaBytecodeModule_ScansJAR(t *testing.T) {
 	}
 }
 
+// TestJavaBytecodeModule_DedupByLiteralNotAlgorithm ensures that two literals
+// resolving to the same Algorithm but different Status (e.g. AES/GCM/NoPadding
+// SAFE vs AES/ECB/NoPadding DEPRECATED) both emit findings — the dedup key is
+// the literal, not the resolved algorithm name.
+func TestJavaBytecodeModule_DedupByLiteralNotAlgorithm(t *testing.T) {
+	m := NewJavaBytecodeModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 8)
+	done := make(chan struct{})
+	var collected []*model.Finding
+	go func() {
+		for f := range findings {
+			collected = append(collected, f)
+		}
+		close(done)
+	}()
+
+	// Both literals lookup to "AES" via LookupJavaAlgorithm but carry
+	// different Status — we must see two findings, not one.
+	m.classifyAndEmit(context.Background(), "/fake/app.jar", "Foo.class",
+		[]string{"AES/GCM/NoPadding", "AES/ECB/NoPadding"}, findings)
+	close(findings)
+	<-done
+
+	if len(collected) != 2 {
+		t.Fatalf("expected 2 findings (GCM + ECB), got %d", len(collected))
+	}
+	seenEvidence := map[string]bool{}
+	for _, f := range collected {
+		seenEvidence[f.Source.Evidence] = true
+	}
+	if !seenEvidence["Foo.class: AES/GCM/NoPadding"] {
+		t.Error("missing AES/GCM/NoPadding finding")
+	}
+	if !seenEvidence["Foo.class: AES/ECB/NoPadding"] {
+		t.Error("missing AES/ECB/NoPadding finding")
+	}
+}
+
 func TestLooksLikeJavaArtifact(t *testing.T) {
 	cases := []struct {
 		path string

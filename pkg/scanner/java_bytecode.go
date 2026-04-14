@@ -113,8 +113,10 @@ func (m *JavaBytecodeModule) scanArtifact(ctx context.Context, path string, find
 }
 
 // classifyAndEmit classifies each string literal; unclassified strings are
-// silently dropped. De-duplicates by (path, classPath, algorithm) — each
-// unique crypto surface produces at most one finding per source.
+// silently dropped. De-duplicates by the literal itself (normalised) rather
+// than by the resolved algorithm — otherwise `AES/GCM/NoPadding` (SAFE) and
+// `AES/ECB/NoPadding` (DEPRECATED) would collide under Algorithm="AES" and
+// the second (security-relevant) finding would be silently dropped.
 func (m *JavaBytecodeModule) classifyAndEmit(
 	ctx context.Context,
 	path, classPath string,
@@ -127,10 +129,11 @@ func (m *JavaBytecodeModule) classifyAndEmit(
 		if !ok {
 			continue
 		}
-		if seen[entry.Algorithm] {
+		key := strings.ToLower(strings.TrimSpace(s))
+		if seen[key] {
 			continue
 		}
-		seen[entry.Algorithm] = true
+		seen[key] = true
 		select {
 		case <-ctx.Done():
 			return

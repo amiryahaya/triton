@@ -73,3 +73,29 @@ func TestParseClass_RejectsTruncated(t *testing.T) {
 		t.Error("expected error on truncated constant pool")
 	}
 }
+
+func TestScanJAR_ExtractsClassStrings(t *testing.T) {
+	hits, err := ScanJAR("testdata/crypto.jar")
+	if err != nil {
+		t.Skipf("testdata/crypto.jar missing — run 'make javaclass-fixtures' to build: %v", err)
+	}
+	// Every string from every class in the JAR is returned with its class path.
+	want := map[string]bool{"AES/GCM/NoPadding": false, "SHA-256": false, "RSA": false}
+	for _, h := range hits {
+		if _, ok := want[h.Value]; ok {
+			want[h.Value] = true
+		}
+	}
+	for s, seen := range want {
+		if !seen {
+			t.Errorf("missing %q from crypto.jar scan", s)
+		}
+	}
+}
+
+func TestScanJAR_RejectsNonZIP(t *testing.T) {
+	_, err := ScanJAR("javaclass.go") // source file, not a JAR
+	if err == nil {
+		t.Error("expected error scanning non-ZIP file")
+	}
+}

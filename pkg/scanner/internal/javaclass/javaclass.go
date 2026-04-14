@@ -10,9 +10,11 @@
 package javaclass
 
 import (
+	"archive/zip"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 )
 
 // classMagic is the big-endian 4-byte header every JVM class file starts with.
@@ -138,4 +140,59 @@ func cpEntrySize(tag byte, data []byte, off int) (size int, consumesTwoSlots boo
 	default:
 		return 0, false, fmt.Errorf("unknown constant-pool tag %d", tag)
 	}
+}
+
+// JARHit pairs a UTF-8 constant-pool string with the class path inside the
+// JAR that produced it. Used by the scanner to attribute findings precisely.
+type JARHit struct {
+	ClassPath string // e.g. "com/example/Foo.class"
+	Value     string
+}
+
+// ScanJAR walks a JAR/WAR/EAR (ZIP archive) and returns every UTF-8
+// constant-pool string from every .class entry it contains. Non-class
+// entries are ignored. Manifest parsing is a separate function.
+//
+// Large JARs are processed lazily — entries are read one at a time, so
+// memory stays bounded to the largest individual .class file.
+func ScanJAR(path string) ([]JARHit, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, fmt.Errorf("javaclass: open %s: %w", path, err)
+	}
+	defer r.Close()
+
+	var hits []JARHit
+	for _, f := range r.File {
+		if !isClassEntry(f.Name) {
+			continue
+		}
+		strs, err := readClassFromZip(f)
+		if err != nil {
+			// Don't abort the whole JAR on one bad class — skip and continue.
+			continue
+		}
+		for _, s := range strs {
+			hits = append(hits, JARHit{ClassPath: f.Name, Value: s})
+		}
+	}
+	return hits, nil
+}
+
+func isClassEntry(name string) bool {
+	n := len(name)
+	return n > 6 && name[n-6:] == ".class"
+}
+
+func readClassFromZip(f *zip.File) ([]string, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, err
+	}
+	return ParseClass(data)
 }

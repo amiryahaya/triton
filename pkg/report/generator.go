@@ -112,6 +112,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 		.status-TRANSITIONAL { color: #e65100; font-weight: bold; }
 		.status-DEPRECATED { color: #c62828; font-weight: bold; }
 		.status-UNSAFE { color: #b71c1c; font-weight: bold; }
+		.hybrid-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 0.7em; font-weight: bold; color: #fff; background: #6a1b9a; border-radius: 3px; vertical-align: middle; }
 		.meta { color: #666; font-size: 0.9em; }
 		.chart-section { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; margin: 20px 0; }
 		.chart-legend { display: flex; flex-direction: column; gap: 6px; font-size: 0.9em; margin-top: 8px; }
@@ -217,6 +218,14 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 
 	for i, row := range rows {
 		statusClass := "status-" + html.EscapeString(row.asset.PQCStatus)
+		algoCell := html.EscapeString(row.asset.Algorithm)
+		if row.asset.IsHybrid {
+			title := "Hybrid PQC composition"
+			if len(row.asset.ComponentAlgorithms) > 0 {
+				title = "Hybrid: " + strings.Join(row.asset.ComponentAlgorithms, " + ")
+			}
+			algoCell += fmt.Sprintf(`<span class="hybrid-badge" title="%s">HYBRID</span>`, html.EscapeString(title))
+		}
 		b.WriteString(fmt.Sprintf(`		<tr>
 			<td>CBOM #%d</td>
 			<td>%s</td>
@@ -228,7 +237,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			<td>%s</td>
 		</tr>
 `, i+1, html.EscapeString(row.systemName),
-			html.EscapeString(row.asset.Algorithm),
+			algoCell,
 			html.EscapeString(crypto.FormatKeySize(row.asset.KeySize)),
 			html.EscapeString(row.asset.Purpose),
 			statusClass, html.EscapeString(row.asset.PQCStatus),

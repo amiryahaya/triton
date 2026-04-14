@@ -88,7 +88,7 @@ func buildJavaAlgRegistry() map[string]JavaAlgEntry {
 	// --- Hash functions ---
 	add([]string{"MD2"}, "MD2", "MD2", UNSAFE)
 	add([]string{"MD4"}, "MD4", "MD4", UNSAFE)
-	add([]string{"MD5"}, "MD5", "MD5", DEPRECATED)
+	add([]string{"MD5"}, "MD5", "MD5", UNSAFE)
 	add([]string{"SHA", "SHA-1", "SHA1"}, "SHA-1", "SHA", DEPRECATED)
 	add([]string{"SHA-224", "SHA224"}, "SHA-224", "SHA", TRANSITIONAL)
 	add([]string{"SHA-256", "SHA256"}, "SHA-256", "SHA", TRANSITIONAL)

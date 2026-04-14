@@ -44,7 +44,7 @@ func classicalOIDs() map[string]OIDEntry {
 		// ─── Hash functions (RFC 3370, RFC 4231, FIPS 180-4, FIPS 202) ───
 		"1.2.840.113549.2.2":      {OID: "1.2.840.113549.2.2", Algorithm: "MD2", Family: "MD5", Status: UNSAFE},
 		"1.2.840.113549.2.4":      {OID: "1.2.840.113549.2.4", Algorithm: "MD4", Family: "MD4", Status: UNSAFE},
-		"1.2.840.113549.2.5":      {OID: "1.2.840.113549.2.5", Algorithm: "MD5", Family: "MD5", Status: DEPRECATED},
+		"1.2.840.113549.2.5":      {OID: "1.2.840.113549.2.5", Algorithm: "MD5", Family: "MD5", Status: UNSAFE},
 		"1.3.14.3.2.26":           {OID: "1.3.14.3.2.26", Algorithm: "SHA-1", Family: "SHA", Status: DEPRECATED},
 		"2.16.840.1.101.3.4.2.1":  {OID: "2.16.840.1.101.3.4.2.1", Algorithm: "SHA-256", Family: "SHA", Status: TRANSITIONAL},
 		"2.16.840.1.101.3.4.2.2":  {OID: "2.16.840.1.101.3.4.2.2", Algorithm: "SHA-384", Family: "SHA", Status: SAFE},

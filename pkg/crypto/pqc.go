@@ -236,7 +236,7 @@ var algorithmRegistry = map[string]AlgorithmInfo{
 	"DSA":        {Name: "DSA", Family: "DSA", KeySize: 0, Status: DEPRECATED, BreakYear: 2025},
 	"ECDSA-P192": {Name: "ECDSA-P192", Family: "ECDSA", KeySize: 192, Status: DEPRECATED, BreakYear: 2025},
 	"SHA-1":      {Name: "SHA-1", Family: "SHA1", KeySize: 160, Status: DEPRECATED, BreakYear: 2025},
-	"MD5":        {Name: "MD5", Family: "MD5", KeySize: 128, Status: DEPRECATED, BreakYear: 2020},
+	"MD5":        {Name: "MD5", Family: "MD5", KeySize: 128, Status: UNSAFE, BreakYear: 2020},
 	"3DES":       {Name: "3DES", Family: "DES", KeySize: 168, Status: DEPRECATED, BreakYear: 2025},
 	"Blowfish":   {Name: "Blowfish", Family: "Blowfish", KeySize: 128, Status: DEPRECATED, BreakYear: 2025},
 	"CAST5":      {Name: "CAST5", Family: "CAST5", KeySize: 128, Status: DEPRECATED, BreakYear: 2025},

@@ -510,7 +510,7 @@ $hash = hash('md5', $data);
 	require.NotNil(t, finding)
 	require.NotNil(t, finding.CryptoAsset)
 	assert.NotEmpty(t, finding.CryptoAsset.PQCStatus)
-	assert.Equal(t, "DEPRECATED", finding.CryptoAsset.PQCStatus, "MD5 should be DEPRECATED")
+	assert.Equal(t, "UNSAFE", finding.CryptoAsset.PQCStatus, "MD5 should be UNSAFE (collision attacks)")
 }
 
 func TestWebAppDetectionMethodPopulated(t *testing.T) {

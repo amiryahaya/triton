@@ -1,0 +1,46 @@
+# docs/examples/agentless/devices.yaml.example
+# Copy to /etc/triton/devices.yaml and customize.
+version: 1
+
+defaults:
+  port: 22
+  scan_timeout: 5m
+  sudo: false
+
+devices:
+  # Linux host example
+  - name: web-srv1
+    type: unix
+    address: 10.0.1.10
+    credential: prod-ssh-key
+    scan_paths:
+      - /etc
+      - /usr/local/etc
+      - /opt
+
+  # AIX host example
+  - name: legacy-aix-1
+    type: unix
+    address: 10.0.1.20
+    credential: legacy-ssh
+    os_hint: aix
+
+  # Cisco router example
+  - name: edge-router-1
+    type: cisco-iosxe
+    address: 10.0.0.1
+    credential: cisco-tacacs
+    enable_credential: cisco-enable
+
+  # Juniper router example
+  - name: core-srx-1
+    type: juniper-junos
+    address: 10.0.0.2
+    port: 830
+    credential: juniper-netconf
+
+groups:
+  - name: production
+    members: [web-srv1, edge-router-1, core-srx-1]
+  - name: legacy
+    members: [legacy-aix-1]

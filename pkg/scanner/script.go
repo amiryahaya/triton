@@ -13,6 +13,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -140,8 +141,8 @@ func (m *ScriptModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			found, err := m.scanScriptFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			found, err := m.scanScriptFile(ctx, reader, path)
 			if err != nil {
 				return nil
 			}
@@ -173,7 +174,7 @@ func (m *ScriptModule) isScriptFile(path string) bool {
 const maxCodeFileSize = 2 * 1024 * 1024 // 2MB cap for source code files
 
 // scanScriptFile reads a script file and looks for crypto patterns.
-func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
+func (m *ScriptModule) scanScriptFile(ctx context.Context, reader fsadapter.FileReader, path string) ([]*model.Finding, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -182,7 +183,7 @@ func (m *ScriptModule) scanScriptFile(path string) ([]*model.Finding, error) {
 		return nil, nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
 // Compile-time interface compliance
@@ -372,7 +373,7 @@ key_type = ecdsa
 	assert.False(t, m.isConfigFile("/tmp/renewal.conf"), "should not match non-letsencrypt renewal.conf")
 
 	// Parse the file
-	findings := m.parseCertbotConfig(renewalConf)
+	findings := m.parseCertbotConfig(context.Background(), fsadapter.NewLocalReader(), renewalConf)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "ACME certificate renewal", findings[0].CryptoAsset.Purpose)
 	assert.Equal(t, "ECDSA-P256", findings[0].CryptoAsset.Algorithm)
@@ -397,7 +398,7 @@ rsa-key-size = 4096
 	require.NoError(t, err)
 
 	m := NewConfigModule(&scannerconfig.Config{})
-	findings := m.parseCertbotConfig(renewalConf)
+	findings := m.parseCertbotConfig(context.Background(), fsadapter.NewLocalReader(), renewalConf)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "RSA-4096", findings[0].CryptoAsset.Algorithm)
 }
@@ -420,7 +421,7 @@ key_type = ecdsa
 	m := NewConfigModule(&scannerconfig.Config{})
 	assert.True(t, m.isConfigFile(domainConf), "should match domain.conf under letsencrypt/renewal/")
 
-	findings := m.parseCertbotConfig(domainConf)
+	findings := m.parseCertbotConfig(context.Background(), fsadapter.NewLocalReader(), domainConf)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "ECDSA-P256", findings[0].CryptoAsset.Algorithm)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -20,8 +21,9 @@ type walkerConfig struct {
 	ctx          context.Context
 	target       model.ScanTarget
 	config       *scannerconfig.Config
+	reader       fsadapter.FileReader // nil = use LocalReader (local scan)
 	matchFile    func(path string) bool
-	processFile  func(path string) error
+	processFile  func(ctx context.Context, reader fsadapter.FileReader, path string) error
 	filesScanned *int64 // atomic: every non-dir file visited (nil = disabled)
 	filesMatched *int64 // atomic: files passing matchFile filter (nil = disabled)
 	filesSkipped *int64 // atomic: files skipped by incremental hash check (nil = disabled)
@@ -35,50 +37,48 @@ func walkTarget(wc walkerConfig) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	reader := wc.reader
+	if reader == nil {
+		reader = fsadapter.NewLocalReader()
+	}
+
 	rootDepth := strings.Count(filepath.Clean(wc.target.Value), string(filepath.Separator))
 
-	return filepath.WalkDir(wc.target.Value, func(path string, d os.DirEntry, err error) error {
+	return reader.Walk(ctx, wc.target.Value, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // Skip errors, continue scanning
+			return nil
 		}
 
-		// Skip symlinks to avoid infinite loops
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 
 		if d.IsDir() {
-			// Enforce max depth
 			if wc.target.Depth > 0 {
 				currentDepth := strings.Count(filepath.Clean(path), string(filepath.Separator))
 				if currentDepth-rootDepth >= wc.target.Depth {
 					return filepath.SkipDir
 				}
 			}
-
-			// Check exclude patterns
 			if shouldSkipDir(path, wc.config) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		// Count every non-dir file visited
 		if wc.filesScanned != nil {
 			atomic.AddInt64(wc.filesScanned, 1)
 		}
 
-		// Skip files that don't match
 		if !wc.matchFile(path) {
 			return nil
 		}
 
-		// Count files passing the match filter
 		if wc.filesMatched != nil {
 			atomic.AddInt64(wc.filesMatched, 1)
 		}
 
-		// Enforce max file size (requires stat)
 		if wc.config != nil && wc.config.MaxFileSize > 0 {
 			info, err := d.Info()
 			if err != nil {
@@ -89,7 +89,6 @@ func walkTarget(wc walkerConfig) error {
 			}
 		}
 
-		// Incremental scanning: skip unchanged files
 		if wc.store != nil && wc.config != nil && wc.config.Incremental {
 			skip, newHash := checkFileChanged(ctx, wc.store, path)
 			if skip {
@@ -98,8 +97,7 @@ func walkTarget(wc walkerConfig) error {
 				}
 				return nil
 			}
-			// Process the file, then update hash on success.
-			if err := wc.processFile(path); err != nil {
+			if err := wc.processFile(ctx, reader, path); err != nil {
 				return err
 			}
 			if newHash != "" {
@@ -108,7 +106,7 @@ func walkTarget(wc walkerConfig) error {
 			return nil
 		}
 
-		return wc.processFile(path)
+		return wc.processFile(ctx, reader, path)
 	})
 }
 

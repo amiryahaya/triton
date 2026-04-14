@@ -1,0 +1,17 @@
+<data>
+  <configuration>
+    <system>
+      <services>
+        <ssh>
+          <protocol-version>v2</protocol-version>
+          <ciphers>aes256-ctr</ciphers>
+          <ciphers>aes192-ctr</ciphers>
+          <ciphers>aes128-ctr</ciphers>
+          <macs>hmac-sha2-256</macs>
+          <macs>hmac-sha1</macs>
+          <key-exchange>curve25519-sha256</key-exchange>
+        </ssh>
+      </services>
+    </system>
+  </configuration>
+</data>

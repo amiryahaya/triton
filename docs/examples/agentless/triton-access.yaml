@@ -1,0 +1,29 @@
+# Deploys the triton-scanner user + SSH public key to all hosts in the
+# Ansible inventory. Run with:
+#   ansible-playbook -i your-inventory.yaml triton-access.yaml \
+#     -e scanner_pubkey_file=/etc/triton/keys/triton-scanner.pub
+---
+- name: Onboard hosts for Triton agentless scanning
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create triton-scanner user
+      ansible.builtin.user:
+        name: triton-scanner
+        shell: /bin/bash
+        home: /home/triton-scanner
+        state: present
+
+    - name: Deploy Triton scanner SSH public key
+      ansible.posix.authorized_key:
+        user: triton-scanner
+        state: present
+        key: "{{ lookup('file', scanner_pubkey_file) }}"
+
+    # Optional: for Tier 2 scanners (sudo-required) uncomment:
+    # - name: Allow triton-scanner to read /etc/shadow
+    #   ansible.builtin.copy:
+    #     dest: /etc/sudoers.d/triton-scanner
+    #     content: "triton-scanner ALL=(root) NOPASSWD: /usr/bin/cat /etc/shadow\n"
+    #     mode: '0440'
+    #     validate: '/usr/sbin/visudo -cf %s'

@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -20,6 +19,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -63,10 +63,10 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			ext := strings.ToLower(filepath.Ext(path))
 
-			certs, err := m.parseCertificateFile(path)
+			certs, err := m.parseCertificateFile(ctx, reader, path)
 
 			// JKS files can't be fully parsed but should produce a finding
 			if (ext == ".jks") && err == nil && len(certs) == 0 {
@@ -103,8 +103,8 @@ func (m *CertificateModule) isCertificateFile(path string) bool {
 		ext == ".p12" || ext == ".pfx" || ext == ".jks"
 }
 
-func (m *CertificateModule) parseCertificateFile(path string) ([]*x509.Certificate, error) {
-	data, err := os.ReadFile(path)
+func (m *CertificateModule) parseCertificateFile(ctx context.Context, reader fsadapter.FileReader, path string) ([]*x509.Certificate, error) {
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil, err
 	}

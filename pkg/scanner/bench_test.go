@@ -17,6 +17,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
 // BenchmarkCertificateScan measures certificate scanning throughput.
@@ -108,7 +109,7 @@ func BenchmarkWalker(b *testing.B) {
 			},
 			config:      cfg,
 			matchFile:   func(path string) bool { return filepath.Ext(path) == ".pem" },
-			processFile: func(path string) error { return nil },
+			processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error { return nil },
 		})
 	}
 }

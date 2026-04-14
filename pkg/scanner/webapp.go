@@ -13,6 +13,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -176,8 +177,8 @@ func (m *WebAppModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			found, err := m.scanWebAppFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			found, err := m.scanWebAppFile(ctx, reader, path)
 			if err != nil {
 				return nil
 			}
@@ -208,7 +209,7 @@ func (m *WebAppModule) isWebAppFile(path string) bool {
 }
 
 // scanWebAppFile reads a web app source file and looks for crypto patterns.
-func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
+func (m *WebAppModule) scanWebAppFile(ctx context.Context, reader fsadapter.FileReader, path string) ([]*model.Finding, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -217,7 +218,7 @@ func (m *WebAppModule) scanWebAppFile(path string) ([]*model.Finding, error) {
 		return nil, nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -61,8 +62,8 @@ func (m *ConfigModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			results := m.parseConfigFile(path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			results := m.parseConfigFile(ctx, reader, path)
 			for _, finding := range results {
 				select {
 				case findings <- finding:
@@ -96,25 +97,25 @@ func (m *ConfigModule) isConfigFile(path string) bool {
 }
 
 // parseConfigFile dispatches to the appropriate parser based on filename.
-func (m *ConfigModule) parseConfigFile(path string) []*model.Finding {
+func (m *ConfigModule) parseConfigFile(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
 	base := filepath.Base(path)
 	switch base {
 	case "sshd_config", "ssh_config":
 		return m.parseSSHConfig(path)
 	case "current":
 		if strings.Contains(path, "crypto-policies") {
-			return m.parseCryptoPolicies(path)
+			return m.parseCryptoPolicies(ctx, reader, path)
 		}
 	case "java.security":
 		return m.parseJavaSecurity(path)
 	case "renewal.conf":
 		if strings.Contains(path, "letsencrypt") {
-			return m.parseCertbotConfig(path)
+			return m.parseCertbotConfig(ctx, reader, path)
 		}
 	default:
 		// Match *.conf files under letsencrypt/renewal/ directories
 		if filepath.Ext(path) == ".conf" && strings.Contains(path, "letsencrypt") && strings.Contains(path, "renewal") {
-			return m.parseCertbotConfig(path)
+			return m.parseCertbotConfig(ctx, reader, path)
 		}
 	}
 	return nil
@@ -240,8 +241,8 @@ func (m *ConfigModule) parseSSHConfig(path string) []*model.Finding {
 }
 
 // parseCryptoPolicies reads the crypto-policies state file.
-func (m *ConfigModule) parseCryptoPolicies(path string) []*model.Finding {
-	data, err := os.ReadFile(path)
+func (m *ConfigModule) parseCryptoPolicies(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil
 	}
@@ -438,8 +439,8 @@ func (m *ConfigModule) parseJavaSecurityProperty(path, key, value string) []*mod
 }
 
 // parseCertbotConfig parses a Let's Encrypt/certbot renewal configuration file.
-func (m *ConfigModule) parseCertbotConfig(path string) []*model.Finding {
-	data, err := os.ReadFile(path)
+func (m *ConfigModule) parseCertbotConfig(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil
 	}

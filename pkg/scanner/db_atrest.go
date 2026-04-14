@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -71,8 +71,8 @@ func (m *DBAtRestModule) Scan(ctx context.Context, target model.ScanTarget, find
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
-		processFile: func(path string) error {
-			results := m.parseFile(ctx, path)
+		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			results := m.parseFile(ctx, reader, path)
 			for _, f := range results {
 				if f == nil {
 					continue
@@ -130,7 +130,7 @@ func isDBAtRestFile(path string) bool {
 }
 
 // parseFile dispatches to the right sub-parser.
-func (m *DBAtRestModule) parseFile(ctx context.Context, path string) []*model.Finding {
+func (m *DBAtRestModule) parseFile(ctx context.Context, reader fsadapter.FileReader, path string) []*model.Finding {
 	base := filepath.Base(path)
 	lower := strings.ToLower(path)
 
@@ -141,7 +141,7 @@ func (m *DBAtRestModule) parseFile(ctx context.Context, path string) []*model.Fi
 
 	// LUKS crypttab
 	if base == "crypttab" {
-		data, err := os.ReadFile(path)
+		data, err := reader.ReadFile(ctx, path)
 		if err != nil {
 			return nil
 		}
@@ -158,7 +158,7 @@ func (m *DBAtRestModule) parseFile(ctx context.Context, path string) []*model.Fi
 	}
 
 	// Read config files
-	data, err := os.ReadFile(path)
+	data, err := reader.ReadFile(ctx, path)
 	if err != nil {
 		return nil
 	}

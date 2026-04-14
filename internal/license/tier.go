@@ -23,8 +23,9 @@ const (
 	FeatureFormatXLSX  Feature = "format:xlsx"
 	FeatureFormatSARIF Feature = "format:sarif"
 
-	FeatureServerMode Feature = "server"
-	FeatureAgentMode  Feature = "agent"
+	FeatureServerMode  Feature = "server"
+	FeatureAgentMode   Feature = "agent"
+	FeatureNetworkScan Feature = "network-scan"
 
 	FeatureMetrics       Feature = "metrics"
 	FeatureIncremental   Feature = "incremental"
@@ -66,6 +67,7 @@ var tierFeatures = map[Tier]map[Feature]bool{
 		FeatureFormatSARIF:          true,
 		FeatureServerMode:           true,
 		FeatureAgentMode:            true,
+		FeatureNetworkScan:          true,
 		FeatureMetrics:              true,
 		FeatureIncremental:          true,
 		FeatureDiff:                 true,

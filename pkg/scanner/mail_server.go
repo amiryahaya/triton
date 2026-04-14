@@ -35,6 +35,7 @@ import (
 type MailServerModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -47,6 +48,7 @@ func (m *MailServerModule) Name() string                         { return "mail_
 func (m *MailServerModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *MailServerModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *MailServerModule) SetStore(s store.Store)               { m.store = s }
+func (m *MailServerModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *MailServerModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -66,6 +68,7 @@ func (m *MailServerModule) Scan(ctx context.Context, target model.ScanTarget, fi
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			for _, f := range m.parseFile(ctx, reader, path) {
 				if f == nil {

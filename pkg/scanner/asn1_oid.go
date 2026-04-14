@@ -10,6 +10,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/scanner/internal/binsections"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -60,7 +61,7 @@ func (m *ASN1OIDModule) Scan(ctx context.Context, target model.ScanTarget, findi
 		config:    m.cfg,
 		matchFile: binsections.LooksLikeBinary,
 		store:     m.store,
-		processFile: func(path string) error {
+		processFile: func(_ context.Context, _ fsadapter.FileReader, path string) error {
 			m.scanBinary(ctx, path, findings)
 			return nil
 		},

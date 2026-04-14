@@ -33,6 +33,7 @@ import (
 type HelmChartModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -46,6 +47,7 @@ func (m *HelmChartModule) Name() string                         { return "helm_c
 func (m *HelmChartModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *HelmChartModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *HelmChartModule) SetStore(s store.Store)               { m.store = s }
+func (m *HelmChartModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *HelmChartModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -63,6 +65,7 @@ func (m *HelmChartModule) Scan(ctx context.Context, target model.ScanTarget, fin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

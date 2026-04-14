@@ -41,6 +41,7 @@ func logScannerErr(path, parser string, err error) {
 type WebServerModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -54,6 +55,7 @@ func (m *WebServerModule) Name() string                         { return "web_se
 func (m *WebServerModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *WebServerModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *WebServerModule) SetStore(s store.Store)               { m.store = s }
+func (m *WebServerModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *WebServerModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -74,6 +76,7 @@ func (m *WebServerModule) Scan(ctx context.Context, target model.ScanTarget, fin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

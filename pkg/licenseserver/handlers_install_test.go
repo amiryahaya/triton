@@ -233,10 +233,10 @@ func setupTestServerWithPublicURL(t *testing.T) (*httptest.Server, string) {
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
 		AdminKeys:   []string{"test-admin-key"},
-		SigningKey:   priv,
-		PublicKey:    pub,
+		SigningKey:  priv,
+		PublicKey:   pub,
 		BinariesDir: binDir,
-		PublicURL:    "https://license.example.com",
+		PublicURL:   "https://license.example.com",
 	}
 	srv := licenseserver.New(cfg, store)
 	ts := httptest.NewServer(srv.Router())

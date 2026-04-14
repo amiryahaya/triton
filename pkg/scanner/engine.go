@@ -13,6 +13,8 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
+	"github.com/amiryahaya/triton/pkg/scanner/netadapter"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -34,11 +36,27 @@ type StoreAware interface {
 	SetStore(s store.Store)
 }
 
+// FileReaderAware is implemented by modules that can scan over an
+// abstract filesystem (local or remote via SSH).
+type FileReaderAware interface {
+	SetFileReader(r fsadapter.FileReader)
+}
+
+// CommandRunnerAware is implemented by modules that need to execute
+// commands on the target. Reserved for future agentless Tier 2 work;
+// no module implements this in v1.
+type CommandRunnerAware interface {
+	SetCommandRunner(r netadapter.CommandRunner)
+}
+
 // Engine orchestrates concurrent module execution and finding collection.
 type Engine struct {
-	config  *scannerconfig.Config
-	modules []Module
-	store   store.Store
+	config           *scannerconfig.Config
+	modules          []Module
+	store            store.Store
+	reader           fsadapter.FileReader
+	commandRunner    netadapter.CommandRunner
+	hostnameOverride string
 }
 
 // Progress reports scan progress to the UI.
@@ -61,6 +79,15 @@ func New(cfg *scannerconfig.Config) *Engine {
 func (e *Engine) SetStore(s store.Store) {
 	e.store = s
 }
+
+// SetFileReader sets the FileReader injected into FileReaderAware modules.
+func (e *Engine) SetFileReader(r fsadapter.FileReader) { e.reader = r }
+
+// SetCommandRunner sets the CommandRunner injected into CommandRunnerAware modules.
+func (e *Engine) SetCommandRunner(r netadapter.CommandRunner) { e.commandRunner = r }
+
+// SetHostnameOverride sets a hostname used in scan metadata instead of os.Hostname().
+func (e *Engine) SetHostnameOverride(h string) { e.hostnameOverride = h }
 
 // Store returns the engine's store, or nil if none is set.
 func (e *Engine) Store() store.Store {
@@ -217,7 +244,10 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 
 	start := time.Now()
 
-	hostname, _ := os.Hostname()
+	hostname := e.hostnameOverride
+	if hostname == "" {
+		hostname, _ = os.Hostname()
+	}
 	result := &model.ScanResult{
 		ID: uuid.Must(uuid.NewV7()).String(),
 		Metadata: model.ScanMetadata{
@@ -247,6 +277,20 @@ func (e *Engine) Scan(ctx context.Context, progressCh chan<- Progress) *model.Sc
 		for _, m := range e.modules {
 			if sa, ok := m.(StoreAware); ok {
 				sa.SetStore(e.store)
+			}
+		}
+	}
+	if e.reader != nil {
+		for _, m := range e.modules {
+			if fa, ok := m.(FileReaderAware); ok {
+				fa.SetFileReader(e.reader)
+			}
+		}
+	}
+	if e.commandRunner != nil {
+		for _, m := range e.modules {
+			if ca, ok := m.(CommandRunnerAware); ok {
+				ca.SetCommandRunner(e.commandRunner)
 			}
 		}
 	}

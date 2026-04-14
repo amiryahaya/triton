@@ -33,6 +33,7 @@ import (
 type NetInfraModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -46,6 +47,7 @@ func (m *NetInfraModule) Name() string                         { return "netinfr
 func (m *NetInfraModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *NetInfraModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *NetInfraModule) SetStore(s store.Store)               { m.store = s }
+func (m *NetInfraModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *NetInfraModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -63,6 +65,7 @@ func (m *NetInfraModule) Scan(ctx context.Context, target model.ScanTarget, find
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

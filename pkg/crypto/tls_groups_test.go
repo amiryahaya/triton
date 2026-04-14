@@ -61,6 +61,40 @@ func TestTLSGroupRegistry_HybridPQCPresent(t *testing.T) {
 	}
 }
 
+// TestHybridGroupStatusConsistentWithAlgorithmRegistry pins the Status
+// field between tls_groups.go (TLS named group registry) and pqc.go
+// (algorithm registry) for hybrid + pure-PQ lattice entries, so a drift
+// in one registry is caught at test time instead of producing
+// inconsistent report output. Classical entries are skipped — their
+// names ("secp256r1", "x25519") are classified via substring logic in
+// ClassifyAlgorithm and are not expected to have a direct registry
+// entry under their TLS group name.
+func TestHybridGroupStatusConsistentWithAlgorithmRegistry(t *testing.T) {
+	for _, g := range tlsGroupData() {
+		// Only pin hybrids and pure-PQ groups (both surface via
+		// ComponentAlgorithms populated in tls_groups.go). Classical
+		// ECDHE/DHE groups don't have their TLS-group name in the
+		// algorithm registry.
+		if !g.IsHybrid && len(g.ComponentAlgorithms) == 0 {
+			continue
+		}
+		// Only compare when the algorithm registry has a direct
+		// entry for this name — otherwise ClassifyAlgorithm's
+		// fallback chain (substring, family-prefix, TRANSITIONAL
+		// default) may disagree with the TLS-group registry for
+		// reasons unrelated to drift (e.g. "frodo640aes" matches a
+		// generic "FrodoKEM" entry with different granularity).
+		info, ok := algorithmRegistry[g.Name]
+		if !ok {
+			continue
+		}
+		if info.Status != g.Status {
+			t.Errorf("drift: group %s tls_groups=%s vs algorithm-registry=%s",
+				g.Name, g.Status, info.Status)
+		}
+	}
+}
+
 func TestTLSGroupRegistry_NameLookup(t *testing.T) {
 	// Name-based lookup is used by config-file scanners (nginx ssl_ecdh_curve X25519MLKEM768)
 	if _, ok := LookupTLSGroupByName("X25519MLKEM768"); !ok {

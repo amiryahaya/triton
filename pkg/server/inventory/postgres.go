@@ -236,7 +236,7 @@ func (s *PostgresStore) SetTags(ctx context.Context, hostID uuid.UUID, tags []Ta
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after successful Commit is a documented no-op (pgx returns ErrTxClosed, which is not an error condition here).
 
 	if _, err := tx.Exec(ctx, `DELETE FROM inventory_tags WHERE host_id = $1`, hostID); err != nil {
 		return err

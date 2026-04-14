@@ -106,9 +106,11 @@ type ScriptModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *ScriptModule) SetStore(s store.Store) { m.store = s }
+func (m *ScriptModule) SetStore(s store.Store)               { m.store = s }
+func (m *ScriptModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewScriptModule(cfg *scannerconfig.Config) *ScriptModule {
 	return &ScriptModule{config: cfg}
@@ -141,6 +143,7 @@ func (m *ScriptModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			found, err := m.scanScriptFile(ctx, reader, path)
 			if err != nil {

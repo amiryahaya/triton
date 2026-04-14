@@ -34,6 +34,7 @@ import (
 type DNSSECModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -47,6 +48,7 @@ func (m *DNSSECModule) Name() string                         { return "dnssec" }
 func (m *DNSSECModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *DNSSECModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *DNSSECModule) SetStore(s store.Store)               { m.store = s }
+func (m *DNSSECModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *DNSSECModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -67,6 +69,7 @@ func (m *DNSSECModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, readErr := reader.ReadFile(ctx, path)
 			if readErr != nil {

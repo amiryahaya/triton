@@ -32,6 +32,7 @@ import (
 type MessagingModule struct {
 	config      *scannerconfig.Config
 	store       store.Store
+	reader      fsadapter.FileReader
 	lastScanned int64
 	lastMatched int64
 }
@@ -45,6 +46,7 @@ func (m *MessagingModule) Name() string                         { return "messag
 func (m *MessagingModule) Category() model.ModuleCategory       { return model.CategoryPassiveFile }
 func (m *MessagingModule) ScanTargetType() model.ScanTargetType { return model.TargetFilesystem }
 func (m *MessagingModule) SetStore(s store.Store)               { m.store = s }
+func (m *MessagingModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func (m *MessagingModule) FileStats() (scanned, matched int64) {
 	return atomic.LoadInt64(&m.lastScanned), atomic.LoadInt64(&m.lastMatched)
@@ -62,6 +64,7 @@ func (m *MessagingModule) Scan(ctx context.Context, target model.ScanTarget, fin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			data, err := reader.ReadFile(ctx, path)
 			if err != nil {

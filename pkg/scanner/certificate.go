@@ -28,9 +28,11 @@ type CertificateModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *CertificateModule) SetStore(s store.Store) { m.store = s }
+func (m *CertificateModule) SetStore(s store.Store)               { m.store = s }
+func (m *CertificateModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewCertificateModule(cfg *scannerconfig.Config) *CertificateModule {
 	return &CertificateModule{config: cfg}
@@ -63,6 +65,7 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			ext := strings.ToLower(filepath.Ext(path))
 

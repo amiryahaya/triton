@@ -56,9 +56,11 @@ type KeyModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *KeyModule) SetStore(s store.Store) { m.store = s }
+func (m *KeyModule) SetStore(s store.Store)               { m.store = s }
+func (m *KeyModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewKeyModule(cfg *scannerconfig.Config) *KeyModule {
 	return &KeyModule{config: cfg}
@@ -91,6 +93,7 @@ func (m *KeyModule) Scan(ctx context.Context, target model.ScanTarget, findings 
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			finding, err := m.parseKeyFile(ctx, reader, path)
 			if err != nil || finding == nil {

@@ -27,9 +27,11 @@ type ConfigModule struct {
 	lastScanned int64
 	lastMatched int64
 	store       store.Store
+	reader      fsadapter.FileReader
 }
 
-func (m *ConfigModule) SetStore(s store.Store) { m.store = s }
+func (m *ConfigModule) SetStore(s store.Store)               { m.store = s }
+func (m *ConfigModule) SetFileReader(r fsadapter.FileReader) { m.reader = r }
 
 func NewConfigModule(cfg *scannerconfig.Config) *ConfigModule {
 	return &ConfigModule{config: cfg}
@@ -62,6 +64,7 @@ func (m *ConfigModule) Scan(ctx context.Context, target model.ScanTarget, findin
 		filesScanned: &m.lastScanned,
 		filesMatched: &m.lastMatched,
 		store:        m.store,
+		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			results := m.parseConfigFile(ctx, reader, path)
 			for _, finding := range results {

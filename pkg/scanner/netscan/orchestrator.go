@@ -9,8 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/agent"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner"
+	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/scanner/netadapter/cisco"
 	"github.com/amiryahaya/triton/pkg/scanner/netadapter/juniper"
 	"github.com/amiryahaya/triton/pkg/scanner/netadapter/transport"
@@ -117,13 +120,9 @@ func (o *Orchestrator) scanDevice(ctx context.Context, d Device) (*model.ScanRes
 	}
 }
 
-// scanUnix performs a minimal SSH connectivity probe for MVP. It
-// verifies the scanner host can reach the target and authenticate.
-// The FileReader/SshReader infrastructure is in place; wiring the
-// scanner engine's 30 Tier 1 modules to run against an SshReader
-// is a tracked follow-up (see docs/plans/2026-04-14-agentless-scanning-mvp-design.md
-// §"Future Phases"). A log line per host makes the current limitation
-// visible to operators rather than silently returning empty findings.
+// scanUnix runs the standard Tier 1 scanner pipeline against a remote
+// Unix host via SSH. Constructs an SshReader, registers default modules,
+// injects reader + hostname override, and drains the progress channel.
 func (o *Orchestrator) scanUnix(ctx context.Context, d Device, cred *Credential) (*model.ScanResult, error) {
 	sshCfg, err := o.credToSSHConfig(d, cred)
 	if err != nil {
@@ -135,23 +134,43 @@ func (o *Orchestrator) scanUnix(ctx context.Context, d Device, cred *Credential)
 	}
 	defer func() { _ = client.Close() }()
 
-	// Probe: run `uname -a` to verify SSH works.
-	if _, err := client.Run(ctx, "uname -a"); err != nil {
-		return nil, fmt.Errorf("ssh probe: %w", err)
+	reader := fsadapter.NewSshReader(client)
+
+	paths := d.ScanPaths
+	if len(paths) == 0 {
+		paths = []string{"/etc", "/usr/local/etc", "/opt"}
 	}
 
-	log.Printf("device %s: SSH probe OK (MVP: module execution over SSH not yet wired — empty findings)", d.Name)
+	cfg := scannerconfig.Load("standard")
+	cfg.DBUrl = ""
+	cfg.Workers = 4
+	cfg.ScanTargets = make([]model.ScanTarget, 0, len(paths))
+	for _, p := range paths {
+		cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+			Type:  model.TargetFilesystem,
+			Value: p,
+			Depth: 10,
+		})
+	}
 
-	return &model.ScanResult{
-		Metadata: model.ScanMetadata{
-			Hostname:    d.Name,
-			AgentID:     "triton-netscan",
-			ScanProfile: "agentless-unix",
-			Timestamp:   time.Now().UTC(),
-		},
-		// Findings empty for MVP. Follow-up wires Tier 1 scanner engine
-		// against an SshReader.
-	}, nil
+	eng := scanner.New(cfg)
+	eng.RegisterDefaultModules()
+	eng.SetFileReader(reader)
+	eng.SetHostnameOverride(d.Name)
+
+	progressCh := make(chan scanner.Progress, 32)
+	go func() {
+		for range progressCh {
+		}
+	}()
+
+	result := eng.Scan(ctx, progressCh)
+	if result == nil {
+		return nil, fmt.Errorf("engine returned nil result")
+	}
+	result.Metadata.AgentID = "triton-netscan"
+	result.Metadata.ScanProfile = "agentless-unix"
+	return result, nil
 }
 
 func (o *Orchestrator) scanCisco(ctx context.Context, d Device, cred *Credential) (*model.ScanResult, error) {

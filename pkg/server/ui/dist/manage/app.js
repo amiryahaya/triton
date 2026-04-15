@@ -71,6 +71,8 @@
     '/hosts': renderHosts,
     '/hosts/import': renderCSVImport,
     '/engines': renderEngines,
+    '/discoveries': renderDiscoveries,
+    '/discoveries/new': renderNewDiscovery,
   };
 
   function route() {
@@ -79,6 +81,11 @@
       return;
     }
     const path = window.location.hash.replace('#', '') || '/dashboard';
+    const discMatch = path.match(/^\/discoveries\/([0-9a-f-]{36})$/);
+    if (discMatch) {
+      renderDiscoveryDetail(document.getElementById('app'), discMatch[1]);
+      return;
+    }
     const h = routes[path] || renderDashboard;
     h(document.getElementById('app'));
   }
@@ -549,6 +556,226 @@
       `;
     } catch (e) {
       resultEl.innerHTML = `<p class="error">Request failed: ${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  // ---------- Discoveries (Task 11) ----------
+
+  async function renderDiscoveries(el) {
+    el.innerHTML = `
+      <h1>Network Discovery</h1>
+      <p class="muted">Scan your network ranges to find hosts you haven't inventoried yet. Each discovery job runs on an engine and produces a list of candidates you can promote into a group.</p>
+      ${canMutate() ? '<p><a href="#/discoveries/new" class="button">New discovery</a></p>' : ''}
+      <div id="list">loading&hellip;</div>
+    `;
+    try {
+      const resp = await authedFetch('/api/v1/manage/discoveries/');
+      const jobs = await resp.json();
+      const list = el.querySelector('#list');
+      if (!jobs || jobs.length === 0) {
+        list.innerHTML = '<p><em>No discovery jobs yet.</em></p>';
+        return;
+      }
+      list.innerHTML = `
+        <table>
+          <thead><tr><th>Requested</th><th>CIDRs</th><th>Ports</th><th>Status</th><th>Candidates</th><th></th></tr></thead>
+          <tbody>${jobs.map(j => `<tr>
+            <td>${timeAgo(j.requested_at)}</td>
+            <td>${escapeHTML((j.cidrs || []).join(', '))}</td>
+            <td>${(j.ports || []).join(', ')}</td>
+            <td><span class="badge badge-${j.status}">${j.status}</span></td>
+            <td>${j.candidate_count}</td>
+            <td><a href="#/discoveries/${j.id}">View &rarr;</a></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      `;
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.querySelector('#list').textContent = 'Error loading discoveries.';
+    }
+  }
+
+  async function renderNewDiscovery(el) {
+    if (!canMutate()) { el.innerHTML = '<h1>New discovery</h1><p>Only Engineers and Owners can start discoveries.</p>'; return; }
+    el.innerHTML = `
+      <h1>New discovery</h1>
+      <form id="newDisc">
+        <label>Engine
+          <select name="engine_id" id="engine_sel" required>
+            <option value="">&mdash; choose engine &mdash;</option>
+          </select>
+        </label>
+        <label>CIDRs (one per line)
+          <textarea name="cidrs" rows="4" required placeholder="10.0.0.0/24&#10;192.168.1.0/24"></textarea>
+        </label>
+        <label>Ports (comma-separated, defaults to 22,80,443,3389,5985)
+          <input name="ports" placeholder="22,80,443,3389,5985">
+        </label>
+        <div class="button-row">
+          <a href="#/discoveries" class="button">Cancel</a>
+          <button class="primary">Start discovery</button>
+        </div>
+        <div id="new_err"></div>
+      </form>
+    `;
+
+    const sel = el.querySelector('#engine_sel');
+    try {
+      const resp = await authedFetch('/api/v1/manage/engines/');
+      const engines = await resp.json();
+      for (const e of engines || []) {
+        if (e.status === 'revoked') continue;
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = `${e.label} (${e.status})`;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') console.error('engines load', e);
+    }
+
+    el.querySelector('#newDisc').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const cidrs = f.cidrs.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const portsStr = f.ports.value.trim();
+      const ports = portsStr
+        ? portsStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= 65535)
+        : [];
+      try {
+        const resp = await authedFetch('/api/v1/manage/discoveries/', {
+          method: 'POST',
+          body: JSON.stringify({ engine_id: f.engine_id.value, cidrs, ports }),
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          el.querySelector('#new_err').innerHTML = `<p class="error">${escapeHTML(txt || ('HTTP ' + resp.status))}</p>`;
+          return;
+        }
+        const job = await resp.json();
+        window.location.hash = '#/discoveries/' + job.id;
+      } catch (e) {
+        el.querySelector('#new_err').innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+      }
+    });
+  }
+
+  async function renderDiscoveryDetail(el, jobID) {
+    el.innerHTML = `<p>loading&hellip;</p>`;
+    try {
+      const resp = await authedFetch('/api/v1/manage/discoveries/' + jobID);
+      if (!resp.ok) { el.innerHTML = '<p>Not found.</p>'; return; }
+      const data = await resp.json();
+      const job = data.job;
+      const candidates = data.candidates || [];
+
+      const running = job.status === 'queued' || job.status === 'claimed' || job.status === 'running';
+      const canCancel = canMutate() && job.status === 'queued';
+      const canPromote = canMutate() && candidates.some(c => !c.promoted);
+
+      el.innerHTML = `
+        <p><a href="#/discoveries">&larr; Back to discoveries</a></p>
+        <h1>Discovery job</h1>
+        <dl class="kv">
+          <dt>Status</dt><dd><span class="badge badge-${job.status}">${job.status}</span></dd>
+          <dt>CIDRs</dt><dd>${escapeHTML((job.cidrs || []).join(', '))}</dd>
+          <dt>Ports</dt><dd>${(job.ports || []).join(', ')}</dd>
+          <dt>Requested</dt><dd>${timeAgo(job.requested_at)}</dd>
+          ${job.claimed_at ? `<dt>Claimed</dt><dd>${timeAgo(job.claimed_at)}</dd>` : ''}
+          ${job.completed_at ? `<dt>Completed</dt><dd>${timeAgo(job.completed_at)}</dd>` : ''}
+          ${job.error ? `<dt>Error</dt><dd class="error">${escapeHTML(job.error)}</dd>` : ''}
+        </dl>
+        ${canCancel ? '<button id="cancelBtn" class="danger">Cancel job</button>' : ''}
+
+        <h2>Candidates (${candidates.length})</h2>
+        ${candidates.length === 0
+          ? (running ? '<p class="muted">Scan in progress &mdash; results will appear here.</p>' : '<p><em>No hosts discovered.</em></p>')
+          : renderCandidatesBlock(candidates)
+        }
+        <div id="promote_result"></div>
+      `;
+
+      if (canCancel) {
+        el.querySelector('#cancelBtn').addEventListener('click', async () => {
+          if (!confirm('Cancel this discovery job?')) return;
+          const r = await authedFetch('/api/v1/manage/discoveries/' + jobID + '/cancel', { method: 'POST' });
+          if (r.ok) route(); else alert('Cancel failed: HTTP ' + r.status);
+        });
+      }
+
+      if (canPromote) {
+        el.querySelector('#promoteForm')?.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          const f = ev.target;
+          const ids = Array.from(f.querySelectorAll('input[name="cand"]:checked')).map(i => i.value);
+          const groupId = f.group_id.value;
+          if (ids.length === 0) { alert('Select at least one candidate.'); return; }
+          if (!groupId) { alert('Choose a group.'); return; }
+          promoteCandidates(jobID, ids, groupId, el.querySelector('#promote_result'));
+        });
+
+        authedFetch('/api/v1/manage/groups/').then(r => r.json()).then(groups => {
+          const sel = el.querySelector('#promote_group');
+          for (const g of groups || []) {
+            const opt = document.createElement('option');
+            opt.value = g.id;
+            opt.textContent = g.name;
+            sel.appendChild(opt);
+          }
+        }).catch(() => {});
+      }
+
+      if (running) {
+        setTimeout(() => { if (window.location.hash === '#/discoveries/' + jobID) route(); }, 5000);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  function renderCandidatesBlock(candidates) {
+    const rows = candidates.map(c => `<tr>
+      <td><input type="checkbox" name="cand" value="${c.id}" ${c.promoted ? 'disabled' : ''}></td>
+      <td>${escapeHTML(c.address)}${c.promoted ? ' <span class="badge badge-enrolled">promoted</span>' : ''}</td>
+      <td>${escapeHTML(c.hostname || '')}</td>
+      <td>${(c.open_ports || []).join(', ')}</td>
+      <td>${timeAgo(c.detected_at)}</td>
+    </tr>`).join('');
+    return `
+      <form id="promoteForm">
+        <table>
+          <thead><tr><th></th><th>Address</th><th>Hostname</th><th>Open ports</th><th>Detected</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <label>Promote selected to group
+          <select name="group_id" id="promote_group">
+            <option value="">&mdash; choose group &mdash;</option>
+          </select>
+        </label>
+        <button class="primary">Promote to hosts</button>
+      </form>
+    `;
+  }
+
+  async function promoteCandidates(jobID, ids, groupId, resultEl) {
+    resultEl.innerHTML = '<p class="muted">Promoting&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/discoveries/' + jobID + '/promote', {
+        method: 'POST',
+        body: JSON.stringify({ candidate_ids: ids, group_id: groupId }),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        resultEl.innerHTML = `<p class="error">${escapeHTML(txt || ('HTTP ' + resp.status))}</p>`;
+        return;
+      }
+      const data = await resp.json();
+      const errs = data.errors && data.errors.length
+        ? `<ul>${data.errors.map(e => `<li>${escapeHTML(e.candidate_id)}: ${escapeHTML(e.error)}</li>`).join('')}</ul>`
+        : '';
+      resultEl.innerHTML = `<p>Promoted: <strong>${data.promoted || 0}</strong>, Failed: <strong>${data.failed || 0}</strong></p>${errs}`;
+      setTimeout(route, 1000);
+    } catch (e) {
+      resultEl.innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
     }
   }
 })();

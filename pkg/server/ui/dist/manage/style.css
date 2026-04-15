@@ -117,18 +117,48 @@ button.revoke:hover {
   color: white;
 }
 
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 1rem 0; }
+dl.kv dt { font-weight: 600; color: var(--muted); }
+dl.kv dd { margin: 0; }
+
 .button-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 
-button.primary {
-  background: var(--accent);
-  color: white;
-  border: 0;
-  padding: 0.5rem 1rem;
+a.button, button.button, .button {
+  display: inline-block;
+  padding: 0.5rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 4px;
+  color: var(--text);
+  text-decoration: none;
   cursor: pointer;
   font-size: 0.95rem;
 }
-button.primary:hover { filter: brightness(1.08); }
+a.button:hover, button.button:hover, .button:hover { border-color: var(--accent); color: var(--accent); }
+
+button.primary, a.button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.08); color: white; }
+
+button.danger { background: transparent; color: var(--error); border: 1px solid var(--error); padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; }
+button.danger:hover { background: var(--error); color: white; }
+
+.badge-queued    { background: #e0e7ff; color: #3730a3; }
+.badge-claimed   { background: #dbeafe; color: #1e40af; }
+.badge-running   { background: #fef3c7; color: #92400e; }
+.badge-completed { background: #dcfce7; color: #166534; }
+.badge-failed    { background: #fee2e2; color: #991b1b; }
+.badge-cancelled { background: #f3f4f6; color: #6b7280; }
+
+textarea {
+  font-family: ui-monospace, monospace;
+  resize: vertical;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.95rem;
+}
 
 .nav-link-inline { color: var(--accent); text-decoration: none; }
 .nav-link-inline:hover { text-decoration: underline; }

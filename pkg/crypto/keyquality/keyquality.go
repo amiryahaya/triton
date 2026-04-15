@@ -88,7 +88,6 @@ func Flatten(ws []Warning) []string {
 
 // --- stubs filled in by later tasks ---
 
-func smallPrimeCheck(_ *rsa.PublicKey) (Warning, bool)            { return Warning{}, false }
 func rocaCheck(_ *rsa.PublicKey) (Warning, bool)                  { return Warning{}, false }
 func debianWeakCheck(_ crypto.PublicKey, _ string, _ int) (Warning, bool) {
 	return Warning{}, false

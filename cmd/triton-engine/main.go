@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/amiryahaya/triton/pkg/engine/client"
+	"github.com/amiryahaya/triton/pkg/engine/discovery"
 	"github.com/amiryahaya/triton/pkg/engine/loop"
 )
 
@@ -44,7 +45,16 @@ func run() int {
 
 	log.Printf("triton-engine starting: engine_id=%s portal=%s", c.EngineID, c.PortalURL)
 
-	if err := loop.Run(ctx, c, loop.Config{}); err != nil && !errors.Is(err, context.Canceled) {
+	// Discovery worker: long-poll the portal for queued discovery
+	// jobs, run TCP-connect scans, stream candidates back. Started
+	// by loop.Run after the first successful Enroll.
+	scanner := &discovery.Scanner{}
+	worker := &discovery.Worker{
+		Client:  c,
+		Scanner: scanner,
+	}
+
+	if err := loop.Run(ctx, c, loop.Config{DiscoveryWorker: worker}); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("loop: %v", err)
 		return 1
 	}

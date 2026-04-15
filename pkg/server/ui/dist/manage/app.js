@@ -69,7 +69,10 @@
     '/dashboard': renderDashboard,
     '/groups': renderGroups,
     '/hosts': renderHosts,
+    '/hosts/import': renderCSVImport,
     '/engines': renderEngines,
+    '/discoveries': renderDiscoveries,
+    '/discoveries/new': renderNewDiscovery,
   };
 
   function route() {
@@ -78,6 +81,11 @@
       return;
     }
     const path = window.location.hash.replace('#', '') || '/dashboard';
+    const discMatch = path.match(/^\/discoveries\/([0-9a-f-]{36})$/);
+    if (discMatch) {
+      renderDiscoveryDetail(document.getElementById('app'), discMatch[1]);
+      return;
+    }
     const h = routes[path] || renderDashboard;
     h(document.getElementById('app'));
   }
@@ -190,6 +198,7 @@
       <h1>Hosts</h1>
       <div id="list">loading&hellip;</div>
       ${canMutate() ? `
+        <p><a href="#/hosts/import" class="nav-link-inline">Import from CSV &rarr;</a></p>
         <h2>Create host</h2>
         <form id="newhost">
           <label>Group
@@ -387,5 +396,423 @@
     return String(s).replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  }
+
+  // ---------- CSV Import (Task 10) ----------
+
+  async function renderCSVImport(el) {
+    if (!canMutate()) {
+      el.innerHTML = '<h1>Import hosts from CSV</h1><p>Only Engineers and Owners can import hosts.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <h1>Import hosts from CSV</h1>
+      <p class="muted">Expected columns: <code>hostname,address,os,mode,tags</code>. The <code>tags</code> column is semicolon-separated key=value pairs, e.g. <code>env=prod;team=platform</code>. Missing columns are treated as empty.</p>
+      <form id="csvForm">
+        <label>Target group
+          <select name="group_id" id="csv_group" required>
+            <option value="">&mdash; choose group &mdash;</option>
+          </select>
+        </label>
+        <label>CSV file
+          <input type="file" id="csvFile" accept=".csv,text/csv" required>
+        </label>
+      </form>
+      <div id="csv_preview"></div>
+      <p><a href="#/hosts">&larr; Back to hosts</a></p>
+    `;
+
+    const sel = el.querySelector('#csv_group');
+    try {
+      const resp = await authedFetch('/api/v1/manage/groups/');
+      const groups = await resp.json();
+      for (const g of groups || []) {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') console.error('groups load', e);
+    }
+
+    // 5MB ~= 50k simple rows. The server caps at 10k rows, so anything
+    // bigger than this client-side limit would be rejected anyway and
+    // we save the tab from freezing on FileReader.text() of a huge file.
+    const MAX_CSV_BYTES = 5 * 1024 * 1024;
+
+    el.querySelector('#csvFile').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > MAX_CSV_BYTES) {
+        el.querySelector('#csv_preview').innerHTML =
+          `<p class="error">File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max ${MAX_CSV_BYTES / 1024 / 1024} MB.</p>`;
+        return;
+      }
+      try {
+        const text = await file.text();
+        const rows = parseCSV(text);
+        renderCSVPreview(el.querySelector('#csv_preview'), rows, () => sel.value);
+      } catch (err) {
+        el.querySelector('#csv_preview').innerHTML = `<p class="error">Parse failed: ${escapeHTML(err.message)}</p>`;
+      }
+    });
+  }
+
+  function parseCSV(text) {
+    // Reject files with newlines inside quoted fields. A naive
+    // line-split tokenizer would desync row boundaries, mapping fields
+    // to the wrong columns silently. A full quote-aware state machine
+    // is more code than this path deserves; operators exporting from
+    // spreadsheets rarely need embedded newlines, and a clear rejection
+    // beats a silent corrupt import.
+    if (hasQuotedNewline(text)) {
+      throw new Error('CSV contains newlines inside quoted fields — not supported. Re-export without embedded line breaks.');
+    }
+    const lines = text.split(/\r?\n/).filter(l => l.length > 0);
+    if (lines.length < 1) throw new Error('file is empty');
+    const header = splitCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const fields = splitCSVLine(lines[i]);
+      const row = {};
+      for (let j = 0; j < header.length; j++) {
+        row[header[j]] = (fields[j] || '').trim();
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // hasQuotedNewline walks the text tracking quote state so that an
+  // escaped "" pair inside a quoted field doesn't flip state twice (it
+  // represents a literal quote, not a close-then-open). Returns true on
+  // the first raw \n or \r encountered while inside quotes.
+  function hasQuotedNewline(text) {
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '"') {
+        if (inQuotes && text[i + 1] === '"') { i++; continue; }
+        inQuotes = !inQuotes;
+      } else if ((ch === '\n' || ch === '\r') && inQuotes) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function splitCSVLine(line) {
+    const out = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function mapCSVRows(rows) {
+    return rows.map(r => ({
+      hostname: r.hostname || '',
+      address: r.address || r.ip || '',
+      os: r.os || '',
+      mode: r.mode || 'agentless',
+      tags: (r.tags || '').split(';').map(kv => kv.trim()).filter(Boolean).map(kv => {
+        const eq = kv.indexOf('=');
+        if (eq < 0) return { key: kv, value: '' };
+        return { key: kv.slice(0, eq), value: kv.slice(eq + 1) };
+      }),
+    }));
+  }
+
+  function renderCSVPreview(el, rows, getGroupId) {
+    const mapped = mapCSVRows(rows);
+    const preview = mapped.slice(0, 10);
+    el.innerHTML = `
+      <h2>Preview</h2>
+      <p>${mapped.length} row${mapped.length === 1 ? '' : 's'} in file.</p>
+      <table>
+        <thead><tr><th>Hostname</th><th>Address</th><th>OS</th><th>Mode</th><th>Tags</th></tr></thead>
+        <tbody>${preview.map(r => `<tr>
+          <td>${escapeHTML(r.hostname)}</td>
+          <td>${escapeHTML(r.address)}</td>
+          <td>${escapeHTML(r.os)}</td>
+          <td>${escapeHTML(r.mode)}</td>
+          <td>${r.tags.map(t => escapeHTML(t.key) + '=' + escapeHTML(t.value)).join(', ')}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      ${mapped.length > 10 ? `<p class="muted">Showing first 10 of ${mapped.length}.</p>` : ''}
+      <div class="button-row">
+        <button id="dryRun">Dry-run</button>
+        <button id="commit" class="primary">Import ${mapped.length} host${mapped.length === 1 ? '' : 's'}</button>
+      </div>
+      <div id="csv_result"></div>
+    `;
+    el.querySelector('#dryRun').addEventListener('click', () =>
+      doImport(mapped, getGroupId(), true, el.querySelector('#csv_result'))
+    );
+    el.querySelector('#commit').addEventListener('click', () =>
+      doImport(mapped, getGroupId(), false, el.querySelector('#csv_result'))
+    );
+  }
+
+  async function doImport(rows, groupId, dryRun, resultEl) {
+    if (!groupId) { resultEl.innerHTML = '<p class="error">Choose a group first.</p>'; return; }
+    if (rows.length === 0) { resultEl.innerHTML = '<p class="error">No rows to import.</p>'; return; }
+    if (rows.length > 10000) { resultEl.innerHTML = '<p class="error">Max 10,000 rows per import.</p>'; return; }
+    resultEl.innerHTML = '<p class="muted">Running&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/hosts/import', {
+        method: 'POST',
+        body: JSON.stringify({ group_id: groupId, rows, dry_run: dryRun }),
+      });
+      if (!resp.ok) {
+        resultEl.innerHTML = `<p class="error">Import failed: HTTP ${resp.status}</p>`;
+        return;
+      }
+      const data = await resp.json();
+      const label = dryRun ? '(dry-run &mdash; no rows inserted)' : '(committed)';
+      const errorList = data.errors && data.errors.length
+        ? `<h3>Errors (${data.errors.length})</h3><ul>${data.errors.map(e => `<li>Row ${e.row}: ${escapeHTML(e.error)}</li>`).join('')}</ul>`
+        : '';
+      resultEl.innerHTML = `
+        <h3>${label}</h3>
+        <p>Accepted: <strong>${data.accepted}</strong>, Rejected: <strong>${data.rejected}</strong>, Duplicates: <strong>${data.duplicates}</strong></p>
+        ${errorList}
+        ${!dryRun && data.accepted > 0 ? '<p><a href="#/hosts">View hosts &rarr;</a></p>' : ''}
+      `;
+    } catch (e) {
+      resultEl.innerHTML = `<p class="error">Request failed: ${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  // ---------- Discoveries (Task 11) ----------
+
+  async function renderDiscoveries(el) {
+    el.innerHTML = `
+      <h1>Network Discovery</h1>
+      <p class="muted">Scan your network ranges to find hosts you haven't inventoried yet. Each discovery job runs on an engine and produces a list of candidates you can promote into a group.</p>
+      ${canMutate() ? '<p><a href="#/discoveries/new" class="button">New discovery</a></p>' : ''}
+      <div id="list">loading&hellip;</div>
+    `;
+    try {
+      const resp = await authedFetch('/api/v1/manage/discoveries/');
+      const jobs = await resp.json();
+      const list = el.querySelector('#list');
+      if (!jobs || jobs.length === 0) {
+        list.innerHTML = '<p><em>No discovery jobs yet.</em></p>';
+        return;
+      }
+      list.innerHTML = `
+        <table>
+          <thead><tr><th>Requested</th><th>CIDRs</th><th>Ports</th><th>Status</th><th>Candidates</th><th></th></tr></thead>
+          <tbody>${jobs.map(j => `<tr>
+            <td>${timeAgo(j.requested_at)}</td>
+            <td>${escapeHTML((j.cidrs || []).join(', '))}</td>
+            <td>${(j.ports || []).join(', ')}</td>
+            <td><span class="badge badge-${j.status}">${j.status}</span></td>
+            <td>${j.candidate_count}</td>
+            <td><a href="#/discoveries/${j.id}">View &rarr;</a></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      `;
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.querySelector('#list').textContent = 'Error loading discoveries.';
+    }
+  }
+
+  async function renderNewDiscovery(el) {
+    if (!canMutate()) { el.innerHTML = '<h1>New discovery</h1><p>Only Engineers and Owners can start discoveries.</p>'; return; }
+    el.innerHTML = `
+      <h1>New discovery</h1>
+      <form id="newDisc">
+        <label>Engine
+          <select name="engine_id" id="engine_sel" required>
+            <option value="">&mdash; choose engine &mdash;</option>
+          </select>
+        </label>
+        <label>CIDRs (one per line)
+          <textarea name="cidrs" rows="4" required placeholder="10.0.0.0/24&#10;192.168.1.0/24"></textarea>
+        </label>
+        <label>Ports (comma-separated, defaults to 22,80,443,3389,5985)
+          <input name="ports" placeholder="22,80,443,3389,5985">
+        </label>
+        <div class="button-row">
+          <a href="#/discoveries" class="button">Cancel</a>
+          <button class="primary">Start discovery</button>
+        </div>
+        <div id="new_err"></div>
+      </form>
+    `;
+
+    const sel = el.querySelector('#engine_sel');
+    try {
+      const resp = await authedFetch('/api/v1/manage/engines/');
+      const engines = await resp.json();
+      for (const e of engines || []) {
+        if (e.status === 'revoked') continue;
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = `${e.label} (${e.status})`;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') console.error('engines load', e);
+    }
+
+    el.querySelector('#newDisc').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const cidrs = f.cidrs.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const portsStr = f.ports.value.trim();
+      const ports = portsStr
+        ? portsStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= 65535)
+        : [];
+      try {
+        const resp = await authedFetch('/api/v1/manage/discoveries/', {
+          method: 'POST',
+          body: JSON.stringify({ engine_id: f.engine_id.value, cidrs, ports }),
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          el.querySelector('#new_err').innerHTML = `<p class="error">${escapeHTML(txt || ('HTTP ' + resp.status))}</p>`;
+          return;
+        }
+        const job = await resp.json();
+        window.location.hash = '#/discoveries/' + job.id;
+      } catch (e) {
+        el.querySelector('#new_err').innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+      }
+    });
+  }
+
+  async function renderDiscoveryDetail(el, jobID) {
+    el.innerHTML = `<p>loading&hellip;</p>`;
+    try {
+      const resp = await authedFetch('/api/v1/manage/discoveries/' + jobID);
+      if (!resp.ok) { el.innerHTML = '<p>Not found.</p>'; return; }
+      const data = await resp.json();
+      const job = data.job;
+      const candidates = data.candidates || [];
+
+      const running = job.status === 'queued' || job.status === 'claimed' || job.status === 'running';
+      const canCancel = canMutate() && job.status === 'queued';
+      const canPromote = canMutate() && candidates.some(c => !c.promoted);
+
+      el.innerHTML = `
+        <p><a href="#/discoveries">&larr; Back to discoveries</a></p>
+        <h1>Discovery job</h1>
+        <dl class="kv">
+          <dt>Status</dt><dd><span class="badge badge-${job.status}">${job.status}</span></dd>
+          <dt>CIDRs</dt><dd>${escapeHTML((job.cidrs || []).join(', '))}</dd>
+          <dt>Ports</dt><dd>${(job.ports || []).join(', ')}</dd>
+          <dt>Requested</dt><dd>${timeAgo(job.requested_at)}</dd>
+          ${job.claimed_at ? `<dt>Claimed</dt><dd>${timeAgo(job.claimed_at)}</dd>` : ''}
+          ${job.completed_at ? `<dt>Completed</dt><dd>${timeAgo(job.completed_at)}</dd>` : ''}
+          ${job.error ? `<dt>Error</dt><dd class="error">${escapeHTML(job.error)}</dd>` : ''}
+        </dl>
+        ${canCancel ? '<button id="cancelBtn" class="danger">Cancel job</button>' : ''}
+
+        <h2>Candidates (${candidates.length})</h2>
+        ${candidates.length === 0
+          ? (running ? '<p class="muted">Scan in progress &mdash; results will appear here.</p>' : '<p><em>No hosts discovered.</em></p>')
+          : renderCandidatesBlock(candidates)
+        }
+        <div id="promote_result"></div>
+      `;
+
+      if (canCancel) {
+        el.querySelector('#cancelBtn').addEventListener('click', async () => {
+          if (!confirm('Cancel this discovery job?')) return;
+          const r = await authedFetch('/api/v1/manage/discoveries/' + jobID + '/cancel', { method: 'POST' });
+          if (r.ok) route(); else alert('Cancel failed: HTTP ' + r.status);
+        });
+      }
+
+      if (canPromote) {
+        el.querySelector('#promoteForm')?.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          const f = ev.target;
+          const ids = Array.from(f.querySelectorAll('input[name="cand"]:checked')).map(i => i.value);
+          const groupId = f.group_id.value;
+          if (ids.length === 0) { alert('Select at least one candidate.'); return; }
+          if (!groupId) { alert('Choose a group.'); return; }
+          promoteCandidates(jobID, ids, groupId, el.querySelector('#promote_result'));
+        });
+
+        authedFetch('/api/v1/manage/groups/').then(r => r.json()).then(groups => {
+          const sel = el.querySelector('#promote_group');
+          for (const g of groups || []) {
+            const opt = document.createElement('option');
+            opt.value = g.id;
+            opt.textContent = g.name;
+            sel.appendChild(opt);
+          }
+        }).catch(() => {});
+      }
+
+      if (running) {
+        setTimeout(() => { if (window.location.hash === '#/discoveries/' + jobID) route(); }, 5000);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  function renderCandidatesBlock(candidates) {
+    const rows = candidates.map(c => `<tr>
+      <td><input type="checkbox" name="cand" value="${c.id}" ${c.promoted ? 'disabled' : ''}></td>
+      <td>${escapeHTML(c.address)}${c.promoted ? ' <span class="badge badge-enrolled">promoted</span>' : ''}</td>
+      <td>${escapeHTML(c.hostname || '')}</td>
+      <td>${(c.open_ports || []).join(', ')}</td>
+      <td>${timeAgo(c.detected_at)}</td>
+    </tr>`).join('');
+    return `
+      <form id="promoteForm">
+        <table>
+          <thead><tr><th></th><th>Address</th><th>Hostname</th><th>Open ports</th><th>Detected</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <label>Promote selected to group
+          <select name="group_id" id="promote_group">
+            <option value="">&mdash; choose group &mdash;</option>
+          </select>
+        </label>
+        <button class="primary">Promote to hosts</button>
+      </form>
+    `;
+  }
+
+  async function promoteCandidates(jobID, ids, groupId, resultEl) {
+    resultEl.innerHTML = '<p class="muted">Promoting&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/discoveries/' + jobID + '/promote', {
+        method: 'POST',
+        body: JSON.stringify({ candidate_ids: ids, group_id: groupId }),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        resultEl.innerHTML = `<p class="error">${escapeHTML(txt || ('HTTP ' + resp.status))}</p>`;
+        return;
+      }
+      const data = await resp.json();
+      const errs = data.errors && data.errors.length
+        ? `<ul>${data.errors.map(e => `<li>${escapeHTML(e.candidate_id)}: ${escapeHTML(e.error)}</li>`).join('')}</ul>`
+        : '';
+      resultEl.innerHTML = `<p>Promoted: <strong>${data.promoted || 0}</strong>, Failed: <strong>${data.failed || 0}</strong></p>${errs}`;
+      setTimeout(route, 1000);
+    } catch (e) {
+      resultEl.innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+    }
   }
 })();

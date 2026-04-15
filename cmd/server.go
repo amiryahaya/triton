@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
+	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -205,15 +206,34 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// pkg/server for ClaimsFromContext/RequireRole; wiring from cmd
 	// keeps the import graph acyclic. Requires JWT auth; skipped in
 	// single-tenant deployments that don't configure JWT signing.
+	invStore := inventory.NewPostgresStore(db.Pool())
 	if cfg.JWTSigningKey != nil {
 		invHandlers := &inventory.Handlers{
-			Store: inventory.NewPostgresStore(db.Pool()),
+			Store: invStore,
 			Audit: server.NewAuditAdapter(srv),
 		}
 		if err := srv.MountAuthenticated("/api/v1/manage", func(r chi.Router) {
 			inventory.MountRoutes(r, invHandlers)
 		}); err != nil {
 			return fmt.Errorf("mounting inventory routes: %w", err)
+		}
+	}
+
+	// Discovery — Onboarding Phase 3. Admin routes mount under the
+	// authenticated portal subtree; the gateway routes (engine poll +
+	// submit) live on the mTLS listener set up below. Both share a
+	// single discovery Store built from the same pool as inventory.
+	discoveryStore := discoverypkg.NewPostgresStore(db.Pool())
+	if cfg.JWTSigningKey != nil {
+		discoveryAdmin := &discoverypkg.AdminHandlers{
+			Store:          discoveryStore,
+			InventoryStore: invStore,
+			Audit:          server.NewAuditAdapter(srv),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage/discoveries", func(r chi.Router) {
+			discoverypkg.MountAdminRoutes(r, discoveryAdmin)
+		}); err != nil {
+			return fmt.Errorf("mounting discovery admin routes: %w", err)
 		}
 	}
 
@@ -245,7 +265,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("portal TLS cert: %w", err)
 	}
-	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, certPath, keyPath)
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, certPath, keyPath)
 	if err != nil {
 		return fmt.Errorf("starting engine gateway: %w", err)
 	}
@@ -253,6 +273,13 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// Offline detector ticks every 30s by default; srv.Context() is
 	// cancelled on Shutdown so no explicit stop channel is needed.
 	go (&enginepkg.OfflineDetector{Store: engineStore}).Run(srv.Context())
+
+	// Discovery stale-job reaper. If the portal crashes after a job
+	// moves to 'claimed' or 'running' but before the engine reports back,
+	// the partial index on status='queued' makes that job invisible to
+	// ClaimNext forever. The reaper flips claims older than 15m back to
+	// queued so another engine (or a retrying engine) can pick them up.
+	go (&discoverypkg.StaleReaper{Store: discoveryStore}).Run(srv.Context())
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level

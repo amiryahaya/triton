@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -271,6 +272,142 @@ func (s *PostgresStore) GetTags(ctx context.Context, hostID uuid.UUID) ([]Tag, e
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// ImportHosts inserts rows one-by-one inside a single transaction,
+// using a SAVEPOINT per row so a unique or CHECK violation aborts only
+// the failing row. With dryRun=true the outer transaction is rolled
+// back so no inserts persist, but the counts remain informative.
+//
+// Classification:
+//   - Duplicate = unique_violation (23505) on (org_id, hostname) or
+//     (org_id, address) partial indexes.
+//   - Rejected = any other constraint failure (e.g., check_violation
+//     on os/mode).
+func (s *PostgresStore) ImportHosts(ctx context.Context, orgID, groupID uuid.UUID, rows []ImportRow, dryRun bool) (ImportResult, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return ImportResult{}, fmt.Errorf("import hosts: begin tx: %w", err)
+	}
+	// Unconditional rollback is safe even after a successful Commit
+	// (pgx returns ErrTxClosed, which we ignore).
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after successful Commit is a documented pgx no-op (ErrTxClosed).
+
+	var res ImportResult
+	for i, row := range rows {
+		if _, err := tx.Exec(ctx, `SAVEPOINT r`); err != nil {
+			return ImportResult{}, fmt.Errorf("import hosts: savepoint: %w", err)
+		}
+
+		hostID := uuid.Must(uuid.NewV7())
+		mode := row.Mode
+		if mode == "" {
+			mode = "agentless"
+		}
+
+		var addrArg any
+		if row.Address != "" {
+			addrArg = row.Address
+		} else {
+			addrArg = nil
+		}
+		var osArg any
+		if row.OS != "" {
+			osArg = row.OS
+		} else {
+			osArg = nil
+		}
+		var hostnameArg any
+		if row.Hostname != "" {
+			hostnameArg = row.Hostname
+		} else {
+			hostnameArg = nil
+		}
+
+		_, err := tx.Exec(ctx,
+			`INSERT INTO inventory_hosts (id, org_id, group_id, hostname, address, os, mode)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			hostID, orgID, groupID, hostnameArg, addrArg, osArg, mode,
+		)
+		if err != nil {
+			res.Errors = append(res.Errors, ImportError{Row: i, Error: classifyImportError(err)})
+			if isUniqueViolation(err) {
+				res.Duplicates++
+			} else {
+				res.Rejected++
+			}
+			if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT r`); rbErr != nil {
+				return ImportResult{}, fmt.Errorf("import hosts: rollback to savepoint: %w", rbErr)
+			}
+			continue
+		}
+
+		// Insert tags. If any tag fails, roll the whole row back so
+		// we never persist a partially-tagged host.
+		tagErr := error(nil)
+		for _, t := range row.Tags {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO inventory_tags (host_id, key, value) VALUES ($1, $2, $3)`,
+				hostID, t.Key, t.Value,
+			); err != nil {
+				tagErr = err
+				break
+			}
+		}
+		if tagErr != nil {
+			res.Errors = append(res.Errors, ImportError{Row: i, Error: "tag insert failed: " + classifyImportError(tagErr)})
+			res.Rejected++
+			if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT r`); rbErr != nil {
+				return ImportResult{}, fmt.Errorf("import hosts: rollback to savepoint: %w", rbErr)
+			}
+			continue
+		}
+
+		if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT r`); err != nil {
+			return ImportResult{}, fmt.Errorf("import hosts: release savepoint: %w", err)
+		}
+		res.Accepted++
+	}
+
+	if dryRun {
+		// Explicit rollback so callers don't rely on the defer.
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			return ImportResult{}, fmt.Errorf("import hosts: dry-run rollback: %w", err)
+		}
+		return res, nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ImportResult{}, fmt.Errorf("import hosts: commit: %w", err)
+	}
+	return res, nil
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL 23505
+// (unique_violation).
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
+}
+
+// classifyImportError turns a raw pgx error into a user-friendly
+// message. Unknown errors fall through to err.Error() — operators
+// should still see enough to debug.
+func classifyImportError(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			return "hostname or address already exists"
+		case "23514":
+			return "invalid os or mode value"
+		case "22P02":
+			return "invalid address format"
+		}
+	}
+	return err.Error()
 }
 
 // Compile-time interface satisfaction assertion.

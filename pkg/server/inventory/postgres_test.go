@@ -178,3 +178,92 @@ func TestPostgresStore_AddressOnlyHostDedup(t *testing.T) {
 	_, err = f.Store.CreateHost(ctx, h2)
 	require.Error(t, err, "expected partial-unique-index violation on duplicate address-only host")
 }
+
+func TestPostgresStore_ImportHosts_DryRun_RollsBack(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	g, err := f.Store.CreateGroup(ctx, Group{
+		ID: uuid.Must(uuid.NewV7()), OrgID: f.OrgID, Name: "g-dry", CreatedBy: f.UserID,
+	})
+	require.NoError(t, err)
+
+	rows := []ImportRow{
+		{Hostname: "d-1", OS: "linux"},
+		{Hostname: "d-2", OS: "linux"},
+		{Hostname: "d-3", OS: "linux"},
+	}
+	res, err := f.Store.ImportHosts(ctx, f.OrgID, g.ID, rows, true)
+	require.NoError(t, err)
+	assert.Equal(t, 3, res.Accepted)
+	assert.Equal(t, 0, res.Rejected)
+	assert.Equal(t, 0, res.Duplicates)
+
+	list, err := f.Store.ListHosts(ctx, f.OrgID, HostFilters{GroupID: &g.ID})
+	require.NoError(t, err)
+	assert.Empty(t, list, "dry_run=true must not persist rows")
+}
+
+func TestPostgresStore_ImportHosts_PartialFailure_CommitsRest(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	g, err := f.Store.CreateGroup(ctx, Group{
+		ID: uuid.Must(uuid.NewV7()), OrgID: f.OrgID, Name: "g-part", CreatedBy: f.UserID,
+	})
+	require.NoError(t, err)
+
+	// Pre-seed a host so the second import row hits the unique index
+	// on (org_id, hostname) and gets classified as a duplicate.
+	_, err = f.Store.CreateHost(ctx, Host{
+		ID: uuid.Must(uuid.NewV7()), OrgID: f.OrgID, GroupID: g.ID,
+		Hostname: "dup-host", Mode: "agentless",
+	})
+	require.NoError(t, err)
+
+	rows := []ImportRow{
+		{Hostname: "ok-a", OS: "linux"},
+		{Hostname: "dup-host", OS: "linux"}, // duplicate
+		{Hostname: "ok-b", OS: "linux"},
+	}
+	res, err := f.Store.ImportHosts(ctx, f.OrgID, g.ID, rows, false)
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.Accepted, "rows 0 and 2 must commit")
+	assert.Equal(t, 1, res.Duplicates)
+	assert.Equal(t, 0, res.Rejected)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, 1, res.Errors[0].Row)
+
+	list, err := f.Store.ListHosts(ctx, f.OrgID, HostFilters{GroupID: &g.ID})
+	require.NoError(t, err)
+	// We expect 3: the pre-seeded dup-host plus the two newly accepted ones.
+	names := map[string]bool{}
+	for _, h := range list {
+		names[h.Hostname] = true
+	}
+	assert.True(t, names["ok-a"], "first accepted row must persist")
+	assert.True(t, names["ok-b"], "third accepted row must persist")
+	assert.True(t, names["dup-host"], "pre-existing row must still be there")
+}
+
+func TestPostgresStore_ImportHosts_RejectedOnInvalidOS(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	g, err := f.Store.CreateGroup(ctx, Group{
+		ID: uuid.Must(uuid.NewV7()), OrgID: f.OrgID, Name: "g-bad", CreatedBy: f.UserID,
+	})
+	require.NoError(t, err)
+
+	rows := []ImportRow{
+		{Hostname: "ok", OS: "linux"},
+		{Hostname: "bad", OS: "plan9"}, // fails CHECK
+	}
+	res, err := f.Store.ImportHosts(ctx, f.OrgID, g.ID, rows, false)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Accepted)
+	assert.Equal(t, 1, res.Rejected)
+	assert.Equal(t, 0, res.Duplicates)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, 1, res.Errors[0].Row)
+}

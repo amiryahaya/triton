@@ -5,11 +5,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 
+	srvdisc "github.com/amiryahaya/triton/pkg/server/discovery"
 	"github.com/amiryahaya/triton/pkg/server/engine"
 )
 
@@ -167,6 +171,142 @@ func TestHeartbeat_204(t *testing.T) {
 	}
 	if gotPath != "/api/v1/engine/heartbeat" {
 		t.Errorf("path = %q, want /api/v1/engine/heartbeat", gotPath)
+	}
+}
+
+// newDirectClient builds a *Client that bypasses bundle parsing and
+// points directly at a test TLS server. Reuses the test server's
+// self-signed cert as the client's trust anchor via InsecureSkipVerify
+// (same pattern the real Client uses in MVP).
+func newDirectClient(ts *httptest.Server) *Client {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // test-only
+			MinVersion:         tls.VersionTLS12,
+		},
+	}
+	return &Client{
+		PortalURL: ts.URL,
+		EngineID:  "test-engine",
+		HTTP: &http.Client{
+			Timeout:   requestTimeout,
+			Transport: tr,
+		},
+	}
+}
+
+func TestPollDiscovery_Returns200Job(t *testing.T) {
+	jobID := uuid.New()
+	orgID := uuid.New()
+	engineID := uuid.New()
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/engine/discoveries/poll" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		job := srvdisc.Job{
+			ID:       jobID,
+			OrgID:    orgID,
+			EngineID: engineID,
+			CIDRs:    []string{"10.0.0.0/24"},
+			Ports:    []int{22, 443},
+			Status:   srvdisc.StatusClaimed,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job)
+	}))
+	defer ts.Close()
+
+	c := newDirectClient(ts)
+	got, err := c.PollDiscovery(context.Background())
+	if err != nil {
+		t.Fatalf("PollDiscovery: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected job, got nil")
+	}
+	if got.ID != jobID {
+		t.Errorf("ID = %s, want %s", got.ID, jobID)
+	}
+	if len(got.CIDRs) != 1 || got.CIDRs[0] != "10.0.0.0/24" {
+		t.Errorf("CIDRs = %v", got.CIDRs)
+	}
+	if len(got.Ports) != 2 {
+		t.Errorf("Ports = %v", got.Ports)
+	}
+}
+
+func TestPollDiscovery_Returns204Nil(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	c := newDirectClient(ts)
+	got, err := c.PollDiscovery(context.Background())
+	if err != nil {
+		t.Fatalf("PollDiscovery: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil, got %+v", got)
+	}
+}
+
+func TestSubmitDiscovery_PostsExpectedBody(t *testing.T) {
+	jobID := uuid.New()
+	var gotBody submitPayload
+	var gotPath string
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	c := newDirectClient(ts)
+	candidates := []srvdisc.Candidate{
+		{Address: net.ParseIP("10.0.0.5"), Hostname: "host-5", OpenPorts: []int{22}},
+		{Address: net.ParseIP("10.0.0.6"), OpenPorts: []int{443, 8443}},
+	}
+	if err := c.SubmitDiscovery(context.Background(), jobID, candidates, ""); err != nil {
+		t.Fatalf("SubmitDiscovery: %v", err)
+	}
+
+	wantPath := "/api/v1/engine/discoveries/" + jobID.String() + "/submit"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q", gotPath, wantPath)
+	}
+	if gotBody.Error != "" {
+		t.Errorf("Error = %q, want empty", gotBody.Error)
+	}
+	if len(gotBody.Candidates) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(gotBody.Candidates))
+	}
+	if gotBody.Candidates[0].Address != "10.0.0.5" || gotBody.Candidates[0].Hostname != "host-5" {
+		t.Errorf("candidates[0] = %+v", gotBody.Candidates[0])
+	}
+	if len(gotBody.Candidates[1].OpenPorts) != 2 {
+		t.Errorf("candidates[1].OpenPorts = %v", gotBody.Candidates[1].OpenPorts)
+	}
+}
+
+func TestSubmitDiscovery_WithError(t *testing.T) {
+	var gotBody submitPayload
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	c := newDirectClient(ts)
+	if err := c.SubmitDiscovery(context.Background(), uuid.New(), nil, "scan exploded"); err != nil {
+		t.Fatalf("SubmitDiscovery: %v", err)
+	}
+	if gotBody.Error != "scan exploded" {
+		t.Errorf("Error = %q", gotBody.Error)
 	}
 }
 

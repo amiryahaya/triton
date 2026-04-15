@@ -459,4 +459,55 @@ var migrations = []string{
 	ALTER TABLE inventory_hosts
 		ADD CONSTRAINT fk_inventory_hosts_engine
 		FOREIGN KEY (engine_id) REFERENCES engines(id) ON DELETE SET NULL;`,
+
+	// Version 19: Discovery jobs + candidates (Onboarding Phase 3, Tasks 1-3).
+	// Engines poll for queued discovery jobs, scan the requested CIDRs/ports,
+	// and stream candidate hosts back for operator review + promotion into
+	// inventory_hosts. Status transitions:
+	//   queued -> claimed (engine picked up) -> running -> completed/failed
+	//   queued -> cancelled (operator aborted before claim)
+	// Single-claim under concurrent engine polls is enforced with
+	// FOR UPDATE SKIP LOCKED on the idx_discovery_jobs_engine_queue partial
+	// index.
+	// discovery_candidates.promoted flips TRUE when a human (or batch
+	// promote-all) adopts the candidate into inventory_hosts so subsequent
+	// reviews skip already-imported rows. UNIQUE (job_id, address) makes
+	// engine retries idempotent.
+	`
+CREATE TABLE discovery_jobs (
+    id              UUID PRIMARY KEY,
+    org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    engine_id       UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    requested_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    cidrs           TEXT[] NOT NULL,
+    ports           INTEGER[] NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (status IN ('queued', 'claimed', 'running', 'completed', 'failed', 'cancelled')),
+    error           TEXT,
+    requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    candidate_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_discovery_jobs_org        ON discovery_jobs(org_id);
+CREATE INDEX idx_discovery_jobs_engine     ON discovery_jobs(engine_id);
+CREATE INDEX idx_discovery_jobs_status     ON discovery_jobs(status);
+CREATE INDEX idx_discovery_jobs_engine_queue
+    ON discovery_jobs(engine_id, requested_at)
+    WHERE status = 'queued';
+
+CREATE TABLE discovery_candidates (
+    id          UUID PRIMARY KEY,
+    job_id      UUID NOT NULL REFERENCES discovery_jobs(id) ON DELETE CASCADE,
+    address     INET NOT NULL,
+    hostname    TEXT,
+    open_ports  INTEGER[] NOT NULL DEFAULT '{}',
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    promoted    BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (job_id, address)
+);
+
+CREATE INDEX idx_discovery_candidates_job ON discovery_candidates(job_id);
+`,
 }

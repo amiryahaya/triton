@@ -109,8 +109,18 @@ services:
       REPORT_SERVER_RESEND_API_KEY: "${REPORT_SERVER_RESEND_API_KEY:-}"
       REPORT_SERVER_RESEND_FROM_EMAIL: "${REPORT_SERVER_RESEND_FROM_EMAIL:-}"
       REPORT_SERVER_RESEND_FROM_NAME: "${REPORT_SERVER_RESEND_FROM_NAME:-Triton Reports}"
+      # Onboarding Phase 2 — per-org engine CA master encryption key
+      # (hex, 32 bytes). Rotate in production; this default is a
+      # placeholder that makes dev bring-up boot but re-encrypting
+      # existing CAs after rotation requires a migration script.
+      TRITON_PORTAL_CA_ENCRYPTION_KEY: "${TRITON_PORTAL_CA_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
+      # URL the engine binary dials for gateway API calls. Baked into
+      # bundle.yaml on issuance. Must be reachable from whatever host
+      # runs the engine binary.
+      TRITON_PORTAL_URL: "${TRITON_PORTAL_URL:-https://triton:8443}"
     ports:
       - "8090:8080"
+      - "8443:8443"
     # The server reads --db and --listen from CLI flags (no env var).
     # Inside the compose network, postgres is at postgres:5432.
     command: ["server", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable", "--listen", ":8080"]

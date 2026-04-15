@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
+	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -216,6 +217,43 @@ func runServer(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Onboarding Phase 2 — engine admin routes + mTLS gateway listener.
+	// Admin routes hang off the existing portal listener under
+	// /api/v1/manage/engines/* (JWT-gated); the mTLS gateway lives on
+	// a separate port so engines authenticate with a client cert, not a
+	// JWT. Both share one engine Store; the OfflineDetector ticks under
+	// srv.Context() so Shutdown cancels it.
+	engineStore := enginepkg.NewPostgresStore(db.Pool())
+
+	if cfg.JWTSigningKey != nil {
+		adminHandlers := &enginepkg.AdminHandlers{
+			Store:     engineStore,
+			MasterKey: loadEngineMasterKey(),
+			PortalURL: enginePortalURL(),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage/engines", func(r chi.Router) {
+			enginepkg.MountAdminRoutes(r, adminHandlers)
+		}); err != nil {
+			return fmt.Errorf("mounting engine admin routes: %w", err)
+		}
+	}
+
+	// mTLS gateway — start even in single-tenant mode so ops can
+	// dev-loop against it without standing up JWT. Failures here are
+	// fatal because engines cannot enroll without this listener.
+	certPath, keyPath, err := ensurePortalTLS()
+	if err != nil {
+		return fmt.Errorf("portal TLS cert: %w", err)
+	}
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, certPath, keyPath)
+	if err != nil {
+		return fmt.Errorf("starting engine gateway: %w", err)
+	}
+
+	// Offline detector ticks every 30s by default; srv.Context() is
+	// cancelled on Shutdown so no explicit stop channel is needed.
+	go (&enginepkg.OfflineDetector{Store: engineStore}).Run(srv.Context())
+
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level
 	// findings_extracted_at marker makes this idempotent across restarts.
@@ -266,11 +304,19 @@ func runServer(_ *cobra.Command, _ []string) error {
 
 	select {
 	case err := <-errCh:
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if gwErr := gatewaySrv.Shutdown(ctx); gwErr != nil {
+			log.Printf("engine gateway shutdown: %v", gwErr)
+		}
 		return err
 	case sig := <-sigCh:
 		fmt.Printf("\nReceived %v, shutting down...\n", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if err := gatewaySrv.Shutdown(ctx); err != nil {
+			log.Printf("engine gateway shutdown: %v", err)
+		}
 		return srv.Shutdown(ctx)
 	}
 }

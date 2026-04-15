@@ -42,7 +42,7 @@ func (s *detectorStore) ListEngines(context.Context, uuid.UUID) ([]Engine, error
 func (s *detectorStore) RecordFirstSeen(context.Context, uuid.UUID, string) (bool, error) {
 	panic("unused")
 }
-func (s *detectorStore) RecordPoll(context.Context, uuid.UUID) error   { panic("unused") }
+func (s *detectorStore) RecordPoll(context.Context, uuid.UUID) error { panic("unused") }
 func (s *detectorStore) SetStatus(context.Context, uuid.UUID, string) error {
 	panic("unused")
 }

@@ -46,7 +46,8 @@ func (m *TPMModule) scan(ctx context.Context, _ model.ScanTarget, findings chan<
 		return nil // no TPM present — silent success
 	}
 
-	for _, dev := range devs {
+	for i := range devs {
+		dev := devs[i]
 		if err := emitDeviceFinding(ctx, dev, findings); err != nil {
 			return err
 		}
@@ -76,7 +77,7 @@ var severityRank = map[string]int{
 // worstSeverity returns the highest severity level across the CVEs, and the
 // corresponding PQCStatus ("UNSAFE" for CRITICAL, "DEPRECATED" for HIGH,
 // "TRANSITIONAL" for MEDIUM, "SAFE" if empty).
-func worstSeverity(cves []crypto.TPMFirmwareCVE) (status string, severity string) {
+func worstSeverity(cves []crypto.TPMFirmwareCVE) (status, severity string) {
 	status = "SAFE"
 	rank := 0
 	for _, c := range cves {

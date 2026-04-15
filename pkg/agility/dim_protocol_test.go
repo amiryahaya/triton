@@ -39,9 +39,29 @@ func TestScoreProtocolAgility_LegacyTLSOnly(t *testing.T) {
 		protoFinding("protocol", "secp256r1", false),
 	}
 	d := scoreProtocolAgility(fs)
-	// ceiling 0, diversity 25, hybrid 0 → avg 8
-	if d.Score != 8 {
-		t.Errorf("Score = %d, want 8", d.Score)
+	// ceiling 0, diversity 25, hybrid signal omitted (no hybrid observed,
+	// no double-penalty for legacy TLS — ceiling already encodes it).
+	// (0+25)/2 = 12.
+	if d.Score != 12 {
+		t.Errorf("Score = %d, want 12", d.Score)
+	}
+}
+
+func TestScoreProtocolAgility_HybridSignalOmittedWhenNotPresent(t *testing.T) {
+	// Modern TLS without hybrid groups: hybrid signal must NOT fire (no double-penalty).
+	fs := []model.Finding{
+		protoFinding("protocol", "TLS 1.3", false),
+		protoFinding("protocol", "X25519", false),
+	}
+	d := scoreProtocolAgility(fs)
+	for _, s := range d.Signals {
+		if s.Name == "hybrid_group_present" {
+			t.Errorf("hybrid_group_present signal should be omitted when no hybrid observed; got %+v", s)
+		}
+	}
+	// ceiling 100, diversity 25 (1 group), no hybrid → (100+25)/2 = 62
+	if d.Score != 62 {
+		t.Errorf("Score = %d, want 62", d.Score)
 	}
 }
 

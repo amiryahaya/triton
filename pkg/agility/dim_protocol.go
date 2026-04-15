@@ -65,18 +65,13 @@ func scoreProtocolAgility(findings []model.Finding) Dimension {
 		sort.Strings(keys)
 		d.Signals = append(d.Signals, Signal{Name: "named_group_diversity", Value: strings.Join(keys, ","), Contributes: divScore})
 	}
-	// Hybrid signal fires when a hybrid group was observed (score 100) or when
-	// only legacy TLS (<1.2) was observed (score 0, as lacking hybrid on legacy
-	// stacks compounds the risk). It is omitted when modern TLS is present
-	// without hybrid evidence, to avoid double-penalising sites mid-migration.
+	// Hybrid signal fires only when a hybrid group is actually observed.
+	// Legacy TLS is already penalised via the version ceiling; firing this
+	// signal on its absence would double-penalise the same condition.
 	if hasHybrid {
 		sum += 100
 		fired++
 		d.Signals = append(d.Signals, Signal{Name: "hybrid_group_present", Value: "true", Contributes: 100})
-	} else if maxTLS >= 0 && maxTLS < 60 {
-		sum += 0
-		fired++
-		d.Signals = append(d.Signals, Signal{Name: "hybrid_group_present", Value: "false", Contributes: 0})
 	}
 
 	if fired == 0 {

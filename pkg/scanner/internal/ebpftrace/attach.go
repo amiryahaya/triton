@@ -46,12 +46,17 @@ func DiscoverLibsFromMaps(r io.Reader) ([]DiscoveredLib, error) {
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
+		// /proc/PID/maps lines have exactly 5 whitespace-separated fields
+		// before the path; the path itself may contain spaces. Reconstruct
+		// it from the remainder of the line rather than using fields[5].
 		fields := strings.Fields(line)
 		if len(fields) < 6 {
 			continue // no path → not a file-backed mapping
 		}
 		inode := fields[4]
-		path := fields[5]
+		firstFiveJoined := strings.Join(fields[:5], " ")
+		pathStart := strings.Index(line, firstFiveJoined) + len(firstFiveJoined)
+		path := strings.TrimSpace(line[pathStart:])
 		if inode == "0" {
 			continue // anonymous mapping
 		}

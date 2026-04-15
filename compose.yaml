@@ -176,6 +176,23 @@ services:
     volumes:
       - triton-binaries:/opt/triton/binaries
 
+  engine:
+    build:
+      context: .
+      dockerfile: Containerfile.engine
+    image: triton-engine:local
+    container_name: triton-engine
+    profiles: [engine]
+    depends_on:
+      - triton
+    environment:
+      TRITON_BUNDLE_PATH: /etc/triton/bundle.tar.gz
+    volumes:
+      # Operator mints a bundle via the portal admin UI
+      # (POST /api/v1/manage/engines/), saves bytes to ./bundle.tar.gz,
+      # then brings this profile up. Read-only mount.
+      - ./bundle.tar.gz:/etc/triton/bundle.tar.gz:ro
+
 volumes:
   triton-data:
   triton-binaries:

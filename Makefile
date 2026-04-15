@@ -1,4 +1,4 @@
-.PHONY: build build-all build-licenseserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver
+.PHONY: build build-all build-engine build-licenseserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-engine container-run-engine container-stop-engine
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -62,6 +62,24 @@ container-run: container-build
 
 container-stop:
 	podman compose --profile server down
+
+# Engine binary
+build-engine:
+	@mkdir -p bin
+	go build -o bin/triton-engine ./cmd/triton-engine
+
+# Engine container lifecycle
+container-build-engine:
+	podman build -t triton-engine:local -f Containerfile.engine \
+	  --build-arg VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo dev) .
+
+container-run-engine: container-build-engine
+	podman run --rm --name triton-engine \
+	  -v $$(pwd)/bundle.tar.gz:/etc/triton/bundle.tar.gz:ro \
+	  triton-engine:local
+
+container-stop-engine:
+	podman stop triton-engine 2>/dev/null || true
 
 # License server container lifecycle
 container-build-licenseserver:

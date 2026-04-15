@@ -77,10 +77,10 @@ func TestScoreProtocolAgility_NoProtocolFindings(t *testing.T) {
 
 func TestIsNamedGroup_RejectsCipherSuiteStrings(t *testing.T) {
 	cases := map[string]bool{
-		"X25519":         true,
-		"secp256r1":      true,
-		"X25519MLKEM768": true,
-		"TLS 1.3":        false,
+		"X25519":                                true,
+		"secp256r1":                             true,
+		"X25519MLKEM768":                        true,
+		"TLS 1.3":                               false,
 		"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": false,
 		"ECDHE-RSA-AES128-GCM-SHA256":           false,
 		"ECDHE-ECDSA-CHACHA20-POLY1305":         false,

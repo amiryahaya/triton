@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -164,16 +165,26 @@ func TestProbe_UnknownAuthType(t *testing.T) {
 }
 
 func TestSecret_Zero(t *testing.T) {
-	pk := []byte("priv-key-bytes")
-	s := Secret{Username: "u", Password: "p", PrivateKey: pk, Passphrase: "pp"}
+	s := Secret{Username: "u", Password: "p", PrivateKey: "priv-key-bytes", Passphrase: "pp"}
 	s.Zero()
-	for i, b := range pk {
-		if b != 0 {
-			t.Errorf("PrivateKey[%d] = %d, want 0", i, b)
-		}
+	if s.Username != "" || s.Password != "" || s.Passphrase != "" || s.PrivateKey != "" {
+		t.Errorf("fields not zeroed: %+v", s)
 	}
-	if s.Username != "" || s.Password != "" || s.Passphrase != "" {
-		t.Errorf("strings not zeroed: %+v", s)
+}
+
+// TestParseSecret_SSHKey_PreservesPEM guards against a regression where
+// PrivateKey was typed as []byte and encoding/json tried to base64-
+// decode the PEM string, failing with "illegal base64 data at input
+// byte 0" on the ssh-key auth path.
+func TestParseSecret_SSHKey_PreservesPEM(t *testing.T) {
+	pem := "-----BEGIN OPENSSH PRIVATE KEY-----\nfakepem==\n-----END OPENSSH PRIVATE KEY-----\n"
+	plaintext := []byte(fmt.Sprintf(`{"username":"u","private_key":%q}`, pem))
+	s, err := ParseSecret(plaintext)
+	if err != nil {
+		t.Fatalf("ParseSecret: %v", err)
+	}
+	if s.PrivateKey != pem {
+		t.Fatalf("PrivateKey roundtrip mismatch:\ngot  %q\nwant %q", s.PrivateKey, pem)
 	}
 }
 

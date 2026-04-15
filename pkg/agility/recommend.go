@@ -218,12 +218,19 @@ func lowGroupDiversity(fs []model.Finding) bool {
 	return len(groups) <= 1
 }
 
+// moduleDominates fires when the named module accounts for more than half of
+// the *config-vs-hardcoded* surface (the same denominator scoreConfigFlexibility
+// uses), so the rule aligns with the dimension it advises on.
 func moduleDominates(module string) func([]model.Finding) bool {
 	return func(fs []model.Finding) bool {
 		var target, total int
 		for i := range fs {
+			m := fs[i].Module
+			if !configModules[m] && !hardcodedModules[m] {
+				continue
+			}
 			total++
-			if fs[i].Module == module {
+			if m == module {
 				target++
 			}
 		}

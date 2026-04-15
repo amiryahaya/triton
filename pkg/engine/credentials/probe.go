@@ -30,10 +30,18 @@ type Prober struct {
 
 // Secret is the decrypted credential material. Callers MUST call
 // Secret.Zero (typically via defer) when done.
+//
+// PrivateKey is a string (not []byte) because the browser serializes
+// the SSH key as a PEM-encoded string (`-----BEGIN OPENSSH PRIVATE
+// KEY-----...`); encoding/json would otherwise try to base64-decode
+// it and fail with "illegal base64 data at input byte 0". Go strings
+// are immutable, so Zero() is best-effort — a hardened implementation
+// would use a []byte field with a manual TLV parse to sidestep
+// encoding/json's base64 handling for []byte.
 type Secret struct {
 	Username   string `json:"username,omitempty"`
 	Password   string `json:"password,omitempty"`
-	PrivateKey []byte `json:"private_key,omitempty"`
+	PrivateKey string `json:"private_key,omitempty"`
 	Passphrase string `json:"passphrase,omitempty"`
 }
 
@@ -46,17 +54,15 @@ func ParseSecret(plaintext []byte) (Secret, error) {
 	return s, nil
 }
 
-// Zero wipes sensitive fields best-effort. Byte slices are zeroed in
-// place; strings are reassigned to empty (immutable — GC is the best
-// we can do).
+// Zero wipes sensitive fields best-effort. Go strings are immutable,
+// so we can only reassign to the empty string and hope the GC collects
+// the underlying byte storage promptly. A hardened implementation
+// would use []byte fields and manual TLV parsing, but that is deferred.
 func (s *Secret) Zero() {
-	for i := range s.PrivateKey {
-		s.PrivateKey[i] = 0
-	}
-	s.PrivateKey = nil
-	s.Password = ""
-	s.Passphrase = ""
 	s.Username = ""
+	s.Password = ""
+	s.PrivateKey = ""
+	s.Passphrase = ""
 }
 
 // Probe attempts to authenticate to address:port using the given
@@ -86,9 +92,9 @@ func (p *Prober) probeSSH(ctx context.Context, authType string, s Secret, addr s
 		var signer ssh.Signer
 		var err error
 		if s.Passphrase != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(s.PrivateKey, []byte(s.Passphrase))
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(s.PrivateKey), []byte(s.Passphrase))
 		} else {
-			signer, err = ssh.ParsePrivateKey(s.PrivateKey)
+			signer, err = ssh.ParsePrivateKey([]byte(s.PrivateKey))
 		}
 		if err != nil {
 			return ProbeResult{Success: false, Error: "parse private key: " + err.Error()}

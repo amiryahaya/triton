@@ -12,6 +12,7 @@ func TestTLSGroupToAsset_Hybrid(t *testing.T) {
 	asset := tlsGroupToAsset(tls.CurveID(0x11EC))
 	if asset == nil {
 		t.Fatal("expected non-nil asset for known hybrid group")
+		return
 	}
 	if asset.Algorithm != "X25519MLKEM768" {
 		t.Errorf("algorithm: got %q, want X25519MLKEM768", asset.Algorithm)
@@ -31,6 +32,7 @@ func TestTLSGroupToAsset_Classical(t *testing.T) {
 	asset := tlsGroupToAsset(tls.CurveID(0x001D)) // x25519
 	if asset == nil {
 		t.Fatal("expected non-nil asset for x25519")
+		return
 	}
 	if asset.IsHybrid {
 		t.Error("classical group should not be marked hybrid")

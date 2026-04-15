@@ -157,3 +157,17 @@ vet:
 deps:
 	go mod download
 	go mod tidy
+
+.PHONY: ebpf-compile
+ebpf-compile:
+	@command -v clang >/dev/null 2>&1 || { echo "ERROR: clang required (apt install clang)"; exit 1; }
+	@test -f /usr/include/bpf/bpf_helpers.h || test -f /usr/local/include/bpf/bpf_helpers.h || { echo "ERROR: libbpf headers required (apt install libbpf-dev)"; exit 1; }
+	@case "$$(uname -s)" in Linux) ;; *) echo "ERROR: eBPF compile requires Linux (got $$(uname -s))"; exit 1 ;; esac
+	$(eval BPF_ARCH := $(shell uname -m | sed 's/x86_64/x86/;s/aarch64/arm64/;s/ppc64le/powerpc/;s/mips.*/mips/;s/s390x/s390/'))
+	clang -O2 -g -target bpf -D__TARGET_ARCH_$(BPF_ARCH) \
+	      -I pkg/scanner/internal/ebpftrace/bpf \
+	      -c pkg/scanner/internal/ebpftrace/bpf/crypto.c \
+	      -o pkg/scanner/internal/ebpftrace/bpf/crypto.o
+	# Intentionally NOT stripping: BTF + debug info aids kernel verifier error messages
+	# and supports future CI drift-verification jobs.
+	@echo "Rebuilt pkg/scanner/internal/ebpftrace/bpf/crypto.o for $(BPF_ARCH)"

@@ -5,12 +5,14 @@ go 1.26.1
 require (
 	github.com/charmbracelet/bubbles v0.18.0
 	github.com/charmbracelet/bubbletea v0.25.0
+	github.com/cilium/ebpf v0.15.0
 	github.com/docker/cli v29.4.0+incompatible
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
+	github.com/johnfercher/maroto/v2 v2.3.3
 	github.com/klauspost/compress v1.18.5
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.18.2
@@ -55,7 +57,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/johnfercher/go-tree v1.0.5 // indirect
-	github.com/johnfercher/maroto/v2 v2.3.3 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect

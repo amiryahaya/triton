@@ -24,6 +24,8 @@ func TestLoadQuickProfile(t *testing.T) {
 	assert.NotContains(t, cfg.Modules, "java_bytecode")
 	// .NET IL scanner is comprehensive-only (heavy).
 	assert.NotContains(t, cfg.Modules, "dotnet_il")
+	// eBPF runtime crypto tracer is comprehensive-only (Linux + root).
+	assert.NotContains(t, cfg.Modules, "ebpf_trace")
 
 	maxWorkers := 4
 	if maxWorkers > runtime.NumCPU() {
@@ -64,6 +66,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.NotContains(t, cfg.Modules, "java_bytecode")
 	// .NET IL scanner is comprehensive-only (heavy).
 	assert.NotContains(t, cfg.Modules, "dotnet_il")
+	// eBPF runtime crypto tracer is comprehensive-only (Linux + root).
+	assert.NotContains(t, cfg.Modules, "ebpf_trace")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -120,6 +124,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "java_bytecode")
 	// .NET IL scanner is comprehensive-only (heavy).
 	assert.Contains(t, cfg.Modules, "dotnet_il")
+	// eBPF runtime crypto tracer is comprehensive-only (Linux + root).
+	assert.Contains(t, cfg.Modules, "ebpf_trace")
 
 	// Should have process and network targets
 	hasProcess := false

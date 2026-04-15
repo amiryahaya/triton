@@ -75,3 +75,59 @@ func TestDecodeEvent_RejectsShortBuffer(t *testing.T) {
 		t.Error("expected error on short buffer")
 	}
 }
+
+func TestDecodeEvent_ExactSize(t *testing.T) {
+	buf := make([]byte, 104)
+	binary.LittleEndian.PutUint32(buf[0:], 1)
+	if _, err := DecodeEvent(buf); err != nil {
+		t.Errorf("104-byte buffer should decode: %v", err)
+	}
+}
+
+func TestDecodeEvent_OversizedBufferIgnoresExtra(t *testing.T) {
+	buf := make([]byte, 200)
+	binary.LittleEndian.PutUint32(buf[0:], 7777)
+	ev, err := DecodeEvent(buf)
+	if err != nil {
+		t.Fatalf("DecodeEvent: %v", err)
+	}
+	if ev.PID != 7777 {
+		t.Errorf("PID = %d, want 7777", ev.PID)
+	}
+}
+
+func TestDecodeEvent_NIDExtremes(t *testing.T) {
+	cases := []int32{-2147483648, -1, 0, 1, 2147483647}
+	for _, nid := range cases {
+		buf := make([]byte, 104)
+		binary.LittleEndian.PutUint32(buf[20:], uint32(nid))
+		ev, err := DecodeEvent(buf)
+		if err != nil {
+			t.Fatalf("nid %d: %v", nid, err)
+		}
+		if ev.NID != nid {
+			t.Errorf("nid %d round-trip: got %d", nid, ev.NID)
+		}
+	}
+}
+
+func TestDecodeEvent_NameNotNullTerminated(t *testing.T) {
+	buf := make([]byte, 104)
+	// Fill name field (offset 24..88) with 'A' bytes, no null.
+	for i := 24; i < 88; i++ {
+		buf[i] = 'A'
+	}
+	ev, err := DecodeEvent(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ev.Name) != 64 {
+		t.Errorf("Name len = %d, want 64", len(ev.Name))
+	}
+	for _, c := range ev.Name {
+		if c != 'A' {
+			t.Errorf("Name has non-A byte: %v", ev.Name)
+			break
+		}
+	}
+}

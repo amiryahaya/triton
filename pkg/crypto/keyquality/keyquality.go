@@ -85,4 +85,3 @@ func Flatten(ws []Warning) []string {
 	}
 	return out
 }
-

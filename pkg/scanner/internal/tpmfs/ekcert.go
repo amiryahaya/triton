@@ -29,9 +29,13 @@ func ReadEKCert(path string) (*EKCert, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	der, err := io.ReadAll(io.LimitReader(f, maxEKCertSize))
+	// Read one extra byte beyond the cap so we can detect truncation.
+	der, err := io.ReadAll(io.LimitReader(f, maxEKCertSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("tpmfs: read %s: %w", path, err)
+	}
+	if len(der) > maxEKCertSize {
+		return nil, fmt.Errorf("tpmfs: EK cert exceeds %d bytes (truncated at cap)", maxEKCertSize)
 	}
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {

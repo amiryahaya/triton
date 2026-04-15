@@ -137,8 +137,12 @@ func emitDeviceFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 // emitEKCertFinding emits a finding for the endorsement-key certificate.
 func emitEKCertFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *model.Finding) error {
 	ek, err := tpmfs.ReadEKCert(dev.EKCertPath)
-	if err != nil || ek == nil {
-		return nil // silently skip unparseable or missing EK cert
+	if err != nil {
+		return emitTPMSkipped(ctx, findings,
+			fmt.Sprintf("EK cert at %s: %s", dev.EKCertPath, err.Error()))
+	}
+	if ek == nil {
+		return nil // EK cert absent → silent no-op (expected on unprovisioned TPMs)
 	}
 	asset := &model.CryptoAsset{
 		ID:        uuid.New().String(),

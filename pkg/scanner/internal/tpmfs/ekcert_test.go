@@ -1,6 +1,7 @@
 package tpmfs
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -11,6 +12,20 @@ import (
 	"testing"
 	"time"
 )
+
+func TestReadEKCert_OversizedFileReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "big")
+	// Write 128 KB — twice the cap.
+	bigBlob := bytes.Repeat([]byte{0xAB}, 128*1024)
+	if err := os.WriteFile(p, bigBlob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadEKCert(p)
+	if err == nil {
+		t.Error("expected error on oversized EK cert file")
+	}
+}
 
 func TestReadEKCert_ParsesRSACert(t *testing.T) {
 	// Generate a throwaway self-signed RSA-2048 cert and write DER to a tempdir.

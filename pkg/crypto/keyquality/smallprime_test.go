@@ -3,7 +3,9 @@ package keyquality
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 )
 
@@ -43,6 +45,22 @@ func TestSmallPrimeCheck_NilModulusSafe(t *testing.T) {
 	}
 	if _, ok := smallPrimeCheck(&rsa.PublicKey{}); ok {
 		t.Error("empty modulus fired warning")
+	}
+}
+
+func TestSmallPrimeCheck_ExerciseRangeOfFactors(t *testing.T) {
+	for _, factor := range []int64{2, 3, 7, 9973} {
+		largePrime, _ := rand.Prime(rand.Reader, 1024)
+		n := new(big.Int).Mul(big.NewInt(factor), largePrime)
+		pub := &rsa.PublicKey{N: n, E: 65537}
+		w, ok := smallPrimeCheck(pub)
+		if !ok {
+			t.Errorf("factor=%d: expected warning", factor)
+			continue
+		}
+		if !strings.Contains(w.Message, fmt.Sprintf("%d", factor)) {
+			t.Errorf("factor=%d: message %q doesn't reference factor", factor, w.Message)
+		}
 	}
 }
 

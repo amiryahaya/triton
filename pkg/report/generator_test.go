@@ -468,3 +468,31 @@ func TestGenerateHTML_SurfacesQualityWarnings(t *testing.T) {
 		t.Error("missing CVE reference in warning text")
 	}
 }
+
+func TestGenerateHTML_QualityWarningEscaped(t *testing.T) {
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "xss.html")
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "xss-host"},
+		Systems: []model.System{{Name: "demo", CryptoAssets: []model.CryptoAsset{
+			{
+				Algorithm: "RSA-2048",
+				QualityWarnings: []model.QualityWarning{
+					{Code: "ROCA", Severity: "CRITICAL", Message: "<script>alert(1)</script>"},
+				},
+			},
+		}}},
+	}
+	g := New(tmp)
+	if err := g.GenerateHTML(result, out); err != nil {
+		t.Fatalf("GenerateHTML: %v", err)
+	}
+	data, _ := os.ReadFile(out)
+	htmlOut := string(data)
+	if strings.Contains(htmlOut, "<script>alert(1)</script>") {
+		t.Error("raw <script> tag appeared in HTML output (XSS)")
+	}
+	if !strings.Contains(htmlOut, "&lt;script&gt;") {
+		t.Error("expected escaped form &lt;script&gt; in HTML output")
+	}
+}

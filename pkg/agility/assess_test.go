@@ -57,11 +57,22 @@ func TestAssessAll_HighAgilityHost(t *testing.T) {
 	if s.Hostname != "host-hi" {
 		t.Errorf("Hostname = %q, want host-hi", s.Hostname)
 	}
-	if s.Overall < 85 {
-		t.Errorf("Overall = %d, want >= 85", s.Overall)
+	if s.Overall != 93 {
+		t.Errorf("Overall = %d, want 93", s.Overall)
 	}
 	if len(s.Dimensions) != 4 {
 		t.Errorf("len(Dimensions) = %d, want 4", len(s.Dimensions))
+	}
+	wantDims := map[string]int{
+		DimPQCCoverage:       100,
+		DimProtocolAgility:   100,
+		DimConfigFlexibility: 100,
+		DimOperationalReady:  66,
+	}
+	for _, d := range s.Dimensions {
+		if got := d.Score; got != wantDims[d.Name] {
+			t.Errorf("%s = %d, want %d", d.Name, got, wantDims[d.Name])
+		}
 	}
 }
 
@@ -80,8 +91,20 @@ func TestAssessAll_LowAgilityHost(t *testing.T) {
 	if len(scores) != 1 {
 		t.Fatalf("len(scores) = %d, want 1", len(scores))
 	}
-	if scores[0].Overall > 25 {
-		t.Errorf("Overall = %d, want <= 25", scores[0].Overall)
+	s := scores[0]
+	if s.Overall != 0 {
+		t.Errorf("Overall = %d, want 0", s.Overall)
+	}
+	wantDims := map[string]int{
+		DimPQCCoverage:       0,
+		DimProtocolAgility:   0,
+		DimConfigFlexibility: 0,
+		DimOperationalReady:  0,
+	}
+	for _, d := range s.Dimensions {
+		if got := d.Score; got != wantDims[d.Name] {
+			t.Errorf("%s = %d, want %d", d.Name, got, wantDims[d.Name])
+		}
 	}
 }
 

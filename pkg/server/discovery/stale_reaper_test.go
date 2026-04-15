@@ -14,11 +14,10 @@ import (
 // fakeStore because it already lives in package discovery and pulling
 // this method onto it would widen the blast radius of any change.
 type reclaimRecordingStore struct {
-	mu      sync.Mutex
-	calls   []time.Time
-	retErr  error
-	notify  chan struct{}
-	stopped bool
+	mu     sync.Mutex
+	calls  []time.Time
+	retErr error
+	notify chan struct{}
 }
 
 func (s *reclaimRecordingStore) ReclaimStale(_ context.Context, cutoff time.Time) error {

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -178,4 +179,57 @@ func TestPostgresStore_GetByFingerprint_Revoked(t *testing.T) {
 	require.NoError(t, err, "revoked engines still resolve at the store layer")
 	assert.Equal(t, StatusRevoked, got.Status)
 	require.NotNil(t, got.RevokedAt)
+}
+
+func TestPostgresStore_RecordPoll_FlipsOfflineToOnline(t *testing.T) {
+	s, orgID := setup(t)
+	ctx := context.Background()
+
+	e := Engine{
+		ID: uuid.Must(uuid.NewV7()), OrgID: orgID,
+		Label: "stale", CertFingerprint: newFingerprint(t),
+	}
+	_, err := s.CreateEngine(ctx, e)
+	require.NoError(t, err)
+
+	// Mark 'online' first (MarkStaleOffline only touches online rows).
+	_, err = s.pool.Exec(ctx, `UPDATE engines SET status = 'online' WHERE id = $1`, e.ID)
+	require.NoError(t, err)
+
+	// Force it offline with a far-future cutoff so any last_poll_at
+	// (or NULL) is considered stale.
+	require.NoError(t, s.MarkStaleOffline(ctx, time.Now().Add(24*time.Hour)))
+	got, err := s.GetEngine(ctx, orgID, e.ID)
+	require.NoError(t, err)
+	require.Equal(t, StatusOffline, got.Status, "precondition: engine is offline")
+
+	// Heartbeat must self-heal the offline flag.
+	require.NoError(t, s.RecordPoll(ctx, e.ID))
+
+	got, err = s.GetEngine(ctx, orgID, e.ID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusOnline, got.Status, "RecordPoll must flip offline → online")
+	require.NotNil(t, got.LastPollAt)
+	assert.WithinDuration(t, time.Now(), *got.LastPollAt, 10*time.Second)
+}
+
+func TestPostgresStore_RecordPoll_PreservesRevoked(t *testing.T) {
+	s, orgID := setup(t)
+	ctx := context.Background()
+
+	e := Engine{
+		ID: uuid.Must(uuid.NewV7()), OrgID: orgID,
+		Label: "revoked-hb", CertFingerprint: newFingerprint(t),
+	}
+	_, err := s.CreateEngine(ctx, e)
+	require.NoError(t, err)
+
+	require.NoError(t, s.Revoke(ctx, orgID, e.ID))
+
+	// A heartbeat from a revoked engine must NOT resurrect it.
+	require.NoError(t, s.RecordPoll(ctx, e.ID))
+
+	got, err := s.GetEngine(ctx, orgID, e.ID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusRevoked, got.Status, "RecordPoll must preserve revoked status")
 }

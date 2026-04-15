@@ -171,8 +171,16 @@ func (s *PostgresStore) RecordFirstSeen(ctx context.Context, id uuid.UUID, publi
 }
 
 func (s *PostgresStore) RecordPoll(ctx context.Context, id uuid.UUID) error {
+	// Also flip status back to 'online' if the offline detector raced
+	// in-flight heartbeat and marked the row stale. Revoked engines
+	// keep their revoked status — a heartbeat from a revoked cert is
+	// itself a policy violation, but that is the mTLS layer's call,
+	// not RecordPoll's.
 	_, err := s.pool.Exec(ctx,
-		`UPDATE engines SET last_poll_at = NOW() WHERE id = $1`,
+		`UPDATE engines
+		 SET last_poll_at = NOW(),
+		     status = CASE WHEN status = 'revoked' THEN status ELSE 'online' END
+		 WHERE id = $1`,
 		id,
 	)
 	if err != nil {

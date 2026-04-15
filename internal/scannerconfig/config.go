@@ -3,6 +3,7 @@ package scannerconfig
 import (
 	"fmt"
 	"runtime"
+	"time"
 
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -25,6 +26,12 @@ type Config struct {
 	Credentials     ScanCredentials
 	K8sNamespace    string   // namespace filter for k8s_live; empty means all namespaces
 	DNSSECZones     []string // zones to query via dig for active DNSSEC probing
+
+	// eBPF trace settings (consumed by ebpf_trace module on Linux).
+	// Defaults populated by Load() for the comprehensive profile only.
+	EBPFWindow      time.Duration
+	EBPFSkipUprobes bool
+	EBPFSkipKprobes bool
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.
@@ -140,7 +147,7 @@ func Load(profile string) *Config {
 		}
 	}
 
-	return &Config{
+	cfg := &Config{
 		Profile:         p.Name,
 		Modules:         p.Modules,
 		OutputFormat:    "cyclonedx",
@@ -153,6 +160,14 @@ func Load(profile string) *Config {
 		Workers:         workers,
 		ScanTargets:     targets,
 	}
+
+	// eBPF trace defaults — comprehensive profile only. Other profiles leave
+	// EBPFWindow zero so the module emits a skipped-finding if somehow invoked.
+	if p.Name == "comprehensive" {
+		cfg.EBPFWindow = 60 * time.Second
+	}
+
+	return cfg
 }
 
 func defaultScanTargets(depth int) []model.ScanTarget {

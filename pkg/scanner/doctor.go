@@ -358,7 +358,25 @@ func RunDoctorChecks(profile string) *DoctorReport {
 		report.Checks = append(report.Checks, CheckGoTLS())
 	}
 
-	// 5. OCI image scanning checks
+	// 5. eBPF trace prereqs (Linux-only; non-Linux returns a WARN).
+	if activeModules["ebpf_trace"] {
+		ok, detail := ebpfDoctorCheck()
+		status := CheckPass
+		suggestion := ""
+		if !ok {
+			status = CheckWarn
+			suggestion = "ebpf_trace will emit a skipped-finding. Run as root on Linux ≥ 5.8 with BTF enabled for full coverage."
+		}
+		report.Checks = append(report.Checks, CheckResult{
+			Module:     "ebpf_trace",
+			CheckName:  "eBPF prerequisites",
+			Status:     status,
+			Message:    detail,
+			Suggestion: suggestion,
+		})
+	}
+
+	// 6. OCI image scanning checks
 	if activeModules["oci_image"] {
 		// go-containerregistry is always available (compiled-in dependency)
 		report.Checks = append(report.Checks, CheckResult{

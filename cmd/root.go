@@ -177,6 +177,14 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVar(&dnssecZones, "dnssec-zone", nil,
 		"DNS zone to query via dig for DNSSEC algorithm inventory (repeatable, e.g. --dnssec-zone example.com)")
 
+	// eBPF trace flags (Linux-only; other platforms emit a skipped-finding).
+	rootCmd.PersistentFlags().Duration("ebpf-window", 60*time.Second,
+		"observation window for the ebpf_trace module (Linux only); clamped to [1s, 30m]")
+	rootCmd.PersistentFlags().Bool("ebpf-skip-uprobes", false,
+		"skip userspace uprobes in ebpf_trace (Linux only)")
+	rootCmd.PersistentFlags().Bool("ebpf-skip-kprobes", false,
+		"skip kernel kprobes in ebpf_trace (Linux only)")
+
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 }
@@ -341,6 +349,24 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if buildErr != nil {
 		fmt.Fprintln(os.Stderr, "error:", buildErr)
 		os.Exit(1)
+	}
+
+	// Apply eBPF trace flag overrides. Window is clamped to [1s, 30m] so a
+	// user-supplied zero or absurd value cannot hang or spam the kernel.
+	if v, err := cmd.Flags().GetDuration("ebpf-window"); err == nil && v > 0 {
+		if v < time.Second {
+			v = time.Second
+		}
+		if v > 30*time.Minute {
+			v = 30 * time.Minute
+		}
+		cfg.EBPFWindow = v
+	}
+	if v, err := cmd.Flags().GetBool("ebpf-skip-uprobes"); err == nil {
+		cfg.EBPFSkipUprobes = v
+	}
+	if v, err := cmd.Flags().GetBool("ebpf-skip-kprobes"); err == nil {
+		cfg.EBPFSkipKprobes = v
 	}
 
 	// Gate optional features behind licence tier.

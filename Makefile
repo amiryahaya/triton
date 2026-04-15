@@ -157,3 +157,12 @@ vet:
 deps:
 	go mod download
 	go mod tidy
+
+.PHONY: ebpf-compile
+ebpf-compile:
+	clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
+	      -I pkg/scanner/internal/ebpftrace/bpf \
+	      -c pkg/scanner/internal/ebpftrace/bpf/crypto.c \
+	      -o pkg/scanner/internal/ebpftrace/bpf/crypto.o
+	llvm-strip -g pkg/scanner/internal/ebpftrace/bpf/crypto.o
+	@echo "Rebuilt pkg/scanner/internal/ebpftrace/bpf/crypto.o"

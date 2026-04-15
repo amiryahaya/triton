@@ -74,17 +74,16 @@ var severityRank = map[string]int{
 	"MEDIUM":   1,
 }
 
-// worstSeverity returns the highest severity level across the CVEs, and the
-// corresponding PQCStatus ("UNSAFE" for CRITICAL, "DEPRECATED" for HIGH,
-// "TRANSITIONAL" for MEDIUM, "SAFE" if empty).
-func worstSeverity(cves []crypto.TPMFirmwareCVE) (status, severity string) {
-	status = "SAFE"
+// worstSeverity returns the PQCStatus corresponding to the highest CVE
+// severity in the list ("UNSAFE" for CRITICAL, "DEPRECATED" for HIGH,
+// "TRANSITIONAL" for MEDIUM, "SAFE" if empty or unrecognised).
+func worstSeverity(cves []crypto.TPMFirmwareCVE) string {
+	status := "SAFE"
 	rank := 0
 	for _, c := range cves {
 		r := severityRank[c.Severity]
 		if r > rank {
 			rank = r
-			severity = c.Severity
 			switch c.Severity {
 			case "CRITICAL":
 				status = "UNSAFE"
@@ -95,7 +94,7 @@ func worstSeverity(cves []crypto.TPMFirmwareCVE) (status, severity string) {
 			}
 		}
 	}
-	return status, severity
+	return status
 }
 
 // emitDeviceFinding emits the top-level TPM device finding with CVE-derived
@@ -112,7 +111,7 @@ func emitDeviceFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 			CVE:      cve.CVE,
 		})
 	}
-	status, _ := worstSeverity(cves)
+	status := worstSeverity(cves)
 
 	algo := "TPM" + dev.SpecVersion
 	asset := &model.CryptoAsset{

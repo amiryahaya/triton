@@ -24,7 +24,7 @@ func TestWorstSeverity(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			gotStatus, _ := worstSeverity(c.cves)
+			gotStatus := worstSeverity(c.cves)
 			if gotStatus != c.wantStatus {
 				t.Errorf("status = %q, want %q", gotStatus, c.wantStatus)
 			}

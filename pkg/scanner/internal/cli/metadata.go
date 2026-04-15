@@ -57,7 +57,7 @@ func parseTablesStream(tables, strings []byte) ([]TypeRef, error) {
 		}
 	}
 	resScopeSize := 2
-	if maxResScope > (1 << 14) {
+	if maxResScope >= (1 << 14) {
 		resScopeSize = 4
 	}
 

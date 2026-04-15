@@ -63,6 +63,6 @@ func scoreHost(host string, findings []model.Finding, now time.Time) Score {
 		Dimensions:  dims,
 		GeneratedAt: now,
 	}
-	// Recommendations are wired in Task 7.
+	s.Recommendations = generateRecommendations(s, findings)
 	return s
 }

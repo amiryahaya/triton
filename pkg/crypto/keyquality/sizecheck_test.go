@@ -51,6 +51,25 @@ func TestSizeMismatchCheck_Critical(t *testing.T) {
 	}
 }
 
+func TestSizeMismatchCheck_Boundary15NoFire(t *testing.T) {
+	// delta = 15 → just below threshold; no warning.
+	// Build a modulus of exactly 2033 bits.
+	n := new(big.Int).Lsh(big.NewInt(1), 2032) // 2033-bit modulus
+	pub := &rsa.PublicKey{N: n, E: 65537}
+	if _, ok := sizeMismatchCheck(pub, 2048); ok {
+		t.Error("delta=15 should not fire (threshold is ≥16)")
+	}
+}
+
+func TestSizeMismatchCheck_Boundary16Fires(t *testing.T) {
+	// delta = 16 → at threshold; warning.
+	n := new(big.Int).Lsh(big.NewInt(1), 2031) // 2032-bit modulus
+	pub := &rsa.PublicKey{N: n, E: 65537}
+	if _, ok := sizeMismatchCheck(pub, 2048); !ok {
+		t.Error("delta=16 should fire")
+	}
+}
+
 func TestSizeMismatchCheck_NonRSASkips(t *testing.T) {
 	if _, ok := sizeMismatchCheck(nil, 256); ok {
 		t.Error("nil key fired warning")

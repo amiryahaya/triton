@@ -100,7 +100,7 @@ var recommendationRules = []rule{
 	// Operational Readiness
 	{
 		dim: DimOperationalReady, threshold: threshLow,
-		applies: certMedianAbove(365),
+		applies: certRotationBelow50,
 		rec: Recommendation{
 			Dimension: DimOperationalReady,
 			Action:    "Shorten cert validity to <=180d and enable cert-manager/certbot auto-renewal.",
@@ -231,13 +231,12 @@ func moduleDominates(module string) func([]model.Finding) bool {
 	}
 }
 
-func certMedianAbove(days int) func([]model.Finding) bool {
-	return func(fs []model.Finding) bool {
-		now := time.Now().UTC()
-		score, fired := certRotationScore(fs, now)
-		// certRotationScore encodes thresholds: <=365 scores >=50.
-		return fired && score < 50 && days == 365
-	}
+// certRotationBelow50 fires when the median cert rotation cadence scores below
+// 50 (i.e. median expiry > 365 days). Reuses certRotationScore from
+// dim_operational.go so thresholds stay in one place.
+func certRotationBelow50(fs []model.Finding) bool {
+	score, fired := certRotationScore(fs, time.Now().UTC())
+	return fired && score < 50
 }
 
 func noAutomationTool(fs []model.Finding) bool {

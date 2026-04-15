@@ -46,23 +46,12 @@ static __always_inline void emit(
 
 // --- Uprobes on libcrypto ---
 
-SEC("uprobe/EVP_CipherInit_ex")
-int BPF_KPROBE(uprobe__EVP_CipherInit_ex, void *ctx_arg, int nid) {
-    emit(ctx, 1, 1, nid, 0, 0);
-    return 0;
-}
-
-SEC("uprobe/EVP_EncryptInit_ex")
-int BPF_KPROBE(uprobe__EVP_EncryptInit_ex, void *ctx_arg, int nid) {
-    emit(ctx, 1, 1, nid, 0, 0);
-    return 0;
-}
-
-SEC("uprobe/EVP_DigestInit_ex")
-int BPF_KPROBE(uprobe__EVP_DigestInit_ex, void *ctx_arg, int md_nid) {
-    emit(ctx, 1, 1, md_nid, 0, 0);
-    return 0;
-}
+// NOTE: EVP_CipherInit_ex / EVP_EncryptInit_ex / EVP_DigestInit_ex were
+// previously hooked here, but their second arg is a struct pointer
+// (EVP_CIPHER * / EVP_MD *), not an integer NID — emitting it as NID
+// produces garbage. CO-RE reading of the underlying struct's nid field
+// is deferred to a follow-up PR. For now we cover OpenSSL via
+// RSA_*/EC_KEY_*/EVP_PKEY_derive/SSL_CTX_new probes only.
 
 SEC("uprobe/RSA_generate_key_ex") int BPF_KPROBE(uprobe__RSA_generate_key_ex) { emit(ctx, 1, 1, 6,   0, 0); return 0; }
 SEC("uprobe/RSA_sign")            int BPF_KPROBE(uprobe__RSA_sign)            { emit(ctx, 1, 1, 6,   0, 0); return 0; }

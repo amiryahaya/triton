@@ -103,11 +103,10 @@ var kernelRegistry = map[string]AlgoInfo{
 }
 
 var uprobeTargets = []UprobeTarget{
-	// libcrypto — NID-driven
-	{LibID: LibLibcrypto, SymbolName: "EVP_CipherInit_ex", ProgName: "uprobe__EVP_CipherInit_ex", ArgIdx: 2},
-	{LibID: LibLibcrypto, SymbolName: "EVP_EncryptInit_ex", ProgName: "uprobe__EVP_EncryptInit_ex", ArgIdx: 2},
-	{LibID: LibLibcrypto, SymbolName: "EVP_DigestInit_ex", ProgName: "uprobe__EVP_DigestInit_ex", ArgIdx: 2},
 	// libcrypto — constant-inferred
+	// NOTE: EVP_CipherInit_ex/EVP_EncryptInit_ex/EVP_DigestInit_ex were removed —
+	// arg2 is a struct pointer (EVP_CIPHER*/EVP_MD*), not an integer NID. Reading
+	// the struct's nid field via CO-RE is deferred to a follow-up PR.
 	{LibID: LibLibcrypto, SymbolName: "RSA_generate_key_ex", ProgName: "uprobe__RSA_generate_key_ex", ArgIdx: 0, ConstAlgo: "RSA", ConstFamily: "RSA"},
 	{LibID: LibLibcrypto, SymbolName: "RSA_sign", ProgName: "uprobe__RSA_sign", ArgIdx: 0, ConstAlgo: "RSA", ConstFamily: "RSA"},
 	{LibID: LibLibcrypto, SymbolName: "RSA_verify", ProgName: "uprobe__RSA_verify", ArgIdx: 0, ConstAlgo: "RSA", ConstFamily: "RSA"},

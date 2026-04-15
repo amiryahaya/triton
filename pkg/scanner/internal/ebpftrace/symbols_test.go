@@ -71,9 +71,6 @@ func TestResolveKernelAlgo_Names(t *testing.T) {
 func TestUprobeTargets_HasCoreSymbols(t *testing.T) {
 	targets := UprobeTargets()
 	want := []string{
-		"EVP_CipherInit_ex",
-		"EVP_EncryptInit_ex",
-		"EVP_DigestInit_ex",
 		"RSA_generate_key_ex",
 		"RSA_sign",
 		"EC_KEY_generate_key",

@@ -248,6 +248,10 @@ func (f *fakeInventoryStore) GetHostsByIDs(_ context.Context, _ uuid.UUID, _ []u
 	return nil, nil
 }
 
+func (f *fakeInventoryStore) GetEnginesForHosts(_ context.Context, _ uuid.UUID, _ []uuid.UUID) (map[uuid.UUID]struct{}, error) {
+	return map[uuid.UUID]struct{}{}, nil
+}
+
 var _ inventory.Store = (*fakeInventoryStore)(nil)
 
 // --- helpers -----------------------------------------------------------------

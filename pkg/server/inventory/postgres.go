@@ -493,5 +493,34 @@ func (s *PostgresStore) GetHostsByIDs(ctx context.Context, orgID uuid.UUID, ids 
 	return out, rows.Err()
 }
 
+// GetEnginesForHosts returns the distinct engine_ids among hostIDs
+// (rows with NULL engine_id are skipped). Scan-job creation uses this
+// to enforce the one-engine-per-job invariant: if hosts span multiple
+// engines the operator is asked to split the job.
+func (s *PostgresStore) GetEnginesForHosts(ctx context.Context, orgID uuid.UUID, hostIDs []uuid.UUID) (map[uuid.UUID]struct{}, error) {
+	if len(hostIDs) == 0 {
+		return map[uuid.UUID]struct{}{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT engine_id FROM inventory_hosts
+		 WHERE org_id = $1 AND id = ANY($2) AND engine_id IS NOT NULL`,
+		orgID, hostIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get engines for hosts: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[uuid.UUID]struct{}{}
+	for rows.Next() {
+		var eid uuid.UUID
+		if err := rows.Scan(&eid); err != nil {
+			return nil, err
+		}
+		out[eid] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
 // Compile-time interface satisfaction assertion.
 var _ Store = (*PostgresStore)(nil)

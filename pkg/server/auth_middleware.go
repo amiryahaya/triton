@@ -103,6 +103,22 @@ const (
 	claimsContextKey contextKey = "auth_claims"
 )
 
+// Role identifiers stored in the users.role column and JWT claims.
+// Mapping to onboarding design spec §5:
+//
+//	RoleOwner    (org_admin)   — full CRUD on inventory, credentials, scans, users
+//	RoleEngineer (org_user)    — CRUD on inventory, credentials, scans (no user mgmt)
+//	RoleOfficer  (org_officer) — view-only + trigger scans on existing groups
+//
+// Introduced by migration Version 15. Existing call sites in this
+// package still compare against the string literals directly; new
+// code should prefer these constants.
+const (
+	RoleOwner    = "org_admin"
+	RoleEngineer = "org_user"
+	RoleOfficer  = "org_officer"
+)
+
 // UserFromContext returns the authenticated user stored by JWTAuth
 // middleware, or nil if the request was not authenticated.
 func UserFromContext(ctx context.Context) *store.User {
@@ -115,6 +131,14 @@ func UserFromContext(ctx context.Context) *store.User {
 func ClaimsFromContext(ctx context.Context) *auth.UserClaims {
 	v, _ := ctx.Value(claimsContextKey).(*auth.UserClaims)
 	return v
+}
+
+// contextWithClaims is the internal counterpart to ClaimsFromContext,
+// used by tests to inject claims without running the full JWTAuth
+// middleware. The context key is unexported so this helper keeps it
+// that way; test files in package server call it directly.
+func contextWithClaims(ctx context.Context, c *auth.UserClaims) context.Context {
+	return context.WithValue(ctx, claimsContextKey, c)
 }
 
 // JWTAuth verifies the Bearer JWT, looks up the associated session
@@ -207,10 +231,13 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore, cache *sessioncach
 				return
 			}
 			// Defense in depth: a JWT only validates if the user still
-			// has an org-level role. Anything else (e.g., a stale token
-			// from a deleted-then-recreated user with a different role)
-			// is rejected.
-			if user.Role != "org_admin" && user.Role != "org_user" {
+			// has a known org-level role. Anything else (e.g., a stale
+			// token from a deleted-then-recreated user with an unknown
+			// role) is rejected. Uses roleRank so adding a new role in
+			// rbac.go automatically admits it here too — previously
+			// hardcoding "org_admin" || "org_user" blocked org_officer
+			// with a 401 before RequireRole ever ran.
+			if roleRank[user.Role] == 0 {
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
@@ -271,7 +298,7 @@ func RequireAnyOrgRole(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		if user.Role != "org_admin" && user.Role != "org_user" {
+		if roleRank[user.Role] == 0 {
 			writeError(w, http.StatusForbidden, "org role required")
 			return
 		}

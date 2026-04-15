@@ -322,4 +322,89 @@ var migrations = []string{
 	ALTER TABLE host_summary ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;
 	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS resolved_count INT NOT NULL DEFAULT 0;
 	ALTER TABLE org_snapshot ADD COLUMN IF NOT EXISTS accepted_count INT NOT NULL DEFAULT 0;`,
+
+	// Version 15: Add org_officer role for onboarding RBAC.
+	// Per Onboarding design spec §5: Officer is view-only + can trigger
+	// scans on pre-defined groups. Engineer equals existing org_user;
+	// Owner equals existing org_admin. The original CHECK constraint
+	// from Version 4 is inlined on the column (no named constraint),
+	// so we drop the implicit one by name pattern ("users_role_check"
+	// is the PG default for a column CHECK) if present, then add the
+	// expanded constraint explicitly so future migrations can name-drop it.
+	`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+	ALTER TABLE users ADD CONSTRAINT users_role_check
+		CHECK (role IN ('org_admin', 'org_user', 'org_officer'));`,
+
+	// Version 16: Inventory schema — groups, hosts, tags.
+	// Onboarding Phase 1, design spec §6. Top-level public-schema
+	// tables (matches existing organizations/users/sessions convention;
+	// we intentionally do NOT introduce a separate identity/inventory
+	// schema).
+	//
+	// inventory_groups: org-scoped named buckets (unique name per org).
+	// inventory_hosts : per-host row, group_id REQUIRED (RESTRICT on
+	//   group delete so we never orphan a host). mode is agentless by
+	//   default; engine_id + last_scan_id + last_seen are populated
+	//   later by the scan pipeline. (hostname, address) unique per
+	//   org on hostname only — address is informational/optional.
+	// inventory_tags  : free-form key/value labels, one row per (host, key).
+	`CREATE TABLE IF NOT EXISTS inventory_groups (
+		id          UUID PRIMARY KEY,
+		org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		name        TEXT NOT NULL,
+		description TEXT,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_by  UUID REFERENCES users(id),
+		UNIQUE (org_id, name)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_inventory_groups_org ON inventory_groups(org_id);
+
+	CREATE TABLE IF NOT EXISTS inventory_hosts (
+		id           UUID PRIMARY KEY,
+		org_id       UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		group_id     UUID NOT NULL REFERENCES inventory_groups(id) ON DELETE RESTRICT,
+		hostname     TEXT,
+		address      INET,
+		os           TEXT CHECK (os IS NULL OR os IN ('linux', 'windows', 'macos', 'cisco-iosxe', 'juniper-junos', 'unknown')),
+		mode         TEXT NOT NULL DEFAULT 'agentless' CHECK (mode IN ('agentless', 'agent')),
+		engine_id    UUID,
+		last_scan_id UUID,
+		last_seen    TIMESTAMPTZ,
+		created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		UNIQUE (org_id, hostname)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_inventory_hosts_group ON inventory_hosts(group_id);
+	CREATE INDEX IF NOT EXISTS idx_inventory_hosts_org   ON inventory_hosts(org_id);
+
+	CREATE TABLE IF NOT EXISTS inventory_tags (
+		host_id UUID NOT NULL REFERENCES inventory_hosts(id) ON DELETE CASCADE,
+		key     TEXT NOT NULL,
+		value   TEXT NOT NULL,
+		PRIMARY KEY (host_id, key)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_inventory_tags_kv ON inventory_tags(key, value);`,
+
+	// Version 17: Replace the (org_id, hostname) unique constraint with
+	// partial unique indexes so both named hosts AND address-only hosts
+	// are deduped per org. The original Version 16 constraint
+	// `UNIQUE (org_id, hostname)` allowed unlimited NULL hostnames,
+	// meaning two address-only hosts with identical IPs in the same
+	// org were stored as separate rows. Migrations are append-only,
+	// so this fixes it forward rather than editing v16.
+	//
+	// The implicit constraint name PostgreSQL assigns to an inline
+	// `UNIQUE (col1, col2)` on CREATE TABLE is `<table>_<cols>_key` —
+	// verified via \d inventory_hosts to be inventory_hosts_org_id_hostname_key.
+	`ALTER TABLE inventory_hosts DROP CONSTRAINT IF EXISTS inventory_hosts_org_id_hostname_key;
+
+	CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_hosts_org_hostname
+		ON inventory_hosts(org_id, hostname)
+		WHERE hostname IS NOT NULL;
+
+	CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_hosts_org_address
+		ON inventory_hosts(org_id, address)
+		WHERE hostname IS NULL AND address IS NOT NULL;`,
 }

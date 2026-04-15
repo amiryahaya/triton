@@ -17,12 +17,24 @@ type clientAPI interface {
 	Heartbeat(ctx context.Context) error
 }
 
+// DiscoveryWorker is the optional long-running subsystem spawned by
+// Run once enrollment succeeds. In production this is
+// *discovery.Worker; tests can pass a stub. Passing nil disables the
+// discovery loop entirely — useful for engines that only do scans on
+// manual trigger (future work).
+type DiscoveryWorker interface {
+	Run(ctx context.Context)
+}
+
 // Config tunes the loop's timing. Zero values fall back to production
 // defaults (30s heartbeat, 60s max enroll backoff, 1s initial backoff).
 type Config struct {
 	HeartbeatInterval    time.Duration
 	EnrollMaxBackoff     time.Duration
 	EnrollInitialBackoff time.Duration
+	// DiscoveryWorker is spawned in its own goroutine after the
+	// first successful Enroll. Optional — nil disables discovery.
+	DiscoveryWorker DiscoveryWorker
 }
 
 // Run blocks until ctx is cancelled. It first drives Enroll to
@@ -43,6 +55,13 @@ func Run(ctx context.Context, c clientAPI, cfg Config) error {
 
 	if err := enrollWithBackoff(ctx, c, cfg.EnrollInitialBackoff, cfg.EnrollMaxBackoff); err != nil {
 		return err
+	}
+
+	// Spawn the discovery worker (if configured) now that we're
+	// enrolled. Its lifetime is tied to ctx; Run will return when
+	// ctx is cancelled.
+	if cfg.DiscoveryWorker != nil {
+		go cfg.DiscoveryWorker.Run(ctx)
 	}
 
 	t := time.NewTicker(cfg.HeartbeatInterval)

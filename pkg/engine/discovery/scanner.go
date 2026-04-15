@@ -94,7 +94,7 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 				}
 				_ = conn.Close()
 				select {
-				case results <- result{address: p.address, port: p.port}:
+				case results <- result(p):
 				case <-ctx.Done():
 					return
 				}

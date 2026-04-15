@@ -32,6 +32,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
+
+	srvdisc "github.com/amiryahaya/triton/pkg/server/discovery"
 	"github.com/amiryahaya/triton/pkg/server/engine"
 )
 
@@ -130,6 +133,116 @@ func (c *Client) Enroll(ctx context.Context) error {
 // expected on success.
 func (c *Client) Heartbeat(ctx context.Context) error {
 	return c.post(ctx, "/api/v1/engine/heartbeat", false)
+}
+
+// pollTimeout bounds a single discovery long-poll round-trip. The
+// server holds the connection open for up to 30s, so we set the
+// client-side budget a bit higher to avoid racing the server's
+// deadline.
+const pollTimeout = 45 * time.Second
+
+// longPollClient returns a dedicated *http.Client that shares the
+// mTLS-configured transport from c.HTTP but raises the per-request
+// timeout to accommodate server-side long-polling.
+func (c *Client) longPollClient() *http.Client {
+	return &http.Client{
+		Timeout:   pollTimeout,
+		Transport: c.HTTP.Transport,
+	}
+}
+
+// PollDiscovery long-polls the portal for a queued discovery job
+// assigned to this engine. On HTTP 200 it decodes and returns the
+// job. On 204 (no work) it returns (nil, nil) so the caller can
+// simply poll again. Any other status — or transport error — returns
+// a non-nil error.
+func (c *Client) PollDiscovery(ctx context.Context) (*srvdisc.Job, error) {
+	url := c.PortalURL + "/api/v1/engine/discoveries/poll"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := c.longPollClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("poll discovery: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var job srvdisc.Job
+		if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&job); err != nil {
+			return nil, fmt.Errorf("decode job: %w", err)
+		}
+		return &job, nil
+	case http.StatusNoContent:
+		return nil, nil
+	default:
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return nil, fmt.Errorf("poll discovery: unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+// submitCandidate mirrors the engine-side wire format defined by the
+// gateway handler (address as string, not net.IP, so the engine can
+// forward rDNS strings or fall back to the raw IP literal).
+type submitCandidate struct {
+	Address   string `json:"address"`
+	Hostname  string `json:"hostname,omitempty"`
+	OpenPorts []int  `json:"open_ports"`
+}
+
+// submitPayload is the POST body for /engine/discoveries/{id}/submit.
+type submitPayload struct {
+	Candidates []submitCandidate `json:"candidates"`
+	Error      string            `json:"error,omitempty"`
+}
+
+// SubmitDiscovery posts the terminal result for a claimed discovery
+// job. If errMsg is non-empty the job is flipped to 'failed' and the
+// candidate list is ignored by the server. Otherwise the candidates
+// are persisted and the job flipped to 'completed'. Expected server
+// response is 204.
+func (c *Client) SubmitDiscovery(ctx context.Context, jobID uuid.UUID, candidates []srvdisc.Candidate, errMsg string) error {
+	body := submitPayload{Error: errMsg}
+	body.Candidates = make([]submitCandidate, 0, len(candidates))
+	for i := range candidates {
+		cand := &candidates[i]
+		body.Candidates = append(body.Candidates, submitCandidate{
+			Address:   cand.Address.String(),
+			Hostname:  cand.Hostname,
+			OpenPorts: cand.OpenPorts,
+		})
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal submit body: %w", err)
+	}
+
+	url := c.PortalURL + "/api/v1/engine/discoveries/" + jobID.String() + "/submit"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("submit discovery: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return fmt.Errorf("submit discovery: unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }
 
 // post is the shared round-trip helper. If expectBody is true, a 200

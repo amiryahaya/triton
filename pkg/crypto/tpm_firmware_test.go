@@ -58,6 +58,22 @@ func TestLookupTPMFirmwareCVEs_FreshInfineonClean(t *testing.T) {
 	}
 }
 
+func TestLookupTPMFirmwareCVEs_MalformedVersionRejected(t *testing.T) {
+	cases := []string{"abc.def", "4.x.1", "", "   "}
+	for _, v := range cases {
+		if cves := LookupTPMFirmwareCVEs("Infineon", v); len(cves) != 0 {
+			t.Errorf("malformed version %q returned %d CVEs, want 0", v, len(cves))
+		}
+	}
+}
+
+func TestLookupTPMFirmwareCVEs_JustAboveMaxNoFire(t *testing.T) {
+	// 4.33.5 is just above the ROCA MaxVersion of 4.33.4
+	if cves := LookupTPMFirmwareCVEs("Infineon", "4.33.5"); len(cves) != 0 {
+		t.Errorf("4.33.5 returned %d CVEs, want 0 (just above MaxVersion)", len(cves))
+	}
+}
+
 func TestCompareVersion_DottedIntegers(t *testing.T) {
 	cases := []struct {
 		a, b string
@@ -68,6 +84,8 @@ func TestCompareVersion_DottedIntegers(t *testing.T) {
 		{"4.33.5", "4.33.4", 1},
 		{"5.0", "4.99.99", 1},
 		{"4.33", "4.33.4", -1}, // shorter version is "less" when missing components
+		{"abc", "4.33", -2},
+		{"4.33", "abc", -2},
 	}
 	for _, c := range cases {
 		got := compareVersion(c.a, c.b)

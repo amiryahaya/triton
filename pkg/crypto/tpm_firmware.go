@@ -82,17 +82,24 @@ func versionInRange(vendor, firmwareVersion, minV, maxV string) bool {
 		// Non-range vendors: exact match against MinVersion only.
 		return minV != "" && firmwareVersion == minV
 	}
-	if minV != "" && compareVersion(firmwareVersion, minV) < 0 {
-		return false
+	if minV != "" {
+		cmp := compareVersion(firmwareVersion, minV)
+		if cmp == -2 || cmp < 0 {
+			return false
+		}
 	}
-	if maxV != "" && compareVersion(firmwareVersion, maxV) > 0 {
-		return false
+	if maxV != "" {
+		cmp := compareVersion(firmwareVersion, maxV)
+		if cmp == -2 || cmp > 0 {
+			return false
+		}
 	}
 	return true
 }
 
 // compareVersion compares two dotted-integer version strings.
-// Returns -1 if a < b, 0 if equal, 1 if a > b.
+// Returns -1 if a < b, 0 if equal, 1 if a > b, -2 if either string contains
+// a non-numeric segment (treated as incomparable).
 // Missing components are treated as 0 (so "4.33" < "4.33.4").
 func compareVersion(a, b string) int {
 	as := strings.Split(a, ".")
@@ -104,11 +111,19 @@ func compareVersion(a, b string) int {
 	for i := 0; i < n; i++ {
 		ai := 0
 		if i < len(as) {
-			ai, _ = strconv.Atoi(as[i])
+			v, err := strconv.Atoi(as[i])
+			if err != nil {
+				return -2
+			}
+			ai = v
 		}
 		bi := 0
 		if i < len(bs) {
-			bi, _ = strconv.Atoi(bs[i])
+			v, err := strconv.Atoi(bs[i])
+			if err != nil {
+				return -2
+			}
+			bi = v
 		}
 		if ai < bi {
 			return -1

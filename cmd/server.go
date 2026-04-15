@@ -25,6 +25,7 @@ import (
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
+	scanjobspkg "github.com/amiryahaya/triton/pkg/server/scanjobs"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -265,6 +266,27 @@ func runServer(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Scan jobs — Onboarding Phase 5. Admin routes mount under the
+	// authenticated portal subtree; the gateway routes (poll/progress/
+	// submit/finish) live on the mTLS listener set up below. Both share
+	// a single scan-jobs Store built from the shared pool; the store
+	// delegates scan persistence to the main PostgresStore via
+	// SaveScanWithJobContext so scans get tagged with engine_id +
+	// scan_job_id at insert time.
+	scanJobsStore := scanjobspkg.NewPostgresStore(db.Pool(), db)
+	if cfg.JWTSigningKey != nil {
+		scanJobsAdmin := &scanjobspkg.AdminHandlers{
+			Store:          scanJobsStore,
+			InventoryStore: invStore,
+			Audit:          server.NewAuditAdapter(srv),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage/scan-jobs", func(r chi.Router) {
+			scanjobspkg.MountAdminRoutes(r, scanJobsAdmin)
+		}); err != nil {
+			return fmt.Errorf("mounting scan-jobs admin routes: %w", err)
+		}
+	}
+
 	if cfg.JWTSigningKey != nil {
 		adminHandlers := &enginepkg.AdminHandlers{
 			Store:     engineStore,
@@ -285,7 +307,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("portal TLS cert: %w", err)
 	}
-	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, invStore, server.NewAuditAdapter(srv), certPath, keyPath)
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, scanJobsStore, invStore, server.NewAuditAdapter(srv), certPath, keyPath)
 	if err != nil {
 		return fmt.Errorf("starting engine gateway: %w", err)
 	}
@@ -306,6 +328,12 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// flip them back to queued. One reaper sweeps both delivery + test
 	// queues on a shared cutoff.
 	go (&credentialspkg.StaleReaper{Store: credStore}).Run(srv.Context())
+
+	// Scan jobs stale-queue reaper. Same partial-index constraint as
+	// discovery + credentials — claimed or running rows never get
+	// re-picked unless we flip them back to queued. Longer timeout
+	// (30m default) because scan jobs run longer than cred tests.
+	go (&scanjobspkg.StaleReaper{Store: scanJobsStore}).Run(srv.Context())
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level

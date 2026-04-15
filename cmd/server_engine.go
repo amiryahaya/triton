@@ -27,6 +27,7 @@ import (
 	credentialspkg "github.com/amiryahaya/triton/pkg/server/credentials"
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
+	scanjobspkg "github.com/amiryahaya/triton/pkg/server/scanjobs"
 )
 
 // loadEngineMasterKey reads TRITON_PORTAL_CA_ENCRYPTION_KEY (hex-encoded,
@@ -202,6 +203,7 @@ func startEngineGateway(
 	store enginepkg.Store,
 	discoveryStore discoverypkg.Store,
 	credStore credentialspkg.Store,
+	scanJobsStore scanjobspkg.Store,
 	credInventory credentialspkg.InventoryTargetLookup,
 	audit *server.AuditAdapter,
 	certPath, keyPath string,
@@ -214,6 +216,10 @@ func startEngineGateway(
 		Audit:          audit,
 		PollTimeout:    30 * time.Second,
 		PollInterval:   1 * time.Second,
+	}
+	scanJobsGateway := &scanjobspkg.GatewayHandlers{
+		Store: scanJobsStore,
+		Audit: audit,
 	}
 	r := chi.NewRouter()
 	// Stash the request on the context so AuditAdapter can reach
@@ -232,6 +238,10 @@ func startEngineGateway(
 		// mounted alongside discovery on the same mTLS listener.
 		sub.Route("/credentials", func(csub chi.Router) {
 			credentialspkg.MountGatewayRoutes(csub, credGateway)
+		})
+		// Onboarding Phase 5 — scan-job poll/progress/submit/finish.
+		sub.Route("/scans", func(ssub chi.Router) {
+			scanjobspkg.MountGatewayRoutes(ssub, scanJobsGateway)
 		})
 	})
 	// Back-compat: routes were previously mounted at root (/enroll,

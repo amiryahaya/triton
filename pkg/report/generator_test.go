@@ -433,3 +433,38 @@ func TestGenerateHTMLNoAgilityPanelWhenNoFindings(t *testing.T) {
 		t.Error("agility section should be omitted when no findings")
 	}
 }
+
+func TestGenerateHTML_SurfacesQualityWarnings(t *testing.T) {
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "quality.html")
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "q-host"},
+		Systems: []model.System{{Name: "demo", CryptoAssets: []model.CryptoAsset{
+			{
+				Algorithm: "RSA-2048",
+				PQCStatus: model.PQCStatusTransitional,
+				QualityWarnings: []string{
+					"[CRITICAL] ROCA: modulus matches Infineon weak-prime structure [CVE-2017-15361]",
+				},
+			},
+		}}},
+	}
+	g := New(tmp)
+	if err := g.GenerateHTML(result, out); err != nil {
+		t.Fatalf("GenerateHTML: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	htmlStr := string(data)
+	if !strings.Contains(htmlStr, "QUALITY") {
+		t.Error("missing QUALITY badge")
+	}
+	if !strings.Contains(htmlStr, "ROCA") {
+		t.Error("missing ROCA warning text in details block")
+	}
+	if !strings.Contains(htmlStr, "CVE-2017-15361") {
+		t.Error("missing CVE reference in warning text")
+	}
+}

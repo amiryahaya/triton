@@ -387,6 +387,29 @@ func RunDoctorChecks(profile string) *DoctorReport {
 		}, CheckDockerConfig())
 	}
 
+	// 7. TPM scanner prereq (Linux-only; non-Linux WARN).
+	if activeModules["tpm"] {
+		status := CheckPass
+		message := "/sys/class/tpm accessible"
+		suggestion := ""
+		if runtime.GOOS != "linux" {
+			status = CheckWarn
+			message = "Linux-only — scans will emit skipped-findings on " + runtime.GOOS
+			suggestion = "TPM module is supported only on Linux."
+		} else if _, err := os.Stat("/sys/class/tpm"); err != nil {
+			status = CheckWarn
+			message = "/sys/class/tpm not present — no TPM detected"
+			suggestion = "Install/enable a TPM, or run on a host with TPM support."
+		}
+		report.Checks = append(report.Checks, CheckResult{
+			Module:     "tpm",
+			CheckName:  "TPM prerequisites",
+			Status:     status,
+			Message:    message,
+			Suggestion: suggestion,
+		})
+	}
+
 	report.computeCounts()
 	return report
 }

@@ -60,3 +60,41 @@ func TestParseTablesStream_RejectsBadReserved(t *testing.T) {
 		t.Error("expected error on non-zero reserved field")
 	}
 }
+
+func TestParseTablesStream_SkipsModuleRows(t *testing.T) {
+	// #Strings heap: index 1 = "ModName", then NS+Name pair starting at index 9.
+	stringsHeap := []byte("\x00ModName\x00Cryptography\x00RSAProvider\x00")
+	idxNS := uint16(1 + len("ModName") + 1)
+	idxName := idxNS + uint16(len("Cryptography")+1)
+
+	var buf bytes.Buffer
+	binary.Write(&buf, binary.LittleEndian, uint32(0))
+	buf.WriteByte(2)
+	buf.WriteByte(0)
+	buf.WriteByte(0)
+	buf.WriteByte(1)
+	binary.Write(&buf, binary.LittleEndian, uint64((1<<0x00)|(1<<0x01))) // Module + TypeRef
+	binary.Write(&buf, binary.LittleEndian, uint64(0))
+	binary.Write(&buf, binary.LittleEndian, uint32(1)) // 1 Module row
+	binary.Write(&buf, binary.LittleEndian, uint32(1)) // 1 TypeRef row
+
+	// Module row: Generation(u16) + Name(u16) + Mvid(u16) + EncId(u16) + EncBaseId(u16) = 10 bytes
+	for i := 0; i < 5; i++ {
+		binary.Write(&buf, binary.LittleEndian, uint16(0))
+	}
+	// TypeRef row: ResolutionScope(u16) + Name(u16) + Namespace(u16) = 6 bytes
+	binary.Write(&buf, binary.LittleEndian, uint16(0))
+	binary.Write(&buf, binary.LittleEndian, idxName)
+	binary.Write(&buf, binary.LittleEndian, idxNS)
+
+	refs, err := parseTablesStream(buf.Bytes(), stringsHeap)
+	if err != nil {
+		t.Fatalf("parseTablesStream: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("len(refs) = %d, want 1", len(refs))
+	}
+	if got := refs[0].FullName(); got != "Cryptography.RSAProvider" {
+		t.Errorf("FullName = %q, want Cryptography.RSAProvider", got)
+	}
+}

@@ -103,9 +103,6 @@ func emitDeviceFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 	}
 
 	algo := "TPM" + dev.SpecVersion
-	if algo == "TPM" {
-		algo = "TPM"
-	}
 	asset := &model.CryptoAsset{
 		ID:              uuid.New().String(),
 		Algorithm:       algo,

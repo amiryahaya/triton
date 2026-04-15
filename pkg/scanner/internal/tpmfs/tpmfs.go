@@ -110,8 +110,7 @@ func decodeVendorID(raw string) string {
 			bs[i] = ' '
 		}
 	}
-	key := string(bs)
-	if name, ok := vendorIDTable[key]; ok {
+	if name, ok := vendorIDTable[string(bs)]; ok {
 		return name
 	}
 	// Fallback: return raw hex without the "0x" prefix for consistency.

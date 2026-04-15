@@ -19,17 +19,17 @@ func buildEventLog(algos []HashAlgo, eventCount int) []byte {
 
 	// Spec ID pseudo-event (TCG_PCR_EVENT, old format, 32 bytes + SpecID blob).
 	// For testing purposes this is minimal; real parsers accept it as a no-op marker.
-	binary.Write(&buf, binary.LittleEndian, uint32(0))      // PCRIndex = 0
-	binary.Write(&buf, binary.LittleEndian, uint32(3))      // EventType = EV_NO_ACTION
-	buf.Write(make([]byte, 20))                              // SHA1 digest (zero)
-	specIDBlob := []byte("Spec ID Event03\x00")              // placeholder blob
+	binary.Write(&buf, binary.LittleEndian, uint32(0)) // PCRIndex = 0
+	binary.Write(&buf, binary.LittleEndian, uint32(3)) // EventType = EV_NO_ACTION
+	buf.Write(make([]byte, 20))                        // SHA1 digest (zero)
+	specIDBlob := []byte("Spec ID Event03\x00")        // placeholder blob
 	binary.Write(&buf, binary.LittleEndian, uint32(len(specIDBlob)))
 	buf.Write(specIDBlob)
 
 	// N TCG_PCR_EVENT2 records.
 	for i := 0; i < eventCount; i++ {
-		binary.Write(&buf, binary.LittleEndian, uint32(4))         // PCRIndex = 4
-		binary.Write(&buf, binary.LittleEndian, uint32(0x0D))      // EventType = EV_EFI_BOOT_SERVICES_APPLICATION
+		binary.Write(&buf, binary.LittleEndian, uint32(4))          // PCRIndex = 4
+		binary.Write(&buf, binary.LittleEndian, uint32(0x0D))       // EventType = EV_EFI_BOOT_SERVICES_APPLICATION
 		binary.Write(&buf, binary.LittleEndian, uint32(len(algos))) // DigestCount
 		for _, a := range algos {
 			binary.Write(&buf, binary.LittleEndian, uint16(a))
@@ -103,9 +103,9 @@ func TestParseEventLog_Mixed(t *testing.T) {
 
 func TestClassifyEventLog(t *testing.T) {
 	cases := []struct {
-		name      string
-		log       *EventLog
-		wantPQC   string
+		name    string
+		log     *EventLog
+		wantPQC string
 	}{
 		{
 			name:    "SHA-256 only",

@@ -162,3 +162,11 @@ textarea {
 
 .nav-link-inline { color: var(--accent); text-decoration: none; }
 .nav-link-inline:hover { text-decoration: underline; }
+
+/* Credentials (Task 11) */
+textarea.cred-key { font-family: ui-monospace, monospace; height: 180px; }
+.cred-field-group { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.success-cell { color: #166534; }
+.fail-cell { color: #991b1b; }
+.conditional { display: none; }
+.conditional.show { display: block; }

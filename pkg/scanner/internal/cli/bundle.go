@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 )
 
@@ -63,6 +64,9 @@ func ScanBundle(path string) ([]BundledAssembly, error) {
 		return nil, nil
 	}
 	hdrOff := binary.LittleEndian.Uint64(tail[idx-8 : idx])
+	if hdrOff > uint64(size) || hdrOff > uint64(math.MaxInt64) {
+		return nil, nil
+	}
 
 	hdrBuf := make([]byte, 12)
 	if _, err := f.ReadAt(hdrBuf, int64(hdrOff)); err != nil {
@@ -105,8 +109,12 @@ func ScanBundle(path string) ([]BundledAssembly, error) {
 		entryStart := cursor + match.entryStart
 		offset := binary.LittleEndian.Uint64(all[entryStart : entryStart+8])
 		entrySize := binary.LittleEndian.Uint64(all[entryStart+8 : entryStart+16])
-		if entrySize == 0 || entrySize > maxBundleEntry || int64(offset+entrySize) > size {
-			cursor = entryStart + 8
+		if entrySize == 0 || entrySize > maxBundleEntry {
+			cursor = entryStart + match.length
+			continue
+		}
+		if offset > uint64(size) || entrySize > uint64(size)-offset || offset > uint64(math.MaxInt64) {
+			cursor = entryStart + match.length
 			continue
 		}
 		section := io.NewSectionReader(f, int64(offset), int64(entrySize))

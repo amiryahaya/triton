@@ -2,9 +2,19 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 )
+
+// ErrCANotFound is returned by Store.GetCA when no CA row exists for
+// the given org. Handlers use errors.Is to distinguish "bootstrap
+// required" from a real database error.
+var ErrCANotFound = errors.New("engine CA not found")
+
+// ErrEngineNotFound is returned by lookup methods when the engine row
+// does not exist (or exists but belongs to a different org).
+var ErrEngineNotFound = errors.New("engine not found")
 
 // Store is the persistence boundary for the engine bounded context.
 // All read methods are org-scoped; the only intentional exception is

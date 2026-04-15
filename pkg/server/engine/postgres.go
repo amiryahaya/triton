@@ -51,7 +51,7 @@ func (s *PostgresStore) GetCA(ctx context.Context, orgID uuid.UUID) (*CA, error)
 	)
 	if err := row.Scan(&pemStr, &ca.CAKeyEncrypted, &ca.CAKeyNonce); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("engine CA not found for org %s: %w", orgID, err)
+			return nil, fmt.Errorf("%w for org %s", ErrCANotFound, orgID)
 		}
 		return nil, fmt.Errorf("get engine CA: %w", err)
 	}
@@ -107,7 +107,7 @@ func (s *PostgresStore) GetEngine(ctx context.Context, orgID, id uuid.UUID) (Eng
 	e, err := scanEngine(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Engine{}, fmt.Errorf("engine %s not found in org %s", id, orgID)
+			return Engine{}, fmt.Errorf("%w: %s in org %s", ErrEngineNotFound, id, orgID)
 		}
 		return Engine{}, fmt.Errorf("get engine: %w", err)
 	}
@@ -122,7 +122,7 @@ func (s *PostgresStore) GetEngineByFingerprint(ctx context.Context, fingerprint 
 	e, err := scanEngine(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Engine{}, fmt.Errorf("engine with fingerprint %s not found", fingerprint)
+			return Engine{}, fmt.Errorf("%w: fingerprint %s", ErrEngineNotFound, fingerprint)
 		}
 		return Engine{}, fmt.Errorf("get engine by fingerprint: %w", err)
 	}

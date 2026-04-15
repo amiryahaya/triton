@@ -35,7 +35,7 @@ func (s *mtlsFakeStore) GetEngineByFingerprint(_ context.Context, fp string) (En
 
 // Unused Store methods to satisfy the interface; panic if accidentally called.
 func (s *mtlsFakeStore) UpsertCA(context.Context, uuid.UUID, *CA) error { panic("unused") }
-func (s *mtlsFakeStore) GetCA(context.Context, uuid.UUID) (*CA, error) { panic("unused") }
+func (s *mtlsFakeStore) GetCA(context.Context, uuid.UUID) (*CA, error)  { panic("unused") }
 func (s *mtlsFakeStore) CreateEngine(context.Context, Engine) (Engine, error) {
 	panic("unused")
 }

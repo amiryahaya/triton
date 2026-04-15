@@ -74,16 +74,16 @@ func BuildBundle(in BundleInputs) ([]byte, error) {
 		return nil
 	}
 
-	if err := add("engine.json", manifest, 0644); err != nil {
+	if err := add("engine.json", manifest, 0o644); err != nil {
 		return nil, err
 	}
-	if err := add("engine.key", in.EngineKeyPEM, 0400); err != nil {
+	if err := add("engine.key", in.EngineKeyPEM, 0o400); err != nil {
 		return nil, err
 	}
-	if err := add("engine.crt", in.EngineCertPEM, 0644); err != nil {
+	if err := add("engine.crt", in.EngineCertPEM, 0o644); err != nil {
 		return nil, err
 	}
-	if err := add("portal-ca.crt", in.CACertPEM, 0644); err != nil {
+	if err := add("portal-ca.crt", in.CACertPEM, 0o644); err != nil {
 		return nil, err
 	}
 

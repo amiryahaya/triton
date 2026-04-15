@@ -62,6 +62,9 @@ func parseStreamHeaders(metadata []byte) (map[string][]byte, error) {
 	}
 	off := 12 // skip signature(4) + major(2) + minor(2) + reserved(4)
 	versionLen := binary.LittleEndian.Uint32(metadata[off:])
+	if versionLen > 255 {
+		return nil, fmt.Errorf("cli: metadata version length %d exceeds 255 (ECMA-335 §II.24.2.1)", versionLen)
+	}
 	off += 4 + int(versionLen)
 	if off+4 > len(metadata) {
 		return nil, fmt.Errorf("cli: metadata header truncated past version")

@@ -22,6 +22,7 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Put("/groups/{id}", h.UpdateGroup)
 		r.Delete("/groups/{id}", h.DeleteGroup)
 		r.Post("/hosts", h.CreateHost)
+		r.Post("/hosts/import", h.ImportHosts)
 		r.Put("/hosts/{id}", h.UpdateHost)
 		r.Delete("/hosts/{id}", h.DeleteHost)
 	})

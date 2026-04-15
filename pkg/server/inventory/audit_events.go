@@ -11,4 +11,5 @@ const (
 	EventHostCreate  = "inventory.host.create"
 	EventHostUpdate  = "inventory.host.update"
 	EventHostDelete  = "inventory.host.delete"
+	EventHostsImport = "inventory.hosts.import"
 )

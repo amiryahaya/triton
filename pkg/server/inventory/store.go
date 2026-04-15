@@ -21,6 +21,12 @@ type Store interface {
 
 	SetTags(ctx context.Context, hostID uuid.UUID, tags []Tag) error
 	GetTags(ctx context.Context, hostID uuid.UUID) ([]Tag, error)
+
+	// ImportHosts bulk-inserts rows into a single group. Each row gets
+	// its own SAVEPOINT so a unique/CHECK violation rolls back only
+	// that row, not the whole batch. With dryRun=true the outer
+	// transaction is rolled back and counts are still returned.
+	ImportHosts(ctx context.Context, orgID, groupID uuid.UUID, rows []ImportRow, dryRun bool) (ImportResult, error)
 }
 
 type HostFilters struct {

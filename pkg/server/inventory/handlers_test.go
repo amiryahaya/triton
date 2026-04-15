@@ -26,6 +26,20 @@ type fakeStore struct {
 	groups map[uuid.UUID]Group
 	hosts  map[uuid.UUID]Host
 	tags   map[uuid.UUID][]Tag
+
+	// Import-specific hooks. Tests set importResult (and optionally
+	// importErr) to control what ImportHosts returns; importCalls
+	// records every call for assertions.
+	importResult ImportResult
+	importErr    error
+	importCalls  []importCall
+}
+
+type importCall struct {
+	OrgID   uuid.UUID
+	GroupID uuid.UUID
+	Rows    []ImportRow
+	DryRun  bool
 }
 
 func newFakeStore() *fakeStore {
@@ -170,6 +184,13 @@ func (f *fakeStore) GetTags(_ context.Context, hostID uuid.UUID) ([]Tag, error) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.tags[hostID], nil
+}
+
+func (f *fakeStore) ImportHosts(_ context.Context, orgID, groupID uuid.UUID, rows []ImportRow, dryRun bool) (ImportResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.importCalls = append(f.importCalls, importCall{OrgID: orgID, GroupID: groupID, Rows: rows, DryRun: dryRun})
+	return f.importResult, f.importErr
 }
 
 // --- test helpers ---

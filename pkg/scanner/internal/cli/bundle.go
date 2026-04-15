@@ -22,9 +22,10 @@ var bundleMarker = []byte{
 }
 
 const (
-	maxBundleEntries = 2000
-	maxBundleEntry   = 32 * 1024 * 1024 // 32 MB per inner assembly
-	bundleScanWindow = 64 * 1024
+	maxBundleEntries   = 2000
+	maxBundleEntry     = 32 * 1024 * 1024  // 32 MB per inner assembly
+	bundleScanWindow   = 64 * 1024
+	maxBundleHostSize  = 256 * 1024 * 1024 // 256 MB cap on host file size we'll fully read
 )
 
 // ScanBundle inspects the file at path. If it is a .NET single-file bundle,
@@ -76,6 +77,9 @@ func ScanBundle(path string) ([]BundledAssembly, error) {
 		return nil, nil
 	}
 
+	if size > int64(maxBundleHostSize) {
+		return nil, nil // too large to safely scan via current heuristic
+	}
 	all := make([]byte, size)
 	if _, err := f.ReadAt(all, 0); err != nil {
 		return nil, err

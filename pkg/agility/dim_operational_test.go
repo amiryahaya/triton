@@ -43,8 +43,8 @@ func TestScoreOperational_HSMPresent(t *testing.T) {
 
 func TestScoreOperational_AutomationDetected(t *testing.T) {
 	f := model.Finding{
-		Module: "packages",
-		Source: model.FindingSource{Path: "/usr/bin/certbot"},
+		Module:      "packages",
+		Source:      model.FindingSource{Path: "/usr/bin/certbot"},
 		CryptoAsset: &model.CryptoAsset{Algorithm: "RSA-2048"},
 	}
 	d := scoreOperationalReadiness([]model.Finding{f}, refNow)

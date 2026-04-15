@@ -19,7 +19,7 @@ var protocolModules = map[string]bool{
 func scoreProtocolAgility(findings []model.Finding) Dimension {
 	d := Dimension{Name: DimProtocolAgility, Weight: weightProtocolAgility}
 
-	var maxTLS int = -1 // -1 = not observed
+	maxTLS := -1 // -1 = not observed
 	groups := make(map[string]bool)
 	hasHybrid := false
 	protocolFindings := 0

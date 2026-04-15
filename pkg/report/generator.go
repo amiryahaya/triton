@@ -639,20 +639,20 @@ func (g *Generator) generateAgilityPanel(result *model.ScanResult, b *strings.Bu
 		case s.Overall >= 40:
 			cls = "agility-mid"
 		}
-		b.WriteString(fmt.Sprintf(`	<div class="agility-host">
+		fmt.Fprintf(b, `	<div class="agility-host">
 		<h3>%s <span class="agility-badge %s">Overall: %d/100</span></h3>
-`, html.EscapeString(s.Hostname), cls, s.Overall))
+`, html.EscapeString(s.Hostname), cls, s.Overall)
 		for _, d := range s.Dimensions {
-			b.WriteString(fmt.Sprintf(`		<div class="agility-dim"><strong>%s</strong> <span class="agility-bar-wrap"><span class="agility-bar" style="width:%d%%"></span></span> %d/100 &mdash; %s</div>
-`, html.EscapeString(d.Name), d.Score, d.Score, html.EscapeString(d.Explanation)))
+			fmt.Fprintf(b, `		<div class="agility-dim"><strong>%s</strong> <span class="agility-bar-wrap"><span class="agility-bar" style="width:%d%%"></span></span> %d/100 &mdash; %s</div>
+`, html.EscapeString(d.Name), d.Score, d.Score, html.EscapeString(d.Explanation))
 		}
 		if len(s.Recommendations) > 0 {
 			b.WriteString(`		<h4>Recommended actions</h4>
 		<ul>
 `)
 			for _, r := range s.Recommendations {
-				b.WriteString(fmt.Sprintf(`			<li>[<strong>%s</strong>, effort %s, impact +%d] %s <em>(%s)</em></li>
-`, html.EscapeString(r.Dimension), html.EscapeString(string(r.Effort)), r.Impact, html.EscapeString(r.Action), html.EscapeString(r.Dimension)))
+				fmt.Fprintf(b, `			<li>[<strong>%s</strong>, effort %s, impact +%d] %s <em>(%s)</em></li>
+`, html.EscapeString(r.Dimension), html.EscapeString(string(r.Effort)), r.Impact, html.EscapeString(r.Action), html.EscapeString(r.Dimension))
 			}
 			b.WriteString(`		</ul>
 `)

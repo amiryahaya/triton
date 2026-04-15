@@ -144,7 +144,7 @@ func generateRecommendations(s Score, findings []model.Finding) []Recommendation
 		byDim[r.dim] = append(byDim[r.dim], r.rec)
 	}
 
-	var out []Recommendation
+	out := make([]Recommendation, 0, len(recommendationRules))
 	// Stable dimension order: declaration order of dim constants.
 	for _, dim := range []string{DimPQCCoverage, DimProtocolAgility, DimConfigFlexibility, DimOperationalReady} {
 		recs := byDim[dim]

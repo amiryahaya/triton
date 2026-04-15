@@ -6,12 +6,50 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
 )
+
+func TestTPMModule_Linux_CorruptEventLogEmitsSkipped(t *testing.T) {
+	sysRoot, _ := filepath.Abs("internal/tpmfs/testdata/sysfs-infineon")
+	if _, err := os.Stat(sysRoot); err != nil {
+		t.Skipf("fixture not found: %v", err)
+	}
+	secRoot := t.TempDir()
+	// Write garbage to the event log path.
+	tpmLogDir := filepath.Join(secRoot, "tpm0")
+	if err := os.MkdirAll(tpmLogDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tpmLogDir, "binary_bios_measurements"),
+		[]byte("this is not a valid TCG event log"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &scannerconfig.Config{TPMSysRoot: sysRoot, TPMSecRoot: secRoot}
+	m := NewTPMModule(cfg)
+	ch := make(chan *model.Finding, 8)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		_ = m.Scan(ctx, model.ScanTarget{}, ch)
+		close(ch)
+	}()
+
+	sawSkipped := false
+	for f := range ch {
+		if f.Source.DetectionMethod == "tpm-skipped" && strings.Contains(f.Source.Evidence, "corrupt event log") {
+			sawSkipped = true
+		}
+	}
+	if !sawSkipped {
+		t.Error("expected tpm-skipped finding for corrupt event log")
+	}
+}
 
 // TestTPMModule_Linux_EmitsDeviceFinding exercises the full scan pipeline
 // against the committed sysfs-infineon fixture. Runs on Linux only.

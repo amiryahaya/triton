@@ -187,11 +187,12 @@ func emitEKCertFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 func emitEventLogFinding(ctx context.Context, logPath string, findings chan<- *model.Finding) error {
 	data, err := os.ReadFile(logPath)
 	if err != nil {
-		return nil // silently skip — log presence is best-effort
+		return nil // log absent → silent (common on VMs)
 	}
 	log, err := tpmfs.ParseEventLog(data)
 	if err != nil {
-		return nil // degraded; log corruption surfaces in a future finding
+		return emitTPMSkipped(ctx, findings,
+			fmt.Sprintf("corrupt event log at %s: %s", logPath, err.Error()))
 	}
 	pqc := classifyEventLog(log)
 	evidence := formatLogEvidence(log)

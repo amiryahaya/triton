@@ -557,3 +557,53 @@ func TestFindingToComponent_HybridSurfaced(t *testing.T) {
 	assert.Contains(t, s, `"isHybrid":true`)
 	assert.Contains(t, s, `"componentAlgorithms":["X25519","ML-KEM-768"]`)
 }
+
+func TestCycloneDX_SurfacesQualityWarnings(t *testing.T) {
+	tmp := t.TempDir()
+	out := tmp + "/quality.cdx.json"
+	asset := &model.CryptoAsset{
+		ID:        "asset-1",
+		Algorithm: "RSA-2048",
+		PQCStatus: model.PQCStatusTransitional,
+		QualityWarnings: []model.QualityWarning{
+			{Code: "ROCA", Severity: "CRITICAL", Message: "modulus matches", CVE: "CVE-2017-15361"},
+			{Code: "SIZE-MISMATCH", Severity: "HIGH", Message: "claimed 2048, actual 1024"},
+		},
+	}
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "q-host"},
+		Findings: []model.Finding{
+			{ID: "f1", Module: "keys", CryptoAsset: asset},
+		},
+	}
+	g := New(tmp)
+	if err := g.GenerateCycloneDXBOM(result, out); err != nil {
+		t.Fatalf("GenerateCycloneDXBOM: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !contains(s, "triton:quality-warning") {
+		t.Error("missing triton:quality-warning property")
+	}
+	if !contains(s, "ROCA") {
+		t.Error("missing ROCA in CycloneDX output")
+	}
+	if !contains(s, "CVE-2017-15361") {
+		t.Error("missing CVE-2017-15361 in CycloneDX output")
+	}
+	if !contains(s, "SIZE-MISMATCH") {
+		t.Error("missing second warning SIZE-MISMATCH")
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

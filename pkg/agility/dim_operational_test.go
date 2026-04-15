@@ -63,6 +63,16 @@ func TestScoreOperational_LongRotations(t *testing.T) {
 	}
 }
 
+func TestScoreOperational_EvenLengthMedianAverages(t *testing.T) {
+	// 30d + 400d → median should be 215, scoring 50 (≤365 band), not 400 → 25.
+	fs := []model.Finding{certFinding(30), certFinding(400)}
+	d := scoreOperationalReadiness(fs, refNow)
+	// cert 50, HSM 0, automation 0 → avg = 16
+	if d.Score != 16 {
+		t.Errorf("Score = %d, want 16 (cert=50)", d.Score)
+	}
+}
+
 func TestScoreOperational_AllThreeFire(t *testing.T) {
 	fs := []model.Finding{
 		certFinding(60),

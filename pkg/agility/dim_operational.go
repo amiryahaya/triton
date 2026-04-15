@@ -82,7 +82,12 @@ func certRotationScore(findings []model.Finding, now time.Time) (int, bool) {
 		return 0, false
 	}
 	sort.Ints(days)
-	med := days[len(days)/2]
+	var med int
+	if n := len(days); n%2 == 0 {
+		med = (days[n/2-1] + days[n/2]) / 2
+	} else {
+		med = days[n/2]
+	}
 	switch {
 	case med <= 90:
 		return 100, true

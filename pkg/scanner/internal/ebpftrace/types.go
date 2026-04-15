@@ -47,8 +47,13 @@ type Options struct {
 
 // Outcome is the result of a Run.
 type Outcome struct {
-	Aggregates []Aggregate
-	Window     time.Duration
+	Aggregates     []Aggregate
+	Window         time.Duration
+	StartedAt      time.Time
+	EventsObserved int
+	DecodeErrors   int
+	ProbesAttached int
+	ProbesFailed   int
 }
 
 // AlgoInfo is the classified result of a crypto observation.

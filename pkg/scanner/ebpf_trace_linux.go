@@ -47,7 +47,7 @@ func (m *EBPFTraceModule) scan(ctx context.Context, _ model.ScanTarget, findings
 
 	emittedAny := false
 	for _, agg := range outcome.Aggregates {
-		f := buildEBPFFinding(agg, window)
+		f := buildEBPFFinding(agg, window, outcome)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -56,7 +56,9 @@ func (m *EBPFTraceModule) scan(ctx context.Context, _ model.ScanTarget, findings
 		}
 	}
 	if !emittedAny {
-		return emitSkipped(ctx, findings, fmt.Sprintf("no crypto activity observed in %s window", window))
+		reason := fmt.Sprintf("no crypto activity observed in %s window (probes: %d attached, %d failed, events: %d, decode errors: %d)",
+			window, outcome.ProbesAttached, outcome.ProbesFailed, outcome.EventsObserved, outcome.DecodeErrors)
+		return emitSkipped(ctx, findings, reason)
 	}
 	return nil
 }
@@ -64,13 +66,14 @@ func (m *EBPFTraceModule) scan(ctx context.Context, _ model.ScanTarget, findings
 // buildEBPFFinding maps one ebpftrace.Aggregate into a model.Finding. The
 // algorithm string is re-classified through the PQC registry so downstream
 // consumers see a canonical name + status (SAFE/TRANSITIONAL/...).
-func buildEBPFFinding(agg ebpftrace.Aggregate, window time.Duration) *model.Finding {
+func buildEBPFFinding(agg ebpftrace.Aggregate, window time.Duration, outcome *ebpftrace.Outcome) *model.Finding {
 	info := crypto.ClassifyAlgorithm(agg.Algorithm, 0)
 	detection := "ebpf-uprobe"
 	if agg.Source == ebpftrace.SourceKprobe {
 		detection = "ebpf-kprobe"
 	}
-	evidence := fmt.Sprintf("%d calls over %s from %d pids", agg.Count, window, len(agg.PIDs))
+	evidence := fmt.Sprintf("%d calls over %s from %d pids (probes: %d attached, %d failed)",
+		agg.Count, window, len(agg.PIDs), outcome.ProbesAttached, outcome.ProbesFailed)
 	var firstPID int
 	if agg.FirstPID > 0 {
 		firstPID = int(agg.FirstPID)

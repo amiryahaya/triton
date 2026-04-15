@@ -27,6 +27,7 @@ var cryptoObject []byte
 // as an error; the caller (ebpf_trace_linux.go) converts that into a
 // skipped-finding. Callers MUST pass a non-nil context and positive Window.
 func Run(ctx context.Context, opts Options) (*Outcome, error) {
+	startedAt := time.Now().UTC()
 	if opts.Window <= 0 {
 		return nil, errors.New("ebpftrace: Window must be positive")
 	}
@@ -81,11 +82,18 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 			_ = l.Close()
 		}
 	}()
+	var probesAttached, probesFailed int
 	if !opts.SkipUprobes {
-		closers = attachUprobes(coll, closers)
+		ua, uf, cls := attachUprobes(coll, closers)
+		probesAttached += ua
+		probesFailed += uf
+		closers = cls
 	}
 	if !opts.SkipKprobes {
-		closers = attachKprobes(coll, closers)
+		ka, kf, cls := attachKprobes(coll, closers)
+		probesAttached += ka
+		probesFailed += kf
+		closers = cls
 	}
 
 	// Read events until window expires or context cancels.
@@ -93,6 +101,7 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 	readCtx, cancel := context.WithTimeout(ctx, opts.Window)
 	defer cancel()
 
+	var eventsObserved, decodeErrors int
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -101,8 +110,10 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 			if err != nil {
 				return // ringbuf closed
 			}
+			eventsObserved++
 			ev, decErr := DecodeEvent(record.RawSample)
 			if decErr != nil {
+				decodeErrors++
 				continue
 			}
 			binPath := binaryPathForEvent(ev)
@@ -127,8 +138,13 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 	}
 
 	return &Outcome{
-		Aggregates: agg.Flush(),
-		Window:     opts.Window,
+		Aggregates:     agg.Flush(),
+		Window:         opts.Window,
+		StartedAt:      startedAt,
+		EventsObserved: eventsObserved,
+		DecodeErrors:   decodeErrors,
+		ProbesAttached: probesAttached,
+		ProbesFailed:   probesFailed,
 	}, nil
 }
 
@@ -137,7 +153,7 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 // can resolve in any discovered library. Per-process /proc scanning is
 // deliberately shallow: we enumerate libraries via /proc/*/maps union, not
 // one attach per PID.
-func attachUprobes(coll *ebpf.Collection, closers []link.Link) []link.Link {
+func attachUprobes(coll *ebpf.Collection, closers []link.Link) (attached, failed int, out []link.Link) {
 	libsByID := map[LibID][]DiscoveredLib{}
 	procs, _ := filepath.Glob("/proc/[0-9]*/maps")
 	seenInodes := map[string]bool{}
@@ -162,23 +178,28 @@ func attachUprobes(coll *ebpf.Collection, closers []link.Link) []link.Link {
 		for _, lib := range libs {
 			prog := coll.Programs[target.ProgName]
 			if prog == nil {
+				failed++
 				continue
 			}
 			exe, err := link.OpenExecutable(lib.Path)
 			if err != nil {
+				failed++
 				continue
 			}
 			if !symbolExists(lib.Path, target.SymbolName) {
+				failed++
 				continue
 			}
 			l, err := exe.Uprobe(target.SymbolName, prog, nil)
 			if err != nil {
+				failed++
 				continue
 			}
 			closers = append(closers, l)
+			attached++
 		}
 	}
-	return closers
+	return attached, failed, closers
 }
 
 // symbolExists returns true iff the ELF symbol table contains the named symbol.
@@ -202,7 +223,7 @@ func symbolExists(path, symbol string) bool {
 }
 
 // attachKprobes attaches one link per kernel crypto allocator symbol.
-func attachKprobes(coll *ebpf.Collection, closers []link.Link) []link.Link {
+func attachKprobes(coll *ebpf.Collection, closers []link.Link) (attached, failed int, out []link.Link) {
 	targets := []struct{ progName, sym string }{
 		{"kprobe__crypto_alloc_shash", "crypto_alloc_shash"},
 		{"kprobe__crypto_alloc_skcipher", "crypto_alloc_skcipher"},
@@ -212,15 +233,18 @@ func attachKprobes(coll *ebpf.Collection, closers []link.Link) []link.Link {
 	for _, tg := range targets {
 		prog := coll.Programs[tg.progName]
 		if prog == nil {
+			failed++
 			continue
 		}
 		l, err := link.Kprobe(tg.sym, prog, nil)
 		if err != nil {
+			failed++
 			continue
 		}
 		closers = append(closers, l)
+		attached++
 	}
-	return closers
+	return attached, failed, closers
 }
 
 // binaryPathForEvent chooses the path label for aggregation based on LibID.

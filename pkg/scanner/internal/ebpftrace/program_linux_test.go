@@ -51,6 +51,9 @@ func TestRun_ObservesOpenSSLDigest(t *testing.T) {
 	case err := <-errCh:
 		t.Fatalf("Run: %v", err)
 	case out := <-result:
+		if out.ProbesAttached == 0 {
+			t.Errorf("ProbesAttached = 0; expected > 0 (probes silently failed to attach)")
+		}
 		found := false
 		for _, agg := range out.Aggregates {
 			if agg.Algorithm == "SHA-256" || agg.Family == "SHA" {

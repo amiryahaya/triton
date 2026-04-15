@@ -165,6 +165,7 @@ var defaultModuleFactories = []func(*scannerconfig.Config) Module{
 	func(c *scannerconfig.Config) Module { return NewASN1OIDModule(c) },
 	func(c *scannerconfig.Config) Module { return NewJavaBytecodeModule(c) },
 	func(c *scannerconfig.Config) Module { return NewDotNetILModule(c) },
+	func(c *scannerconfig.Config) Module { return NewEBPFTraceModule(c) },
 }
 
 // RegisterDefaultModules registers every factory in defaultModuleFactories.

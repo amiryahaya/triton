@@ -86,8 +86,3 @@ func Flatten(ws []Warning) []string {
 	return out
 }
 
-// --- stubs filled in by later tasks ---
-
-func debianWeakCheck(_ crypto.PublicKey, _ string, _ int) (Warning, bool) {
-	return Warning{}, false
-}

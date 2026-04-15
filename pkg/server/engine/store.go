@@ -85,4 +85,14 @@ type Store interface {
 	// refresh. Unscoped by design — the listener must trust every
 	// org's engines.
 	ListAllCAs(ctx context.Context) ([][]byte, error)
+
+	// SetEncryptionPubkey stores the engine's static X25519 public key.
+	// Called once per engine lifetime from the gateway once the engine
+	// has generated its keypair.
+	SetEncryptionPubkey(ctx context.Context, engineID uuid.UUID, pubkey []byte) error
+
+	// GetEncryptionPubkey returns the engine's static X25519 public key.
+	// Returns (nil, nil) when the engine exists but has not yet
+	// submitted a pubkey (callers signal HTTP 409 "not ready").
+	GetEncryptionPubkey(ctx context.Context, engineID uuid.UUID) ([]byte, error)
 }

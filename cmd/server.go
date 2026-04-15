@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
+	credentialspkg "github.com/amiryahaya/triton/pkg/server/credentials"
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
@@ -245,6 +246,25 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// srv.Context() so Shutdown cancels it.
 	engineStore := enginepkg.NewPostgresStore(db.Pool())
 
+	// Credentials — Onboarding Phase 4. Admin routes (profile CRUD +
+	// test triggers) mount under the authenticated portal subtree; the
+	// gateway routes (delivery + test long-poll) live on the mTLS
+	// listener set up below. Share one credentials Store across both.
+	credStore := credentialspkg.NewPostgresStore(db.Pool())
+	if cfg.JWTSigningKey != nil {
+		credAdmin := &credentialspkg.AdminHandlers{
+			Store:          credStore,
+			EngineStore:    engineStore,
+			InventoryStore: invStore,
+			Audit:          server.NewAuditAdapter(srv),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage/credentials", func(r chi.Router) {
+			credentialspkg.MountAdminRoutes(r, credAdmin)
+		}); err != nil {
+			return fmt.Errorf("mounting credentials admin routes: %w", err)
+		}
+	}
+
 	if cfg.JWTSigningKey != nil {
 		adminHandlers := &enginepkg.AdminHandlers{
 			Store:     engineStore,
@@ -265,7 +285,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("portal TLS cert: %w", err)
 	}
-	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, certPath, keyPath)
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, certPath, keyPath)
 	if err != nil {
 		return fmt.Errorf("starting engine gateway: %w", err)
 	}
@@ -280,6 +300,12 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// ClaimNext forever. The reaper flips claims older than 15m back to
 	// queued so another engine (or a retrying engine) can pick them up.
 	go (&discoverypkg.StaleReaper{Store: discoveryStore}).Run(srv.Context())
+
+	// Credentials stale-queue reaper. Same partial-index constraint as
+	// discovery — claimed or running rows never get re-picked unless we
+	// flip them back to queued. One reaper sweeps both delivery + test
+	// queues on a shared cutoff.
+	go (&credentialspkg.StaleReaper{Store: credStore}).Run(srv.Context())
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level

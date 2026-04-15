@@ -19,6 +19,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/server"
+	"github.com/amiryahaya/triton/pkg/server/hostmatch"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
 )
 
@@ -237,6 +238,14 @@ func (f *fakeInventoryStore) GetTags(_ context.Context, _ uuid.UUID) ([]inventor
 }
 func (f *fakeInventoryStore) ImportHosts(_ context.Context, _, _ uuid.UUID, _ []inventory.ImportRow, _ bool) (inventory.ImportResult, error) {
 	return inventory.ImportResult{}, nil
+}
+
+func (f *fakeInventoryStore) ListHostSummaries(_ context.Context, _ uuid.UUID) ([]hostmatch.HostSummary, error) {
+	return nil, nil
+}
+
+func (f *fakeInventoryStore) GetHostsByIDs(_ context.Context, _ uuid.UUID, _ []uuid.UUID) ([]inventory.Host, error) {
+	return nil, nil
 }
 
 var _ inventory.Store = (*fakeInventoryStore)(nil)

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -222,6 +223,38 @@ func (h *AdminHandlers) GetEngine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, eng)
+}
+
+// GetEngineEncryptionPubkey returns the engine's static X25519 public
+// key (base64-encoded) so operator browsers can seal secrets against
+// it. 404 if the engine has not yet submitted a pubkey.
+func (h *AdminHandlers) GetEngineEncryptionPubkey(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.orgID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "missing or invalid org claim")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid engine id")
+		return
+	}
+	if _, err := h.Store.GetEngine(r.Context(), orgID, id); err != nil {
+		writeErr(w, http.StatusNotFound, "engine not found")
+		return
+	}
+	pk, err := h.Store.GetEncryptionPubkey(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "get encryption pubkey: "+err.Error())
+		return
+	}
+	if len(pk) == 0 {
+		writeErr(w, http.StatusNotFound, "encryption pubkey not yet registered")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"pubkey": base64.StdEncoding.EncodeToString(pk),
+	})
 }
 
 // RevokeEngine flips an engine to revoked status. Owner-only.

@@ -48,6 +48,12 @@ func (s *detectorStore) SetStatus(context.Context, uuid.UUID, string) error {
 }
 func (s *detectorStore) Revoke(context.Context, uuid.UUID, uuid.UUID) error { panic("unused") }
 func (s *detectorStore) ListAllCAs(context.Context) ([][]byte, error)       { panic("unused") }
+func (s *detectorStore) SetEncryptionPubkey(context.Context, uuid.UUID, []byte) error {
+	panic("unused")
+}
+func (s *detectorStore) GetEncryptionPubkey(context.Context, uuid.UUID) ([]byte, error) {
+	return nil, nil
+}
 
 var _ Store = (*detectorStore)(nil)
 

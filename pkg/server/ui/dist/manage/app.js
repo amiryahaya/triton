@@ -73,6 +73,8 @@
     '/engines': renderEngines,
     '/discoveries': renderDiscoveries,
     '/discoveries/new': renderNewDiscovery,
+    '/credentials': renderCredentials,
+    '/credentials/new': renderNewCredential,
   };
 
   function route() {
@@ -84,6 +86,16 @@
     const discMatch = path.match(/^\/discoveries\/([0-9a-f-]{36})$/);
     if (discMatch) {
       renderDiscoveryDetail(document.getElementById('app'), discMatch[1]);
+      return;
+    }
+    const credTestMatch = path.match(/^\/credentials\/tests\/([0-9a-f-]{36})$/);
+    if (credTestMatch) {
+      renderCredentialTestDetail(document.getElementById('app'), credTestMatch[1]);
+      return;
+    }
+    const credMatch = path.match(/^\/credentials\/([0-9a-f-]{36})$/);
+    if (credMatch) {
+      renderCredentialDetail(document.getElementById('app'), credMatch[1]);
       return;
     }
     const h = routes[path] || renderDashboard;
@@ -813,6 +825,435 @@
       setTimeout(route, 1000);
     } catch (e) {
       resultEl.innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  // ---------- Credentials (Task 11) ----------
+
+  async function renderCredentials(el) {
+    el.innerHTML = `
+      <h1>Credential Profiles</h1>
+      <p class="muted">Credential profiles bind secrets to host matchers. Secrets are encrypted in your browser to the engine's public key — the portal never sees plaintext.</p>
+      ${canMutate() ? '<p><a href="#/credentials/new" class="button primary">New credential profile</a></p>' : ''}
+      <div id="list">loading&hellip;</div>
+    `;
+    try {
+      const resp = await authedFetch('/api/v1/manage/credentials/');
+      const profiles = await resp.json();
+      const list = el.querySelector('#list');
+      if (!profiles || profiles.length === 0) {
+        list.innerHTML = '<p><em>No credential profiles yet.</em></p>';
+        return;
+      }
+      list.innerHTML = `
+        <table>
+          <thead><tr><th>Name</th><th>Auth type</th><th>Matcher summary</th><th>Last tested</th><th></th></tr></thead>
+          <tbody>${profiles.map(p => `<tr>
+            <td>${escapeHTML(p.name)}</td>
+            <td><span class="badge">${escapeHTML(p.auth_type)}</span></td>
+            <td>${escapeHTML(summarizeMatcher(p.matcher || {}))}</td>
+            <td>${p.last_tested_at ? timeAgo(p.last_tested_at) : '<em>never</em>'}</td>
+            <td><a href="#/credentials/${p.id}">View &rarr;</a></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      `;
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.querySelector('#list').textContent = 'Error loading credentials.';
+    }
+  }
+
+  function summarizeMatcher(m) {
+    const parts = [];
+    if (m.group_ids && m.group_ids.length) parts.push(`groups:${m.group_ids.length}`);
+    if (m.os) parts.push(`os:${m.os}`);
+    if (m.cidr) parts.push(`cidr:${m.cidr}`);
+    if (m.tags) {
+      const n = Object.keys(m.tags).length;
+      if (n > 0) parts.push(`tags:${n}`);
+    }
+    return parts.length ? parts.join(', ') : 'any host';
+  }
+
+  function parseTagsTextarea(text) {
+    const out = {};
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq < 0) continue;
+      out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+    }
+    return out;
+  }
+
+  async function renderNewCredential(el) {
+    if (!canMutate()) {
+      el.innerHTML = '<h1>New credential</h1><p>Only Engineers and Owners can create credential profiles.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <p><a href="#/credentials">&larr; Back to credentials</a></p>
+      <h1>New credential profile</h1>
+      <p class="muted">The secret is encrypted in your browser to the engine's public key before it leaves this page. The portal stores only the sealed ciphertext.</p>
+      <form id="newCred">
+        <label>Name <input name="name" required placeholder="prod-linux-ssh"></label>
+        <div class="cred-field-group">
+          <label>Auth type
+            <select name="auth_type" id="auth_type" required>
+              <option value="ssh-password">ssh-password</option>
+              <option value="ssh-key">ssh-key</option>
+              <option value="winrm-password">winrm-password</option>
+              <option value="bootstrap-admin">bootstrap-admin</option>
+            </select>
+          </label>
+          <label>Engine
+            <select name="engine_id" id="engine_sel" required>
+              <option value="">&mdash; choose engine &mdash;</option>
+            </select>
+          </label>
+        </div>
+
+        <h2>Matcher</h2>
+        <p class="muted">Leave all fields empty to match every host. Combinations are AND'd together.</p>
+        <label>Groups (hold Ctrl/Cmd to multi-select)
+          <select name="group_ids" id="group_sel" multiple size="4"></select>
+        </label>
+        <div class="cred-field-group">
+          <label>OS
+            <select name="os">
+              <option value="">(any)</option>
+              <option value="linux">linux</option>
+              <option value="windows">windows</option>
+              <option value="macos">macos</option>
+              <option value="cisco-iosxe">cisco-iosxe</option>
+              <option value="juniper-junos">juniper-junos</option>
+            </select>
+          </label>
+          <label>CIDR <input name="cidr" placeholder="10.0.0.0/24"></label>
+        </div>
+        <label>Tags (one <code>key=value</code> per line)
+          <textarea name="tags" rows="3" placeholder="env=prod&#10;team=platform"></textarea>
+        </label>
+
+        <h2>Secret</h2>
+        <label>Username <input name="username" id="f_username" required></label>
+        <div class="conditional show" id="field_password">
+          <label>Password <input name="password" type="password"></label>
+        </div>
+        <div class="conditional" id="field_key">
+          <label>Private key (PEM)
+            <textarea name="private_key" class="cred-key" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
+          </label>
+          <label>Passphrase (optional) <input name="passphrase" type="password"></label>
+        </div>
+
+        <div class="button-row">
+          <a href="#/credentials" class="button">Cancel</a>
+          <button class="primary">Encrypt and save</button>
+        </div>
+        <div id="new_err"></div>
+      </form>
+    `;
+
+    // Populate engines + groups in parallel.
+    try {
+      const [engResp, grpResp] = await Promise.all([
+        authedFetch('/api/v1/manage/engines/'),
+        authedFetch('/api/v1/manage/groups/'),
+      ]);
+      const engines = await engResp.json();
+      const groups = await grpResp.json();
+      const engSel = el.querySelector('#engine_sel');
+      for (const e of engines || []) {
+        if (e.status === 'revoked') continue;
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = `${e.label} (${e.status})`;
+        engSel.appendChild(opt);
+      }
+      const grpSel = el.querySelector('#group_sel');
+      for (const g of groups || []) {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        grpSel.appendChild(opt);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') console.error('cred form load', e);
+    }
+
+    // Toggle secret-fields visibility based on auth_type.
+    const authSel = el.querySelector('#auth_type');
+    const fieldPassword = el.querySelector('#field_password');
+    const fieldKey = el.querySelector('#field_key');
+    function syncSecretFields() {
+      const t = authSel.value;
+      if (t === 'ssh-key') {
+        fieldPassword.classList.remove('show');
+        fieldKey.classList.add('show');
+      } else {
+        fieldPassword.classList.add('show');
+        fieldKey.classList.remove('show');
+      }
+    }
+    authSel.addEventListener('change', syncSecretFields);
+    syncSecretFields();
+
+    el.querySelector('#newCred').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const errEl = el.querySelector('#new_err');
+      errEl.innerHTML = '';
+
+      const name = f.name.value.trim();
+      const authType = f.auth_type.value;
+      const engineID = f.engine_id.value;
+      if (!name || !authType || !engineID) {
+        errEl.innerHTML = '<p class="error">Name, auth type, and engine are required.</p>';
+        return;
+      }
+
+      // Build matcher — omit empty branches so the server sees an explicit
+      // "no constraint" instead of zero-length arrays that might trip
+      // validation down the line.
+      const matcher = {};
+      const groupIDs = Array.from(f.group_ids.selectedOptions).map(o => o.value).filter(Boolean);
+      if (groupIDs.length) matcher.group_ids = groupIDs;
+      if (f.os.value) matcher.os = f.os.value;
+      if (f.cidr.value.trim()) matcher.cidr = f.cidr.value.trim();
+      const tags = parseTagsTextarea(f.tags.value);
+      if (Object.keys(tags).length) matcher.tags = tags;
+
+      // Build secret JSON.
+      const username = f.username.value.trim();
+      if (!username) {
+        errEl.innerHTML = '<p class="error">Username is required.</p>';
+        return;
+      }
+      let secret;
+      if (authType === 'ssh-key') {
+        const pk = f.private_key.value;
+        if (!pk || pk.trim().length === 0) {
+          errEl.innerHTML = '<p class="error">Private key is required for ssh-key.</p>';
+          return;
+        }
+        secret = { username, private_key: pk };
+        const pp = f.passphrase.value;
+        if (pp) secret.passphrase = pp;
+      } else {
+        const pw = f.password.value;
+        if (!pw) {
+          errEl.innerHTML = '<p class="error">Password is required.</p>';
+          return;
+        }
+        secret = { username, password: pw };
+      }
+
+      // Fetch engine encryption pubkey.
+      errEl.innerHTML = '<p class="muted">Fetching engine public key&hellip;</p>';
+      let pubkey;
+      try {
+        const pkResp = await authedFetch(`/api/v1/manage/engines/${engineID}/encryption-pubkey`);
+        if (pkResp.status === 404) {
+          errEl.innerHTML = '<p class="error">Engine hasn\'t registered its encryption key yet — make sure it\'s online, then retry.</p>';
+          return;
+        }
+        if (!pkResp.ok) {
+          errEl.innerHTML = `<p class="error">Failed to fetch engine pubkey: HTTP ${pkResp.status}</p>`;
+          return;
+        }
+        const body = await pkResp.json();
+        pubkey = body.pubkey;
+        if (!pubkey) {
+          errEl.innerHTML = '<p class="error">Engine pubkey response missing pubkey field.</p>';
+          return;
+        }
+      } catch (e) {
+        if (e.message === 'unauthorized') return;
+        errEl.innerHTML = `<p class="error">Pubkey fetch failed: ${escapeHTML(e.message)}</p>`;
+        return;
+      }
+
+      // Encrypt in-browser.
+      errEl.innerHTML = '<p class="muted">Encrypting&hellip;</p>';
+      let encrypted;
+      try {
+        const cryptoMod = await import('./crypto.js');
+        const plaintext = new TextEncoder().encode(JSON.stringify(secret));
+        encrypted = await cryptoMod.sealTo(pubkey, plaintext);
+      } catch (e) {
+        errEl.innerHTML = `<p class="error">Encryption failed: ${escapeHTML(e.message)}</p>`;
+        return;
+      }
+
+      // POST profile.
+      errEl.innerHTML = '<p class="muted">Saving&hellip;</p>';
+      try {
+        const resp = await authedFetch('/api/v1/manage/credentials/', {
+          method: 'POST',
+          body: JSON.stringify({
+            name,
+            auth_type: authType,
+            engine_id: engineID,
+            matcher,
+            encrypted_secret: encrypted,
+          }),
+        });
+        if (resp.status === 409) {
+          errEl.innerHTML = '<p class="error">Engine encryption key not registered yet. Wait for the engine to check in and retry.</p>';
+          return;
+        }
+        if (!resp.ok) {
+          const txt = await resp.text();
+          errEl.innerHTML = `<p class="error">Save failed: ${escapeHTML(txt || ('HTTP ' + resp.status))}</p>`;
+          return;
+        }
+        const profile = await resp.json();
+        window.location.hash = '#/credentials/' + profile.id;
+      } catch (e) {
+        if (e.message === 'unauthorized') return;
+        errEl.innerHTML = `<p class="error">Save failed: ${escapeHTML(e.message)}</p>`;
+      }
+    });
+  }
+
+  async function renderCredentialDetail(el, profileID) {
+    el.innerHTML = '<p>loading&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/credentials/' + profileID);
+      if (!resp.ok) { el.innerHTML = '<p>Not found.</p>'; return; }
+      const p = await resp.json();
+      const matcher = p.matcher || {};
+      const tagsRows = matcher.tags
+        ? Object.entries(matcher.tags).map(([k, v]) => `<li>${escapeHTML(k)}=${escapeHTML(v)}</li>`).join('')
+        : '';
+      el.innerHTML = `
+        <p><a href="#/credentials">&larr; Back to credentials</a></p>
+        <h1>${escapeHTML(p.name)}</h1>
+        <dl class="kv">
+          <dt>Auth type</dt><dd><span class="badge">${escapeHTML(p.auth_type)}</span></dd>
+          <dt>Engine</dt><dd>${escapeHTML(p.engine_id)}</dd>
+          <dt>Secret reference</dt><dd><code>${escapeHTML(p.secret_ref || '')}</code></dd>
+          <dt>Created</dt><dd>${p.created_at ? timeAgo(p.created_at) : '—'}</dd>
+          <dt>Last tested</dt><dd>${p.last_tested_at ? timeAgo(p.last_tested_at) : '<em>never</em>'}</dd>
+        </dl>
+
+        <h2>Matcher</h2>
+        <dl class="kv">
+          <dt>Groups</dt><dd>${matcher.group_ids && matcher.group_ids.length ? matcher.group_ids.map(escapeHTML).join(', ') : '<em>(any)</em>'}</dd>
+          <dt>OS</dt><dd>${matcher.os ? escapeHTML(matcher.os) : '<em>(any)</em>'}</dd>
+          <dt>CIDR</dt><dd>${matcher.cidr ? escapeHTML(matcher.cidr) : '<em>(any)</em>'}</dd>
+          <dt>Tags</dt><dd>${tagsRows ? `<ul>${tagsRows}</ul>` : '<em>(any)</em>'}</dd>
+        </dl>
+
+        <h2>Test</h2>
+        <p class="muted">Dispatch a test job to the engine. It'll try authenticating against up to N matching hosts and return per-host results.</p>
+        <form id="testForm">
+          <label>Max hosts <input type="number" name="max_hosts" value="3" min="1" max="50"></label>
+          <button class="primary">Run test</button>
+        </form>
+        <div id="test_result"></div>
+
+        ${canMutate() ? '<h2>Danger zone</h2><button id="deleteBtn" class="danger">Delete profile</button>' : ''}
+        <div id="delete_result"></div>
+      `;
+
+      el.querySelector('#testForm').addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const maxHosts = parseInt(ev.target.max_hosts.value, 10) || 3;
+        const rEl = el.querySelector('#test_result');
+        rEl.innerHTML = '<p class="muted">Starting test&hellip;</p>';
+        try {
+          const r = await authedFetch(`/api/v1/manage/credentials/${profileID}/test`, {
+            method: 'POST',
+            body: JSON.stringify({ max_hosts: maxHosts }),
+          });
+          if (!r.ok) {
+            const txt = await r.text();
+            rEl.innerHTML = `<p class="error">${escapeHTML(txt || ('HTTP ' + r.status))}</p>`;
+            return;
+          }
+          const data = await r.json();
+          const testID = (data.job && data.job.id) || data.id;
+          if (testID) {
+            window.location.hash = '#/credentials/tests/' + testID;
+          } else {
+            rEl.innerHTML = '<p>Test started, but response had no id.</p>';
+          }
+        } catch (e) {
+          if (e.message === 'unauthorized') return;
+          rEl.innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+        }
+      });
+
+      const delBtn = el.querySelector('#deleteBtn');
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          if (!confirm('Delete this credential profile? Associated secrets on engines will be purged.')) return;
+          const rEl = el.querySelector('#delete_result');
+          rEl.innerHTML = '<p class="muted">Deleting&hellip;</p>';
+          try {
+            const r = await authedFetch('/api/v1/manage/credentials/' + profileID, { method: 'DELETE' });
+            if (!r.ok && r.status !== 204) {
+              rEl.innerHTML = `<p class="error">Delete failed: HTTP ${r.status}</p>`;
+              return;
+            }
+            window.location.hash = '#/credentials';
+          } catch (e) {
+            if (e.message === 'unauthorized') return;
+            rEl.innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+          }
+        });
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  async function renderCredentialTestDetail(el, testID) {
+    el.innerHTML = '<p>loading&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/credentials/tests/' + testID);
+      if (!resp.ok) { el.innerHTML = '<p>Test not found.</p>'; return; }
+      const data = await resp.json();
+      const job = data.job || {};
+      const results = data.results || [];
+      const running = job.status === 'queued' || job.status === 'claimed' || job.status === 'running';
+
+      el.innerHTML = `
+        <p><a href="#/credentials">&larr; Back to credentials</a></p>
+        <h1>Credential test</h1>
+        <dl class="kv">
+          <dt>Status</dt><dd><span class="badge badge-${escapeHTML(job.status || '')}">${escapeHTML(job.status || '')}</span></dd>
+          <dt>Profile</dt><dd>${job.credential_profile_id ? `<a href="#/credentials/${escapeHTML(job.credential_profile_id)}">${escapeHTML(job.credential_profile_id)}</a>` : '—'}</dd>
+          <dt>Max hosts</dt><dd>${job.max_hosts ?? '—'}</dd>
+          <dt>Requested</dt><dd>${job.requested_at ? timeAgo(job.requested_at) : '—'}</dd>
+          ${job.completed_at ? `<dt>Completed</dt><dd>${timeAgo(job.completed_at)}</dd>` : ''}
+          ${job.error ? `<dt>Error</dt><dd class="error">${escapeHTML(job.error)}</dd>` : ''}
+        </dl>
+
+        <h2>Results (${results.length})</h2>
+        ${results.length === 0
+          ? (running ? '<p class="muted">Test in progress &mdash; results will appear here.</p>' : '<p><em>No results.</em></p>')
+          : `<table>
+              <thead><tr><th>Host</th><th>Status</th><th>Latency (ms)</th><th>Error</th></tr></thead>
+              <tbody>${results.map(r => `<tr>
+                <td>${escapeHTML(r.host_id || '')}</td>
+                <td class="${r.success ? 'success-cell' : 'fail-cell'}">${r.success ? '&#10003; ok' : '&#10007; fail'}</td>
+                <td>${r.latency_ms ?? '—'}</td>
+                <td>${r.error ? escapeHTML(r.error) : ''}</td>
+              </tr>`).join('')}</tbody>
+            </table>`
+        }
+      `;
+
+      if (running) {
+        setTimeout(() => {
+          if (window.location.hash === '#/credentials/tests/' + testID) route();
+        }, 5000);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
     }
   }
 })();

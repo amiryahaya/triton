@@ -17,12 +17,11 @@ type clientAPI interface {
 	Heartbeat(ctx context.Context) error
 }
 
-// DiscoveryWorker is the optional long-running subsystem spawned by
-// Run once enrollment succeeds. In production this is
-// *discovery.Worker; tests can pass a stub. Passing nil disables the
-// discovery loop entirely — useful for engines that only do scans on
-// manual trigger (future work).
-type DiscoveryWorker interface {
+// Worker is implemented by any long-running engine background process
+// that should be started after the first successful enroll and stopped
+// when ctx is cancelled. discovery.Worker, credentials.Handler, and
+// credentials.TestWorker all satisfy this.
+type Worker interface {
 	Run(ctx context.Context)
 }
 
@@ -32,9 +31,25 @@ type Config struct {
 	HeartbeatInterval    time.Duration
 	EnrollMaxBackoff     time.Duration
 	EnrollInitialBackoff time.Duration
-	// DiscoveryWorker is spawned in its own goroutine after the
-	// first successful Enroll. Optional — nil disables discovery.
-	DiscoveryWorker DiscoveryWorker
+
+	// DiscoveryWorker is spawned in its own goroutine after the first
+	// successful Enroll. Optional — nil disables the discovery loop.
+	DiscoveryWorker Worker
+
+	// CredentialHandler processes incoming credential push/delete
+	// deliveries. Spawned after first successful Enroll. Optional.
+	CredentialHandler Worker
+
+	// CredentialTestWorker runs credential-test probe jobs. Spawned
+	// after first successful Enroll. Optional.
+	CredentialTestWorker Worker
+
+	// OnEnrolled is called exactly once, immediately after the first
+	// successful Enroll and before any Worker is spawned. Intended for
+	// the engine to publish its encryption pubkey once the portal has
+	// accepted enrollment. The callback is invoked on the ctx passed to
+	// Run, so long-running work inside it will block Worker spawn.
+	OnEnrolled func(ctx context.Context)
 }
 
 // Run blocks until ctx is cancelled. It first drives Enroll to
@@ -57,11 +72,21 @@ func Run(ctx context.Context, c clientAPI, cfg Config) error {
 		return err
 	}
 
-	// Spawn the discovery worker (if configured) now that we're
-	// enrolled. Its lifetime is tied to ctx; Run will return when
-	// ctx is cancelled.
+	// One-shot post-enroll hook. Guaranteed to fire before any Worker
+	// starts so callbacks that depend on server-side state (e.g. pubkey
+	// submission) can complete before workers begin polling.
+	if cfg.OnEnrolled != nil {
+		cfg.OnEnrolled(ctx)
+	}
+
 	if cfg.DiscoveryWorker != nil {
 		go cfg.DiscoveryWorker.Run(ctx)
+	}
+	if cfg.CredentialHandler != nil {
+		go cfg.CredentialHandler.Run(ctx)
+	}
+	if cfg.CredentialTestWorker != nil {
+		go cfg.CredentialTestWorker.Run(ctx)
 	}
 
 	t := time.NewTicker(cfg.HeartbeatInterval)

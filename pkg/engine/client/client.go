@@ -25,6 +25,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -270,6 +271,206 @@ func (c *Client) post(ctx context.Context, path string, expectBody bool) error {
 	if resp.StatusCode != want {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		return fmt.Errorf("post %s: unexpected status %d: %s", path, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// SubmitEncryptionPubkey POSTs the engine's static X25519 public key
+// to /api/v1/engine/encryption-pubkey. Idempotent: latest submission
+// wins. Expected server response is 204.
+func (c *Client) SubmitEncryptionPubkey(ctx context.Context, pubkey []byte) error {
+	body := map[string]string{"pubkey": base64.StdEncoding.EncodeToString(pubkey)}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal pubkey body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.PortalURL+"/api/v1/engine/encryption-pubkey", bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("submit pubkey: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return fmt.Errorf("submit pubkey: unexpected status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// DeliveryPayload is the engine-local wire shape for a pulled
+// credential delivery. Mirrors pkg/server/credentials.DeliveryPayload
+// but is duplicated here to keep pkg/engine/client free of
+// server-package imports.
+type DeliveryPayload struct {
+	ID         string `json:"id"`
+	ProfileID  string `json:"profile_id,omitempty"`
+	SecretRef  string `json:"secret_ref"`
+	AuthType   string `json:"auth_type"`
+	Kind       string `json:"kind"`
+	Ciphertext string `json:"ciphertext,omitempty"` // base64; present only for kind=push
+}
+
+// PollCredentialDelivery long-polls the portal for a credential
+// delivery targeted at this engine. 200 → payload, 204 → (nil, nil).
+func (c *Client) PollCredentialDelivery(ctx context.Context) (*DeliveryPayload, error) {
+	url := c.PortalURL + "/api/v1/engine/credentials/deliveries/poll"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := c.longPollClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("poll credential delivery: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var d DeliveryPayload
+		if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&d); err != nil {
+			return nil, fmt.Errorf("decode delivery: %w", err)
+		}
+		return &d, nil
+	case http.StatusNoContent:
+		return nil, nil
+	default:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return nil, fmt.Errorf("poll credential delivery: unexpected status %d: %s", resp.StatusCode, string(b))
+	}
+}
+
+// ackDeliveryBody is the POST body for /engine/credentials/deliveries/{id}/ack.
+type ackDeliveryBody struct {
+	Error string `json:"error,omitempty"`
+}
+
+// AckCredentialDelivery acks a claimed delivery. A non-empty errMsg
+// marks the delivery as failed. Expected server response is 204.
+func (c *Client) AckCredentialDelivery(ctx context.Context, id, errMsg string) error {
+	raw, err := json.Marshal(ackDeliveryBody{Error: errMsg})
+	if err != nil {
+		return fmt.Errorf("marshal ack: %w", err)
+	}
+	url := c.PortalURL + "/api/v1/engine/credentials/deliveries/" + id + "/ack"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("ack delivery: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return fmt.Errorf("ack delivery: unexpected status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// HostTarget is a single host to probe as part of a credential test job.
+type HostTarget struct {
+	ID      string `json:"id"`
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+}
+
+// TestJobPayload is the engine-local wire shape for a pulled credential
+// test job.
+type TestJobPayload struct {
+	ID        string       `json:"id"`
+	ProfileID string       `json:"profile_id"`
+	SecretRef string       `json:"secret_ref"`
+	AuthType  string       `json:"auth_type"`
+	Hosts     []HostTarget `json:"hosts"`
+}
+
+// PollCredentialTest long-polls for a credential test job.
+func (c *Client) PollCredentialTest(ctx context.Context) (*TestJobPayload, error) {
+	url := c.PortalURL + "/api/v1/engine/credentials/tests/poll"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := c.longPollClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("poll credential test: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var j TestJobPayload
+		if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&j); err != nil {
+			return nil, fmt.Errorf("decode test job: %w", err)
+		}
+		return &j, nil
+	case http.StatusNoContent:
+		return nil, nil
+	default:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return nil, fmt.Errorf("poll credential test: unexpected status %d: %s", resp.StatusCode, string(b))
+	}
+}
+
+// SubmittedTestResult is a single per-host outcome posted back to the
+// portal for a credential test job.
+type SubmittedTestResult struct {
+	HostID    string `json:"host_id"`
+	Success   bool   `json:"success"`
+	LatencyMs int    `json:"latency_ms"`
+	Error     string `json:"error,omitempty"`
+}
+
+// submitTestBody is the POST body for /engine/credentials/tests/{id}/submit.
+type submitTestBody struct {
+	Results []SubmittedTestResult `json:"results"`
+	Error   string                `json:"error,omitempty"`
+}
+
+// SubmitCredentialTest posts the terminal result for a credential test
+// job. Expected server response is 204.
+func (c *Client) SubmitCredentialTest(ctx context.Context, testID string, results []SubmittedTestResult, errMsg string) error {
+	if results == nil {
+		results = []SubmittedTestResult{}
+	}
+	raw, err := json.Marshal(submitTestBody{Results: results, Error: errMsg})
+	if err != nil {
+		return fmt.Errorf("marshal submit body: %w", err)
+	}
+	url := c.PortalURL + "/api/v1/engine/credentials/tests/" + testID + "/submit"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("submit credential test: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		return fmt.Errorf("submit credential test: unexpected status %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
 }

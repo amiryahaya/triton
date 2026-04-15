@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	credentialspkg "github.com/amiryahaya/triton/pkg/server/credentials"
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 )
@@ -199,10 +200,12 @@ func startEngineGateway(
 	addr string,
 	store enginepkg.Store,
 	discoveryStore discoverypkg.Store,
+	credStore credentialspkg.Store,
 	certPath, keyPath string,
 ) (*http.Server, error) {
 	gwHandlers := &enginepkg.GatewayHandlers{Store: store}
 	discoveryGateway := &discoverypkg.GatewayHandlers{Store: discoveryStore}
+	credGateway := &credentialspkg.GatewayHandlers{Store: credStore}
 	r := chi.NewRouter()
 	r.Use(enginepkg.MTLSMiddleware(store))
 	r.Route("/api/v1/engine", func(sub chi.Router) {
@@ -212,6 +215,11 @@ func startEngineGateway(
 		// same mTLS-authenticated listener.
 		sub.Route("/discoveries", func(dsub chi.Router) {
 			discoverypkg.MountGatewayRoutes(dsub, discoveryGateway)
+		})
+		// Onboarding Phase 4 — credential delivery + test long-poll,
+		// mounted alongside discovery on the same mTLS listener.
+		sub.Route("/credentials", func(csub chi.Router) {
+			credentialspkg.MountGatewayRoutes(csub, credGateway)
 		})
 	})
 	// Back-compat: routes were previously mounted at root (/enroll,

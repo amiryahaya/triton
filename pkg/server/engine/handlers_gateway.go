@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -66,6 +68,36 @@ func (h *GatewayHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Store.RecordPoll(r.Context(), eng.ID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "record poll: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SubmitEncryptionPubkey is the mTLS-authenticated endpoint where an
+// engine uploads its static X25519 public key. The portal echoes this
+// pubkey back to operator browsers so the browser can seal secrets to
+// it before POSTing a profile. Called once per engine lifetime (after
+// first-contact keypair generation).
+func (h *GatewayHandlers) SubmitEncryptionPubkey(w http.ResponseWriter, r *http.Request) {
+	eng := EngineFromContext(r.Context())
+	if eng == nil {
+		writeErr(w, http.StatusInternalServerError, "engine not in context")
+		return
+	}
+	var body struct {
+		Pubkey string `json:"pubkey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(body.Pubkey)
+	if err != nil || len(raw) != 32 {
+		writeErr(w, http.StatusBadRequest, "invalid pubkey: expect 32-byte X25519 base64")
+		return
+	}
+	if err := h.Store.SetEncryptionPubkey(r.Context(), eng.ID, raw); err != nil {
+		writeErr(w, http.StatusInternalServerError, "set encryption pubkey: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

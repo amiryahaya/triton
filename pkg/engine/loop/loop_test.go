@@ -84,6 +84,93 @@ func TestRun_RetriesEnrollOnFailure(t *testing.T) {
 	}
 }
 
+func TestLoop_OnEnrolled_FiresOnceAfterEnroll(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := &mockClient{enrollFailN: 2}
+
+	var onEnrolledCalls atomic.Int32
+	var enrollCountAtCallback atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		_ = Run(ctx, m, Config{
+			HeartbeatInterval:    5 * time.Millisecond,
+			EnrollMaxBackoff:     5 * time.Millisecond,
+			EnrollInitialBackoff: 2 * time.Millisecond,
+			OnEnrolled: func(context.Context) {
+				enrollCountAtCallback.Store(m.enrollCalls.Load())
+				onEnrolledCalls.Add(1)
+			},
+		})
+		close(done)
+	}()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if m.heartbeatCalls.Load() >= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if got := onEnrolledCalls.Load(); got != 1 {
+		t.Errorf("OnEnrolled fired %d times, want exactly 1", got)
+	}
+	if got := enrollCountAtCallback.Load(); got != 3 {
+		t.Errorf("OnEnrolled fired at enroll attempt #%d, want 3 (2 failures + 1 success)", got)
+	}
+}
+
+// fakeWorker records whether Run was invoked.
+type fakeWorker struct {
+	called atomic.Bool
+	done   chan struct{}
+}
+
+func (w *fakeWorker) Run(ctx context.Context) {
+	w.called.Store(true)
+	if w.done != nil {
+		close(w.done)
+	}
+	<-ctx.Done()
+}
+
+func TestLoop_SpawnsCredentialWorkersAfterEnroll(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := &mockClient{}
+
+	hDone := make(chan struct{})
+	tDone := make(chan struct{})
+	handler := &fakeWorker{done: hDone}
+	tw := &fakeWorker{done: tDone}
+
+	done := make(chan struct{})
+	go func() {
+		_ = Run(ctx, m, Config{
+			HeartbeatInterval:    5 * time.Millisecond,
+			CredentialHandler:    handler,
+			CredentialTestWorker: tw,
+		})
+		close(done)
+	}()
+
+	select {
+	case <-hDone:
+	case <-time.After(time.Second):
+		t.Fatal("CredentialHandler.Run was not invoked")
+	}
+	select {
+	case <-tDone:
+	case <-time.After(time.Second):
+		t.Fatal("CredentialTestWorker.Run was not invoked")
+	}
+	cancel()
+	<-done
+}
+
 func TestRun_ContinuesAfterHeartbeatFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

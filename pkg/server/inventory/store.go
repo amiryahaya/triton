@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/server/hostmatch"
 )
 
 type Store interface {
@@ -27,6 +29,18 @@ type Store interface {
 	// that row, not the whole batch. With dryRun=true the outer
 	// transaction is rolled back and counts are still returned.
 	ImportHosts(ctx context.Context, orgID, groupID uuid.UUID, rows []ImportRow, dryRun bool) (ImportResult, error)
+
+	// ListHostSummaries returns the projection of every host in the org
+	// joined with its tags. Credentials' matcher resolver consumes this
+	// shape; the return type lives in pkg/server/hostmatch so neither
+	// inventory nor credentials depends on the other.
+	ListHostSummaries(ctx context.Context, orgID uuid.UUID) ([]hostmatch.HostSummary, error)
+
+	// GetHostsByIDs returns hosts in the given org matching any of the
+	// IDs. Used by the credentials gateway to enrich a claimed test job
+	// with host address + port before handing it off to the engine.
+	// Missing IDs are silently omitted.
+	GetHostsByIDs(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) ([]Host, error)
 }
 
 type HostFilters struct {

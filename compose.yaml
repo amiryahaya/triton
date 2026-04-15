@@ -187,12 +187,21 @@ services:
       - triton
     environment:
       TRITON_BUNDLE_PATH: /etc/triton/bundle.tar.gz
+      # Onboarding Phase 4 — engine-local at-rest secret store.
+      TRITON_ENGINE_KEYSTORE_PATH: /var/lib/triton-engine/keystore.db
+      # OPTIONAL: 64 hex chars (32-byte master key). If unset, the
+      # engine derives a key from its in-memory X25519 private key —
+      # DEV ONLY, log emits a WARNING. Production MUST set this.
+      TRITON_ENGINE_KEYSTORE_KEY: "${TRITON_ENGINE_KEYSTORE_KEY:-}"
     volumes:
       # Operator mints a bundle via the portal admin UI
       # (POST /api/v1/manage/engines/), saves bytes to ./bundle.tar.gz,
       # then brings this profile up. Read-only mount.
       - ./bundle.tar.gz:/etc/triton/bundle.tar.gz:ro
+      # Persistent keystore so secrets survive engine restarts.
+      - triton-engine-data:/var/lib/triton-engine
 
 volumes:
   triton-data:
   triton-binaries:
+  triton-engine-data:

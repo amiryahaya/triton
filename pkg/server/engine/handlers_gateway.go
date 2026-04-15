@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"log"
 	"net/http"
 	"strings"
 )
@@ -29,13 +30,27 @@ func (h *GatewayHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "engine not in context")
 		return
 	}
-	if eng.FirstSeenAt == nil {
-		ip := ipFromRemote(r.RemoteAddr)
-		if _, err := h.Store.RecordFirstSeen(r.Context(), eng.ID, ip); err != nil {
-			writeErr(w, http.StatusInternalServerError, "record first seen: "+err.Error())
-			return
-		}
+
+	alreadyEnrolled := eng.FirstSeenAt != nil
+	ip := ipFromRemote(r.RemoteAddr)
+	firstClaim, err := h.Store.RecordFirstSeen(r.Context(), eng.ID, ip)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "record first seen: "+err.Error())
+		return
 	}
+
+	// If the engine was already enrolled when the mTLS middleware
+	// resolved it, this is a legitimate idempotent re-enroll (restart,
+	// network hiccup). If the middleware saw an un-enrolled engine but
+	// RecordFirstSeen reports "not first", someone else just claimed
+	// the bundle — reject the replay.
+	if !alreadyEnrolled && !firstClaim {
+		log.Printf("engine enroll replay rejected: engine_id=%s remote=%s",
+			eng.ID, r.RemoteAddr)
+		writeErr(w, http.StatusConflict, "bundle already claimed from a different source")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"engine_id": eng.ID.String(),
 		"status":    "online",

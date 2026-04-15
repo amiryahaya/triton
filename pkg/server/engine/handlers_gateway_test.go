@@ -71,7 +71,10 @@ func TestEnroll_Idempotent_SecondCall_NoExtraFirstSeenWrite(t *testing.T) {
 
 	// Second call — supplies an engine context that already has
 	// FirstSeenAt populated (as the mTLS middleware would resolve
-	// from the row), so the handler must skip the write.
+	// from the row). Handler still calls RecordFirstSeen (which now
+	// reports firstClaim=false), but because the engine was already
+	// enrolled when the middleware saw it, the handler must accept
+	// it as a legitimate restart and respond 200.
 	seen := store.engines[engID].FirstSeenAt
 	if seen == nil {
 		t.Fatalf("precondition: first call should have set FirstSeenAt")
@@ -82,10 +85,27 @@ func TestEnroll_Idempotent_SecondCall_NoExtraFirstSeenWrite(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	h.Enroll(rec2, req2)
 	if rec2.Code != http.StatusOK {
-		t.Fatalf("second status = %d", rec2.Code)
+		t.Fatalf("second status = %d, want 200 (legitimate restart)", rec2.Code)
 	}
-	if len(store.firstSeenCalls) != 1 {
-		t.Errorf("RecordFirstSeen call count = %d, want 1 (idempotent)", len(store.firstSeenCalls))
+}
+
+func TestEnroll_Replay_Returns409(t *testing.T) {
+	// Simulate: MTLSMiddleware saw an un-enrolled engine (FirstSeenAt
+	// nil in the context), but by the time RecordFirstSeen runs in
+	// the transaction, someone else has already claimed the bundle —
+	// the store reports firstClaim=false.
+	store := newFakeStore()
+	engID := uuid.New()
+	store.engines[engID] = Engine{ID: engID, OrgID: uuid.New(), Label: "e1", Status: StatusEnrolled}
+	store.firstSeenOverride = func(_ uuid.UUID) (bool, error) { return false, nil }
+
+	h := NewGatewayHandlers(store)
+	req := gwRequest(http.MethodPost, "/enroll", &Engine{ID: engID, Status: StatusEnrolled})
+	rec := httptest.NewRecorder()
+	h.Enroll(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
 	}
 }
 

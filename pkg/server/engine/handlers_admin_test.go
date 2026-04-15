@@ -36,6 +36,11 @@ type fakeStore struct {
 	// createErr, if set, is returned from the next CreateEngine call.
 	createErr error
 
+	// firstSeenOverride, if non-nil, replaces the default
+	// RecordFirstSeen behaviour. Used to simulate a race where a
+	// second caller has already claimed the bundle.
+	firstSeenOverride func(id uuid.UUID) (bool, error)
+
 	firstSeenCalls []uuid.UUID
 	pollCalls      []uuid.UUID
 }
@@ -118,6 +123,9 @@ func (f *fakeStore) RecordFirstSeen(_ context.Context, id uuid.UUID, _ string) (
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.firstSeenCalls = append(f.firstSeenCalls, id)
+	if f.firstSeenOverride != nil {
+		return f.firstSeenOverride(id)
+	}
 	e, ok := f.engines[id]
 	if !ok {
 		return false, errors.New("not found")

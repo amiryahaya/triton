@@ -202,6 +202,12 @@ func startEngineGateway(
 	gwHandlers := &enginepkg.GatewayHandlers{Store: store}
 	r := chi.NewRouter()
 	r.Use(enginepkg.MTLSMiddleware(store))
+	r.Route("/api/v1/engine", func(sub chi.Router) {
+		enginepkg.MountGatewayRoutes(sub, gwHandlers)
+	})
+	// Back-compat: routes were previously mounted at root (/enroll,
+	// /heartbeat). Keep both paths live so any out-of-tree client or
+	// test that predates the prefix split still works.
 	enginepkg.MountGatewayRoutes(r, gwHandlers)
 
 	tlsCfg, err := buildEngineTLSConfig(ctx, store)

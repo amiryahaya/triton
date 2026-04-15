@@ -20,6 +20,13 @@ import (
 // represents operator error and would flood the network.
 const maxAddressesPerCIDR = 65536
 
+// maxAddressesTotal caps the total address count across all CIDRs in
+// one job. Without this, an operator could submit e.g. 50 × /16 and
+// blow past the per-CIDR cap cumulatively, expanding to ~3.2M entries
+// and OOMing the engine. 262,144 = 4 × /16, generous enough for real
+// multi-subnet audits while preventing runaway expansions.
+const maxAddressesTotal = 262144
+
 // Candidate is a host the scanner confirmed responsive on at least
 // one of the requested ports. Address is the dotted-quad / IPv6
 // string form so the worker can trivially JSON-encode it.
@@ -175,6 +182,9 @@ func expandCIDRs(cidrs []string) ([]string, error) {
 		}
 		if count > maxAddressesPerCIDR {
 			return nil, fmt.Errorf("CIDR %q expands to %d addresses, exceeds cap of %d", c, count, maxAddressesPerCIDR)
+		}
+		if uint64(len(out))+count > maxAddressesTotal {
+			return nil, fmt.Errorf("total addresses exceed cap %d across all CIDRs", maxAddressesTotal)
 		}
 
 		start := ipnet.IP

@@ -127,6 +127,25 @@ func TestScanner_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestScanner_TotalAddressesCap_Errors(t *testing.T) {
+	// Five /16 blocks: each passes the per-CIDR cap of 65,536, but the
+	// total (~327k) should trip maxAddressesTotal (262,144).
+	cidrs := []string{
+		"10.0.0.0/16",
+		"10.1.0.0/16",
+		"10.2.0.0/16",
+		"10.3.0.0/16",
+		"10.4.0.0/16",
+	}
+	_, err := expandCIDRs(cidrs)
+	if err == nil {
+		t.Fatalf("expected error for 5 × /16 total exceeding cap")
+	}
+	if !strings.Contains(err.Error(), "total addresses") {
+		t.Errorf("error = %v, want total-addresses cap message", err)
+	}
+}
+
 func TestExpandCIDRs_SkipsNetworkAndBroadcast(t *testing.T) {
 	got, err := expandCIDRs([]string{"192.168.1.0/30"})
 	if err != nil {

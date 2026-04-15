@@ -14,6 +14,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// DiscoveryMaxAddresses is the total-address ceiling the portal enforces
+// across all CIDRs in a single job. Mirrors maxAddressesTotal in
+// pkg/engine/discovery/scanner.go so operators get immediate 400
+// feedback instead of waiting for the engine to fail mid-scan.
+const DiscoveryMaxAddresses = 262144
+
 // JobStatus is the lifecycle marker for a discovery job.
 type JobStatus string
 

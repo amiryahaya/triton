@@ -346,6 +346,33 @@ func TestCreateDiscovery_DefaultPorts(t *testing.T) {
 	assert.Equal(t, []int{22, 80, 443, 3389, 5985}, got.Ports)
 }
 
+func TestCreateDiscovery_TotalAddressesTooLarge_400(t *testing.T) {
+	fs := newFakeStore()
+	h := NewAdminHandlers(fs, newFakeInventoryStore(), nil)
+	r := buildAdminRouter(h)
+
+	// Five /16 blocks = 5 × 65,534 = 327,670 addresses, well past the
+	// 262,144 cap. Individually each /16 passes the per-CIDR limit, so
+	// this only trips if the total-cap preflight runs.
+	body := map[string]any{
+		"engine_id": uuid.Must(uuid.NewV7()).String(),
+		"cidrs": []string{
+			"10.0.0.0/16",
+			"10.1.0.0/16",
+			"10.2.0.0/16",
+			"10.3.0.0/16",
+			"10.4.0.0/16",
+		},
+	}
+	req, _, _ := makeReq(t, http.MethodPost, "/discovery/", body, server.RoleEngineer)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusBadRequest, rr.Code, "body=%s", rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "exceeds cap")
+	assert.Empty(t, fs.jobs, "no job should be persisted")
+}
+
 func TestCreateDiscovery_InvalidPort_400(t *testing.T) {
 	fs := newFakeStore()
 	h := NewAdminHandlers(fs, newFakeInventoryStore(), nil)

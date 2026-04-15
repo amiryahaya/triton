@@ -109,9 +109,31 @@ func (h *AdminHandlers) CreateDiscovery(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "cidrs is required (at least one)")
 		return
 	}
+	totalAddrs := 0
 	for _, c := range req.CIDRs {
-		if _, _, err := net.ParseCIDR(c); err != nil {
+		_, ipnet, err := net.ParseCIDR(c)
+		if err != nil {
 			writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid CIDR %q: %v", c, err))
+			return
+		}
+		// Count addresses, skipping net + broadcast for IPv4 blocks of
+		// /30 or larger (matches engine-side expandCIDRs semantics).
+		ones, bits := ipnet.Mask.Size()
+		hostBits := bits - ones
+		var count int
+		if hostBits >= 31 {
+			// /0../1 IPv4 or huge IPv6 — overflow guard, bail early.
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("CIDR %q too large", c))
+			return
+		}
+		count = 1 << uint(hostBits)
+		if bits == 32 && ones <= 30 && count >= 2 {
+			count -= 2
+		}
+		totalAddrs += count
+		if totalAddrs > DiscoveryMaxAddresses {
+			writeErr(w, http.StatusBadRequest,
+				fmt.Sprintf("total addresses %d exceeds cap %d", totalAddrs, DiscoveryMaxAddresses))
 			return
 		}
 	}

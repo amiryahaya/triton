@@ -10,11 +10,11 @@ func TestResolveNID_CommonNIDs(t *testing.T) {
 		672: {"SHA-256", "SHA"}, // NID_sha256
 		673: {"SHA-384", "SHA"},
 		674: {"SHA-512", "SHA"},
-		418: {"AES", "AES"}, // NID_aes_128_cbc
-		419: {"AES", "AES"}, // NID_aes_192_cbc
-		420: {"AES", "AES"}, // NID_aes_256_cbc
-		6:   {"RSA", "RSA"}, // NID_rsaEncryption
-		116: {"DSA", "DSA"}, // NID_dsa
+		418: {"AES", "AES"},     // NID_aes_128_cbc
+		419: {"AES", "AES"},     // NID_aes_192_cbc
+		420: {"AES", "AES"},     // NID_aes_256_cbc
+		6:   {"RSA", "RSA"},     // NID_rsaEncryption
+		116: {"DSA", "DSA"},     // NID_dsa
 		408: {"ECDSA", "ECDSA"}, // NID_X9_62_prime256v1
 		4:   {"MD5", "MD5"},
 		64:  {"SHA-1", "SHA"},

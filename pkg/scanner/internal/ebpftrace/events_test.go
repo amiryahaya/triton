@@ -8,8 +8,8 @@ import (
 
 func TestDecodeEvent_Kprobe(t *testing.T) {
 	buf := make([]byte, 104)
-	binary.LittleEndian.PutUint32(buf[0:], 1234)                             // pid
-	binary.LittleEndian.PutUint32(buf[4:], 0)                                // uid
+	binary.LittleEndian.PutUint32(buf[0:], 1234)                              // pid
+	binary.LittleEndian.PutUint32(buf[4:], 0)                                 // uid
 	binary.LittleEndian.PutUint64(buf[8:], uint64(1_700_000_000_000_000_000)) // ts_ns
 	buf[16] = uint8(SourceKprobe)
 	buf[17] = uint8(LibKernel)

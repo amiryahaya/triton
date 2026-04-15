@@ -253,7 +253,15 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			b.WriteString(`		<tr class="quality-details-row"><td colspan="8"><div class="quality-details">`)
 			b.WriteString(`<strong>Quality warnings:</strong><ul>`)
 			for _, qw := range row.asset.QualityWarnings {
-				b.WriteString(fmt.Sprintf(`<li>%s</li>`, html.EscapeString(qw)))
+				b.WriteString(fmt.Sprintf(`<li><strong>[%s] %s:</strong> %s`,
+					html.EscapeString(qw.Severity),
+					html.EscapeString(qw.Code),
+					html.EscapeString(qw.Message)))
+				if qw.CVE != "" {
+					b.WriteString(fmt.Sprintf(` <a href="https://nvd.nist.gov/vuln/detail/%s">%s</a>`,
+						html.EscapeString(qw.CVE), html.EscapeString(qw.CVE)))
+				}
+				b.WriteString(`</li>`)
 			}
 			b.WriteString(`</ul></div></td></tr>` + "\n")
 		}

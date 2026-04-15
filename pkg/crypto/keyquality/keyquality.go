@@ -10,6 +10,8 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"fmt"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // Severity levels for quality warnings.
@@ -77,11 +79,26 @@ func Analyze(pub crypto.PublicKey, algo string, keySize int) []Warning {
 	return out
 }
 
-// Flatten converts warnings to the []string format stored on CryptoAsset.
+// Flatten converts warnings to a []string form (used by HTML rendering only).
 func Flatten(ws []Warning) []string {
 	out := make([]string, 0, len(ws))
 	for _, w := range ws {
 		out = append(out, w.Format())
+	}
+	return out
+}
+
+// ToModel converts internal Warnings to the model.QualityWarning form
+// stored on CryptoAsset.
+func ToModel(ws []Warning) []model.QualityWarning {
+	out := make([]model.QualityWarning, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, model.QualityWarning{
+			Code:     w.Code,
+			Severity: w.Severity,
+			Message:  w.Message,
+			CVE:      w.CVE,
+		})
 	}
 	return out
 }

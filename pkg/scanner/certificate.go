@@ -220,7 +220,7 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 	if cert.PublicKey != nil {
 		ws := keyquality.Analyze(cert.PublicKey, asset.Algorithm, asset.KeySize)
 		if len(ws) > 0 {
-			asset.QualityWarnings = keyquality.Flatten(ws)
+			asset.QualityWarnings = keyquality.ToModel(ws)
 		}
 	}
 

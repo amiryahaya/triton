@@ -36,6 +36,15 @@ const (
 	PQCStatusUnsafe       = "UNSAFE"
 )
 
+// QualityWarning is one key-material quality finding (ROCA, Debian PRNG,
+// small-prime factor, size-mismatch). Emitted by pkg/crypto/keyquality.
+type QualityWarning struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	CVE      string `json:"cve,omitempty"`
+}
+
 // PolicyViolation holds a single policy rule violation for report rendering.
 type PolicyViolation struct {
 	RuleID   string `json:"ruleID"`
@@ -187,7 +196,7 @@ type CryptoAsset struct {
 	// small prime factors, size mismatch) emitted by pkg/crypto/keyquality.
 	// Orthogonal to PQCStatus: a SAFE algorithm with a broken key still
 	// surfaces here.
-	QualityWarnings []string `json:"qualityWarnings,omitempty"`
+	QualityWarnings []QualityWarning `json:"qualityWarnings,omitempty"`
 
 	// NACSA
 	NACSALabel string `json:"nacsaLabel,omitempty"`

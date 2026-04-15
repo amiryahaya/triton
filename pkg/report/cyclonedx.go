@@ -207,18 +207,19 @@ func findingToComponent(f *model.Finding) CDXComponent {
 	// `triton:quality-warning-cve` property alongside the full warning text.
 	// A follow-up PR can graduate these to proper vulnerability refs.
 	for _, qw := range asset.QualityWarnings {
+		formatted := fmt.Sprintf("[%s] %s: %s", qw.Severity, qw.Code, qw.Message)
+		if qw.CVE != "" {
+			formatted += " [" + qw.CVE + "]"
+		}
 		comp.Properties = append(comp.Properties, CDXProperty{
 			Name:  "triton:quality-warning",
-			Value: qw,
+			Value: formatted,
 		})
-		if i := strings.Index(qw, "[CVE-"); i >= 0 {
-			if end := strings.Index(qw[i:], "]"); end > 0 {
-				cve := qw[i+1 : i+end]
-				comp.Properties = append(comp.Properties, CDXProperty{
-					Name:  "triton:quality-warning-cve",
-					Value: cve,
-				})
-			}
+		if qw.CVE != "" {
+			comp.Properties = append(comp.Properties, CDXProperty{
+				Name:  "triton:quality-warning-cve",
+				Value: qw.CVE,
+			})
 		}
 	}
 

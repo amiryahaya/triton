@@ -183,7 +183,7 @@ func (m *KeyModule) parseKeyFile(ctx context.Context, reader fsadapter.FileReade
 	if pubKey != nil {
 		ws := keyquality.Analyze(pubKey, asset.Algorithm, asset.KeySize)
 		if len(ws) > 0 {
-			asset.QualityWarnings = keyquality.Flatten(ws)
+			asset.QualityWarnings = keyquality.ToModel(ws)
 		}
 	}
 

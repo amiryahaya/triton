@@ -443,8 +443,8 @@ func TestGenerateHTML_SurfacesQualityWarnings(t *testing.T) {
 			{
 				Algorithm: "RSA-2048",
 				PQCStatus: model.PQCStatusTransitional,
-				QualityWarnings: []string{
-					"[CRITICAL] ROCA: modulus matches Infineon weak-prime structure [CVE-2017-15361]",
+				QualityWarnings: []model.QualityWarning{
+					{Code: "ROCA", Severity: "CRITICAL", Message: "modulus matches Infineon weak-prime structure", CVE: "CVE-2017-15361"},
 				},
 			},
 		}}},

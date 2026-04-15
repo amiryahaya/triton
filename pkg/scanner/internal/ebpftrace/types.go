@@ -39,10 +39,9 @@ type Event struct {
 
 // Options configures a single Run() invocation.
 type Options struct {
-	Window       time.Duration
-	SkipUprobes  bool
-	SkipKprobes  bool
-	ObjectLoader func() ([]byte, error) // optional override (default: embedded crypto.o)
+	Window      time.Duration
+	SkipUprobes bool
+	SkipKprobes bool
 }
 
 // Outcome is the result of a Run.

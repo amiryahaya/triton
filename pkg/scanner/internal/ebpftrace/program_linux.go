@@ -38,15 +38,7 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 		return nil, fmt.Errorf("ebpftrace: RemoveMemlock: %w", err)
 	}
 
-	loader := opts.ObjectLoader
-	if loader == nil {
-		loader = func() ([]byte, error) { return cryptoObject, nil }
-	}
-	data, err := loader()
-	if err != nil {
-		return nil, err
-	}
-	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(data))
+	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(cryptoObject))
 	if err != nil {
 		return nil, fmt.Errorf("ebpftrace: LoadCollectionSpec: %w", err)
 	}

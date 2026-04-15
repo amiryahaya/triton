@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -309,4 +310,60 @@ func TestPostgresStore_CancelJob_Missing_ReturnsNotFound(t *testing.T) {
 	err := f.store.CancelJob(ctx, f.orgID, uuid.Must(uuid.NewV7()))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrJobNotFound))
+}
+
+func TestPostgresStore_ReclaimStale(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	// Three jobs: one stays queued, two get claimed. Of the claimed, one
+	// gets its claimed_at backdated by 30m so ReclaimStale should pick
+	// it up; the other stays fresh and must remain claimed.
+	j1, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+	j2, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+	j3, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+
+	// Claim two of them.
+	claim1, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	claim2, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Pick whichever landed first — order is requested_at ASC but
+	// uuid.NewV7 is strictly monotonic so it's deterministic enough.
+	stale, fresh := claim1.ID, claim2.ID
+
+	// Backdate one claim by 30 minutes so ReclaimStale with a 15m
+	// cutoff sees exactly one eligible row.
+	_, err = f.pool.Exec(ctx,
+		`UPDATE discovery_jobs SET claimed_at = NOW() - INTERVAL '30 minutes' WHERE id = $1`,
+		stale,
+	)
+	require.NoError(t, err)
+
+	cutoff := time.Now().Add(-15 * time.Minute)
+	require.NoError(t, f.store.ReclaimStale(ctx, cutoff))
+
+	gotStale, err := f.store.GetJob(ctx, f.orgID, stale)
+	require.NoError(t, err)
+	assert.Equal(t, StatusQueued, gotStale.Status, "stale claim must be reset to queued")
+	assert.Nil(t, gotStale.ClaimedAt, "claimed_at must be cleared on reclaim")
+
+	gotFresh, err := f.store.GetJob(ctx, f.orgID, fresh)
+	require.NoError(t, err)
+	assert.Equal(t, StatusClaimed, gotFresh.Status, "fresh claim must remain claimed")
+
+	// The never-claimed job must stay queued untouched.
+	if j1.ID != stale && j1.ID != fresh {
+		gotJ1, err := f.store.GetJob(ctx, f.orgID, j1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusQueued, gotJ1.Status)
+	}
+	_ = j2
+	_ = j3
 }

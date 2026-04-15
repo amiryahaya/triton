@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -65,4 +66,9 @@ type Store interface {
 	// status, stamps completed_at, stores any error message, and
 	// records the final candidate count.
 	FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string, candidateCount int) error
+
+	// ReclaimStale flips status back to 'queued' for jobs whose status is
+	// 'claimed' or 'running' with claimed_at older than cutoff. This lets
+	// another engine pick them up after a portal crash.
+	ReclaimStale(ctx context.Context, cutoff time.Time) error
 }

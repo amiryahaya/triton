@@ -299,6 +299,25 @@ func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status J
 	return nil
 }
 
+// ReclaimStale resets jobs that were claimed or running but whose
+// claimed_at timestamp is older than cutoff. Jobs with NULL claimed_at
+// are left alone. Safe to call on an idle table — a WHERE with no
+// matches is a no-op.
+func (s *PostgresStore) ReclaimStale(ctx context.Context, cutoff time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE discovery_jobs
+		 SET status = 'queued', claimed_at = NULL
+		 WHERE status IN ('claimed', 'running')
+		   AND claimed_at IS NOT NULL
+		   AND claimed_at < $1`,
+		cutoff,
+	)
+	if err != nil {
+		return fmt.Errorf("reclaim stale discovery jobs: %w", err)
+	}
+	return nil
+}
+
 // parseINET strips the /32 or /128 CIDR suffix pgx appends when an INET
 // column is cast to text, so callers receive a plain net.IP.
 func parseINET(s string) net.IP {

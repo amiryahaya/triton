@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -163,6 +164,10 @@ func (f *fakeStore) FinishJob(_ context.Context, jobID uuid.UUID, status JobStat
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finishCalls = append(f.finishCalls, finishCall{JobID: jobID, Status: status, Err: errMsg, Count: count})
+	return nil
+}
+
+func (f *fakeStore) ReclaimStale(_ context.Context, _ time.Time) error {
 	return nil
 }
 

@@ -57,6 +57,8 @@ func DiscoverLibsFromMaps(r io.Reader) ([]DiscoveredLib, error) {
 		firstFiveJoined := strings.Join(fields[:5], " ")
 		pathStart := strings.Index(line, firstFiveJoined) + len(firstFiveJoined)
 		path := strings.TrimSpace(line[pathStart:])
+		// Files unlinked after mapping show up as "/path (deleted)".
+		path = strings.TrimSuffix(path, " (deleted)")
 		if inode == "0" {
 			continue // anonymous mapping
 		}

@@ -9,11 +9,11 @@ import (
 func buildMinimalTablesStream(t *testing.T, typeRefs []struct{ NS, Name uint16 }) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	binary.Write(&buf, binary.LittleEndian, uint32(0)) // reserved
-	buf.WriteByte(2)                                    // major
-	buf.WriteByte(0)                                    // minor
-	buf.WriteByte(0)                                    // heap sizes (all 2-byte)
-	buf.WriteByte(1)                                    // reserved
+	binary.Write(&buf, binary.LittleEndian, uint32(0))       // reserved
+	buf.WriteByte(2)                                         // major
+	buf.WriteByte(0)                                         // minor
+	buf.WriteByte(0)                                         // heap sizes (all 2-byte)
+	buf.WriteByte(1)                                         // reserved
 	binary.Write(&buf, binary.LittleEndian, uint64(1<<0x01)) // valid: TypeRef only
 	binary.Write(&buf, binary.LittleEndian, uint64(0))       // sorted: none
 	binary.Write(&buf, binary.LittleEndian, uint32(len(typeRefs)))

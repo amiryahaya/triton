@@ -58,7 +58,7 @@ func parseUSHeap(heap []byte) ([]string, error) {
 
 // readCompressedUInt decodes an ECMA-335 compressed unsigned integer
 // (§II.23.2). Returns the value, bytes consumed, and any error.
-func readCompressedUInt(b []byte) (uint32, int, error) {
+func readCompressedUInt(b []byte) (value uint32, consumed int, err error) {
 	if len(b) == 0 {
 		return 0, 0, errors.New("cli: empty compressed-uint buffer")
 	}

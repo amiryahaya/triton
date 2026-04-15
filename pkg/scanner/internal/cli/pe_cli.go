@@ -66,17 +66,18 @@ func LocateCLIMetadata(r io.ReaderAt) (offset, size uint32, err error) {
 
 func readRVA(pf *pe.File, rva, size uint32) ([]byte, error) {
 	for _, s := range pf.Sections {
-		if rva >= s.VirtualAddress && rva+size <= s.VirtualAddress+s.VirtualSize {
-			data, err := s.Data()
-			if err != nil {
-				return nil, err
-			}
-			start := rva - s.VirtualAddress
-			if int(start)+int(size) > len(data) {
-				return nil, errors.New("cli: RVA past end of section data")
-			}
-			return data[start : start+size], nil
+		if rva < s.VirtualAddress || rva+size > s.VirtualAddress+s.VirtualSize {
+			continue
 		}
+		data, err := s.Data()
+		if err != nil {
+			return nil, err
+		}
+		start := rva - s.VirtualAddress
+		if int(start)+int(size) > len(data) {
+			return nil, errors.New("cli: RVA past end of section data")
+		}
+		return data[start : start+size], nil
 	}
 	return nil, fmt.Errorf("cli: RVA 0x%x not in any section", rva)
 }

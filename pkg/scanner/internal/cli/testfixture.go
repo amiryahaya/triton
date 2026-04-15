@@ -6,9 +6,20 @@ import (
 	"testing"
 )
 
+// fixtureAssembly is the in-memory shape of a synthetic assembly built for tests.
 type fixtureAssembly struct {
 	TypeRefs    []TypeRef
 	UserStrings []string
+}
+
+// FixtureAssembly is exported so cross-package integration tests can build
+// fixtures without the .NET SDK.
+type FixtureAssembly = fixtureAssembly
+
+// BuildAssembly is the exported wrapper around buildAssembly. Used by the
+// dotnet_il integration test so it doesn't have to vendor the PE+CLI builder.
+func BuildAssembly(t *testing.T, fa FixtureAssembly) []byte {
+	return buildAssembly(t, fa)
 }
 
 // buildAssembly returns bytes that satisfy LocateCLIMetadata + parseTablesStream + parseUSHeap.
@@ -42,7 +53,7 @@ func buildAssembly(t *testing.T, fa fixtureAssembly) []byte {
 		for _, r := range s {
 			u = append(u, byte(r), byte(r>>8))
 		}
-		u = append(u, 0) // terminal
+		u = append(u, 0)                      // terminal
 		usHeap = append(usHeap, byte(len(u))) // 1-byte compressed length
 		usHeap = append(usHeap, u...)
 	}
@@ -183,7 +194,7 @@ func buildAssembly(t *testing.T, fa fixtureAssembly) []byte {
 	off += coffHeaderSize
 
 	// Optional header (PE32)
-	binary.LittleEndian.PutUint16(out[off:], 0x10B) // Magic PE32
+	binary.LittleEndian.PutUint16(out[off:], 0x10B)             // Magic PE32
 	binary.LittleEndian.PutUint32(out[off+16:], textSectionRVA) // AddressOfEntryPoint
 	binary.LittleEndian.PutUint32(out[off+20:], textSectionRVA) // BaseOfCode
 	binary.LittleEndian.PutUint32(out[off+28:], 0x400000)       // ImageBase
@@ -191,7 +202,7 @@ func buildAssembly(t *testing.T, fa fixtureAssembly) []byte {
 	binary.LittleEndian.PutUint32(out[off+36:], fileAlignment)
 	binary.LittleEndian.PutUint32(out[off+56:], sizeOfImage)
 	binary.LittleEndian.PutUint32(out[off+60:], sizeOfHeaders)
-	binary.LittleEndian.PutUint16(out[off+68:], 3) // Subsystem = console
+	binary.LittleEndian.PutUint16(out[off+68:], 3)  // Subsystem = console
 	binary.LittleEndian.PutUint32(out[off+92:], 16) // NumberOfRvaAndSizes
 	dataDirOff := off + 96 + 14*8
 	binary.LittleEndian.PutUint32(out[dataDirOff:], cliHeaderRVA)
@@ -200,11 +211,11 @@ func buildAssembly(t *testing.T, fa fixtureAssembly) []byte {
 
 	// Section header
 	copy(out[off:off+8], ".text\x00\x00\x00")
-	binary.LittleEndian.PutUint32(out[off+8:], textVirtSize)     // VirtualSize
-	binary.LittleEndian.PutUint32(out[off+12:], textSectionRVA)  // VirtualAddress
-	binary.LittleEndian.PutUint32(out[off+16:], textRawSize)     // SizeOfRawData
-	binary.LittleEndian.PutUint32(out[off+20:], textRawOff)      // PointerToRawData
-	binary.LittleEndian.PutUint32(out[off+36:], 0x60000020)      // Characteristics
+	binary.LittleEndian.PutUint32(out[off+8:], textVirtSize)    // VirtualSize
+	binary.LittleEndian.PutUint32(out[off+12:], textSectionRVA) // VirtualAddress
+	binary.LittleEndian.PutUint32(out[off+16:], textRawSize)    // SizeOfRawData
+	binary.LittleEndian.PutUint32(out[off+20:], textRawOff)     // PointerToRawData
+	binary.LittleEndian.PutUint32(out[off+36:], 0x60000020)     // Characteristics
 	off += sectionHdrSize
 
 	copy(out[textRawOff:], textPadded)

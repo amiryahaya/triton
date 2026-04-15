@@ -83,6 +83,8 @@ func classifyEvent(ev Event) (AlgoInfo, bool) {
 		return AlgoInfo{Algorithm: "Cipher", Family: "Cipher", Library: "libnss3"}, true
 	case -5:
 		return AlgoInfo{Algorithm: "Digest", Family: "Hash", Library: "libnss3"}, true
+	case -7:
+		return AlgoInfo{Algorithm: "KEX", Family: "ECDH", Library: "libcrypto"}, true
 	}
 	return AlgoInfo{}, false
 }

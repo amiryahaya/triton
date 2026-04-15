@@ -58,7 +58,7 @@ SEC("uprobe/RSA_sign")            int BPF_KPROBE(uprobe__RSA_sign)            { 
 SEC("uprobe/RSA_verify")          int BPF_KPROBE(uprobe__RSA_verify)          { emit(ctx, 1, 1, 6,   0, 0); return 0; }
 SEC("uprobe/EC_KEY_generate_key") int BPF_KPROBE(uprobe__EC_KEY_generate_key) { emit(ctx, 1, 1, 408, 0, 0); return 0; }
 SEC("uprobe/ECDSA_sign")          int BPF_KPROBE(uprobe__ECDSA_sign)          { emit(ctx, 1, 1, 408, 0, 0); return 0; }
-SEC("uprobe/EVP_PKEY_derive")     int BPF_KPROBE(uprobe__EVP_PKEY_derive)     { emit(ctx, 1, 1, 1034, 0, 0); return 0; }
+SEC("uprobe/EVP_PKEY_derive")     int BPF_KPROBE(uprobe__EVP_PKEY_derive)     { emit(ctx, 1, 1, -7, 0, 0); return 0; } // -7 = KEX (unspecified)
 SEC("uprobe/SSL_CTX_new")         int BPF_KPROBE(uprobe__SSL_CTX_new)         { emit(ctx, 1, 1, -2, 0, 0); return 0; } // -2 = TLS sentinel
 
 // --- Uprobes on GnuTLS ---

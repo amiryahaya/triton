@@ -112,6 +112,9 @@ var uprobeTargets = []UprobeTarget{
 	{LibID: LibLibcrypto, SymbolName: "RSA_verify", ProgName: "uprobe__RSA_verify", ArgIdx: 0, ConstAlgo: "RSA", ConstFamily: "RSA"},
 	{LibID: LibLibcrypto, SymbolName: "EC_KEY_generate_key", ProgName: "uprobe__EC_KEY_generate_key", ArgIdx: 0, ConstAlgo: "ECDSA", ConstFamily: "ECDSA"},
 	{LibID: LibLibcrypto, SymbolName: "ECDSA_sign", ProgName: "uprobe__ECDSA_sign", ArgIdx: 0, ConstAlgo: "ECDSA", ConstFamily: "ECDSA"},
+	// NOTE: ConstAlgo here is descriptive only; the actual classification uses
+	// sentinel NID -7 emitted by the C source (see bpf/crypto.c and
+	// classifyEvent in aggregate.go).
 	{LibID: LibLibcrypto, SymbolName: "EVP_PKEY_derive", ProgName: "uprobe__EVP_PKEY_derive", ArgIdx: 0, ConstAlgo: "KEX", ConstFamily: "ECDH"},
 	{LibID: LibLibcrypto, SymbolName: "SSL_CTX_new", ProgName: "uprobe__SSL_CTX_new", ArgIdx: 0, ConstAlgo: "TLS", ConstFamily: "TLS"},
 	// GnuTLS

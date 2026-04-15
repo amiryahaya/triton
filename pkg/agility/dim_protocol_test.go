@@ -1,0 +1,69 @@
+package agility
+
+import (
+	"testing"
+	"time"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+func protoFinding(module, algo string, hybrid bool) model.Finding {
+	return model.Finding{
+		Module:    module,
+		Timestamp: time.Unix(0, 0),
+		CryptoAsset: &model.CryptoAsset{
+			Algorithm: algo,
+			IsHybrid:  hybrid,
+		},
+	}
+}
+
+func TestScoreProtocolAgility_TLS13AndHybrid(t *testing.T) {
+	fs := []model.Finding{
+		protoFinding("protocol", "TLS 1.3", false),
+		protoFinding("protocol", "X25519MLKEM768", true),
+		protoFinding("protocol", "secp256r1", false),
+		protoFinding("protocol", "X25519", false),
+		protoFinding("protocol", "secp384r1", false),
+	}
+	d := scoreProtocolAgility(fs)
+	// TLS ceiling 100, diversity 100 (4 groups), hybrid 100 → 100
+	if d.Score != 100 {
+		t.Errorf("Score = %d, want 100", d.Score)
+	}
+}
+
+func TestScoreProtocolAgility_LegacyTLSOnly(t *testing.T) {
+	fs := []model.Finding{
+		protoFinding("protocol", "TLS 1.0", false),
+		protoFinding("protocol", "secp256r1", false),
+	}
+	d := scoreProtocolAgility(fs)
+	// ceiling 0, diversity 25, hybrid 0 → avg 8
+	if d.Score != 8 {
+		t.Errorf("Score = %d, want 8", d.Score)
+	}
+}
+
+func TestScoreProtocolAgility_NoProtocolFindings(t *testing.T) {
+	fs := []model.Finding{
+		{Module: "certificates", CryptoAsset: &model.CryptoAsset{Algorithm: "RSA-2048"}},
+	}
+	d := scoreProtocolAgility(fs)
+	if d.Score != 50 {
+		t.Errorf("Score = %d, want 50 (neutral)", d.Score)
+	}
+}
+
+func TestScoreProtocolAgility_WebServerContributes(t *testing.T) {
+	fs := []model.Finding{
+		protoFinding("web_server", "TLS 1.2", false),
+		protoFinding("web_server", "X25519", false),
+		protoFinding("web_server", "secp256r1", false),
+	}
+	d := scoreProtocolAgility(fs)
+	// ceiling 60, diversity 50 (2 groups), no hybrid → avg = 55
+	if d.Score != 55 {
+		t.Errorf("Score = %d, want 55", d.Score)
+	}
+}

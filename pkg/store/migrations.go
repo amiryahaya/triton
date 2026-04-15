@@ -591,4 +591,54 @@ CREATE TABLE credential_test_results (
     PRIMARY KEY (test_id, host_id)
 );
 `,
+
+	// Version 21: Scan jobs queue (Onboarding Phase 5).
+	// Fourth engine job-queue (after discovery / credential-delivery /
+	// credential-test). One job targets a single engine and one or more
+	// hosts in that engine's reach. host_ids is a UUID[] rather than a
+	// join table because (a) we never query individual host membership
+	// outside the job's own claim/progress flow and (b) the engine-side
+	// worker fans out per-host scans atomically against this single row.
+	// credential_profile_id is RESTRICT on delete so an in-flight scan
+	// can never lose its credential mid-claim. progress_total/done/failed
+	// are advisory counters maintained by the engine via
+	// /api/v1/engine/scans/{id}/progress; the source of truth for which
+	// host produced which finding lives in scans.scan_job_id below.
+	//
+	// scans gains engine_id + scan_job_id so the dashboard can attribute
+	// a scan back to the job that produced it. Both columns are
+	// nullable + ON DELETE SET NULL so legacy CLI scans (no engine, no
+	// job) and post-revocation rows survive.
+	`
+CREATE TABLE scan_jobs (
+    id              UUID PRIMARY KEY,
+    org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    engine_id       UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    group_id        UUID REFERENCES inventory_groups(id) ON DELETE SET NULL,
+    host_ids        UUID[] NOT NULL,
+    scan_profile    TEXT NOT NULL DEFAULT 'standard'
+                    CHECK (scan_profile IN ('quick', 'standard', 'comprehensive')),
+    credential_profile_id UUID REFERENCES credentials_profiles(id) ON DELETE RESTRICT,
+    status          TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (status IN ('queued', 'claimed', 'running', 'completed', 'failed', 'cancelled')),
+    error           TEXT,
+    requested_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    progress_total  INTEGER NOT NULL DEFAULT 0,
+    progress_done   INTEGER NOT NULL DEFAULT 0,
+    progress_failed INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_scan_jobs_org ON scan_jobs(org_id);
+CREATE INDEX idx_scan_jobs_engine_queue
+    ON scan_jobs(engine_id, requested_at)
+    WHERE status = 'queued';
+CREATE INDEX idx_scan_jobs_status ON scan_jobs(status);
+
+ALTER TABLE scans ADD COLUMN engine_id    UUID REFERENCES engines(id) ON DELETE SET NULL;
+ALTER TABLE scans ADD COLUMN scan_job_id  UUID REFERENCES scan_jobs(id) ON DELETE SET NULL;
+CREATE INDEX idx_scans_scan_job ON scans(scan_job_id) WHERE scan_job_id IS NOT NULL;
+`,
 }

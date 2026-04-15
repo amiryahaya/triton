@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/amiryahaya/triton/pkg/server"
 	credentialspkg "github.com/amiryahaya/triton/pkg/server/credentials"
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
@@ -201,12 +202,23 @@ func startEngineGateway(
 	store enginepkg.Store,
 	discoveryStore discoverypkg.Store,
 	credStore credentialspkg.Store,
+	credInventory credentialspkg.InventoryTargetLookup,
+	audit *server.AuditAdapter,
 	certPath, keyPath string,
 ) (*http.Server, error) {
 	gwHandlers := &enginepkg.GatewayHandlers{Store: store}
 	discoveryGateway := &discoverypkg.GatewayHandlers{Store: discoveryStore}
-	credGateway := &credentialspkg.GatewayHandlers{Store: credStore}
+	credGateway := &credentialspkg.GatewayHandlers{
+		Store:          credStore,
+		InventoryStore: credInventory,
+		Audit:          audit,
+		PollTimeout:    30 * time.Second,
+		PollInterval:   1 * time.Second,
+	}
 	r := chi.NewRouter()
+	// Stash the request on the context so AuditAdapter can reach
+	// RemoteAddr when recording gateway events.
+	r.Use(server.StashRequestMiddleware)
 	r.Use(enginepkg.MTLSMiddleware(store))
 	r.Route("/api/v1/engine", func(sub chi.Router) {
 		enginepkg.MountGatewayRoutes(sub, gwHandlers)

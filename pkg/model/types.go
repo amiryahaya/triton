@@ -183,6 +183,12 @@ type CryptoAsset struct {
 	IsHybrid            bool     `json:"isHybrid,omitempty"`
 	ComponentAlgorithms []string `json:"componentAlgorithms,omitempty"`
 
+	// QualityWarnings holds key-material-level warnings (ROCA, Debian PRNG,
+	// small prime factors, size mismatch) emitted by pkg/crypto/keyquality.
+	// Orthogonal to PQCStatus: a SAFE algorithm with a broken key still
+	// surfaces here.
+	QualityWarnings []string `json:"qualityWarnings,omitempty"`
+
 	// NACSA
 	NACSALabel string `json:"nacsaLabel,omitempty"`
 

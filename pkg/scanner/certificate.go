@@ -18,6 +18,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
+	"github.com/amiryahaya/triton/pkg/crypto/keyquality"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -214,6 +215,14 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 	}
 
 	crypto.ClassifyCryptoAsset(asset)
+
+	// Key-quality audit. Non-blocking: warnings are informational.
+	if cert.PublicKey != nil {
+		ws := keyquality.Analyze(cert.PublicKey, asset.Algorithm, asset.KeySize)
+		if len(ws) > 0 {
+			asset.QualityWarnings = keyquality.Flatten(ws)
+		}
+	}
 
 	return &model.Finding{
 		ID:       uuid.Must(uuid.NewV7()).String(),

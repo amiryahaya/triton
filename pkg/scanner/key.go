@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	stdcrypto "crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
+	"github.com/amiryahaya/triton/pkg/crypto/keyquality"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -158,7 +160,7 @@ func (m *KeyModule) parseKeyFile(ctx context.Context, reader fsadapter.FileReade
 	content := string(data)
 
 	// Try PEM-based key detection first
-	keyType, algorithm, keySize := m.detectPEMKey(data, content)
+	keyType, algorithm, keySize, pubKey := m.detectPEMKey(data, content)
 
 	// If no PEM key found, try SSH public key format
 	if keyType == "" {
@@ -177,6 +179,14 @@ func (m *KeyModule) parseKeyFile(ctx context.Context, reader fsadapter.FileReade
 	}
 	crypto.ClassifyCryptoAsset(asset)
 
+	// Key-quality audit. Non-blocking: warnings are informational.
+	if pubKey != nil {
+		ws := keyquality.Analyze(pubKey, asset.Algorithm, asset.KeySize)
+		if len(ws) > 0 {
+			asset.QualityWarnings = keyquality.Flatten(ws)
+		}
+	}
+
 	return &model.Finding{
 		ID:       uuid.Must(uuid.NewV7()).String(),
 		Category: 5,
@@ -193,29 +203,35 @@ func (m *KeyModule) parseKeyFile(ctx context.Context, reader fsadapter.FileReade
 
 // detectPEMKey detects key type and algorithm from PEM content.
 // For PKCS#8 keys, it parses the DER to identify the actual algorithm.
-func (m *KeyModule) detectPEMKey(data []byte, content string) (keyType, algorithm string, keySize int) {
+// The returned pub is the parsed crypto.PublicKey (nil if not extractable).
+func (m *KeyModule) detectPEMKey(data []byte, content string) (keyType, algorithm string, keySize int, pub stdcrypto.PublicKey) {
 	keyType, algorithm = m.detectKeyTypeAndAlgorithm(content)
 	if keyType == "" {
-		return "", "", 0
+		return "", "", 0, nil
 	}
 
 	// For PKCS#8 private keys, parse the DER to determine the actual algorithm
 	if keyType == "pkcs8-private" {
 		block, _ := pem.Decode(data)
 		if block != nil {
-			algo, size := m.parsePKCS8Algorithm(block.Bytes)
+			algo, size, p := m.parsePKCS8Algorithm(block.Bytes)
 			if algo != "" {
 				algorithm = algo
 				keySize = size
+				pub = p
 			}
 		}
 	}
 
-	// For standard PEM private keys, try to extract key size
+	// For standard PEM private keys, try to extract key size + public key
 	if keySize == 0 {
 		block, _ := pem.Decode(data)
 		if block != nil {
-			keySize = m.extractPEMKeySize(block, keyType)
+			size, p := m.extractPEMKeyInfo(block, keyType)
+			keySize = size
+			if pub == nil {
+				pub = p
+			}
 		}
 	}
 
@@ -223,15 +239,16 @@ func (m *KeyModule) detectPEMKey(data []byte, content string) (keyType, algorith
 	if keyType == "public" {
 		block, _ := pem.Decode(data)
 		if block != nil {
-			algo, size := m.parsePublicKeyAlgorithm(block.Bytes)
+			algo, size, p := m.parsePublicKeyAlgorithm(block.Bytes)
 			if algo != "" {
 				algorithm = algo
 				keySize = size
+				pub = p
 			}
 		}
 	}
 
-	return keyType, algorithm, keySize
+	return keyType, algorithm, keySize, pub
 }
 
 // detectKeyTypeAndAlgorithm identifies the key type and algorithm from PEM headers.
@@ -246,63 +263,64 @@ func (m *KeyModule) detectKeyTypeAndAlgorithm(content string) (keyType, algorith
 }
 
 // parsePKCS8Algorithm parses a PKCS#8 DER-encoded private key to determine the algorithm.
-func (m *KeyModule) parsePKCS8Algorithm(derBytes []byte) (algorithm string, keySize int) {
+func (m *KeyModule) parsePKCS8Algorithm(derBytes []byte) (algorithm string, keySize int, pub stdcrypto.PublicKey) {
 	key, err := x509.ParsePKCS8PrivateKey(derBytes)
 	if err != nil {
-		return "", 0
+		return "", 0, nil
 	}
 
 	switch k := key.(type) {
 	case *rsa.PrivateKey:
-		return "RSA", k.N.BitLen()
+		return "RSA", k.N.BitLen(), &k.PublicKey
 	case *ecdsa.PrivateKey:
-		return "ECDSA-P" + strconv.Itoa(k.Curve.Params().BitSize), k.Curve.Params().BitSize
+		return "ECDSA-P" + strconv.Itoa(k.Curve.Params().BitSize), k.Curve.Params().BitSize, &k.PublicKey
 	case ed25519.PrivateKey:
-		return "Ed25519", 256
+		return "Ed25519", 256, k.Public()
 	default:
-		return "", 0
+		return "", 0, nil
 	}
 }
 
 // parsePublicKeyAlgorithm parses a DER-encoded public key to determine algorithm and size.
-func (m *KeyModule) parsePublicKeyAlgorithm(derBytes []byte) (algorithm string, keySize int) {
+func (m *KeyModule) parsePublicKeyAlgorithm(derBytes []byte) (algorithm string, keySize int, pub stdcrypto.PublicKey) {
 	key, err := x509.ParsePKIXPublicKey(derBytes)
 	if err != nil {
-		return "", 0
+		return "", 0, nil
 	}
 
 	switch k := key.(type) {
 	case *rsa.PublicKey:
-		return "RSA", k.N.BitLen()
+		return "RSA", k.N.BitLen(), k
 	case *ecdsa.PublicKey:
-		return "ECDSA-P" + strconv.Itoa(k.Curve.Params().BitSize), k.Curve.Params().BitSize
+		return "ECDSA-P" + strconv.Itoa(k.Curve.Params().BitSize), k.Curve.Params().BitSize, k
 	case ed25519.PublicKey:
-		return "Ed25519", 256
+		return "Ed25519", 256, k
 	default:
-		return "", 0
+		return "", 0, nil
 	}
 }
 
-// extractPEMKeySize tries to parse standard PEM key formats to extract key size.
-func (m *KeyModule) extractPEMKeySize(block *pem.Block, keyType string) int {
+// extractPEMKeyInfo tries to parse standard PEM key formats to extract key size
+// and the public key (nil if not extractable).
+func (m *KeyModule) extractPEMKeyInfo(block *pem.Block, keyType string) (int, stdcrypto.PublicKey) {
 	switch keyType {
 	case "rsa-private":
 		key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 		if err == nil {
-			return key.N.BitLen()
+			return key.N.BitLen(), &key.PublicKey
 		}
 	case "ec-private":
 		key, err := x509.ParseECPrivateKey(block.Bytes)
 		if err == nil {
-			return key.Curve.Params().BitSize
+			return key.Curve.Params().BitSize, &key.PublicKey
 		}
 	case "rsa-public":
 		key, err := x509.ParsePKCS1PublicKey(block.Bytes)
 		if err == nil {
-			return key.N.BitLen()
+			return key.N.BitLen(), key
 		}
 	}
-	return 0
+	return 0, nil
 }
 
 // detectSSHPublicKey detects SSH public key format (ssh-rsa, ssh-ed25519, etc.)

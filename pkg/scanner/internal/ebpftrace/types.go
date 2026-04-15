@@ -62,8 +62,8 @@ type AlgoInfo struct {
 	Library   string
 }
 
-// UprobeTarget describes one uprobe attach request.
-type UprobeTarget struct {
+// uprobeTarget describes one uprobe attach request (package-internal).
+type uprobeTarget struct {
 	LibID       LibID
 	SymbolName  string
 	ProgName    string // eBPF program section, e.g. "uprobe/EVP_CipherInit_ex"

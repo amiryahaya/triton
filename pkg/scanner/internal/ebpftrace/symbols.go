@@ -26,12 +26,6 @@ func ResolveKernelAlgo(name string) (AlgoInfo, bool) {
 	return AlgoInfo{}, false
 }
 
-// UprobeTargets returns the list of uprobe attach requests. Ordering is stable
-// (tests rely on `SymbolName` presence, not index).
-func UprobeTargets() []UprobeTarget {
-	return uprobeTargets
-}
-
 var nidRegistry = map[int32]AlgoInfo{
 	// Hashes (obj_mac.h NID_*)
 	4:    {"MD5", "MD5", "libcrypto"},
@@ -102,7 +96,7 @@ var kernelRegistry = map[string]AlgoInfo{
 	"hmac":     {"HMAC", "HMAC", "kernel"},
 }
 
-var uprobeTargets = []UprobeTarget{
+var uprobeTargetList = []uprobeTarget{
 	// libcrypto — constant-inferred
 	// NOTE: EVP_CipherInit_ex/EVP_EncryptInit_ex/EVP_DigestInit_ex were removed —
 	// arg2 is a struct pointer (EVP_CIPHER*/EVP_MD*), not an integer NID. Reading

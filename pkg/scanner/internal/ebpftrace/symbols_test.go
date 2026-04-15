@@ -68,8 +68,8 @@ func TestResolveKernelAlgo_Names(t *testing.T) {
 	}
 }
 
-func TestUprobeTargets_HasCoreSymbols(t *testing.T) {
-	targets := UprobeTargets()
+func TestUprobeTargetList_HasCoreSymbols(t *testing.T) {
+	targets := uprobeTargetList
 	want := []string{
 		"RSA_generate_key_ex",
 		"RSA_sign",

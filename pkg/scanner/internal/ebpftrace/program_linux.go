@@ -146,7 +146,7 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 // deliberately shallow: we enumerate libraries via /proc/*/maps union, not
 // one attach per PID.
 func attachUprobes(coll *ebpf.Collection, closers []link.Link) (attached, failed int, out []link.Link) {
-	libsByID := map[LibID][]DiscoveredLib{}
+	libsByID := map[LibID][]discoveredLib{}
 	procs, _ := filepath.Glob("/proc/[0-9]*/maps")
 	seenInodes := map[string]bool{}
 	for _, p := range procs {
@@ -154,7 +154,7 @@ func attachUprobes(coll *ebpf.Collection, closers []link.Link) (attached, failed
 		if err != nil {
 			continue
 		}
-		libs, _ := DiscoverLibsFromMaps(f)
+		libs, _ := discoverLibsFromMaps(f)
 		_ = f.Close()
 		for _, lib := range libs {
 			if seenInodes[lib.Inode] {
@@ -165,7 +165,7 @@ func attachUprobes(coll *ebpf.Collection, closers []link.Link) (attached, failed
 		}
 	}
 
-	for _, target := range UprobeTargets() {
+	for _, target := range uprobeTargetList {
 		libs := libsByID[target.LibID]
 		for _, lib := range libs {
 			prog := coll.Programs[target.ProgName]

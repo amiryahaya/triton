@@ -14,9 +14,9 @@ func TestDiscoverLibs_DedupsByInode(t *testing.T) {
 	}
 	defer f.Close()
 
-	libs, err := DiscoverLibsFromMaps(f)
+	libs, err := discoverLibsFromMaps(f)
 	if err != nil {
-		t.Fatalf("DiscoverLibsFromMaps: %v", err)
+		t.Fatalf("discoverLibsFromMaps: %v", err)
 	}
 	if len(libs) != 4 {
 		t.Fatalf("len(libs) = %d, want 4 (libcrypto+deleted-libcrypto+libgnutls+spaced-libgnutls)", len(libs))
@@ -45,7 +45,7 @@ func TestDiscoverLibs_IgnoresNonCryptoLibs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	libs, err := DiscoverLibsFromMaps(f)
+	libs, err := discoverLibsFromMaps(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestDiscoverLibs_HandlesDeletedSuffix(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	libs, _ := DiscoverLibsFromMaps(f)
+	libs, _ := discoverLibsFromMaps(f)
 	foundDeleted := false
 	for _, l := range libs {
 		if l.Inode == "333" {
@@ -86,7 +86,7 @@ func TestDiscoverLibs_HandlesPathsWithSpaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	libs, _ := DiscoverLibsFromMaps(f)
+	libs, _ := discoverLibsFromMaps(f)
 	foundSpaced := false
 	for _, l := range libs {
 		if l.Path == "/opt/my path/libgnutls.so.30" {
@@ -104,7 +104,7 @@ func TestDiscoverLibs_IgnoresPseudoMappings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	libs, _ := DiscoverLibsFromMaps(f)
+	libs, _ := discoverLibsFromMaps(f)
 	for _, l := range libs {
 		if l.Path == "[vdso]" || l.Path == "[heap]" || l.Path == "[stack]" {
 			t.Errorf("pseudo mapping should be ignored: %q", l.Path)
@@ -112,7 +112,7 @@ func TestDiscoverLibs_IgnoresPseudoMappings(t *testing.T) {
 	}
 }
 
-func pathsOf(libs []DiscoveredLib) []string {
+func pathsOf(libs []discoveredLib) []string {
 	out := make([]string, len(libs))
 	for i, l := range libs {
 		out[i] = l.Path

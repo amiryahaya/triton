@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// DiscoveredLib represents one crypto library found loaded in a process address
+// discoveredLib represents one crypto library found loaded in a process address
 // space, dedup'd by inode so uprobes attach once per physical file.
-type DiscoveredLib struct {
+type discoveredLib struct {
 	Path  string
 	Inode string // keep as string (not uint64) since /proc/maps may be malformed
 	LibID LibID
@@ -26,7 +26,7 @@ var cryptoLibMatchers = []struct {
 	{"libnss3.so", LibNSS},
 }
 
-// DiscoverLibsFromMaps parses /proc/PID/maps content and returns a dedup'd list
+// discoverLibsFromMaps parses /proc/PID/maps content and returns a dedup'd list
 // of crypto libraries mapped into the process. Input is any io.Reader so tests
 // can feed fixtures.
 //
@@ -37,9 +37,9 @@ var cryptoLibMatchers = []struct {
 // Example:
 //
 //	7f1234000000-7f1234050000 r-xp 00000000 08:01 262145 /usr/lib/libcrypto.so.3
-func DiscoverLibsFromMaps(r io.Reader) ([]DiscoveredLib, error) {
+func discoverLibsFromMaps(r io.Reader) ([]discoveredLib, error) {
 	seen := map[string]bool{} // inode → seen
-	out := []DiscoveredLib{}
+	out := []discoveredLib{}
 	scanner := bufio.NewScanner(r)
 	// /proc/maps lines can be long if the path has many components; raise the buffer.
 	buf := make([]byte, 0, 64*1024)
@@ -70,7 +70,7 @@ func DiscoverLibsFromMaps(r io.Reader) ([]DiscoveredLib, error) {
 			continue
 		}
 		seen[inode] = true
-		out = append(out, DiscoveredLib{Path: path, Inode: inode, LibID: matcher.libID})
+		out = append(out, discoveredLib{Path: path, Inode: inode, LibID: matcher.libID})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("ebpftrace: scan maps: %w", err)

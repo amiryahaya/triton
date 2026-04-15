@@ -55,6 +55,29 @@ var rangeComparableVendors = map[string]bool{
 	"Intel":    true,
 }
 
+// TPMSpecCVEs returns CVEs that apply to ALL TPM 2.0 devices regardless of
+// manufacturer — these are spec-level issues (e.g. CVE-2023-1017/1018 in the
+// reference TCG library). Callers invoke this based on SpecVersion, not Vendor.
+func TPMSpecCVEs(specVersion string) []TPMFirmwareCVE {
+	if specVersion != "2.0" {
+		return nil
+	}
+	return []TPMFirmwareCVE{
+		{
+			Vendor:      "TPM 2.0",
+			CVE:         "CVE-2023-1017",
+			Description: "TCG TPM 2.0 reference library out-of-bounds write (library-version context unavailable from sysfs; advisory — verify firmware for patched library)",
+			Severity:    "MEDIUM",
+		},
+		{
+			Vendor:      "TPM 2.0",
+			CVE:         "CVE-2023-1018",
+			Description: "TCG TPM 2.0 reference library out-of-bounds read (library-version context unavailable from sysfs; advisory — verify firmware for patched library)",
+			Severity:    "MEDIUM",
+		},
+	}
+}
+
 // LookupTPMFirmwareCVEs returns every CVE in the registry whose vendor
 // and firmware-version range matches the inputs.
 func LookupTPMFirmwareCVEs(vendor, firmwareVersion string) []TPMFirmwareCVE {

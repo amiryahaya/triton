@@ -58,6 +58,31 @@ func TestLookupTPMFirmwareCVEs_FreshInfineonClean(t *testing.T) {
 	}
 }
 
+func TestTPMSpecCVEs_Fires(t *testing.T) {
+	cves := TPMSpecCVEs("2.0")
+	if len(cves) != 2 {
+		t.Errorf("TPM 2.0 should return 2 spec CVEs, got %d", len(cves))
+	}
+	seen := map[string]bool{}
+	for _, c := range cves {
+		seen[c.CVE] = true
+	}
+	for _, want := range []string{"CVE-2023-1017", "CVE-2023-1018"} {
+		if !seen[want] {
+			t.Errorf("missing %s", want)
+		}
+	}
+}
+
+func TestTPMSpecCVEs_NonTPM20(t *testing.T) {
+	if cves := TPMSpecCVEs("1.2"); len(cves) != 0 {
+		t.Errorf("TPM 1.2 returned %d spec CVEs, want 0", len(cves))
+	}
+	if cves := TPMSpecCVEs(""); len(cves) != 0 {
+		t.Errorf("empty version returned %d spec CVEs, want 0", len(cves))
+	}
+}
+
 func TestLookupTPMFirmwareCVEs_MalformedVersionRejected(t *testing.T) {
 	cases := []string{"abc.def", "4.x.1", "", "   "}
 	for _, v := range cases {

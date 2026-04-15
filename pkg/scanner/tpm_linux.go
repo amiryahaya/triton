@@ -75,6 +75,7 @@ func (m *TPMModule) scan(ctx context.Context, _ model.ScanTarget, findings chan<
 // severity cannot downgrade what's already been set.
 func emitDeviceFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *model.Finding) error {
 	cves := crypto.LookupTPMFirmwareCVEs(dev.Vendor, dev.FirmwareVersion)
+	cves = append(cves, crypto.TPMSpecCVEs(dev.SpecVersion)...)
 	status := "SAFE"
 	severity := "" // aggregate worst-case severity across CVE hits
 	qualityWarnings := make([]model.QualityWarning, 0, len(cves))

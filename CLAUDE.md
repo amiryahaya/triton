@@ -67,9 +67,11 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `deps.go` — Go dependency crypto reachability analysis (direct/transitive/unreachable classification)
   - `asn1_oid.go` — ASN.1 OID byte scanner: walks ELF/Mach-O/PE read-only sections for DER-encoded OIDs, classifies via `pkg/crypto/oid.go` registry (comprehensive profile + Pro+ tier only)
   - `java_bytecode.go` — Java class/JAR/WAR/EAR scanner: parses constant pool for crypto literals (JCA standard names, BouncyCastle, PQC), classifies via `pkg/crypto/java_algorithms.go` (comprehensive profile + Pro+ tier only)
+  - `dotnet_il.go` — .NET assembly scanner: parses CLI metadata (TypeRef table + #US heap) for crypto type-references and string literals, classifies via `pkg/crypto/dotnet_algorithms.go` registry; supports classic and single-file bundles (comprehensive profile + Pro+ tier only)
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
   - `tls_groups.go` — IANA TLS named group registry with hybrid PQC classification (composite ML-KEM + classical ECDHE groups, draft Kyber hybrids, pure PQ KEMs)
   - `java_algorithms.go` — Java crypto literal registry (~80 entries)
+  - `dotnet_algorithms.go` — .NET crypto registry: BCL types, CAPI/CNG constants, BouncyCastle.NET PQC (~80 entries)
 - **`pkg/model/`** — Data structures for SBOM, CBOM, findings, components
 - **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON. HTML report includes policy analysis summary (verdict banner, violations-by-rule table, threshold violations) when `--policy` is used.
 - **`pkg/store/`** — PostgreSQL storage via pgx/v5

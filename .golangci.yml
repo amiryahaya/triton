@@ -50,6 +50,13 @@ linters:
       - path: test/fixtures/
         linters:
           - errcheck
+      # Relax rules for in-package test fixture builders (imported by _test.go
+      # in this package and by build-tagged integration test shims elsewhere)
+      - path: pkg/scanner/internal/cli/testfixture\.go
+        linters:
+          - errcheck
+          - gocritic
+          - ineffassign
 
 formatters:
   enable:

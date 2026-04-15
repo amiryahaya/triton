@@ -29,6 +29,7 @@ func TestAggregator_Adds(t *testing.T) {
 	sha := byAlgo["SHA-256"]
 	if sha == nil {
 		t.Fatal("missing SHA-256 aggregate")
+		return
 	}
 	if sha.Count != 3 {
 		t.Errorf("SHA-256 Count = %d, want 3", sha.Count)

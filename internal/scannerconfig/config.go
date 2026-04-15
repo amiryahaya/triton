@@ -32,6 +32,11 @@ type Config struct {
 	EBPFWindow      time.Duration
 	EBPFSkipUprobes bool
 	EBPFSkipKprobes bool
+
+	// TPM root overrides — used by tests to inject fixtures.
+	// Production leaves these empty; scanner uses /sys/class/tpm and /sys/kernel/security.
+	TPMSysRoot string
+	TPMSecRoot string
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.

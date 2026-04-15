@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,4 +62,47 @@ func TestTPM_EndToEnd(t *testing.T) {
 			t.Errorf("Module = %q, want tpm", f.Module)
 		}
 	}
+
+	byMethod := map[string][]*model.Finding{}
+	for _, f := range got {
+		byMethod[f.Source.DetectionMethod] = append(byMethod[f.Source.DetectionMethod], f)
+	}
+
+	// 1. Device finding via "sysfs" with Function="Hardware root of trust"
+	var device *model.Finding
+	for _, f := range byMethod["sysfs"] {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "Hardware root of trust" {
+			device = f
+			break
+		}
+	}
+	if device == nil {
+		t.Fatal("no device finding emitted")
+	}
+	// Assert Infineon + ROCA.
+	if !strings.Contains(device.CryptoAsset.Library, "Infineon") {
+		t.Errorf("Library = %q, want contains Infineon", device.CryptoAsset.Library)
+	}
+	foundROCA := false
+	for _, qw := range device.CryptoAsset.QualityWarnings {
+		if qw.CVE == "CVE-2017-15361" {
+			foundROCA = true
+		}
+	}
+	if !foundROCA {
+		t.Error("expected CVE-2017-15361 on Infineon firmware 4.32.1.2")
+	}
+	// Assert TPM 2.0 spec advisory CVEs fire.
+	foundSpec := 0
+	for _, qw := range device.CryptoAsset.QualityWarnings {
+		if qw.CVE == "CVE-2023-1017" || qw.CVE == "CVE-2023-1018" {
+			foundSpec++
+		}
+	}
+	if foundSpec != 2 {
+		t.Errorf("expected 2 TPM 2.0 spec CVEs (CVE-2023-1017/1018); got %d", foundSpec)
+	}
+	// EK cert assertion intentionally omitted: the sysfs-infineon fixture
+	// doesn't ship an endorsement_key_cert file (ROCA-era TPMs commonly
+	// store the cert in NVRAM, not exposed via sysfs).
 }

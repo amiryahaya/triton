@@ -68,8 +68,11 @@ func TestRocaCheck_LowFalsePositive(t *testing.T) {
 			fp++
 		}
 	}
-	if fp > trials/10 {
-		t.Errorf("false-positive rate too high: %d / %d trials fired", fp, trials)
+	// The paper reports ~0.05% FP rate on random moduli.
+	// With trials=100, we allow at most 1 FP (1%) to catch regressions that
+	// dramatically increase the FP rate.
+	if fp > 1 {
+		t.Errorf("false-positive rate too high: %d / %d trials fired (want ≤ 1)", fp, trials)
 	}
 }
 

@@ -3,11 +3,45 @@ package keyquality
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"math/big"
 	"testing"
 )
 
-func TestRocaCheck_KnownVulnerableModulus(t *testing.T) {
-	t.Skip("testdata/roca-vuln-modulus.hex is a placeholder; replace with a genuine Infineon-produced modulus before ship")
+func TestRocaCheck_PositiveCaseSyntheticMatch(t *testing.T) {
+	// Build a modulus that satisfies the discriminant for every generator by
+	// construction: N ≡ 65537 (mod p) for all p in rocaGenerators.
+	// Per CRT, such an N is 65537 mod M where M = product of all generators.
+	M := big.NewInt(1)
+	for _, g := range rocaGenerators {
+		M.Mul(M, new(big.Int).SetUint64(g))
+	}
+	// N = 65537 + M (k=1); rocaCheck only reads pub.N, no bit-length requirement.
+	n := new(big.Int).Add(big.NewInt(65537), M)
+	pub := &rsa.PublicKey{N: n, E: 65537}
+
+	w, ok := rocaCheck(pub)
+	if !ok {
+		t.Fatalf("synthetic matching modulus did not trigger ROCA check; got no warning")
+	}
+	if w.Code != CodeROCA {
+		t.Errorf("Code = %q, want ROCA", w.Code)
+	}
+	if w.Severity != SeverityCritical {
+		t.Errorf("Severity = %q, want CRITICAL", w.Severity)
+	}
+	if w.CVE != "CVE-2017-15361" {
+		t.Errorf("CVE = %q, want CVE-2017-15361", w.CVE)
+	}
+}
+
+func TestRocaCheck_SingleNonMatchClears(t *testing.T) {
+	// N divisible by rocaGenerators[0]=11 → rocaMatchesGenerator returns false
+	// on the first generator, so the full check clears.
+	n := new(big.Int).Mul(big.NewInt(11), big.NewInt(100))
+	pub := &rsa.PublicKey{N: n, E: 65537}
+	if _, ok := rocaCheck(pub); ok {
+		t.Error("N divisible by generator should clear ROCA (non-match on at least one generator)")
+	}
 }
 
 func TestRocaCheck_CleanRSANoWarning(t *testing.T) {

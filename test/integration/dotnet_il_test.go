@@ -41,12 +41,37 @@ func TestDotNetIL_EndToEnd(t *testing.T) {
 	if len(got) == 0 {
 		t.Fatal("expected at least one finding from dotnet_il scan")
 	}
+	algos := map[string]string{} // algorithm → status
 	for _, f := range got {
 		if f.Module != "dotnet_il" {
 			t.Errorf("Module = %q, want dotnet_il", f.Module)
 		}
-		if f.CryptoAsset == nil || f.CryptoAsset.Language != ".NET" {
+		if f.CryptoAsset == nil {
+			t.Error("nil CryptoAsset")
+			continue
+		}
+		if f.CryptoAsset.Language != ".NET" {
 			t.Errorf("Language = %q, want .NET", f.CryptoAsset.Language)
+		}
+		if f.Confidence != 0.90 {
+			t.Errorf("Confidence = %v, want 0.90", f.Confidence)
+		}
+		if f.Source.DetectionMethod != "dotnet-il" {
+			t.Errorf("DetectionMethod = %q, want dotnet-il", f.Source.DetectionMethod)
+		}
+		algos[f.CryptoAsset.Algorithm] = f.CryptoAsset.PQCStatus
+	}
+	// Fixture has AesManaged, MD5CryptoServiceProvider, BCRYPT_RSA_ALGORITHM.
+	wantAlgos := map[string]string{
+		"AES": "TRANSITIONAL",
+		"MD5": "UNSAFE",
+		"RSA": "TRANSITIONAL",
+	}
+	for algo, wantStatus := range wantAlgos {
+		if got, ok := algos[algo]; !ok {
+			t.Errorf("missing %s finding", algo)
+		} else if got != wantStatus {
+			t.Errorf("%s status = %q, want %q", algo, got, wantStatus)
 		}
 	}
 }

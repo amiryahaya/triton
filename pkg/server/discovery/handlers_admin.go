@@ -264,8 +264,8 @@ func (h *AdminHandlers) PromoteCandidates(w http.ResponseWriter, r *http.Request
 		return
 	}
 	byID := make(map[uuid.UUID]Candidate, len(cands))
-	for _, c := range cands {
-		byID[c.ID] = c
+	for i := range cands {
+		byID[cands[i].ID] = cands[i]
 	}
 
 	var resp promoteResponse

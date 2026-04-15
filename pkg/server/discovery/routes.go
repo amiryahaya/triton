@@ -22,3 +22,11 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	})
 }
 
+// MountGatewayRoutes wires the engine-facing discovery endpoints onto
+// r. The caller MUST have already applied engine.MTLSMiddleware to r;
+// handlers pull the authenticated engine from context and assume it
+// is non-nil.
+func MountGatewayRoutes(r chi.Router, h *GatewayHandlers) {
+	r.Get("/poll", h.Poll)
+	r.Post("/{id}/submit", h.Submit)
+}

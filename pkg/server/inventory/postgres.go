@@ -291,7 +291,7 @@ func (s *PostgresStore) ImportHosts(ctx context.Context, orgID, groupID uuid.UUI
 	}
 	// Unconditional rollback is safe even after a successful Commit
 	// (pgx returns ErrTxClosed, which we ignore).
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after successful Commit is a documented pgx no-op (ErrTxClosed).
 
 	var res ImportResult
 	for i, row := range rows {

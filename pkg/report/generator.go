@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amiryahaya/triton/pkg/agility"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -311,6 +312,8 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 `)
 	}
 
+	g.generateAgilityPanel(result, &b)
+
 	// Policy Analysis Summary (if policy evaluation data is present)
 	if result.PolicyEvaluation != nil {
 		pe := result.PolicyEvaluation
@@ -607,4 +610,54 @@ func svgBarChart(labels []string, values []int, colors []string) string {
 
 	b.WriteString(`</svg>`)
 	return b.String()
+}
+
+// generateAgilityPanel writes the Crypto Agility Assessment HTML section.
+// Noop if there are no scored hosts.
+func (g *Generator) generateAgilityPanel(result *model.ScanResult, b *strings.Builder) {
+	scores := agility.AssessAll(result)
+	if len(scores) == 0 {
+		return
+	}
+	b.WriteString(`	<h2>Crypto Agility Assessment</h2>
+	<style>
+		.agility-host { border:1px solid #ddd; border-radius:8px; padding:16px; margin:12px 0; }
+		.agility-badge { display:inline-block; padding:4px 12px; border-radius:4px; font-weight:bold; color:#fff; margin-left:12px; }
+		.agility-high { background:#2e7d32; }
+		.agility-mid  { background:#e65100; }
+		.agility-low  { background:#b71c1c; }
+		.agility-bar-wrap { background:#eee; border-radius:4px; height:14px; width:300px; display:inline-block; vertical-align:middle; margin:0 8px; }
+		.agility-bar      { background:#1a237e; height:14px; border-radius:4px; }
+		.agility-dim      { margin:6px 0; font-size:0.9em; }
+	</style>
+`)
+	for _, s := range scores {
+		cls := "agility-low"
+		switch {
+		case s.Overall >= 70:
+			cls = "agility-high"
+		case s.Overall >= 40:
+			cls = "agility-mid"
+		}
+		b.WriteString(fmt.Sprintf(`	<div class="agility-host">
+		<h3>%s <span class="agility-badge %s">Overall: %d/100</span></h3>
+`, html.EscapeString(s.Hostname), cls, s.Overall))
+		for _, d := range s.Dimensions {
+			b.WriteString(fmt.Sprintf(`		<div class="agility-dim"><strong>%s</strong> <span class="agility-bar-wrap"><span class="agility-bar" style="width:%d%%"></span></span> %d/100 &mdash; %s</div>
+`, html.EscapeString(d.Name), d.Score, d.Score, html.EscapeString(d.Explanation)))
+		}
+		if len(s.Recommendations) > 0 {
+			b.WriteString(`		<h4>Recommended actions</h4>
+		<ul>
+`)
+			for _, r := range s.Recommendations {
+				b.WriteString(fmt.Sprintf(`			<li>[<strong>%s</strong>, effort %s, impact +%d] %s <em>(%s)</em></li>
+`, html.EscapeString(r.Dimension), html.EscapeString(string(r.Effort)), r.Impact, html.EscapeString(r.Action), html.EscapeString(r.Dimension)))
+			}
+			b.WriteString(`		</ul>
+`)
+		}
+		b.WriteString(`	</div>
+`)
+	}
 }

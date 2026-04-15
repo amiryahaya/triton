@@ -68,6 +68,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `asn1_oid.go` — ASN.1 OID byte scanner: walks ELF/Mach-O/PE read-only sections for DER-encoded OIDs, classifies via `pkg/crypto/oid.go` registry (comprehensive profile + Pro+ tier only)
   - `java_bytecode.go` — Java class/JAR/WAR/EAR scanner: parses constant pool for crypto literals (JCA standard names, BouncyCastle, PQC), classifies via `pkg/crypto/java_algorithms.go` (comprehensive profile + Pro+ tier only)
   - `dotnet_il.go` — .NET assembly scanner: parses CLI metadata (TypeRef table + #US heap) for crypto type-references and string literals, classifies via `pkg/crypto/dotnet_algorithms.go` registry; supports classic and single-file bundles (comprehensive profile + Pro+ tier only)
+  - `ebpf_trace.go` — eBPF runtime crypto tracer: uprobes on libcrypto/gnutls/nss + kprobes on kernel crypto API, observation-window scan; Linux-only (emits skipped-finding on other OS); comprehensive profile + Pro+ tier; requires root/CAP_BPF + kernel ≥ 5.8 + BTF
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
   - `tls_groups.go` — IANA TLS named group registry with hybrid PQC classification (composite ML-KEM + classical ECDHE groups, draft Kyber hybrids, pure PQ KEMs)
   - `java_algorithms.go` — Java crypto literal registry (~80 entries)

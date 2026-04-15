@@ -224,6 +224,7 @@ func TestPollDiscovery_Returns200Job(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatalf("expected job, got nil")
+		return
 	}
 	if got.ID != jobID {
 		t.Errorf("ID = %s, want %s", got.ID, jobID)

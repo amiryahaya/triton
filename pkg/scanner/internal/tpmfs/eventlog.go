@@ -112,4 +112,3 @@ func parseEvent2(r *bytes.Reader) (*EventLogEntry, error) {
 		Algorithms: algos,
 	}, nil
 }
-

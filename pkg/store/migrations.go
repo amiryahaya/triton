@@ -510,4 +510,85 @@ CREATE TABLE discovery_candidates (
 
 CREATE INDEX idx_discovery_candidates_job ON discovery_candidates(job_id);
 `,
+
+	// Version 20: Credentials schema (Onboarding Phase 4, Tasks 1-3).
+	// Adds per-engine encryption_pubkey (X25519) so the browser can seal
+	// secrets to the engine's static key, plus four new tables:
+	//   credentials_profiles   — operator-defined named credential bundles
+	//                            (auth_type + matcher + opaque secret_ref)
+	//   credential_deliveries  — per-engine queue of push/delete payloads;
+	//                            profile_id is intentionally nullable +
+	//                            FK-less so delete rows survive profile
+	//                            removal
+	//   credential_tests       — operator-triggered connectivity probes
+	//   credential_test_results — per-host outcome rows for a test job
+	`
+ALTER TABLE engines ADD COLUMN encryption_pubkey BYTEA;
+
+CREATE TABLE credentials_profiles (
+    id            UUID PRIMARY KEY,
+    org_id        UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    engine_id     UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    name          TEXT NOT NULL,
+    auth_type     TEXT NOT NULL CHECK (auth_type IN ('ssh-password', 'ssh-key', 'winrm-password', 'bootstrap-admin')),
+    matcher       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    secret_ref    UUID NOT NULL UNIQUE,
+    created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_tested_at TIMESTAMPTZ,
+    UNIQUE (org_id, name)
+);
+
+CREATE INDEX idx_credentials_profiles_org    ON credentials_profiles(org_id);
+CREATE INDEX idx_credentials_profiles_engine ON credentials_profiles(engine_id);
+
+CREATE TABLE credential_deliveries (
+    id              UUID PRIMARY KEY,
+    org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    engine_id       UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    profile_id      UUID,
+    secret_ref      UUID NOT NULL,
+    auth_type       TEXT NOT NULL,
+    kind            TEXT NOT NULL CHECK (kind IN ('push', 'delete')),
+    ciphertext      BYTEA,
+    status          TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (status IN ('queued', 'claimed', 'acked', 'failed')),
+    error           TEXT,
+    requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at      TIMESTAMPTZ,
+    acked_at        TIMESTAMPTZ
+);
+
+CREATE INDEX idx_credential_deliveries_engine_queue
+    ON credential_deliveries(engine_id, requested_at)
+    WHERE status = 'queued';
+
+CREATE TABLE credential_tests (
+    id             UUID PRIMARY KEY,
+    org_id         UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    engine_id      UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    profile_id     UUID NOT NULL REFERENCES credentials_profiles(id) ON DELETE CASCADE,
+    host_ids       UUID[] NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'queued'
+                   CHECK (status IN ('queued', 'claimed', 'running', 'completed', 'failed', 'cancelled')),
+    error          TEXT,
+    requested_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at     TIMESTAMPTZ,
+    completed_at   TIMESTAMPTZ
+);
+
+CREATE INDEX idx_credential_tests_engine_queue
+    ON credential_tests(engine_id, requested_at)
+    WHERE status = 'queued';
+
+CREATE TABLE credential_test_results (
+    test_id      UUID NOT NULL REFERENCES credential_tests(id) ON DELETE CASCADE,
+    host_id      UUID NOT NULL REFERENCES inventory_hosts(id) ON DELETE CASCADE,
+    success      BOOLEAN NOT NULL,
+    latency_ms   INTEGER,
+    error        TEXT,
+    probed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (test_id, host_id)
+);
+`,
 }

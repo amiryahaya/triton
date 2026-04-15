@@ -171,6 +171,32 @@ func TestLoop_SpawnsCredentialWorkersAfterEnroll(t *testing.T) {
 	<-done
 }
 
+func TestLoop_SpawnsScanWorkerAfterEnroll(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := &mockClient{}
+
+	sDone := make(chan struct{})
+	sw := &fakeWorker{done: sDone}
+
+	done := make(chan struct{})
+	go func() {
+		_ = Run(ctx, m, Config{
+			HeartbeatInterval: 5 * time.Millisecond,
+			ScanWorker:        sw,
+		})
+		close(done)
+	}()
+
+	select {
+	case <-sDone:
+	case <-time.After(time.Second):
+		t.Fatal("ScanWorker.Run was not invoked")
+	}
+	cancel()
+	<-done
+}
+
 func TestRun_ContinuesAfterHeartbeatFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

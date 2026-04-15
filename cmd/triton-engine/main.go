@@ -22,6 +22,7 @@ import (
 	"github.com/amiryahaya/triton/pkg/engine/discovery"
 	"github.com/amiryahaya/triton/pkg/engine/keystore"
 	"github.com/amiryahaya/triton/pkg/engine/loop"
+	"github.com/amiryahaya/triton/pkg/engine/scanexec"
 )
 
 // loadKeystoreMasterKey returns the 32-byte master key used to encrypt
@@ -144,10 +145,19 @@ func run() int {
 		Prober:   &credentials.Prober{},
 	}
 
+	// Scan job worker: claim scan jobs from the portal, run each host
+	// through SSH+scanner, stream progress + findings back.
+	scanExecutor := &scanexec.Executor{Keystore: ks}
+	scanWorker := &scanexec.Worker{
+		Client:   c,
+		Executor: scanExecutor,
+	}
+
 	cfg := loop.Config{
 		DiscoveryWorker:      discoveryWorker,
 		CredentialHandler:    credHandler,
 		CredentialTestWorker: credTestWorker,
+		ScanWorker:           scanWorker,
 		OnEnrolled: func(ctx context.Context) {
 			if err := c.SubmitEncryptionPubkey(ctx, pub); err != nil {
 				log.Printf("submit encryption pubkey: %v", err)

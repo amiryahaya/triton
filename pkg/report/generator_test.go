@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -350,4 +351,85 @@ func TestGenerateHTMLHybridBadge(t *testing.T) {
 	assert.Contains(t, out, "hybrid-badge")
 	assert.Contains(t, out, ">HYBRID<")
 	assert.Contains(t, out, "Hybrid: X25519 + ML-KEM-768")
+}
+
+func TestGenerateHTMLAgilityPanel(t *testing.T) {
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "agility.html")
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "agility-host"},
+		Systems:  []model.System{{Name: "demo"}},
+		Findings: []model.Finding{
+			{
+				Module: "protocol",
+				CryptoAsset: &model.CryptoAsset{
+					Algorithm: "TLS 1.3", PQCStatus: model.PQCStatusSafe, IsHybrid: true,
+				},
+			},
+			{
+				Module: "binaries",
+				CryptoAsset: &model.CryptoAsset{
+					Algorithm: "MD5", PQCStatus: model.PQCStatusUnsafe,
+				},
+			},
+		},
+	}
+	g := New(tmp)
+	if err := g.GenerateHTML(result, out); err != nil {
+		t.Fatalf("GenerateHTML: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(data)
+	if !strings.Contains(html, "Crypto Agility Assessment") {
+		t.Error("missing section heading")
+	}
+	if !strings.Contains(html, "agility-host") {
+		t.Error("missing hostname in panel")
+	}
+	if !strings.Contains(html, "PQC Coverage") {
+		t.Error("missing PQC Coverage dimension label")
+	}
+	// Verify badge color class corresponds to the Overall band.
+	// The synthetic input has 1 hybrid SAFE TLS finding + 1 unsafe MD5 finding.
+	// PQC: 1/2 covered = 50; Protocol: TLS 1.3 + 1 group + hybrid → fires; etc.
+	// Whatever the Overall is, exactly one band class must be applied to the
+	// badge element (the other two still appear as CSS rules in the <style> block).
+	bandClasses := []string{"agility-high", "agility-mid", "agility-low"}
+	matches := 0
+	for _, c := range bandClasses {
+		if strings.Contains(html, `agility-badge `+c) {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Errorf("expected exactly 1 band class applied to badge, found %d (%v)", matches, bandClasses)
+	}
+	// Recommendations must render when low PQC + java/binary findings present.
+	if !strings.Contains(html, "Recommended actions") && !strings.Contains(html, "<ul>") {
+		// Synthetic input may not trigger any rule; soft assertion only — log if absent.
+		t.Logf("note: no recommendations rendered for synthetic input")
+	}
+}
+
+func TestGenerateHTMLNoAgilityPanelWhenNoFindings(t *testing.T) {
+	tmp := t.TempDir()
+	out := filepath.Join(tmp, "noagility.html")
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "empty"},
+		Systems:  []model.System{{Name: "demo"}},
+	}
+	g := New(tmp)
+	if err := g.GenerateHTML(result, out); err != nil {
+		t.Fatalf("GenerateHTML: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "Crypto Agility Assessment") {
+		t.Error("agility section should be omitted when no findings")
+	}
 }

@@ -19,3 +19,13 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 		r.Post("/{id}/cancel", h.CancelJob)
 	})
 }
+
+// MountGatewayRoutes wires /api/v1/engine/scans/* onto r. Caller MUST
+// have applied engine.MTLSMiddleware upstream so handlers can resolve
+// the authenticated engine from context.
+func MountGatewayRoutes(r chi.Router, h *GatewayHandlers) {
+	r.Get("/poll", h.Poll)
+	r.Post("/{id}/progress", h.Progress)
+	r.Post("/{id}/submit", h.Submit)
+	r.Post("/{id}/finish", h.Finish)
+}

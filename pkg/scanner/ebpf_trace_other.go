@@ -14,6 +14,7 @@ import (
 
 // scan emits one skipped-finding on non-Linux builds.
 func (m *EBPFTraceModule) scan(ctx context.Context, _ model.ScanTarget, findings chan<- *model.Finding) error {
+	_ = m.runner // field is only consumed by the linux build; keep reference for lint
 	f := &model.Finding{
 		ID:       uuid.New().String(),
 		Category: int(model.CategoryActiveRuntime),

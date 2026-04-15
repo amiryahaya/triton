@@ -26,6 +26,8 @@ func TestLoadQuickProfile(t *testing.T) {
 	assert.NotContains(t, cfg.Modules, "dotnet_il")
 	// eBPF runtime crypto tracer is comprehensive-only (Linux + root).
 	assert.NotContains(t, cfg.Modules, "ebpf_trace")
+	// TPM 2.0 attestation analyzer is comprehensive-only (Linux).
+	assert.NotContains(t, cfg.Modules, "tpm")
 
 	maxWorkers := 4
 	if maxWorkers > runtime.NumCPU() {
@@ -68,6 +70,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.NotContains(t, cfg.Modules, "dotnet_il")
 	// eBPF runtime crypto tracer is comprehensive-only (Linux + root).
 	assert.NotContains(t, cfg.Modules, "ebpf_trace")
+	// TPM 2.0 attestation analyzer is comprehensive-only (Linux).
+	assert.NotContains(t, cfg.Modules, "tpm")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -126,6 +130,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "dotnet_il")
 	// eBPF runtime crypto tracer is comprehensive-only (Linux + root).
 	assert.Contains(t, cfg.Modules, "ebpf_trace")
+	// TPM 2.0 attestation analyzer is comprehensive-only (Linux).
+	assert.Contains(t, cfg.Modules, "tpm")
 
 	// Should have process and network targets
 	hasProcess := false

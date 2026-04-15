@@ -174,6 +174,7 @@ func proModules() []string {
 		"java_bytecode",
 		"dotnet_il",
 		"ebpf_trace",
+		"tpm",
 		// k8s_live, secrets_mgr, kerberos_runtime are enterprise-only — do NOT add.
 	}
 }

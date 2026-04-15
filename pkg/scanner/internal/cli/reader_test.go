@@ -43,3 +43,22 @@ func TestReadAssembly_ExtractsTypeRefsAndUserStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestReadAssembly_RejectsNonPE(t *testing.T) {
+	if _, err := ReadAssembly(bytes.NewReader([]byte("definitely not a PE file"))); err == nil {
+		t.Error("expected error on non-PE input")
+	}
+}
+
+func TestReadAssembly_RejectsMalformedBSJB(t *testing.T) {
+	asm := buildAssembly(t, fixtureAssembly{TypeRefs: []TypeRef{{Name: "X"}}})
+	// Locate the BSJB signature and corrupt it.
+	idx := bytes.Index(asm, []byte("BSJB"))
+	if idx < 0 {
+		t.Fatal("test fixture has no BSJB signature")
+	}
+	asm[idx] = 'X'
+	if _, err := ReadAssembly(bytes.NewReader(asm)); err == nil {
+		t.Error("expected error on corrupted BSJB signature")
+	}
+}

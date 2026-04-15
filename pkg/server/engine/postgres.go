@@ -246,5 +246,34 @@ func (s *PostgresStore) ListAllCAs(ctx context.Context) ([][]byte, error) {
 	return out, nil
 }
 
+func (s *PostgresStore) SetEncryptionPubkey(ctx context.Context, engineID uuid.UUID, pubkey []byte) error {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE engines SET encryption_pubkey = $2 WHERE id = $1`,
+		engineID, pubkey,
+	)
+	if err != nil {
+		return fmt.Errorf("set encryption pubkey: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s", ErrEngineNotFound, engineID)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetEncryptionPubkey(ctx context.Context, engineID uuid.UUID) ([]byte, error) {
+	var pk []byte
+	err := s.pool.QueryRow(ctx,
+		`SELECT encryption_pubkey FROM engines WHERE id = $1`,
+		engineID,
+	).Scan(&pk)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get encryption pubkey: %w", err)
+	}
+	return pk, nil
+}
+
 // Compile-time interface satisfaction assertion.
 var _ Store = (*PostgresStore)(nil)

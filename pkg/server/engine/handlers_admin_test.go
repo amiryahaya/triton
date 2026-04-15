@@ -30,8 +30,9 @@ import (
 type fakeStore struct {
 	mu sync.Mutex
 
-	cas     map[uuid.UUID]*CA
-	engines map[uuid.UUID]Engine
+	cas               map[uuid.UUID]*CA
+	engines           map[uuid.UUID]Engine
+	encryptionPubkeys map[uuid.UUID][]byte
 
 	// createErr, if set, is returned from the next CreateEngine call.
 	createErr error
@@ -197,6 +198,29 @@ func (f *fakeStore) MarkStaleOffline(_ context.Context, cutoff time.Time) error 
 
 func (f *fakeStore) ListAllCAs(_ context.Context) ([][]byte, error) {
 	return nil, nil
+}
+
+func (f *fakeStore) SetEncryptionPubkey(_ context.Context, engineID uuid.UUID, pubkey []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.engines[engineID]; !ok {
+		return ErrEngineNotFound
+	}
+	if f.encryptionPubkeys == nil {
+		f.encryptionPubkeys = map[uuid.UUID][]byte{}
+	}
+	f.encryptionPubkeys[engineID] = append([]byte(nil), pubkey...)
+	return nil
+}
+
+func (f *fakeStore) GetEncryptionPubkey(_ context.Context, engineID uuid.UUID) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	pk, ok := f.encryptionPubkeys[engineID]
+	if !ok {
+		return nil, nil
+	}
+	return append([]byte(nil), pk...), nil
 }
 
 var _ Store = (*fakeStore)(nil)

@@ -55,6 +55,12 @@ func (s *mtlsFakeStore) SetStatus(context.Context, uuid.UUID, string) error {
 func (s *mtlsFakeStore) Revoke(context.Context, uuid.UUID, uuid.UUID) error { panic("unused") }
 func (s *mtlsFakeStore) MarkStaleOffline(context.Context, time.Time) error  { panic("unused") }
 func (s *mtlsFakeStore) ListAllCAs(context.Context) ([][]byte, error)       { panic("unused") }
+func (s *mtlsFakeStore) SetEncryptionPubkey(context.Context, uuid.UUID, []byte) error {
+	panic("unused")
+}
+func (s *mtlsFakeStore) GetEncryptionPubkey(context.Context, uuid.UUID) ([]byte, error) {
+	return nil, nil
+}
 
 // makeLeafCert mints a throwaway self-signed cert so we can shove raw
 // bytes into tls.ConnectionState.PeerCertificates for the middleware.

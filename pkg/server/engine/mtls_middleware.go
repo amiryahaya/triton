@@ -17,6 +17,13 @@ func EngineFromContext(ctx context.Context) *Engine {
 	return e
 }
 
+// ContextWithEngine injects an Engine into ctx using the same key the
+// mTLS middleware uses. Exported solely for tests (and for wiring
+// alternatives to the mTLS middleware such as a local test harness).
+func ContextWithEngine(ctx context.Context, e *Engine) context.Context {
+	return context.WithValue(ctx, mtlsCtxKey{}, e)
+}
+
 // MTLSMiddleware rejects requests that do not present a client
 // certificate matching a known (non-revoked) engine. On success it
 // stashes the resolved Engine into the request context so downstream

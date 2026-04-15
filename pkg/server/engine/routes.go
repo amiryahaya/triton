@@ -13,6 +13,7 @@ import (
 func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	r.Get("/", h.ListEngines)
 	r.Get("/{id}", h.GetEngine)
+	r.Get("/{id}/encryption-pubkey", h.GetEngineEncryptionPubkey)
 
 	r.Group(func(r chi.Router) {
 		r.Use(server.RequireRole(server.RoleEngineer))
@@ -31,4 +32,5 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 func MountGatewayRoutes(r chi.Router, h *GatewayHandlers) {
 	r.Post("/enroll", h.Enroll)
 	r.Post("/heartbeat", h.Heartbeat)
+	r.Post("/encryption-pubkey", h.SubmitEncryptionPubkey)
 }

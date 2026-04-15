@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 )
 
@@ -197,13 +198,21 @@ func startEngineGateway(
 	ctx context.Context,
 	addr string,
 	store enginepkg.Store,
+	discoveryStore discoverypkg.Store,
 	certPath, keyPath string,
 ) (*http.Server, error) {
 	gwHandlers := &enginepkg.GatewayHandlers{Store: store}
+	discoveryGateway := &discoverypkg.GatewayHandlers{Store: discoveryStore}
 	r := chi.NewRouter()
 	r.Use(enginepkg.MTLSMiddleware(store))
 	r.Route("/api/v1/engine", func(sub chi.Router) {
 		enginepkg.MountGatewayRoutes(sub, gwHandlers)
+		// Onboarding Phase 3 — discovery long-poll + submit, mounted
+		// sibling to enroll/heartbeat so engines reach them via the
+		// same mTLS-authenticated listener.
+		sub.Route("/discoveries", func(dsub chi.Router) {
+			discoverypkg.MountGatewayRoutes(dsub, discoveryGateway)
+		})
 	})
 	// Back-compat: routes were previously mounted at root (/enroll,
 	// /heartbeat). Keep both paths live so any out-of-tree client or

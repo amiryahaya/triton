@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
+	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -205,15 +206,34 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// pkg/server for ClaimsFromContext/RequireRole; wiring from cmd
 	// keeps the import graph acyclic. Requires JWT auth; skipped in
 	// single-tenant deployments that don't configure JWT signing.
+	invStore := inventory.NewPostgresStore(db.Pool())
 	if cfg.JWTSigningKey != nil {
 		invHandlers := &inventory.Handlers{
-			Store: inventory.NewPostgresStore(db.Pool()),
+			Store: invStore,
 			Audit: server.NewAuditAdapter(srv),
 		}
 		if err := srv.MountAuthenticated("/api/v1/manage", func(r chi.Router) {
 			inventory.MountRoutes(r, invHandlers)
 		}); err != nil {
 			return fmt.Errorf("mounting inventory routes: %w", err)
+		}
+	}
+
+	// Discovery — Onboarding Phase 3. Admin routes mount under the
+	// authenticated portal subtree; the gateway routes (engine poll +
+	// submit) live on the mTLS listener set up below. Both share a
+	// single discovery Store built from the same pool as inventory.
+	discoveryStore := discoverypkg.NewPostgresStore(db.Pool())
+	if cfg.JWTSigningKey != nil {
+		discoveryAdmin := &discoverypkg.AdminHandlers{
+			Store:          discoveryStore,
+			InventoryStore: invStore,
+			Audit:          server.NewAuditAdapter(srv),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage/discoveries", func(r chi.Router) {
+			discoverypkg.MountAdminRoutes(r, discoveryAdmin)
+		}); err != nil {
+			return fmt.Errorf("mounting discovery admin routes: %w", err)
 		}
 	}
 
@@ -245,7 +265,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("portal TLS cert: %w", err)
 	}
-	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, certPath, keyPath)
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, certPath, keyPath)
 	if err != nil {
 		return fmt.Errorf("starting engine gateway: %w", err)
 	}

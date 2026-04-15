@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -134,8 +135,27 @@ func (h *AdminHandlers) CreateEngine(w http.ResponseWriter, r *http.Request) {
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 
-	// Insert engine row.
+	// Build bundle BEFORE persisting the engine row. If bundle build
+	// fails, no DB row exists, so the operator can retry freely
+	// without tripping the UNIQUE(org_id, label) constraint.
 	engineID := uuid.New()
+	bundle, err := BuildBundle(BundleInputs{
+		EngineID:      engineID,
+		OrgID:         orgID,
+		Label:         body.Label,
+		PortalURL:     h.PortalURL,
+		EngineKeyPEM:  keyPEM,
+		EngineCertPEM: certPEM,
+		CACertPEM:     ca.CACertPEM,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "build bundle: "+err.Error())
+		return
+	}
+
+	// Persist the engine row. If this fails after a successful bundle
+	// build, the operator gets no bundle and no DB trace — log the
+	// label + fingerprint so ops can correlate.
 	created, err := h.Store.CreateEngine(r.Context(), Engine{
 		ID:              engineID,
 		OrgID:           orgID,
@@ -149,22 +169,9 @@ func (h *AdminHandlers) CreateEngine(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "engine label already exists in this org")
 			return
 		}
+		log.Printf("engine create persist failed: org=%s label=%q fingerprint=%s err=%v",
+			orgID, body.Label, fingerprint, err)
 		writeErr(w, http.StatusInternalServerError, "create engine: "+err.Error())
-		return
-	}
-
-	// Build bundle inline.
-	bundle, err := BuildBundle(BundleInputs{
-		EngineID:      created.ID,
-		OrgID:         created.OrgID,
-		Label:         created.Label,
-		PortalURL:     h.PortalURL,
-		EngineKeyPEM:  keyPEM,
-		EngineCertPEM: certPEM,
-		CACertPEM:     ca.CACertPEM,
-	})
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "build bundle: "+err.Error())
 		return
 	}
 

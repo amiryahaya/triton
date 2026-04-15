@@ -24,9 +24,11 @@ func EngineFromContext(ctx context.Context) *Engine {
 //
 // Trust chain validation is the TLS stack's job — this middleware
 // only maps verified leaf fingerprints to engines in the database.
-// Callers must configure the http.Server with ClientAuth =
-// RequireAndVerifyClientCert and a ClientCAs pool seeded with the
-// per-org CA certs (see plan Task 10).
+// The server's TLS config uses ClientAuth = RequireAnyClientCert
+// plus a VerifyPeerCertificate callback that walks the per-org CA
+// pool (see cmd/server_engine.go buildEngineTLSConfig). By the time
+// a request reaches this middleware, the chain is already verified;
+// we trust whatever leaf came through and only resolve identity.
 func MTLSMiddleware(store Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

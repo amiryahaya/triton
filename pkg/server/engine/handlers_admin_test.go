@@ -172,6 +172,25 @@ func (f *fakeStore) Revoke(_ context.Context, orgID, id uuid.UUID) error {
 	return nil
 }
 
+func (f *fakeStore) MarkStaleOffline(_ context.Context, cutoff time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id, e := range f.engines {
+		if e.Status != StatusOnline {
+			continue
+		}
+		if e.LastPollAt == nil || e.LastPollAt.Before(cutoff) {
+			e.Status = StatusOffline
+			f.engines[id] = e
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) ListAllCAs(_ context.Context) ([][]byte, error) {
+	return nil, nil
+}
+
 var _ Store = (*fakeStore)(nil)
 
 // --- helpers -----------------------------------------------------------------

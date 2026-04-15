@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -71,4 +72,17 @@ type Store interface {
 
 	// Revoke marks an engine revoked and stamps revoked_at = NOW().
 	Revoke(ctx context.Context, orgID, id uuid.UUID) error
+
+	// MarkStaleOffline flips status='online' engines whose last_poll_at
+	// is older than cutoff (or NULL) to status='offline'. Called by the
+	// OfflineDetector ticker loop; the operation is idempotent — rows
+	// already offline are untouched thanks to the status='online'
+	// predicate.
+	MarkStaleOffline(ctx context.Context, cutoff time.Time) error
+
+	// ListAllCAs returns every org's CA cert PEM. Used by the mTLS
+	// listener to build its client-CA pool at startup and on periodic
+	// refresh. Unscoped by design — the listener must trust every
+	// org's engines.
+	ListAllCAs(ctx context.Context) ([][]byte, error)
 }

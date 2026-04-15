@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -201,6 +202,40 @@ func (s *PostgresStore) Revoke(ctx context.Context, orgID, id uuid.UUID) error {
 		return fmt.Errorf("revoke engine: %w", err)
 	}
 	return nil
+}
+
+func (s *PostgresStore) MarkStaleOffline(ctx context.Context, cutoff time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE engines
+		 SET status = 'offline'
+		 WHERE status = 'online'
+		   AND (last_poll_at IS NULL OR last_poll_at < $1)`,
+		cutoff,
+	)
+	if err != nil {
+		return fmt.Errorf("mark stale offline: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListAllCAs(ctx context.Context) ([][]byte, error) {
+	rows, err := s.pool.Query(ctx, `SELECT ca_cert_pem FROM engine_cas`)
+	if err != nil {
+		return nil, fmt.Errorf("list all CAs: %w", err)
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var pemStr string
+		if err := rows.Scan(&pemStr); err != nil {
+			return nil, fmt.Errorf("scan CA row: %w", err)
+		}
+		out = append(out, []byte(pemStr))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate CA rows: %w", err)
+	}
+	return out, nil
 }
 
 // Compile-time interface satisfaction assertion.

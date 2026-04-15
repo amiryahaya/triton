@@ -75,6 +75,8 @@
     '/discoveries/new': renderNewDiscovery,
     '/credentials': renderCredentials,
     '/credentials/new': renderNewCredential,
+    '/scan-jobs': renderScanJobs,
+    '/scan-jobs/new': renderNewScanJob,
   };
 
   function route() {
@@ -82,7 +84,10 @@
       renderLogin();
       return;
     }
-    const path = window.location.hash.replace('#', '') || '/dashboard';
+    const rawPath = window.location.hash.replace('#', '') || '/dashboard';
+    // Strip query string (e.g. #/scan-jobs/new?group_id=<uuid>) before
+    // matching static routes or UUID-suffixed dynamic routes.
+    const path = rawPath.split('?')[0];
     const discMatch = path.match(/^\/discoveries\/([0-9a-f-]{36})$/);
     if (discMatch) {
       renderDiscoveryDetail(document.getElementById('app'), discMatch[1]);
@@ -96,6 +101,11 @@
     const credMatch = path.match(/^\/credentials\/([0-9a-f-]{36})$/);
     if (credMatch) {
       renderCredentialDetail(document.getElementById('app'), credMatch[1]);
+      return;
+    }
+    const scanJobMatch = path.match(/^\/scan-jobs\/([0-9a-f-]{36})$/);
+    if (scanJobMatch) {
+      renderScanJobDetail(document.getElementById('app'), scanJobMatch[1]);
       return;
     }
     const h = routes[path] || renderDashboard;
@@ -175,9 +185,23 @@
       const resp = await authedFetch('/api/v1/manage/groups');
       const groups = await resp.json();
       const list = el.querySelector('#list');
-      list.innerHTML = groups && groups.length
-        ? '<ul>' + groups.map(g => `<li><strong>${escapeHTML(g.name)}</strong>${g.description ? ' &mdash; ' + escapeHTML(g.description) : ''}</li>`).join('') + '</ul>'
-        : '<p><em>No groups yet.</em></p>';
+      if (!groups || !groups.length) {
+        list.innerHTML = '<p><em>No groups yet.</em></p>';
+      } else {
+        const showActions = canMutate();
+        const headActions = showActions ? '<th></th>' : '';
+        list.innerHTML = '<table><thead><tr><th>Name</th><th>Description</th>' + headActions + '</tr></thead><tbody>' +
+          groups.map(g => {
+            const actions = showActions
+              ? `<td><a href="#/scan-jobs/new?group_id=${escapeHTML(g.id)}" class="button">Scan now</a></td>`
+              : '';
+            return `<tr>
+              <td><strong>${escapeHTML(g.name)}</strong></td>
+              <td>${g.description ? escapeHTML(g.description) : '<span class="muted">—</span>'}</td>
+              ${actions}
+            </tr>`;
+          }).join('') + '</tbody></table>';
+      }
     } catch (e) {
       if (e.message !== 'unauthorized') {
         el.querySelector('#list').textContent = 'Error loading groups.';
@@ -1250,6 +1274,194 @@
       if (running) {
         setTimeout(() => {
           if (window.location.hash === '#/credentials/tests/' + testID) route();
+        }, 5000);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
+    }
+  }
+
+  // ---------- Scan Jobs (Task 11 / Phase 5) ----------
+
+  async function renderScanJobs(el) {
+    el.innerHTML = `
+      <h1>Scan Jobs</h1>
+      <p class="muted">Launch a scan from the Groups page via "Scan now", or directly below.</p>
+      ${canMutate() ? '<p><a href="#/scan-jobs/new" class="button primary">New scan job</a></p>' : ''}
+      <div id="list">loading&hellip;</div>
+    `;
+    try {
+      const resp = await authedFetch('/api/v1/manage/scan-jobs/?limit=50');
+      const jobs = await resp.json();
+      const list = el.querySelector('#list');
+      if (!jobs || jobs.length === 0) {
+        list.innerHTML = '<p><em>No scan jobs yet.</em></p>';
+        return;
+      }
+      list.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Requested</th>
+            <th>Profile</th>
+            <th>Hosts</th>
+            <th>Progress</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${jobs.map(j => `<tr>
+            <td>${timeAgo(j.requested_at)}</td>
+            <td>${escapeHTML(j.scan_profile)}</td>
+            <td>${j.progress_total}</td>
+            <td>${j.progress_done}/${j.progress_total}${j.progress_failed > 0 ? ` (${j.progress_failed} failed)` : ''}</td>
+            <td><span class="badge badge-${j.status}">${escapeHTML(j.status)}</span></td>
+            <td><a href="#/scan-jobs/${j.id}">View &rarr;</a></td>
+          </tr>`).join('')}</tbody>
+        </table>
+      `;
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.querySelector('#list').textContent = 'Error loading scan jobs.';
+    }
+  }
+
+  async function renderNewScanJob(el) {
+    if (!canMutate()) {
+      el.innerHTML = '<h1>New scan job</h1><p>Only Engineers and Owners can start scans.</p>';
+      return;
+    }
+    // Support #/scan-jobs/new?group_id=<uuid> for "Scan now" deep-link from groups page.
+    const qs = window.location.hash.split('?')[1] || '';
+    const params = new URLSearchParams(qs);
+    const preselectedGroup = params.get('group_id') || '';
+
+    el.innerHTML = `
+      <p><a href="#/scan-jobs">&larr; Back to scan jobs</a></p>
+      <h1>New scan job</h1>
+      <form id="scanForm">
+        <label>Target group
+          <select name="group_id" id="group_sel" required>
+            <option value="">&mdash; choose group &mdash;</option>
+          </select>
+        </label>
+        <label>Scan profile
+          <select name="scan_profile">
+            <option value="standard" selected>standard</option>
+            <option value="quick">quick</option>
+            <option value="comprehensive">comprehensive</option>
+          </select>
+        </label>
+        <label>Credential profile (optional)
+          <select name="credential_profile_id" id="cred_sel">
+            <option value="">&mdash; none &mdash;</option>
+          </select>
+          <span class="muted small">Required if hosts need SSH authentication.</span>
+        </label>
+        <div class="button-row">
+          <a href="#/scan-jobs" class="button">Cancel</a>
+          <button class="primary">Start scan</button>
+        </div>
+        <div id="new_err"></div>
+      </form>
+    `;
+
+    try {
+      const [groupsResp, credsResp] = await Promise.all([
+        authedFetch('/api/v1/manage/groups/'),
+        authedFetch('/api/v1/manage/credentials/'),
+      ]);
+      const groups = await groupsResp.json();
+      const creds = await credsResp.json();
+      const groupSel = el.querySelector('#group_sel');
+      for (const g of groups || []) {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        if (g.id === preselectedGroup) opt.selected = true;
+        groupSel.appendChild(opt);
+      }
+      const credSel = el.querySelector('#cred_sel');
+      for (const c of creds || []) {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.name} (${c.auth_type})`;
+        credSel.appendChild(opt);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') console.error('populate selectors', e);
+    }
+
+    el.querySelector('#scanForm').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const body = {
+        group_id: f.group_id.value,
+        scan_profile: f.scan_profile.value,
+      };
+      if (f.credential_profile_id.value) {
+        body.credential_profile_id = f.credential_profile_id.value;
+      }
+      try {
+        const resp = await authedFetch('/api/v1/manage/scan-jobs/', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          el.querySelector('#new_err').innerHTML = `<p class="error">${escapeHTML(txt || ('HTTP ' + resp.status))}</p>`;
+          return;
+        }
+        const job = await resp.json();
+        window.location.hash = '#/scan-jobs/' + job.id;
+      } catch (e) {
+        el.querySelector('#new_err').innerHTML = `<p class="error">${escapeHTML(e.message)}</p>`;
+      }
+    });
+  }
+
+  async function renderScanJobDetail(el, jobID) {
+    el.innerHTML = '<p>loading&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/scan-jobs/' + jobID);
+      if (!resp.ok) { el.innerHTML = '<p>Not found.</p>'; return; }
+      const job = await resp.json();
+
+      const running = job.status === 'queued' || job.status === 'claimed' || job.status === 'running';
+      const canCancel = canMutate() && job.status === 'queued';
+      const pct = job.progress_total > 0 ? Math.round(100 * job.progress_done / job.progress_total) : 0;
+
+      el.innerHTML = `
+        <p><a href="#/scan-jobs">&larr; Back to scan jobs</a></p>
+        <h1>Scan job</h1>
+        <dl class="kv">
+          <dt>Status</dt><dd><span class="badge badge-${job.status}">${escapeHTML(job.status)}</span></dd>
+          <dt>Profile</dt><dd>${escapeHTML(job.scan_profile)}</dd>
+          <dt>Hosts</dt><dd>${job.progress_total}</dd>
+          <dt>Progress</dt><dd>
+            ${job.progress_done} / ${job.progress_total}${job.progress_failed > 0 ? ` (${job.progress_failed} failed)` : ''}
+            <span class="progress-bar"><span class="progress-bar-fill" style="width:${pct}%"></span></span>
+            ${pct}%
+          </dd>
+          <dt>Requested</dt><dd>${timeAgo(job.requested_at)}</dd>
+          ${job.claimed_at ? `<dt>Claimed</dt><dd>${timeAgo(job.claimed_at)}</dd>` : ''}
+          ${job.completed_at ? `<dt>Completed</dt><dd>${timeAgo(job.completed_at)}</dd>` : ''}
+          ${job.error ? `<dt>Error</dt><dd class="error">${escapeHTML(job.error)}</dd>` : ''}
+        </dl>
+        ${canCancel ? '<button id="cancelBtn" class="danger">Cancel job</button>' : ''}
+        ${job.status === 'completed' ? '<p><a href="/ui/" class="button">View scan results &rarr;</a></p>' : ''}
+      `;
+
+      if (canCancel) {
+        el.querySelector('#cancelBtn').addEventListener('click', async () => {
+          if (!confirm('Cancel this scan job?')) return;
+          const r = await authedFetch('/api/v1/manage/scan-jobs/' + jobID + '/cancel', { method: 'POST' });
+          if (r.ok) route();
+          else if (r.status === 409) alert('Job already running — cannot cancel.');
+          else alert('Cancel failed: HTTP ' + r.status);
+        });
+      }
+
+      if (running) {
+        setTimeout(() => {
+          if (window.location.hash === '#/scan-jobs/' + jobID) route();
         }, 5000);
       }
     } catch (e) {

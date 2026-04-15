@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -593,4 +594,56 @@ func TestIsKeyFileExtended(t *testing.T) {
 	// New SSH file patterns
 	assert.True(t, m.isKeyFile("/home/user/.ssh/authorized_keys"))
 	assert.True(t, m.isKeyFile("/home/user/.ssh/known_hosts"))
+}
+
+func TestDetectPEMKey_ExtractsPublicKeyByType(t *testing.T) {
+	cases := []struct {
+		name    string
+		pemGen  func(t *testing.T) []byte
+		wantTyp string
+	}{
+		{
+			name: "RSA PKCS#1 private",
+			pemGen: func(t *testing.T) []byte {
+				key, _ := rsa.GenerateKey(rand.Reader, 2048)
+				return pem.EncodeToMemory(&pem.Block{
+					Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
+				})
+			},
+			wantTyp: "*rsa.PublicKey",
+		},
+		{
+			name: "EC private",
+			pemGen: func(t *testing.T) []byte {
+				key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				b, _ := x509.MarshalECPrivateKey(key)
+				return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
+			},
+			wantTyp: "*ecdsa.PublicKey",
+		},
+		{
+			name: "Ed25519 PKCS#8",
+			pemGen: func(t *testing.T) []byte {
+				_, priv, _ := ed25519.GenerateKey(rand.Reader)
+				b, _ := x509.MarshalPKCS8PrivateKey(priv)
+				return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: b})
+			},
+			wantTyp: "ed25519.PublicKey",
+		},
+	}
+
+	m := &KeyModule{}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.pemGen(t)
+			_, _, _, pub := m.detectPEMKey(data, string(data))
+			if pub == nil {
+				t.Fatal("expected non-nil public key")
+			}
+			gotTyp := fmt.Sprintf("%T", pub)
+			if gotTyp != tc.wantTyp {
+				t.Errorf("type = %q, want %q", gotTyp, tc.wantTyp)
+			}
+		})
+	}
 }

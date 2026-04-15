@@ -119,9 +119,11 @@ func (h *AdminHandlers) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct, err := base64.StdEncoding.DecodeString(body.EncryptedSecret)
-	// SealedBoxOverhead is 32 (ephemeral pubkey) + 16 (GCM tag) = 48
-	// plus at least a 12-byte nonce; any payload shorter than this
-	// cannot be a valid sealed box.
+	// SealedBoxOverhead = 32 (ephemeral X25519 pubkey) + 12
+	// (ChaCha20-Poly1305 nonce) + 16 (Poly1305 tag) = 60. Any valid
+	// sealed-box ciphertext must be at least this long. The guard
+	// rejects anything shorter, since it cannot possibly be valid
+	// (and we expect at least one plaintext byte on top).
 	if err != nil || len(ct) < 60 {
 		writeErr(w, http.StatusBadRequest, "invalid encrypted_secret")
 		return
@@ -325,7 +327,11 @@ func (h *AdminHandlers) GetTestJob(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := h.Store.GetTestJob(r.Context(), orgID, id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "test job not found")
+		if errors.Is(err, ErrTestJobNotFound) {
+			writeErr(w, http.StatusNotFound, "test job not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "get test job: "+err.Error())
 		return
 	}
 	results, err := h.Store.ListTestResults(r.Context(), id)

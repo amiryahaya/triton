@@ -21,6 +21,13 @@ var (
 	// but is no longer queued — an engine has already claimed it and
 	// owns the lifecycle from here.
 	ErrJobNotCancellable = errors.New("discovery job not cancellable")
+
+	// ErrJobAlreadyTerminal is returned by FinishJob when the target job
+	// is already in a terminal state (completed/failed/cancelled). This
+	// guards against a late Submit from a slow/partitioned engine
+	// overwriting a job that ReclaimStale has already reassigned to
+	// another engine.
+	ErrJobAlreadyTerminal = errors.New("discovery: job already in terminal state")
 )
 
 // Store is the persistence contract for discovery jobs + candidates.

@@ -284,17 +284,26 @@ func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status J
 		now := time.Now().UTC()
 		completedAt = &now
 	}
-	_, err := s.pool.Exec(ctx,
+	// Guard: refuse to overwrite a job that has already reached a
+	// terminal state (completed/failed/cancelled). If ReclaimStale
+	// bounced the job back to queued and another engine re-claimed it,
+	// a late Submit from the original engine must fail loudly rather
+	// than silently stomp on in-flight work.
+	ct, err := s.pool.Exec(ctx,
 		`UPDATE discovery_jobs
 		 SET status = $1,
 		     error = $2,
 		     completed_at = COALESCE($3, completed_at),
 		     candidate_count = $4
-		 WHERE id = $5`,
+		 WHERE id = $5
+		   AND status NOT IN ('completed', 'failed', 'cancelled')`,
 		string(status), errArg, completedAt, candidateCount, jobID,
 	)
 	if err != nil {
 		return fmt.Errorf("finish discovery job: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrJobAlreadyTerminal
 	}
 	return nil
 }

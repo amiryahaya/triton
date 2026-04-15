@@ -312,6 +312,56 @@ func TestPostgresStore_CancelJob_Missing_ReturnsNotFound(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrJobNotFound))
 }
 
+func TestPostgresStore_FinishJob_RejectsAlreadyCompleted(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	saved, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+
+	// First finish transitions queued → completed.
+	require.NoError(t, f.store.FinishJob(ctx, saved.ID, StatusCompleted, "", 5))
+
+	// Second finish must refuse — the job is already terminal. This
+	// protects against late Submit from a slow engine whose job was
+	// reassigned by ReclaimStale.
+	err = f.store.FinishJob(ctx, saved.ID, StatusCompleted, "", 10)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrJobAlreadyTerminal),
+		"expected ErrJobAlreadyTerminal, got: %v", err)
+
+	// Candidate count must not have been overwritten by the second
+	// (rejected) call.
+	got, err := f.store.GetJob(ctx, f.orgID, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 5, got.CandidateCount, "terminal-state guard must prevent overwrite")
+}
+
+func TestPostgresStore_FinishJob_UpdatesRunningToCompleted(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	saved, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+
+	claimed, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, saved.ID, claimed.ID)
+
+	// claimed → running is allowed (mid-scan transition).
+	require.NoError(t, f.store.FinishJob(ctx, saved.ID, StatusRunning, "", 0))
+
+	// running → completed is allowed and stamps completed_at.
+	require.NoError(t, f.store.FinishJob(ctx, saved.ID, StatusCompleted, "", 7))
+
+	got, err := f.store.GetJob(ctx, f.orgID, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, got.Status)
+	assert.Equal(t, 7, got.CandidateCount)
+	require.NotNil(t, got.CompletedAt, "completed_at must be stamped on terminal transition")
+}
+
 func TestPostgresStore_ReclaimStale(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()

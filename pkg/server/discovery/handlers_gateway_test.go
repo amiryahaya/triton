@@ -163,6 +163,43 @@ func TestSubmit_InvalidAddress_SkipsCandidate(t *testing.T) {
 	assert.True(t, fs.insertCalls[0].Candidates[0].Address.Equal(net.ParseIP("10.0.0.5")))
 }
 
+func TestSubmit_AfterReclaim_Returns409(t *testing.T) {
+	// Simulate the race: ReclaimStale bounced the job to another engine
+	// which finished it first, leaving the original engine's late Submit
+	// to hit ErrJobAlreadyTerminal. The handler must map that to 409.
+	fs := newFakeStore()
+	fs.finishErr = ErrJobAlreadyTerminal
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"candidates": []map[string]any{
+			{"address": "10.0.0.1", "open_ports": []int{22}},
+		},
+	}
+	req := gwReq(http.MethodPost, "/engine/discovery/"+jobID.String()+"/submit", body,
+		&engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusConflict, rr.Code, "late Submit after reclaim must return 409")
+
+	// Failed path: same guard applies.
+	fs2 := newFakeStore()
+	fs2.finishErr = ErrJobAlreadyTerminal
+	h2 := NewGatewayHandlers(fs2)
+	r2 := buildGatewayRouter(h2)
+
+	failBody := map[string]any{"error": "scan timeout"}
+	req2 := gwReq(http.MethodPost, "/engine/discovery/"+jobID.String()+"/submit", failBody,
+		&engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr2 := httptest.NewRecorder()
+	r2.ServeHTTP(rr2, req2)
+
+	require.Equal(t, http.StatusConflict, rr2.Code)
+}
+
 func TestSubmit_NoEngineContext_500(t *testing.T) {
 	fs := newFakeStore()
 	h := NewGatewayHandlers(fs)

@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -118,6 +119,10 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 
 	if body.Error != "" {
 		if err := h.Store.FinishJob(r.Context(), jobID, StatusFailed, body.Error, 0); err != nil {
+			if errors.Is(err, ErrJobAlreadyTerminal) {
+				http.Error(w, "job already terminal", http.StatusConflict)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -146,6 +151,10 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Store.FinishJob(r.Context(), jobID, StatusCompleted, "", len(cs)); err != nil {
+		if errors.Is(err, ErrJobAlreadyTerminal) {
+			http.Error(w, "job already terminal", http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

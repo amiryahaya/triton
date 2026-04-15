@@ -37,6 +37,7 @@ type fakeStore struct {
 	promoteCalls [][]uuid.UUID
 	finishCalls  []finishCall
 	insertCalls  []insertCall
+	finishErr    error
 
 	createErr error
 }
@@ -164,7 +165,7 @@ func (f *fakeStore) FinishJob(_ context.Context, jobID uuid.UUID, status JobStat
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finishCalls = append(f.finishCalls, finishCall{JobID: jobID, Status: status, Err: errMsg, Count: count})
-	return nil
+	return f.finishErr
 }
 
 func (f *fakeStore) ReclaimStale(_ context.Context, _ time.Time) error {

@@ -2,6 +2,9 @@ package tpmfs
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -76,6 +79,72 @@ func TestReadEKCert_MissingFileReturnsNilNoError(t *testing.T) {
 	}
 	if ek != nil {
 		t.Errorf("ek = %+v, want nil", ek)
+	}
+}
+
+func TestReadEKCert_ParsesECDSACert(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "ecdsa-ek"},
+		Issuer:       pkix.Name{CommonName: "test-ca"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ek")
+	if err := os.WriteFile(p, der, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ek, err := ReadEKCert(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ek.Algorithm != "ECDSA" {
+		t.Errorf("Algorithm = %q, want ECDSA", ek.Algorithm)
+	}
+	if ek.KeySize != 256 {
+		t.Errorf("KeySize = %d, want 256", ek.KeySize)
+	}
+	if ek.PublicKey == nil {
+		t.Error("PublicKey is nil")
+	}
+}
+
+func TestReadEKCert_ParsesEd25519Cert(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "ed-ek"},
+		Issuer:       pkix.Name{CommonName: "test-ca"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ek")
+	if err := os.WriteFile(p, der, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ek, err := ReadEKCert(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ek.Algorithm != "Ed25519" {
+		t.Errorf("Algorithm = %q, want Ed25519", ek.Algorithm)
 	}
 }
 

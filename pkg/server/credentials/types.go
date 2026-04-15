@@ -61,20 +61,27 @@ const (
 
 // Delivery is one queued payload for an engine to consume. Ciphertext
 // is the sealed-box blob from pkg/engine/crypto (nil for delete rows).
+//
+// JSON tags are REQUIRED — this struct is emitted verbatim on the
+// wire by GatewayHandlers.PollDelivery and the engine client decodes
+// it into client.DeliveryPayload keyed on these exact snake_case
+// names. Do not drop or rename tags without updating the client.
+// []byte Ciphertext is marshalled as base64 by encoding/json, which
+// matches the client's `string` decode.
 type Delivery struct {
-	ID          uuid.UUID
-	OrgID       uuid.UUID
-	EngineID    uuid.UUID
-	ProfileID   *uuid.UUID // nullable: delete rows can outlive their profile
-	SecretRef   uuid.UUID
-	AuthType    AuthType
-	Kind        DeliveryKind
-	Ciphertext  []byte
-	Status      string
-	Error       string
-	RequestedAt time.Time
-	ClaimedAt   *time.Time
-	AckedAt     *time.Time
+	ID          uuid.UUID    `json:"id"`
+	OrgID       uuid.UUID    `json:"org_id"`
+	EngineID    uuid.UUID    `json:"engine_id"`
+	ProfileID   *uuid.UUID   `json:"profile_id,omitempty"` // nullable: delete rows can outlive their profile
+	SecretRef   uuid.UUID    `json:"secret_ref"`
+	AuthType    AuthType     `json:"auth_type"`
+	Kind        DeliveryKind `json:"kind"`
+	Ciphertext  []byte       `json:"ciphertext,omitempty"`
+	Status      string       `json:"status"`
+	Error       string       `json:"error,omitempty"`
+	RequestedAt time.Time    `json:"requested_at"`
+	ClaimedAt   *time.Time   `json:"claimed_at,omitempty"`
+	AckedAt     *time.Time   `json:"acked_at,omitempty"`
 }
 
 // TestJob is an operator request for the engine to probe a set of

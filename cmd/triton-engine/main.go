@@ -34,23 +34,29 @@ import (
 // A malformed env var is a fatal configuration error rather than a
 // silent downgrade so operators can spot misconfigured production
 // deployments immediately.
-func loadKeystoreMasterKey(priv *ecdh.PrivateKey) []byte {
+// loadKeystoreMasterKey returns the master key and a flag indicating
+// whether the key was derived from the ephemeral X25519 private key
+// (dev-only mode). Callers use the flag to decide whether to wipe
+// stale rows that are unreadable under the fresh key.
+func loadKeystoreMasterKey(priv *ecdh.PrivateKey) (key []byte, derived bool) {
 	s := os.Getenv("TRITON_ENGINE_KEYSTORE_KEY")
 	if s != "" {
-		key, err := hex.DecodeString(s)
+		k, err := hex.DecodeString(s)
 		if err != nil {
 			log.Fatalf("TRITON_ENGINE_KEYSTORE_KEY must be hex-encoded: %v", err)
 		}
-		if len(key) != 32 {
-			log.Fatalf("TRITON_ENGINE_KEYSTORE_KEY must be 64 hex chars (32 bytes), got %d", len(key))
+		if len(k) != 32 {
+			log.Fatalf("TRITON_ENGINE_KEYSTORE_KEY must be 64 hex chars (32 bytes), got %d", len(k))
 		}
-		return key
+		return k, false
 	}
-	log.Println("WARNING: TRITON_ENGINE_KEYSTORE_KEY unset — deriving keystore master key from X25519 private key (DEV ONLY)")
+	log.Printf("WARNING: TRITON_ENGINE_KEYSTORE_KEY not set — deriving ephemeral master key from engine X25519 private key.")
+	log.Printf("WARNING: This key rotates on every restart. ALL PREVIOUSLY STORED SECRETS WILL BE UNREADABLE after restart.")
+	log.Printf("WARNING: Set TRITON_ENGINE_KEYSTORE_KEY (64 hex chars = 32 bytes) in production to persist secrets across restarts.")
 	h := sha256.New()
 	h.Write(priv.Bytes())
 	h.Write([]byte("triton-engine-keystore-v1"))
-	return h.Sum(nil)
+	return h.Sum(nil), true
 }
 
 // run is the real entry point — factored out so that main() stays
@@ -98,13 +104,25 @@ func run() int {
 		log.Printf("mkdir keystore dir: %v", err)
 		return 1
 	}
-	masterKey := loadKeystoreMasterKey(priv)
+	masterKey, derivedKey := loadKeystoreMasterKey(priv)
 	ks, err := keystore.Open(ksPath, masterKey)
 	if err != nil {
 		log.Printf("open keystore: %v", err)
 		return 1
 	}
 	defer func() { _ = ks.Close() }()
+
+	// When using a derived (ephemeral) master key, any secrets carried
+	// over from a previous run are permanently undecryptable. Wipe them
+	// proactively so the keystore doesn't accumulate zombie rows and
+	// the engine re-requests a fresh delivery from the portal.
+	if derivedKey {
+		if n, err := ks.Wipe(ctx); err != nil {
+			log.Printf("keystore: wipe stale secrets: %v", err)
+		} else if n > 0 {
+			log.Printf("keystore: wiped %d stale secrets (ephemeral master key)", n)
+		}
+	}
 
 	// Discovery worker: long-poll the portal for queued discovery
 	// jobs, run TCP-connect scans, stream candidates back.

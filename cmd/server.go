@@ -285,7 +285,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("portal TLS cert: %w", err)
 	}
-	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, certPath, keyPath)
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, invStore, server.NewAuditAdapter(srv), certPath, keyPath)
 	if err != nil {
 		return fmt.Errorf("starting engine gateway: %w", err)
 	}

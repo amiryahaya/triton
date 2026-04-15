@@ -29,8 +29,13 @@ type InventoryTargetLookup interface {
 type GatewayHandlers struct {
 	Store          Store
 	InventoryStore InventoryTargetLookup
-	PollTimeout    time.Duration
-	PollInterval   time.Duration
+	// Audit is optional — if nil, gateway events (delivery ack, test
+	// submission) are not recorded. Production wiring should always
+	// supply one so engine-side state transitions are visible in the
+	// org audit trail.
+	Audit        AuditRecorder
+	PollTimeout  time.Duration
+	PollInterval time.Duration
 }
 
 // NewGatewayHandlers wires a GatewayHandlers with sensible defaults.
@@ -41,6 +46,15 @@ func NewGatewayHandlers(s Store, inv InventoryTargetLookup) *GatewayHandlers {
 		PollTimeout:    30 * time.Second,
 		PollInterval:   1 * time.Second,
 	}
+}
+
+// recordAudit is a nil-safe helper: tests and embedded deployments
+// may leave Audit unset.
+func (h *GatewayHandlers) recordAudit(ctx context.Context, event, subject string, fields map[string]any) {
+	if h.Audit == nil {
+		return
+	}
+	h.Audit.Record(ctx, event, subject, fields)
 }
 
 // defaultPortFor returns the usual TCP port for each auth type. SSH
@@ -142,6 +156,20 @@ func (h *GatewayHandlers) AckDelivery(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "ack delivery: "+err.Error())
 		return
 	}
+
+	// Audit trail: record success vs failure so operators can see which
+	// engine acknowledged what. engine_id comes from the mTLS context.
+	event := "credentials.delivery.acked"
+	fields := map[string]any{}
+	if eng := engine.EngineFromContext(r.Context()); eng != nil {
+		fields["engine_id"] = eng.ID.String()
+	}
+	if body.Error != "" {
+		event = "credentials.delivery.failed"
+		fields["error"] = body.Error
+	}
+	h.recordAudit(r.Context(), event, id.String(), fields)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -264,5 +292,19 @@ func (h *GatewayHandlers) SubmitTest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "finish test job: "+err.Error())
 		return
 	}
+
+	// Audit trail: record per-job submission so operators can see which
+	// engine answered the test and whether it carried an engine-side
+	// error. Per-host results are already persisted in
+	// credential_test_results and queryable separately.
+	fields := map[string]any{
+		"result_count": len(body.Results),
+		"has_error":    body.Error != "",
+	}
+	if eng := engine.EngineFromContext(r.Context()); eng != nil {
+		fields["engine_id"] = eng.ID.String()
+	}
+	h.recordAudit(r.Context(), "credentials.test.submitted", id.String(), fields)
+
 	w.WriteHeader(http.StatusNoContent)
 }

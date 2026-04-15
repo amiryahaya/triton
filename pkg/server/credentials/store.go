@@ -22,6 +22,11 @@ var (
 	// ErrTestAlreadyTerminal: FinishTestJob called for a row that has
 	// already been marked completed / failed / cancelled.
 	ErrTestAlreadyTerminal = errors.New("credentials: test job already terminal")
+
+	// ErrTestJobNotFound: GetTestJob received an (org, id) pair with no
+	// matching row. Distinct from a generic DB failure so handlers can
+	// return 404 vs 500.
+	ErrTestJobNotFound = errors.New("credentials: test job not found")
 )
 
 // Store persists credentials profiles, the per-engine delivery queue,

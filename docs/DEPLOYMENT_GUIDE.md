@@ -470,6 +470,18 @@ openssl req -x509 -newkey rsa:4096 -nodes \
 
 For production use a CA-signed cert (Let's Encrypt, internal PKI, etc.).
 
+### 5f. Engine keystore master key (production)
+
+The `triton-engine` agent binary stores credential secrets in a local SQLite keystore encrypted with a 32-byte master key. In production, set:
+
+```bash
+export TRITON_ENGINE_KEYSTORE_KEY=$(openssl rand -hex 32)   # 64 hex chars
+```
+
+If this variable is unset, the engine derives an **ephemeral** key from its X25519 private key. The derived key rotates on every restart, which means **every previously stored secret becomes permanently unreadable**. The engine detects this mode at startup and wipes the keystore proactively so no zombie rows accumulate. This is acceptable for dev/test but never for production — the portal will see the engine's credentials vanish on every restart and re-deliver them, which is both noisy and wastes sealed-box material.
+
+The engine logs three WARNING lines at startup when running in ephemeral mode; if you see them outside a development environment, set `TRITON_ENGINE_KEYSTORE_KEY` and restart.
+
 ---
 
 ## 6. License Server

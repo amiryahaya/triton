@@ -127,6 +127,26 @@ func (k *Keystore) Get(ctx context.Context, secretRef string) (authType string, 
 	return authType, pt, nil
 }
 
+// Wipe removes every secret in the store and returns the number of
+// rows that were deleted. Intended for use on startup when the engine
+// has been configured with an ephemeral master key — the previously
+// stored ciphertexts cannot be decrypted with the new key, so they
+// are dead weight. Safe to call on an empty store.
+func (k *Keystore) Wipe(ctx context.Context) (int64, error) {
+	res, err := k.db.ExecContext(ctx, `DELETE FROM secrets`)
+	if err != nil {
+		return 0, fmt.Errorf("wipe secrets: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		// RowsAffected is supported by modernc.org/sqlite; if it ever
+		// isn't we don't want the caller to treat a real wipe as a
+		// failure, so log-and-return zero.
+		return 0, nil //nolint:nilerr // documented tradeoff
+	}
+	return n, nil
+}
+
 // Delete removes a secret by secretRef. Missing rows are not an error.
 func (k *Keystore) Delete(ctx context.Context, secretRef string) error {
 	_, err := k.db.ExecContext(ctx, `DELETE FROM secrets WHERE secret_ref = ?`, secretRef)

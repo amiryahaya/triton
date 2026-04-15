@@ -313,6 +313,9 @@ func (s *PostgresStore) GetTestJob(ctx context.Context, orgID, id uuid.UUID) (Te
 	)
 	t, err := scanTestJob(row)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TestJob{}, ErrTestJobNotFound
+		}
 		return TestJob{}, fmt.Errorf("get test job: %w", err)
 	}
 	return t, nil

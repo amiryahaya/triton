@@ -51,18 +51,12 @@ func rocaMatchesGenerator(n *big.Int, p uint64) bool {
 	// Walk powers of 65537 mod p until we cycle back to 1.
 	power65537 := uint64(1)
 	seen65537 := make(map[uint64]bool, pU)
-	for {
-		if seen65537[power65537] {
-			break
-		}
+	for !seen65537[power65537] {
 		seen65537[power65537] = true
 		// For this a, walk powers of 2 mod p.
 		candidate := power65537
 		seen2 := make(map[uint64]bool, pU)
-		for {
-			if seen2[candidate] {
-				break
-			}
+		for !seen2[candidate] {
 			seen2[candidate] = true
 			if candidate == target {
 				return true

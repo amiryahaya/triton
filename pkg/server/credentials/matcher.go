@@ -4,6 +4,8 @@ import (
 	"net"
 
 	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/server/hostmatch"
 )
 
 // ResolveMatcher returns the subset of hosts that satisfy every
@@ -15,7 +17,7 @@ import (
 // (not an error) so policy authors get a visibly empty deploy instead
 // of a 500 propagating to the operator — validation happens at admit
 // time in the handler layer.
-func ResolveMatcher(m Matcher, hosts []HostSummary) []uuid.UUID {
+func ResolveMatcher(m Matcher, hosts []hostmatch.HostSummary) []uuid.UUID {
 	var cidrNet *net.IPNet
 	if m.CIDR != "" {
 		_, n, err := net.ParseCIDR(m.CIDR)

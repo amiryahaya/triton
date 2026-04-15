@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/amiryahaya/triton/pkg/server/hostmatch"
 )
 
 type PostgresStore struct {
@@ -408,6 +410,87 @@ func classifyImportError(err error) string {
 		}
 	}
 	return err.Error()
+}
+
+// ListHostSummaries returns the matcher projection: one row per host
+// with its tags aggregated into a map. Hosts with no tags appear with
+// an empty (non-nil) map; hosts without an address come through with
+// Address == nil (the matcher tolerates this).
+func (s *PostgresStore) ListHostSummaries(ctx context.Context, orgID uuid.UUID) ([]hostmatch.HostSummary, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT h.id, h.group_id, h.address::text, COALESCE(h.os, ''),
+		        COALESCE(array_agg(t.key || '=' || t.value) FILTER (WHERE t.key IS NOT NULL), '{}')
+		 FROM inventory_hosts h
+		 LEFT JOIN inventory_tags t ON t.host_id = h.id
+		 WHERE h.org_id = $1
+		 GROUP BY h.id`,
+		orgID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list host summaries: %w", err)
+	}
+	defer rows.Close()
+
+	out := []hostmatch.HostSummary{}
+	for rows.Next() {
+		var h hostmatch.HostSummary
+		var addr *string
+		var tagKVs []string
+		if err := rows.Scan(&h.ID, &h.GroupID, &addr, &h.OS, &tagKVs); err != nil {
+			return nil, err
+		}
+		if addr != nil {
+			a := *addr
+			if i := strings.IndexByte(a, '/'); i >= 0 {
+				a = a[:i]
+			}
+			h.Address = net.ParseIP(a)
+		}
+		h.Tags = map[string]string{}
+		for _, kv := range tagKVs {
+			if i := strings.IndexByte(kv, '='); i >= 0 {
+				h.Tags[kv[:i]] = kv[i+1:]
+			}
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// GetHostsByIDs returns all org-scoped hosts whose id is in ids. The
+// credentials gateway calls this to enrich a test job payload with
+// each host's address before the engine probes them.
+func (s *PostgresStore) GetHostsByIDs(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) ([]Host, error) {
+	if len(ids) == 0 {
+		return []Host{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, org_id, group_id, COALESCE(hostname, ''), address::text, COALESCE(os, ''), mode, created_at
+		 FROM inventory_hosts WHERE org_id = $1 AND id = ANY($2)`,
+		orgID, ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get hosts by ids: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Host{}
+	for rows.Next() {
+		var h Host
+		var addr *string
+		if err := rows.Scan(&h.ID, &h.OrgID, &h.GroupID, &h.Hostname, &addr, &h.OS, &h.Mode, &h.CreatedAt); err != nil {
+			return nil, err
+		}
+		if addr != nil {
+			a := *addr
+			if i := strings.IndexByte(a, '/'); i >= 0 {
+				a = a[:i]
+			}
+			h.Address = net.ParseIP(a)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 // Compile-time interface satisfaction assertion.

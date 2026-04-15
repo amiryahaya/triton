@@ -17,6 +17,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/server"
+	"github.com/amiryahaya/triton/pkg/server/hostmatch"
 )
 
 // --- fake Store for handler tests ---
@@ -191,6 +192,14 @@ func (f *fakeStore) ImportHosts(_ context.Context, orgID, groupID uuid.UUID, row
 	defer f.mu.Unlock()
 	f.importCalls = append(f.importCalls, importCall{OrgID: orgID, GroupID: groupID, Rows: rows, DryRun: dryRun})
 	return f.importResult, f.importErr
+}
+
+func (f *fakeStore) ListHostSummaries(_ context.Context, _ uuid.UUID) ([]hostmatch.HostSummary, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) GetHostsByIDs(_ context.Context, _ uuid.UUID, _ []uuid.UUID) ([]Host, error) {
+	return nil, nil
 }
 
 // --- test helpers ---

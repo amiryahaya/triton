@@ -5,7 +5,6 @@
 package credentials
 
 import (
-	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -103,13 +102,7 @@ type TestResult struct {
 	ProbedAt  time.Time `json:"probed_at"`
 }
 
-// HostSummary is the projection of inventory_hosts + inventory_tags
-// that the matcher resolver consumes. Address is nil for hostname-only
-// rows; OS is empty for un-classified hosts.
-type HostSummary struct {
-	ID      uuid.UUID
-	GroupID uuid.UUID
-	Address net.IP
-	OS      string
-	Tags    map[string]string
-}
+// HostSummary has moved to pkg/server/hostmatch to break a potential
+// import cycle between credentials handlers (which need inventory) and
+// inventory's ListHostSummaries (which returns the projection). Callers
+// should import hostmatch.HostSummary directly.

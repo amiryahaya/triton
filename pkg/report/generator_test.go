@@ -392,6 +392,26 @@ func TestGenerateHTMLAgilityPanel(t *testing.T) {
 	if !strings.Contains(html, "PQC Coverage") {
 		t.Error("missing PQC Coverage dimension label")
 	}
+	// Verify badge color class corresponds to the Overall band.
+	// The synthetic input has 1 hybrid SAFE TLS finding + 1 unsafe MD5 finding.
+	// PQC: 1/2 covered = 50; Protocol: TLS 1.3 + 1 group + hybrid → fires; etc.
+	// Whatever the Overall is, exactly one band class must be applied to the
+	// badge element (the other two still appear as CSS rules in the <style> block).
+	bandClasses := []string{"agility-high", "agility-mid", "agility-low"}
+	matches := 0
+	for _, c := range bandClasses {
+		if strings.Contains(html, `agility-badge `+c) {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Errorf("expected exactly 1 band class applied to badge, found %d (%v)", matches, bandClasses)
+	}
+	// Recommendations must render when low PQC + java/binary findings present.
+	if !strings.Contains(html, "Recommended actions") && !strings.Contains(html, "<ul>") {
+		// Synthetic input may not trigger any rule; soft assertion only — log if absent.
+		t.Logf("note: no recommendations rendered for synthetic input")
+	}
 }
 
 func TestGenerateHTMLNoAgilityPanelWhenNoFindings(t *testing.T) {

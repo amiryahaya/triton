@@ -436,9 +436,19 @@
       if (e.message !== 'unauthorized') console.error('groups load', e);
     }
 
+    // 5MB ~= 50k simple rows. The server caps at 10k rows, so anything
+    // bigger than this client-side limit would be rejected anyway and
+    // we save the tab from freezing on FileReader.text() of a huge file.
+    const MAX_CSV_BYTES = 5 * 1024 * 1024;
+
     el.querySelector('#csvFile').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      if (file.size > MAX_CSV_BYTES) {
+        el.querySelector('#csv_preview').innerHTML =
+          `<p class="error">File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max ${MAX_CSV_BYTES / 1024 / 1024} MB.</p>`;
+        return;
+      }
       try {
         const text = await file.text();
         const rows = parseCSV(text);
@@ -450,6 +460,15 @@
   }
 
   function parseCSV(text) {
+    // Reject files with newlines inside quoted fields. A naive
+    // line-split tokenizer would desync row boundaries, mapping fields
+    // to the wrong columns silently. A full quote-aware state machine
+    // is more code than this path deserves; operators exporting from
+    // spreadsheets rarely need embedded newlines, and a clear rejection
+    // beats a silent corrupt import.
+    if (hasQuotedNewline(text)) {
+      throw new Error('CSV contains newlines inside quoted fields — not supported. Re-export without embedded line breaks.');
+    }
     const lines = text.split(/\r?\n/).filter(l => l.length > 0);
     if (lines.length < 1) throw new Error('file is empty');
     const header = splitCSVLine(lines[0]).map(h => h.toLowerCase().trim());
@@ -463,6 +482,24 @@
       rows.push(row);
     }
     return rows;
+  }
+
+  // hasQuotedNewline walks the text tracking quote state so that an
+  // escaped "" pair inside a quoted field doesn't flip state twice (it
+  // represents a literal quote, not a close-then-open). Returns true on
+  // the first raw \n or \r encountered while inside quotes.
+  function hasQuotedNewline(text) {
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '"') {
+        if (inQuotes && text[i + 1] === '"') { i++; continue; }
+        inQuotes = !inQuotes;
+      } else if ((ch === '\n' || ch === '\r') && inQuotes) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function splitCSVLine(line) {

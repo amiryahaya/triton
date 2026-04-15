@@ -44,6 +44,13 @@ type CDXComponent struct {
 	Name             string               `json:"name"`
 	BomRef           string               `json:"bom-ref,omitempty"`
 	CryptoProperties *CDXCryptoProperties `json:"cryptoProperties,omitempty"`
+	Properties       []CDXProperty        `json:"properties,omitempty"`
+}
+
+// CDXProperty is a generic name/value property attached to a component.
+type CDXProperty struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // CDXCryptoProperties holds cryptographic asset details per CycloneDX 1.7.
@@ -191,6 +198,28 @@ func findingToComponent(f *model.Finding) CDXComponent {
 			comp.CryptoProperties.OID = asset.OID
 		} else if oid := crypto.OIDForAlgorithm(asset.Algorithm); oid != "" {
 			comp.CryptoProperties.OID = oid
+		}
+	}
+
+	// Emit key-material quality warnings as CycloneDX properties. The CycloneDX
+	// 1.7 schema in this package does not yet include a vulnerabilities
+	// section, so any embedded CVE identifiers are surfaced via a dedicated
+	// `triton:quality-warning-cve` property alongside the full warning text.
+	// A follow-up PR can graduate these to proper vulnerability refs.
+	for _, qw := range asset.QualityWarnings {
+		formatted := fmt.Sprintf("[%s] %s: %s", qw.Severity, qw.Code, qw.Message)
+		if qw.CVE != "" {
+			formatted += " [" + qw.CVE + "]"
+		}
+		comp.Properties = append(comp.Properties, CDXProperty{
+			Name:  "triton:quality-warning",
+			Value: formatted,
+		})
+		if qw.CVE != "" {
+			comp.Properties = append(comp.Properties, CDXProperty{
+				Name:  "triton:quality-warning-cve",
+				Value: qw.CVE,
+			})
 		}
 	}
 

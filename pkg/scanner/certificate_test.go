@@ -817,3 +817,44 @@ func buildSyntheticCertDERForScanner(t *testing.T, sigOID, pubKeyOID string) []b
 	certContent = append(certContent, fakeSig...)
 	return wrapASN1Scanner(0x30, certContent)
 }
+
+func TestCertificateFinding_SurfacesQualityWarnings(t *testing.T) {
+	// Construct a cert with a deliberately broken modulus: n = 9973 * large_prime.
+	// 9973 is the largest prime ≤ 10000 (consistent with keyquality.smallPrimeMax).
+	largePrime, err := rand.Prime(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("rand.Prime: %v", err)
+	}
+	n := new(big.Int).Mul(big.NewInt(9973), largePrime)
+	pub := &rsa.PublicKey{N: n, E: 65537}
+
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	// Sign with a throwaway key; swap the PublicKey after parsing.
+	throwaway, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey: %v", err)
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &throwaway.PublicKey, throwaway)
+	if err != nil {
+		t.Fatalf("CreateCertificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("ParseCertificate: %v", err)
+	}
+	cert.PublicKey = pub // override for the keyquality path
+
+	m := &CertificateModule{config: &scannerconfig.Config{}}
+	f := m.createFinding("/tmp/test.crt", cert)
+	if f == nil || f.CryptoAsset == nil {
+		t.Fatal("createFinding returned nil")
+	}
+	if len(f.CryptoAsset.QualityWarnings) == 0 {
+		t.Errorf("expected QualityWarnings on broken cert; got none")
+	}
+}

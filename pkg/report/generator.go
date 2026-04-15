@@ -114,6 +114,8 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 		.status-DEPRECATED { color: #c62828; font-weight: bold; }
 		.status-UNSAFE { color: #b71c1c; font-weight: bold; }
 		.hybrid-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 0.7em; font-weight: bold; color: #fff; background: #6a1b9a; border-radius: 3px; vertical-align: middle; }
+		.quality-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 0.7em; font-weight: bold; color: #fff; background: #c62828; border-radius: 3px; vertical-align: middle; }
+		.quality-details { font-size: 0.8em; color: #c62828; margin-top: 4px; }
 		.meta { color: #666; font-size: 0.9em; }
 		.chart-section { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; margin: 20px 0; }
 		.chart-legend { display: flex; flex-direction: column; gap: 6px; font-size: 0.9em; margin-top: 8px; }
@@ -227,6 +229,9 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			}
 			algoCell += fmt.Sprintf(`<span class="hybrid-badge" title=%q>HYBRID</span>`, html.EscapeString(title))
 		}
+		if len(row.asset.QualityWarnings) > 0 {
+			algoCell += ` <span class="quality-badge" title="Key-material quality warnings">⚠ QUALITY</span>`
+		}
 		b.WriteString(fmt.Sprintf(`		<tr>
 			<td>CBOM #%d</td>
 			<td>%s</td>
@@ -244,6 +249,22 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			statusClass, html.EscapeString(row.asset.PQCStatus),
 			html.EscapeString(row.asset.CNSA2Status),
 			html.EscapeString(row.asset.ComplianceWarning)))
+		if len(row.asset.QualityWarnings) > 0 {
+			b.WriteString(`		<tr class="quality-details-row"><td colspan="8"><div class="quality-details">`)
+			b.WriteString(`<strong>Quality warnings:</strong><ul>`)
+			for _, qw := range row.asset.QualityWarnings {
+				b.WriteString(fmt.Sprintf(`<li><strong>[%s] %s:</strong> %s`,
+					html.EscapeString(qw.Severity),
+					html.EscapeString(qw.Code),
+					html.EscapeString(qw.Message)))
+				if qw.CVE != "" {
+					b.WriteString(fmt.Sprintf(` <a href="https://nvd.nist.gov/vuln/detail/%s">%s</a>`,
+						html.EscapeString(qw.CVE), html.EscapeString(qw.CVE)))
+				}
+				b.WriteString(`</li>`)
+			}
+			b.WriteString(`</ul></div></td></tr>` + "\n")
+		}
 	}
 	b.WriteString(`	</table>
 `)

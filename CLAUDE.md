@@ -73,6 +73,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `tls_groups.go` — IANA TLS named group registry with hybrid PQC classification (composite ML-KEM + classical ECDHE groups, draft Kyber hybrids, pure PQ KEMs)
   - `java_algorithms.go` — Java crypto literal registry (~80 entries)
   - `dotnet_algorithms.go` — .NET crypto registry: BCL types, CAPI/CNG constants, BouncyCastle.NET PQC (~80 entries)
+  - `keyquality/` — Key-material quality analyzer (ROCA CVE-2017-15361, Debian PRNG CVE-2008-0166, small-prime trial division, size-vs-claim mismatch); called inline by `certificate.go` + `key.go`, attaches warnings to `CryptoAsset.QualityWarnings`
 - **`pkg/model/`** — Data structures for SBOM, CBOM, findings, components
 - **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON. HTML report includes policy analysis summary (verdict banner, violations-by-rule table, threshold violations) when `--policy` is used.
 - **`pkg/store/`** — PostgreSQL storage via pgx/v5

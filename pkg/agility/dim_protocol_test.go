@@ -55,6 +55,24 @@ func TestScoreProtocolAgility_NoProtocolFindings(t *testing.T) {
 	}
 }
 
+func TestIsNamedGroup_RejectsCipherSuiteStrings(t *testing.T) {
+	cases := map[string]bool{
+		"X25519":         true,
+		"secp256r1":      true,
+		"X25519MLKEM768": true,
+		"TLS 1.3":        false,
+		"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": false,
+		"ECDHE-RSA-AES128-GCM-SHA256":           false,
+		"ECDHE-ECDSA-CHACHA20-POLY1305":         false,
+		"":                                      false,
+	}
+	for in, want := range cases {
+		if got := isNamedGroup(in); got != want {
+			t.Errorf("isNamedGroup(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestScoreProtocolAgility_WebServerContributes(t *testing.T) {
 	fs := []model.Finding{
 		protoFinding("web_server", "TLS 1.2", false),

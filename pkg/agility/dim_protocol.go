@@ -141,9 +141,16 @@ func isNamedGroup(algo string) bool {
 	if tlsVersionScore(algo) >= 0 {
 		return false
 	}
-	// Cipher suite strings contain "_WITH_" (IANA) or multiple "-" tokens with AES/GCM; skip.
+	// Reject IANA-style cipher suites (e.g. TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256).
 	if strings.Contains(algo, "_WITH_") {
 		return false
+	}
+	// Reject OpenSSL-style cipher suite tokens (e.g. ECDHE-RSA-AES128-GCM-SHA256).
+	upper := strings.ToUpper(algo)
+	for _, marker := range []string{"-AES", "-GCM", "-SHA", "-RSA-", "-ECDHE-", "-CHACHA"} {
+		if strings.Contains(upper, marker) {
+			return false
+		}
 	}
 	return true
 }

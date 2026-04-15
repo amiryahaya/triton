@@ -23,8 +23,9 @@ func TestTPM_EndToEnd(t *testing.T) {
 		t.Skip("tpm module is Linux-only")
 	}
 	// Integration test file lives in test/integration; fixture is in pkg/scanner/internal/tpmfs/testdata.
-	// Resolve the fixture path relative to the repo root.
-	repoRoot, _ := filepath.Abs("../..")
+	// Resolve the fixture path relative to this source file (cwd-independent).
+	_, thisFile, _, _ := runtime.Caller(0)
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 	sysRoot := filepath.Join(repoRoot, "pkg/scanner/internal/tpmfs/testdata/sysfs-infineon")
 	if _, err := os.Stat(sysRoot); err != nil {
 		t.Skipf("fixture not found at %s: %v", sysRoot, err)

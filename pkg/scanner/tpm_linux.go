@@ -4,7 +4,6 @@ package scanner
 
 import (
 	"context"
-	stdx509 "crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -151,10 +150,8 @@ func emitEKCertFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 		Language:  "Firmware",
 	}
 	crypto.ClassifyCryptoAsset(asset)
-	// Reuse keyquality for material-level audits.
-	pub := extractPubForQuality(ek.RawDER)
-	if pub != nil {
-		ws := keyquality.Analyze(pub, asset.Algorithm, asset.KeySize)
+	if ek.PublicKey != nil {
+		ws := keyquality.Analyze(ek.PublicKey, asset.Algorithm, asset.KeySize)
 		if len(ws) > 0 {
 			asset.QualityWarnings = keyquality.ToModel(ws)
 		}
@@ -179,18 +176,6 @@ func emitEKCertFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 	case findings <- f:
 		return nil
 	}
-}
-
-// extractPubForQuality re-parses the DER to pull the public key out.
-// Duplicates some work from ReadEKCert but keeps that function's signature
-// clean. Returns nil on parse failure so callers can silently skip quality
-// analysis rather than fail the whole scan.
-func extractPubForQuality(der []byte) interface{} {
-	cert, err := stdx509.ParseCertificate(der)
-	if err != nil {
-		return nil
-	}
-	return cert.PublicKey
 }
 
 // emitEventLogFinding parses the TCG event log and emits a finding with its

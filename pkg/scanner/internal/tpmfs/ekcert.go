@@ -44,6 +44,7 @@ func ReadEKCert(path string) (*EKCert, error) {
 		KeySize:   size,
 		Subject:   cert.Subject.String(),
 		Issuer:    cert.Issuer.String(),
+		PublicKey: cert.PublicKey,
 	}, nil
 }
 

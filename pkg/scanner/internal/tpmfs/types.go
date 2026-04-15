@@ -80,4 +80,5 @@ type EKCert struct {
 	KeySize   int    // bits
 	Subject   string
 	Issuer    string
+	PublicKey any // crypto.PublicKey (kept as 'any' to avoid importing crypto in this types-only file)
 }

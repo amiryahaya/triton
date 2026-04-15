@@ -69,6 +69,7 @@
     '/dashboard': renderDashboard,
     '/groups': renderGroups,
     '/hosts': renderHosts,
+    '/hosts/import': renderCSVImport,
     '/engines': renderEngines,
   };
 
@@ -190,6 +191,7 @@
       <h1>Hosts</h1>
       <div id="list">loading&hellip;</div>
       ${canMutate() ? `
+        <p><a href="#/hosts/import" class="nav-link-inline">Import from CSV &rarr;</a></p>
         <h2>Create host</h2>
         <form id="newhost">
           <label>Group
@@ -387,5 +389,166 @@
     return String(s).replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  }
+
+  // ---------- CSV Import (Task 10) ----------
+
+  async function renderCSVImport(el) {
+    if (!canMutate()) {
+      el.innerHTML = '<h1>Import hosts from CSV</h1><p>Only Engineers and Owners can import hosts.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <h1>Import hosts from CSV</h1>
+      <p class="muted">Expected columns: <code>hostname,address,os,mode,tags</code>. The <code>tags</code> column is semicolon-separated key=value pairs, e.g. <code>env=prod;team=platform</code>. Missing columns are treated as empty.</p>
+      <form id="csvForm">
+        <label>Target group
+          <select name="group_id" id="csv_group" required>
+            <option value="">&mdash; choose group &mdash;</option>
+          </select>
+        </label>
+        <label>CSV file
+          <input type="file" id="csvFile" accept=".csv,text/csv" required>
+        </label>
+      </form>
+      <div id="csv_preview"></div>
+      <p><a href="#/hosts">&larr; Back to hosts</a></p>
+    `;
+
+    const sel = el.querySelector('#csv_group');
+    try {
+      const resp = await authedFetch('/api/v1/manage/groups/');
+      const groups = await resp.json();
+      for (const g of groups || []) {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') console.error('groups load', e);
+    }
+
+    el.querySelector('#csvFile').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const rows = parseCSV(text);
+        renderCSVPreview(el.querySelector('#csv_preview'), rows, () => sel.value);
+      } catch (err) {
+        el.querySelector('#csv_preview').innerHTML = `<p class="error">Parse failed: ${escapeHTML(err.message)}</p>`;
+      }
+    });
+  }
+
+  function parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.length > 0);
+    if (lines.length < 1) throw new Error('file is empty');
+    const header = splitCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const fields = splitCSVLine(lines[i]);
+      const row = {};
+      for (let j = 0; j < header.length; j++) {
+        row[header[j]] = (fields[j] || '').trim();
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function splitCSVLine(line) {
+    const out = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function mapCSVRows(rows) {
+    return rows.map(r => ({
+      hostname: r.hostname || '',
+      address: r.address || r.ip || '',
+      os: r.os || '',
+      mode: r.mode || 'agentless',
+      tags: (r.tags || '').split(';').map(kv => kv.trim()).filter(Boolean).map(kv => {
+        const eq = kv.indexOf('=');
+        if (eq < 0) return { key: kv, value: '' };
+        return { key: kv.slice(0, eq), value: kv.slice(eq + 1) };
+      }),
+    }));
+  }
+
+  function renderCSVPreview(el, rows, getGroupId) {
+    const mapped = mapCSVRows(rows);
+    const preview = mapped.slice(0, 10);
+    el.innerHTML = `
+      <h2>Preview</h2>
+      <p>${mapped.length} row${mapped.length === 1 ? '' : 's'} in file.</p>
+      <table>
+        <thead><tr><th>Hostname</th><th>Address</th><th>OS</th><th>Mode</th><th>Tags</th></tr></thead>
+        <tbody>${preview.map(r => `<tr>
+          <td>${escapeHTML(r.hostname)}</td>
+          <td>${escapeHTML(r.address)}</td>
+          <td>${escapeHTML(r.os)}</td>
+          <td>${escapeHTML(r.mode)}</td>
+          <td>${r.tags.map(t => escapeHTML(t.key) + '=' + escapeHTML(t.value)).join(', ')}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      ${mapped.length > 10 ? `<p class="muted">Showing first 10 of ${mapped.length}.</p>` : ''}
+      <div class="button-row">
+        <button id="dryRun">Dry-run</button>
+        <button id="commit" class="primary">Import ${mapped.length} host${mapped.length === 1 ? '' : 's'}</button>
+      </div>
+      <div id="csv_result"></div>
+    `;
+    el.querySelector('#dryRun').addEventListener('click', () =>
+      doImport(mapped, getGroupId(), true, el.querySelector('#csv_result'))
+    );
+    el.querySelector('#commit').addEventListener('click', () =>
+      doImport(mapped, getGroupId(), false, el.querySelector('#csv_result'))
+    );
+  }
+
+  async function doImport(rows, groupId, dryRun, resultEl) {
+    if (!groupId) { resultEl.innerHTML = '<p class="error">Choose a group first.</p>'; return; }
+    if (rows.length === 0) { resultEl.innerHTML = '<p class="error">No rows to import.</p>'; return; }
+    if (rows.length > 10000) { resultEl.innerHTML = '<p class="error">Max 10,000 rows per import.</p>'; return; }
+    resultEl.innerHTML = '<p class="muted">Running&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/hosts/import', {
+        method: 'POST',
+        body: JSON.stringify({ group_id: groupId, rows, dry_run: dryRun }),
+      });
+      if (!resp.ok) {
+        resultEl.innerHTML = `<p class="error">Import failed: HTTP ${resp.status}</p>`;
+        return;
+      }
+      const data = await resp.json();
+      const label = dryRun ? '(dry-run &mdash; no rows inserted)' : '(committed)';
+      const errorList = data.errors && data.errors.length
+        ? `<h3>Errors (${data.errors.length})</h3><ul>${data.errors.map(e => `<li>Row ${e.row}: ${escapeHTML(e.error)}</li>`).join('')}</ul>`
+        : '';
+      resultEl.innerHTML = `
+        <h3>${label}</h3>
+        <p>Accepted: <strong>${data.accepted}</strong>, Rejected: <strong>${data.rejected}</strong>, Duplicates: <strong>${data.duplicates}</strong></p>
+        ${errorList}
+        ${!dryRun && data.accepted > 0 ? '<p><a href="#/hosts">View hosts &rarr;</a></p>' : ''}
+      `;
+    } catch (e) {
+      resultEl.innerHTML = `<p class="error">Request failed: ${escapeHTML(e.message)}</p>`;
+    }
   }
 })();

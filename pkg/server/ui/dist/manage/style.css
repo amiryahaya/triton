@@ -116,3 +116,19 @@ button.revoke:hover {
   background: var(--error);
   color: white;
 }
+
+.button-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+
+button.primary {
+  background: var(--accent);
+  color: white;
+  border: 0;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+button.primary:hover { filter: brightness(1.08); }
+
+.nav-link-inline { color: var(--accent); text-decoration: none; }
+.nav-link-inline:hover { text-decoration: underline; }

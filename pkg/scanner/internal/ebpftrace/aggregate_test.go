@@ -76,3 +76,37 @@ func TestAggregator_FlushResets(t *testing.T) {
 	}
 	_ = time.Second // keep time import minimal
 }
+
+func TestClassifyEvent_Sentinels(t *testing.T) {
+	cases := map[int32]struct {
+		algo   string
+		family string
+	}{
+		-2: {"TLS", "TLS"},
+		-3: {"Verify", "Signature"},
+		-4: {"Cipher", "Cipher"},
+		-5: {"Digest", "Hash"},
+		-7: {"KEX", "ECDH"},
+	}
+	for nid, want := range cases {
+		ev := Event{Source: SourceUprobe, LibID: LibLibcrypto, NID: nid}
+		info, ok := classifyEvent(ev)
+		if !ok {
+			t.Errorf("nid %d: classifyEvent returned !ok", nid)
+			continue
+		}
+		if info.Algorithm != want.algo {
+			t.Errorf("nid %d: Algorithm = %q, want %q", nid, info.Algorithm, want.algo)
+		}
+		if info.Family != want.family {
+			t.Errorf("nid %d: Family = %q, want %q", nid, info.Family, want.family)
+		}
+	}
+}
+
+func TestClassifyEvent_UnknownNegativeNID(t *testing.T) {
+	ev := Event{Source: SourceUprobe, LibID: LibLibcrypto, NID: -99}
+	if _, ok := classifyEvent(ev); ok {
+		t.Error("expected unknown negative NID to return !ok")
+	}
+}

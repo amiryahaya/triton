@@ -116,4 +116,24 @@ func TestAssessAll_MultiHostGrouping(t *testing.T) {
 	}
 }
 
+func TestAssessAll_FindingsWithNilAsset(t *testing.T) {
+	// Mix of nil and non-nil CryptoAsset findings; must not panic and must
+	// produce a sane Score.
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "mixed"},
+		Findings: []model.Finding{
+			{Module: "process"}, // nil CryptoAsset
+			findingWithAsset("ML-KEM-768", model.PQCStatusSafe, false),
+			{Module: "binaries"}, // nil CryptoAsset
+		},
+	}
+	scores := AssessAll(result)
+	if len(scores) != 1 {
+		t.Fatalf("len(scores) = %d, want 1", len(scores))
+	}
+	if scores[0].Overall < 0 || scores[0].Overall > 100 {
+		t.Errorf("Overall = %d out of [0,100]", scores[0].Overall)
+	}
+}
+
 func ptrTime(t time.Time) *time.Time { return &t }

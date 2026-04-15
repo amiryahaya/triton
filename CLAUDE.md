@@ -69,11 +69,13 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `java_bytecode.go` — Java class/JAR/WAR/EAR scanner: parses constant pool for crypto literals (JCA standard names, BouncyCastle, PQC), classifies via `pkg/crypto/java_algorithms.go` (comprehensive profile + Pro+ tier only)
   - `dotnet_il.go` — .NET assembly scanner: parses CLI metadata (TypeRef table + #US heap) for crypto type-references and string literals, classifies via `pkg/crypto/dotnet_algorithms.go` registry; supports classic and single-file bundles (comprehensive profile + Pro+ tier only)
   - `ebpf_trace.go` — eBPF runtime crypto tracer: uprobes on libcrypto/gnutls/nss + kprobes on kernel crypto API, observation-window scan; Linux-only (emits skipped-finding on other OS); comprehensive profile + Pro+ tier; requires root/CAP_BPF + kernel ≥ 5.8 + BTF
+  - `tpm.go` — TPM 2.0 attestation analyzer: parses /sys/class/tpm sysfs + TCG PFP measured-boot log, classifies firmware against CVE registry (Infineon ROCA, Intel PTT, STMicro ST33), reuses `crypto.ClassifyCryptoAsset` + `keyquality.Analyze` for the endorsement-key certificate; Linux-only (emits skipped-finding on other OS); comprehensive profile + Pro+ tier
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
   - `tls_groups.go` — IANA TLS named group registry with hybrid PQC classification (composite ML-KEM + classical ECDHE groups, draft Kyber hybrids, pure PQ KEMs)
   - `java_algorithms.go` — Java crypto literal registry (~80 entries)
   - `dotnet_algorithms.go` — .NET crypto registry: BCL types, CAPI/CNG constants, BouncyCastle.NET PQC (~80 entries)
   - `keyquality/` — Key-material quality analyzer (ROCA CVE-2017-15361, Debian PRNG CVE-2008-0166, small-prime trial division, size-vs-claim mismatch); called inline by `certificate.go` + `key.go`, attaches warnings to `CryptoAsset.QualityWarnings`
+  - `tpm_firmware.go` — TPM firmware CVE registry (Infineon ≤ 4.33.4 = ROCA, Intel PTT ≤ 11.6, STMicro ST33 = ECDSA nonce bias); vendor-specific version parsing for Infineon + Intel, exact-match fallback otherwise
 - **`pkg/model/`** — Data structures for SBOM, CBOM, findings, components
 - **`pkg/report/`** — Report generation in CycloneDX JSON, CSV (with Malay headers for government format), HTML, SARIF, JSON. HTML report includes policy analysis summary (verdict banner, violations-by-rule table, threshold violations) when `--policy` is used.
 - **`pkg/store/`** — PostgreSQL storage via pgx/v5

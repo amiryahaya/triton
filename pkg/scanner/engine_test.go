@@ -69,7 +69,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + java_bytecode (comprehensive-only .class/.jar scanner).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 48)
+	assert.Len(t, eng.modules, 49)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -597,6 +597,7 @@ func TestRegisterDefaultModules_AllKnownModulesPresent(t *testing.T) {
 		"java_bytecode",
 		"dotnet_il",
 		"ebpf_trace",
+		"tpm",
 	}
 
 	for _, name := range expected {

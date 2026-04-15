@@ -32,6 +32,11 @@ type Config struct {
 	EBPFWindow      time.Duration
 	EBPFSkipUprobes bool
 	EBPFSkipKprobes bool
+
+	// TPM root overrides — used by tests to inject fixtures.
+	// Production leaves these empty; scanner uses /sys/class/tpm and /sys/kernel/security.
+	TPMSysRoot string
+	TPMSecRoot string
 }
 
 // DefaultDBUrl returns the default PostgreSQL connection URL.
@@ -95,7 +100,7 @@ var profiles = map[string]ScanProfile{
 		//
 		// Wave 0 — OCI image scanning module for pulling and
 		// analyzing container images (requires explicit --image flag).
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec", "vpn_runtime", "netinfra", "firmware", "messaging", "db_atrest", "secrets_mgr", "supply_chain", "kerberos_runtime", "enrollment", "fido2", "blockchain", "helm_chart", "asn1_oid", "java_bytecode", "dotnet_il", "ebpf_trace"},
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec", "vpn_runtime", "netinfra", "firmware", "messaging", "db_atrest", "secrets_mgr", "supply_chain", "kerberos_runtime", "enrollment", "fido2", "blockchain", "helm_chart", "asn1_oid", "java_bytecode", "dotnet_il", "ebpf_trace", "tpm"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},

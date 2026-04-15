@@ -59,12 +59,17 @@
     return r === 'org_admin' || r === 'org_user';
   }
 
+  function isOwner() {
+    return currentRole() === 'org_admin';
+  }
+
   // ---------- Router ----------
 
   const routes = {
     '/dashboard': renderDashboard,
     '/groups': renderGroups,
     '/hosts': renderHosts,
+    '/engines': renderEngines,
   };
 
   function route() {
@@ -270,6 +275,111 @@
         }
       });
     }
+  }
+
+  async function renderEngines(el) {
+    el.innerHTML = `
+      <h1>Engines</h1>
+      <p class="muted">Engines are on-prem daemons that connect back to this portal. Create one, download the bundle, and run it on a host with network access to your target machines.</p>
+      <div id="list">loading&hellip;</div>
+      ${canMutate() ? `
+        <h2>New engine</h2>
+        <form id="newengine">
+          <label>Label <input name="label" required placeholder="engine-kl-dc"></label>
+          <button>Create and download bundle</button>
+        </form>
+        <p class="muted small">The bundle is one-time: once the engine enrolls, the bundle can no longer be re-downloaded. Keep it secure in transit.</p>
+      ` : ''}
+    `;
+
+    try {
+      const resp = await authedFetch('/api/v1/manage/engines/');
+      const engines = await resp.json();
+      const list = el.querySelector('#list');
+      list.innerHTML = engines && engines.length
+        ? renderEnginesTable(engines)
+        : '<p><em>No engines yet. Create one to get started.</em></p>';
+
+      if (isOwner()) {
+        list.querySelectorAll('button.revoke').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm('Revoke this engine? It will no longer be able to connect.')) return;
+            const id = btn.dataset.id;
+            const r = await authedFetch(`/api/v1/manage/engines/${id}/revoke`, { method: 'POST' });
+            if (r.ok) route();
+            else alert('Revoke failed: ' + r.status);
+          });
+        });
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') {
+        el.querySelector('#list').textContent = 'Error loading engines.';
+      }
+      return;
+    }
+
+    const form = el.querySelector('#newengine');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const label = e.target.label.value.trim();
+        const resp = await authedFetch('/api/v1/manage/engines/', {
+          method: 'POST',
+          body: JSON.stringify({ label }),
+        });
+        if (!resp.ok) {
+          alert('Create failed: ' + resp.status);
+          return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `engine-${label}.tar.gz`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setTimeout(route, 300);
+      });
+    }
+  }
+
+  function renderEnginesTable(engines) {
+    const rows = engines.map(e => {
+      const statusBadge = `<span class="badge badge-${e.status}">${escapeHTML(e.status)}</span>`;
+      const lastPoll = e.last_poll_at ? timeAgo(e.last_poll_at) : '—';
+      const firstSeen = e.first_seen_at ? timeAgo(e.first_seen_at) : '<em>never</em>';
+      const ip = e.public_ip || '—';
+      const actions = isOwner() && e.status !== 'revoked'
+        ? `<button class="revoke" data-id="${escapeHTML(e.id)}">Revoke</button>`
+        : '';
+      return `<tr>
+        <td>${escapeHTML(e.label)}</td>
+        <td>${statusBadge}</td>
+        <td>${escapeHTML(ip)}</td>
+        <td>${firstSeen}</td>
+        <td>${lastPoll}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+    return `<table>
+      <thead><tr><th>Label</th><th>Status</th><th>Public IP</th><th>First seen</th><th>Last poll</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const diffMs = Date.now() - d.getTime();
+    const sec = Math.floor(diffMs / 1000);
+    if (sec < 60) return sec + 's ago';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    return Math.floor(hr / 24) + 'd ago';
   }
 
   function escapeHTML(s) {

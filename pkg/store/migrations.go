@@ -407,4 +407,56 @@ var migrations = []string{
 	CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_hosts_org_address
 		ON inventory_hosts(org_id, address)
 		WHERE hostname IS NULL AND address IS NOT NULL;`,
+
+	// Version 18: Engine enrollment schema — per-org CA + engines table.
+	// Onboarding Phase 2, Tasks 1-4. Introduces:
+	//   engine_cas : one row per org, stores PEM-encoded CA cert plus
+	//                ChaCha20-Poly1305 (XChaCha20) encrypted CA private
+	//                key (24-byte nonce). Wrapping key is held in-process,
+	//                never persisted to disk.
+	//   engines    : one row per enrolled engine. cert_fingerprint is the
+	//                SHA-256 hash of the engine's leaf certificate in hex;
+	//                UNIQUE globally to support the mTLS middleware lookup
+	//                by client-cert fingerprint (Task 6) without needing
+	//                an org scope at the TLS layer.
+	//                status transitions: enrolled -> online (first poll) ->
+	//                offline (stale heartbeat) / revoked (admin action).
+	//                first_seen_at NULL means the engine has never called
+	//                home; single-use claim is enforced at the store layer
+	//                via `UPDATE ... WHERE first_seen_at IS NULL`.
+	//
+	// Also finally installs the FK from inventory_hosts.engine_id →
+	// engines.id (column added in v16, FK deferred until the engines
+	// table existed). ON DELETE SET NULL so revoking an engine detaches
+	// its hosts without cascading destruction of the inventory rows.
+	`CREATE TABLE engine_cas (
+		org_id           UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+		ca_cert_pem      TEXT NOT NULL,
+		ca_key_encrypted BYTEA NOT NULL,
+		ca_key_nonce     BYTEA NOT NULL,
+		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE engines (
+		id                UUID PRIMARY KEY,
+		org_id            UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		label             TEXT NOT NULL,
+		public_ip         INET,
+		cert_fingerprint  TEXT NOT NULL,
+		bundle_issued_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		first_seen_at     TIMESTAMPTZ,
+		last_poll_at      TIMESTAMPTZ,
+		status            TEXT NOT NULL DEFAULT 'enrolled'
+		                  CHECK (status IN ('enrolled', 'online', 'offline', 'revoked')),
+		revoked_at        TIMESTAMPTZ,
+		UNIQUE (org_id, label),
+		UNIQUE (cert_fingerprint)
+	);
+
+	CREATE INDEX idx_engines_org ON engines(org_id);
+	CREATE INDEX idx_engines_status ON engines(status);
+
+	ALTER TABLE inventory_hosts
+		ADD CONSTRAINT fk_inventory_hosts_engine
+		FOREIGN KEY (engine_id) REFERENCES engines(id) ON DELETE SET NULL;`,
 }

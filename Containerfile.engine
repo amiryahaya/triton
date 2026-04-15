@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1
+
+# ---- build stage ----
+FROM docker.io/library/golang:1.25 AS build
+WORKDIR /src
+# go.mod pins a newer minor; let Go's toolchain mechanism fetch it.
+ENV GOTOOLCHAIN=auto
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build \
+    -trimpath \
+    -ldflags "-s -w -X github.com/amiryahaya/triton/internal/version.Version=${VERSION}" \
+    -o /out/triton-engine \
+    ./cmd/triton-engine
+
+# ---- runtime stage ----
+# distroless/static:nonroot bundles CA certs — needed because the engine
+# makes outbound HTTPS calls to the portal on :8443.
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /out/triton-engine /triton-engine
+# Bundle expected at /etc/triton/bundle.tar.gz via volume mount.
+ENTRYPOINT ["/triton-engine"]

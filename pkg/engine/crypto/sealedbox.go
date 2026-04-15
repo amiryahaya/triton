@@ -42,7 +42,7 @@ func GenerateKeypair() (*ecdh.PrivateKey, []byte, error) {
 
 // Seal encrypts plaintext to the recipient's 32-byte X25519 public key.
 // The returned blob has SealedBoxOverhead bytes of framing prepended.
-func Seal(recipientPub []byte, plaintext []byte) ([]byte, error) {
+func Seal(recipientPub, plaintext []byte) ([]byte, error) {
 	c := ecdh.X25519()
 	recipient, err := c.NewPublicKey(recipientPub)
 	if err != nil {

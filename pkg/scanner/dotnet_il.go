@@ -67,9 +67,10 @@ func (m *DotNetILModule) scanFile(ctx context.Context, path string, findings cha
 	}
 	defer func() { _ = f.Close() }()
 
+	seen := map[string]bool{}
 	asm, err := cli.ReadAssembly(f)
 	if err == nil {
-		m.classifyAndEmit(ctx, path, "", asm, findings)
+		m.classifyAndEmit(ctx, path, "", asm, findings, seen)
 	}
 
 	bundled, err := cli.ScanBundle(path)
@@ -77,7 +78,7 @@ func (m *DotNetILModule) scanFile(ctx context.Context, path string, findings cha
 		return
 	}
 	for _, ba := range bundled {
-		m.classifyAndEmit(ctx, path, ba.Path, ba.Assembly, findings)
+		m.classifyAndEmit(ctx, path, ba.Path, ba.Assembly, findings, seen)
 	}
 }
 
@@ -86,11 +87,11 @@ func (m *DotNetILModule) classifyAndEmit(
 	hostPath, bundledPath string,
 	asm *cli.Assembly,
 	findings chan<- *model.Finding,
+	seen map[string]bool,
 ) {
 	if asm == nil {
 		return
 	}
-	seen := map[string]bool{}
 	emit := func(token string) {
 		entry, ok := crypto.LookupDotNetAlgorithm(token)
 		if !ok {

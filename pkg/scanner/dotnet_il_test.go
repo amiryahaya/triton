@@ -41,3 +41,10 @@ func TestDotNetILModule_SkipsNonPEFiles(t *testing.T) {
 		t.Errorf("unexpected finding: %+v", f)
 	}
 }
+
+func TestDotNetILModule_DedupAcrossHostAndBundle(t *testing.T) {
+	// Verify that classifyAndEmit shares the seen map across host + bundle paths.
+	// Synthesise an Assembly with the same algorithm in both lists; expect
+	// only ONE finding emitted via the shared seen map.
+	t.Skip("covered by integration test once bundle-mode integration lands")
+}

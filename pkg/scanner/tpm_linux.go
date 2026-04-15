@@ -65,18 +65,43 @@ func (m *TPMModule) scan(ctx context.Context, _ model.ScanTarget, findings chan<
 	return nil
 }
 
+// severityRank maps severity strings to a numeric rank for comparison.
+// Higher is worse.
+var severityRank = map[string]int{
+	"CRITICAL": 3,
+	"HIGH":     2,
+	"MEDIUM":   1,
+}
+
+// worstSeverity returns the highest severity level across the CVEs, and the
+// corresponding PQCStatus ("UNSAFE" for CRITICAL, "DEPRECATED" for HIGH,
+// "TRANSITIONAL" for MEDIUM, "SAFE" if empty).
+func worstSeverity(cves []crypto.TPMFirmwareCVE) (status string, severity string) {
+	status = "SAFE"
+	rank := 0
+	for _, c := range cves {
+		r := severityRank[c.Severity]
+		if r > rank {
+			rank = r
+			severity = c.Severity
+			switch c.Severity {
+			case "CRITICAL":
+				status = "UNSAFE"
+			case "HIGH":
+				status = "DEPRECATED"
+			case "MEDIUM":
+				status = "TRANSITIONAL"
+			}
+		}
+	}
+	return status, severity
+}
+
 // emitDeviceFinding emits the top-level TPM device finding with CVE-derived
 // quality warnings.
-//
-// Severity aggregation: we walk every matching CVE and track the worst-case
-// severity. CRITICAL wins outright and forces UNSAFE; otherwise the first
-// HIGH or MEDIUM we see seeds the PQCStatus. Later hits of equal-or-lower
-// severity cannot downgrade what's already been set.
 func emitDeviceFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *model.Finding) error {
 	cves := crypto.LookupTPMFirmwareCVEs(dev.Vendor, dev.FirmwareVersion)
 	cves = append(cves, crypto.TPMSpecCVEs(dev.SpecVersion)...)
-	status := "SAFE"
-	severity := "" // aggregate worst-case severity across CVE hits
 	qualityWarnings := make([]model.QualityWarning, 0, len(cves))
 	for _, cve := range cves {
 		qualityWarnings = append(qualityWarnings, model.QualityWarning{
@@ -85,22 +110,8 @@ func emitDeviceFinding(ctx context.Context, dev tpmfs.Device, findings chan<- *m
 			Message:  cve.Description,
 			CVE:      cve.CVE,
 		})
-		switch cve.Severity {
-		case "CRITICAL":
-			status = "UNSAFE"
-			severity = "CRITICAL"
-		case "HIGH":
-			if severity == "" {
-				status = "DEPRECATED"
-				severity = "HIGH"
-			}
-		case "MEDIUM":
-			if severity == "" {
-				status = "TRANSITIONAL"
-				severity = "MEDIUM"
-			}
-		}
 	}
+	status, _ := worstSeverity(cves)
 
 	algo := "TPM" + dev.SpecVersion
 	asset := &model.CryptoAsset{

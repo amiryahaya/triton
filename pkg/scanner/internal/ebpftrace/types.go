@@ -27,8 +27,11 @@ const (
 
 // Event is one observed crypto call, decoded from the eBPF ring buffer.
 type Event struct {
-	PID    uint32
-	UID    uint32
+	PID uint32
+	UID uint32
+	// TS is the wall-clock time (converted from bpf_ktime_get_ns). Monotonic
+	// reading is lost; do not use for duration math between events. For
+	// in-window ordering, events are emitted in read-order.
 	TS     time.Time
 	Source Source
 	LibID  LibID

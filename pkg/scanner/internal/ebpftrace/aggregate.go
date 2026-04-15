@@ -13,7 +13,10 @@ type Aggregate struct {
 }
 
 // Aggregator collects Events and emits per-tuple Aggregates on Flush().
-// Not goroutine-safe: the caller (reader.Run) must serialise Add calls.
+// NOT goroutine-safe: callers MUST serialise all method calls (Add, Flush).
+// Flush resets internal state, so concurrent Add + Flush produces undefined
+// behaviour. The reader coordinator (program_linux.go) serialises by using
+// a single goroutine for event consumption.
 type Aggregator struct {
 	buckets map[aggKey]*Aggregate
 }

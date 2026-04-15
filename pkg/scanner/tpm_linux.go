@@ -203,7 +203,7 @@ func emitEventLogFinding(ctx context.Context, logPath string, findings chan<- *m
 	if err != nil {
 		return nil // degraded; log corruption surfaces in a future finding
 	}
-	pqc := tpmfs.ClassifyEventLog(log)
+	pqc := classifyEventLog(log)
 	evidence := formatLogEvidence(log)
 	asset := &model.CryptoAsset{
 		ID:        uuid.New().String(),

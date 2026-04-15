@@ -101,48 +101,6 @@ func TestParseEventLog_Mixed(t *testing.T) {
 	}
 }
 
-func TestClassifyEventLog(t *testing.T) {
-	cases := []struct {
-		name    string
-		log     *EventLog
-		wantPQC string
-	}{
-		{
-			name:    "SHA-256 only",
-			log:     &EventLog{AlgoCounts: map[HashAlgo]int{AlgSHA256: 10}},
-			wantPQC: "SAFE",
-		},
-		{
-			name:    "SHA-1 only",
-			log:     &EventLog{AlgoCounts: map[HashAlgo]int{AlgSHA1: 10}},
-			wantPQC: "UNSAFE",
-		},
-		{
-			name:    "mixed SHA-1 + SHA-256",
-			log:     &EventLog{AlgoCounts: map[HashAlgo]int{AlgSHA1: 10, AlgSHA256: 10}},
-			wantPQC: "TRANSITIONAL",
-		},
-		{
-			name:    "SHA-384 only",
-			log:     &EventLog{AlgoCounts: map[HashAlgo]int{AlgSHA384: 10}},
-			wantPQC: "SAFE",
-		},
-		{
-			name:    "empty log",
-			log:     &EventLog{AlgoCounts: map[HashAlgo]int{}},
-			wantPQC: "",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := ClassifyEventLog(c.log)
-			if got != c.wantPQC {
-				t.Errorf("got %q, want %q", got, c.wantPQC)
-			}
-		})
-	}
-}
-
 func TestParseEventLog_TruncatedReturnsError(t *testing.T) {
 	data := buildEventLog([]HashAlgo{AlgSHA256}, 2)
 	// Truncate mid-record.

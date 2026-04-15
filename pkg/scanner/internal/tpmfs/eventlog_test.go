@@ -101,6 +101,36 @@ func TestParseEventLog_Mixed(t *testing.T) {
 	}
 }
 
+func TestParseEventLog_UnknownAlgIDRejected(t *testing.T) {
+	// Build a log whose event uses an unrecognized TPM_ALG_ID.
+	var buf bytes.Buffer
+	// Spec-ID pseudo-event header
+	binary.Write(&buf, binary.LittleEndian, uint32(0))
+	binary.Write(&buf, binary.LittleEndian, uint32(3))
+	buf.Write(make([]byte, 20))
+	binary.Write(&buf, binary.LittleEndian, uint32(0))
+	// One event2 record with bogus algID
+	binary.Write(&buf, binary.LittleEndian, uint32(4))
+	binary.Write(&buf, binary.LittleEndian, uint32(0x0D))
+	binary.Write(&buf, binary.LittleEndian, uint32(1))      // DigestCount=1
+	binary.Write(&buf, binary.LittleEndian, uint16(0xFFFF)) // bogus algID
+	// No way to know size — parser should bail here.
+
+	if _, err := ParseEventLog(buf.Bytes()); err == nil {
+		t.Error("expected error on unknown TPM_ALG_ID")
+	}
+}
+
+func TestHashAlgo_UnknownReturnsZeroAndUnknown(t *testing.T) {
+	unk := HashAlgo(0xFFFF)
+	if unk.Size() != 0 {
+		t.Errorf("unknown Size() = %d, want 0", unk.Size())
+	}
+	if unk.String() != "unknown" {
+		t.Errorf("unknown String() = %q, want 'unknown'", unk.String())
+	}
+}
+
 func TestParseEventLog_TruncatedReturnsError(t *testing.T) {
 	data := buildEventLog([]HashAlgo{AlgSHA256}, 2)
 	// Truncate mid-record.

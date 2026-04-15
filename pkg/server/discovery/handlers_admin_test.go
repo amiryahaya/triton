@@ -102,7 +102,7 @@ func (f *fakeStore) ListCandidates(_ context.Context, jobID uuid.UUID) ([]Candid
 	return f.candidates[jobID], nil
 }
 
-func (f *fakeStore) MarkCandidatesPromoted(_ context.Context, ids []uuid.UUID) error {
+func (f *fakeStore) MarkCandidatesPromoted(_ context.Context, jobID uuid.UUID, ids []uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.promoteCalls = append(f.promoteCalls, append([]uuid.UUID(nil), ids...))
@@ -110,13 +110,15 @@ func (f *fakeStore) MarkCandidatesPromoted(_ context.Context, ids []uuid.UUID) e
 	for _, id := range ids {
 		set[id] = true
 	}
-	for jid, cs := range f.candidates {
+	// Only flip candidates that actually belong to the named job —
+	// matches the Postgres job_id predicate.
+	if cs, ok := f.candidates[jobID]; ok {
 		for i := range cs {
 			if set[cs[i].ID] {
 				cs[i].Promoted = true
 			}
 		}
-		f.candidates[jid] = cs
+		f.candidates[jobID] = cs
 	}
 	return nil
 }

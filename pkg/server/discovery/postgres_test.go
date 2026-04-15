@@ -262,7 +262,7 @@ func TestPostgresStore_MarkCandidatesPromoted_Bulk(t *testing.T) {
 	for i, c := range listed {
 		ids[i] = c.ID
 	}
-	require.NoError(t, f.store.MarkCandidatesPromoted(ctx, ids))
+	require.NoError(t, f.store.MarkCandidatesPromoted(ctx, saved.ID, ids))
 
 	reread, err := f.store.ListCandidates(ctx, saved.ID)
 	require.NoError(t, err)
@@ -310,6 +310,45 @@ func TestPostgresStore_CancelJob_Missing_ReturnsNotFound(t *testing.T) {
 	err := f.store.CancelJob(ctx, f.orgID, uuid.Must(uuid.NewV7()))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrJobNotFound))
+}
+
+func TestPostgresStore_MarkCandidatesPromoted_EnforcesJobScope(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	// Two jobs in the same org, each with one candidate.
+	j1, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+	j2, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+
+	c1 := Candidate{JobID: j1.ID, Address: net.ParseIP("10.0.0.1"), OpenPorts: []int{22}}
+	c2 := Candidate{JobID: j2.ID, Address: net.ParseIP("10.0.0.2"), OpenPorts: []int{22}}
+	require.NoError(t, f.store.InsertCandidates(ctx, j1.ID, []Candidate{c1}))
+	require.NoError(t, f.store.InsertCandidates(ctx, j2.ID, []Candidate{c2}))
+
+	j1Cands, err := f.store.ListCandidates(ctx, j1.ID)
+	require.NoError(t, err)
+	require.Len(t, j1Cands, 1)
+	j2Cands, err := f.store.ListCandidates(ctx, j2.ID)
+	require.NoError(t, err)
+	require.Len(t, j2Cands, 1)
+
+	// Call MarkCandidatesPromoted scoped to j1 but pass j2's candidate
+	// id. The job_id predicate must prevent the flip.
+	require.NoError(t, f.store.MarkCandidatesPromoted(ctx, j1.ID, []uuid.UUID{j2Cands[0].ID}))
+
+	// j2's candidate must still be unpromoted.
+	rereadJ2, err := f.store.ListCandidates(ctx, j2.ID)
+	require.NoError(t, err)
+	require.Len(t, rereadJ2, 1)
+	assert.False(t, rereadJ2[0].Promoted, "cross-job promotion must be blocked by job_id predicate")
+
+	// Sanity: scoping to the correct job still works.
+	require.NoError(t, f.store.MarkCandidatesPromoted(ctx, j1.ID, []uuid.UUID{j1Cands[0].ID}))
+	rereadJ1, err := f.store.ListCandidates(ctx, j1.ID)
+	require.NoError(t, err)
+	assert.True(t, rereadJ1[0].Promoted, "correctly scoped promotion must succeed")
 }
 
 func TestPostgresStore_FinishJob_RejectsAlreadyCompleted(t *testing.T) {

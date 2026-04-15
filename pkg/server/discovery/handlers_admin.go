@@ -322,7 +322,7 @@ func (h *AdminHandlers) PromoteCandidates(w http.ResponseWriter, r *http.Request
 		promotedIDs = append(promotedIDs, cid)
 	}
 	if len(promotedIDs) > 0 {
-		if err := h.Store.MarkCandidatesPromoted(r.Context(), promotedIDs); err != nil {
+		if err := h.Store.MarkCandidatesPromoted(r.Context(), jobID, promotedIDs); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}

@@ -44,7 +44,7 @@ func (s *reclaimRecordingStore) ListJobs(context.Context, uuid.UUID) ([]Job, err
 func (s *reclaimRecordingStore) ListCandidates(context.Context, uuid.UUID) ([]Candidate, error) {
 	return nil, nil
 }
-func (s *reclaimRecordingStore) MarkCandidatesPromoted(context.Context, []uuid.UUID) error {
+func (s *reclaimRecordingStore) MarkCandidatesPromoted(context.Context, uuid.UUID, []uuid.UUID) error {
 	return nil
 }
 func (s *reclaimRecordingStore) CancelJob(context.Context, uuid.UUID, uuid.UUID) error { return nil }

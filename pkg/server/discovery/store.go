@@ -52,9 +52,12 @@ type Store interface {
 	// detected_at ASC.
 	ListCandidates(ctx context.Context, jobID uuid.UUID) ([]Candidate, error)
 
-	// MarkCandidatesPromoted flips promoted=TRUE for the given IDs.
-	// Unknown IDs are silently ignored.
-	MarkCandidatesPromoted(ctx context.Context, ids []uuid.UUID) error
+	// MarkCandidatesPromoted flips promoted=TRUE for the given IDs,
+	// scoped to the given job. IDs that belong to a different job (or
+	// don't exist) are silently ignored. The job_id predicate is a
+	// defense-in-depth guard against cross-job promotion even if a
+	// future handler skips the in-memory validation.
+	MarkCandidatesPromoted(ctx context.Context, jobID uuid.UUID, ids []uuid.UUID) error
 
 	// CancelJob flips a queued job to 'cancelled'. Returns
 	// ErrJobNotCancellable if the job exists but is past queued.

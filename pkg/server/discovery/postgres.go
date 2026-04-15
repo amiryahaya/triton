@@ -144,13 +144,17 @@ func (s *PostgresStore) ListCandidates(ctx context.Context, jobID uuid.UUID) ([]
 	return out, nil
 }
 
-func (s *PostgresStore) MarkCandidatesPromoted(ctx context.Context, ids []uuid.UUID) error {
+func (s *PostgresStore) MarkCandidatesPromoted(ctx context.Context, jobID uuid.UUID, ids []uuid.UUID) error {
 	if len(ids) == 0 {
 		return nil
 	}
+	// job_id predicate ensures a caller can never flip promoted on a
+	// candidate that belongs to a different job — belt-and-suspenders
+	// with the in-memory handler filter in PromoteCandidates.
 	_, err := s.pool.Exec(ctx,
-		`UPDATE discovery_candidates SET promoted = TRUE WHERE id = ANY($1)`,
-		ids,
+		`UPDATE discovery_candidates SET promoted = TRUE
+		 WHERE job_id = $1 AND id = ANY($2)`,
+		jobID, ids,
 	)
 	if err != nil {
 		return fmt.Errorf("mark candidates promoted: %w", err)

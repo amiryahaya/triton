@@ -232,7 +232,7 @@ func TestPostgresStore_ImportHosts_PartialFailure_CommitsRest(t *testing.T) {
 	assert.Equal(t, 1, res.Duplicates)
 	assert.Equal(t, 0, res.Rejected)
 	require.Len(t, res.Errors, 1)
-	assert.Equal(t, 1, res.Errors[0].Row)
+	assert.Equal(t, 2, res.Errors[0].Row)
 
 	list, err := f.Store.ListHosts(ctx, f.OrgID, HostFilters{GroupID: &g.ID})
 	require.NoError(t, err)
@@ -265,5 +265,5 @@ func TestPostgresStore_ImportHosts_RejectedOnInvalidOS(t *testing.T) {
 	assert.Equal(t, 1, res.Rejected)
 	assert.Equal(t, 0, res.Duplicates)
 	require.Len(t, res.Errors, 1)
-	assert.Equal(t, 1, res.Errors[0].Row)
+	assert.Equal(t, 2, res.Errors[0].Row)
 }

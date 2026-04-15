@@ -330,7 +330,7 @@ func (s *PostgresStore) ImportHosts(ctx context.Context, orgID, groupID uuid.UUI
 			hostID, orgID, groupID, hostnameArg, addrArg, osArg, mode,
 		)
 		if err != nil {
-			res.Errors = append(res.Errors, ImportError{Row: i, Error: classifyImportError(err)})
+			res.Errors = append(res.Errors, ImportError{Row: i + 1, Error: classifyImportError(err)})
 			if isUniqueViolation(err) {
 				res.Duplicates++
 			} else {
@@ -355,7 +355,7 @@ func (s *PostgresStore) ImportHosts(ctx context.Context, orgID, groupID uuid.UUI
 			}
 		}
 		if tagErr != nil {
-			res.Errors = append(res.Errors, ImportError{Row: i, Error: "tag insert failed: " + classifyImportError(tagErr)})
+			res.Errors = append(res.Errors, ImportError{Row: i + 1, Error: "tag insert failed: " + classifyImportError(tagErr)})
 			res.Rejected++
 			if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT r`); rbErr != nil {
 				return ImportResult{}, fmt.Errorf("import hosts: rollback to savepoint: %w", rbErr)

@@ -26,7 +26,9 @@ type ImportRequest struct {
 	DryRun  bool        `json:"dry_run"`
 }
 
-// ImportError is a per-row rejection.
+// ImportError reports a per-row failure during host import.
+// Row is 1-based (matches spreadsheet row numbering; the header row
+// is excluded by the client-side parser before submission).
 type ImportError struct {
 	Row   int    `json:"row"`
 	Error string `json:"error"`

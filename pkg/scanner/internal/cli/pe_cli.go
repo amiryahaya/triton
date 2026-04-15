@@ -66,7 +66,9 @@ func LocateCLIMetadata(r io.ReaderAt) (offset, size uint32, err error) {
 
 func readRVA(pf *pe.File, rva, size uint32) ([]byte, error) {
 	for _, s := range pf.Sections {
-		if rva < s.VirtualAddress || rva+size > s.VirtualAddress+s.VirtualSize {
+		end := uint64(rva) + uint64(size)
+		sectionEnd := uint64(s.VirtualAddress) + uint64(s.VirtualSize)
+		if uint64(rva) < uint64(s.VirtualAddress) || end > sectionEnd {
 			continue
 		}
 		data, err := s.Data()

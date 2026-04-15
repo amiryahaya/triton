@@ -64,7 +64,15 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ebpftrace: ringbuf reader: %w", err)
 	}
-	defer func() { _ = rdr.Close() }()
+	// Close is handled explicitly after drain below; a deferred Close would
+	// double-close in the normal path but is kept as a safety net for any
+	// early return before the drain block via a sync.Once-style guard.
+	closedReader := false
+	defer func() {
+		if !closedReader {
+			_ = rdr.Close()
+		}
+	}()
 
 	// Attach probes.
 	var closers []link.Link
@@ -103,8 +111,20 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 	}()
 
 	<-readCtx.Done()
-	_ = rdr.Close() // unblock reader goroutine
+	// Track whether the parent ctx was cancelled (not just our window timeout)
+	// BEFORE setting the drain deadline, so we can propagate parent cancellation.
+	parentCancelled := ctx.Err() != nil && !errors.Is(readCtx.Err(), context.DeadlineExceeded)
+	// SetDeadline unblocks any in-flight Read while still letting the reader
+	// drain records already queued in the ring buffer; unlike Close, it does
+	// not error out events already published by the kernel (Fix B6).
+	rdr.SetDeadline(time.Now().Add(50 * time.Millisecond))
 	<-done
+	_ = rdr.Close()
+	closedReader = true
+
+	if parentCancelled {
+		return nil, ctx.Err()
+	}
 
 	return &Outcome{
 		Aggregates: agg.Flush(),

@@ -45,6 +45,12 @@ type Options struct {
 	ObjectLoader func() ([]byte, error) // optional override (default: embedded crypto.o)
 }
 
+// Outcome is the result of a Run.
+type Outcome struct {
+	Aggregates []Aggregate
+	Window     time.Duration
+}
+
 // AlgoInfo is the classified result of a crypto observation.
 type AlgoInfo struct {
 	Algorithm string

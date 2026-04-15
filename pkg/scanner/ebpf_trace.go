@@ -5,15 +5,22 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/internal/ebpftrace"
 	"github.com/amiryahaya/triton/pkg/store"
 )
+
+// ebpfRunner matches the signature of ebpftrace.Run; exposed as a field on
+// EBPFTraceModule so tests can stub the loader and exercise the error and
+// quiet-window paths without requiring a live kernel.
+type ebpfRunner func(ctx context.Context, opts ebpftrace.Options) (*ebpftrace.Outcome, error)
 
 // EBPFTraceModule observes live crypto calls via eBPF uprobes (OpenSSL/GnuTLS/NSS)
 // and kprobes (kernel crypto API) inside a bounded time window. Linux-only; the
 // non-Linux build emits a single "skipped" finding.
 type EBPFTraceModule struct {
-	cfg   *scannerconfig.Config
-	store store.Store
+	cfg    *scannerconfig.Config
+	store  store.Store
+	runner ebpfRunner // nil → use real ebpftrace.Run
 }
 
 // NewEBPFTraceModule constructs the module.

@@ -132,12 +132,6 @@ func Run(ctx context.Context, opts Options) (*Outcome, error) {
 	}, nil
 }
 
-// Outcome is the result of a Run.
-type Outcome struct {
-	Aggregates []Aggregate
-	Window     time.Duration
-}
-
 // attachUprobes walks /proc/self/maps for currently-loaded libs (best effort
 // across all processes via /proc/*/maps) and attaches each uprobe target it
 // can resolve in any discovered library. Per-process /proc scanning is

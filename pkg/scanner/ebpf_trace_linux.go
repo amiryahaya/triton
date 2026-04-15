@@ -32,7 +32,11 @@ func (m *EBPFTraceModule) scan(ctx context.Context, _ model.ScanTarget, findings
 		window = 60 * time.Second
 	}
 
-	outcome, err := ebpftrace.Run(ctx, ebpftrace.Options{
+	runner := m.runner
+	if runner == nil {
+		runner = ebpftrace.Run
+	}
+	outcome, err := runner(ctx, ebpftrace.Options{
 		Window:      window,
 		SkipUprobes: m.cfg.EBPFSkipUprobes,
 		SkipKprobes: m.cfg.EBPFSkipKprobes,

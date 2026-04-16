@@ -1,35 +1,42 @@
 // Package discovery implements the engine-side network discovery
-// scanner and worker. The scanner shells out to nmap for reliable,
-// fast host detection; the worker long-polls the portal for jobs,
-// drives the scanner, and streams candidates back.
+// scanner and worker. Uses arp-scan for fast L2 host detection (~2s),
+// with nmap fallback for port/service enrichment.
 package discovery
 
 import (
+	"bufio"
 	"context"
 	"encoding/xml"
 	"fmt"
 	"log"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
-// Candidate is a host nmap found with at least one open port (or
-// responsive to ping). Address is the dotted-quad / IPv6 string form.
+// Candidate is a discovered host on the network.
 type Candidate struct {
 	Address    string
 	Hostname   string
 	OpenPorts  []int
-	MACAddress string   // from nmap L2 detection (same subnet only)
+	MACAddress string   // from ARP or nmap L2 detection
 	MACVendor  string   // e.g. "Apple", "Raspberry Pi Foundation"
 	Services   []string // e.g. ["ssh OpenSSH 8.9", "http nginx 1.24"]
 }
 
-// Scanner shells out to nmap for network discovery. Zero-value is
-// ready to use (nmap must be on $PATH).
+// Scanner discovers hosts on the network. Uses arp-scan for fast L2
+// discovery, nmap for port/service enrichment. Zero-value is ready to use.
 type Scanner struct {
-	// NmapPath overrides the nmap binary location. Default: "nmap".
-	NmapPath string
+	ArpScanPath string // default: "arp-scan"
+	NmapPath    string // default: "nmap"
+}
+
+func (s *Scanner) arpScanBin() string {
+	if s.ArpScanPath != "" {
+		return s.ArpScanPath
+	}
+	return "arp-scan"
 }
 
 func (s *Scanner) nmapBin() string {
@@ -39,54 +46,158 @@ func (s *Scanner) nmapBin() string {
 	return "nmap"
 }
 
-// Scan runs nmap against the given CIDRs and ports. If ports is empty,
-// runs a ping sweep (-sn). If ports is non-empty, runs a SYN scan (-sS)
-// on those ports. Returns one Candidate per responsive host.
+// Scan discovers hosts on the given CIDRs.
 //
-// Requires nmap on $PATH and CAP_NET_RAW (or root) for SYN scan.
-// Falls back to TCP connect scan (-sT) if SYN scan fails (no privileges).
+// Strategy:
+//  1. Fast ARP sweep via arp-scan (~2-3s for a /24) → IP + MAC + vendor
+//  2. If ports are specified, run nmap -sV on discovered hosts ONLY
+//     (not the whole subnet) → open ports + service versions
+//  3. Fall back to nmap-only if arp-scan is unavailable
+//
+// This is the same architecture as LanScan / Fing / Angry IP Scanner:
+// ARP for speed, TCP for detail.
 func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
 	if len(cidrs) == 0 {
 		return nil, nil
 	}
 
-	args := []string{
-		"-oX", "-", // XML output to stdout
-		"--open", // only show open ports
-		"-T4",    // aggressive timing (fast)
-		"--host-timeout", "2m",
+	// Phase 1: ARP sweep — fast host discovery.
+	candidates, arpErr := s.arpSweep(ctx, cidrs)
+	if arpErr != nil {
+		log.Printf("scanner: arp-scan unavailable (%v) — falling back to nmap", arpErr)
+		// Full fallback to nmap.
+		return s.nmapScan(ctx, cidrs, ports)
 	}
 
-	if len(ports) == 0 {
-		// Ping sweep — find all live hosts, no port scan.
-		args = append(args, "-sn")
-	} else {
-		// SYN scan on specific ports with service version detection.
-		args = append(args, "-sS", "-sV")
-		portList := make([]string, len(ports))
-		for i, p := range ports {
-			portList[i] = strconv.Itoa(p)
+	log.Printf("scanner: arp-scan found %d hosts", len(candidates))
+
+	if len(candidates) == 0 || len(ports) == 0 {
+		return candidates, nil
+	}
+
+	// Phase 2: nmap port/service enrichment on discovered hosts only.
+	// Instead of scanning 254 IPs × 6 ports, we scan only the 3-4 alive
+	// hosts — takes seconds instead of minutes.
+	aliveIPs := make([]string, len(candidates))
+	for i, c := range candidates {
+		aliveIPs[i] = c.Address
+	}
+
+	enriched, err := s.nmapEnrich(ctx, aliveIPs, ports)
+	if err != nil {
+		log.Printf("scanner: nmap enrichment failed (%v) — returning ARP results only", err)
+		return candidates, nil
+	}
+
+	// Merge nmap results into ARP candidates.
+	byAddr := make(map[string]*Candidate)
+	for i := range candidates {
+		byAddr[candidates[i].Address] = &candidates[i]
+	}
+	for _, e := range enriched {
+		if c, ok := byAddr[e.Address]; ok {
+			c.OpenPorts = e.OpenPorts
+			c.Services = e.Services
+			if c.Hostname == "" && e.Hostname != "" {
+				c.Hostname = e.Hostname
+			}
 		}
-		args = append(args, "-p", strings.Join(portList, ","))
 	}
 
-	// Append all CIDRs as targets.
-	args = append(args, cidrs...)
+	return candidates, nil
+}
 
-	log.Printf("scanner: running nmap %s", strings.Join(args, " "))
+// --- arp-scan ---
+
+// arpSweep runs `arp-scan` on each CIDR and parses the output.
+// Output format: "192.168.0.1\t00:11:22:33:44:55\tVendor Name"
+func (s *Scanner) arpSweep(ctx context.Context, cidrs []string) ([]Candidate, error) {
+	// Check if arp-scan is available.
+	if _, err := exec.LookPath(s.arpScanBin()); err != nil {
+		return nil, fmt.Errorf("arp-scan not found: %w", err)
+	}
+
+	var all []Candidate
+	for _, cidr := range cidrs {
+		args := []string{"--localnet", "--retry=1", "--timeout=500", cidr}
+		log.Printf("scanner: running arp-scan %s", strings.Join(args, " "))
+
+		cmd := exec.CommandContext(ctx, s.arpScanBin(), args...)
+		out, err := cmd.Output()
+		if err != nil {
+			// arp-scan may need root — try with --ignoredups and check.
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				stderr := string(exitErr.Stderr)
+				if strings.Contains(stderr, "Operation not permitted") ||
+					strings.Contains(stderr, "permission") {
+					return nil, fmt.Errorf("arp-scan needs root or CAP_NET_RAW: %s", stderr)
+				}
+			}
+			// Non-fatal — maybe partial results.
+			log.Printf("scanner: arp-scan warning: %v", err)
+		}
+
+		candidates := parseArpScanOutput(string(out))
+		all = append(all, candidates...)
+	}
+
+	return all, nil
+}
+
+// arp-scan output line: "192.168.0.1\t00:aa:bb:cc:dd:ee\tTP-Link Technologies"
+var arpLineRE = regexp.MustCompile(`^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F:]{17})\s+(.*)`)
+
+func parseArpScanOutput(output string) []Candidate {
+	var out []Candidate
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		m := arpLineRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		out = append(out, Candidate{
+			Address:    m[1],
+			MACAddress: m[2],
+			MACVendor:  strings.TrimSpace(m[3]),
+		})
+	}
+	return out
+}
+
+// --- nmap enrichment (ports + services on known-alive hosts) ---
+
+func (s *Scanner) nmapEnrich(ctx context.Context, ips []string, ports []int) ([]Candidate, error) {
+	portList := make([]string, len(ports))
+	for i, p := range ports {
+		portList[i] = strconv.Itoa(p)
+	}
+
+	args := []string{
+		"-oX", "-",
+		"--open",
+		"-T4",
+		"--host-timeout", "2m",
+		"-sS", "-sV",
+		"-p", strings.Join(portList, ","),
+	}
+	args = append(args, ips...)
+
+	log.Printf("scanner: enriching %d hosts with nmap -sV -p %s", len(ips), strings.Join(portList, ","))
 
 	cmd := exec.CommandContext(ctx, s.nmapBin(), args...)
 	out, err := cmd.Output()
 	if err != nil {
-		// SYN scan requires root/CAP_NET_RAW. If it fails, retry with
-		// TCP connect scan (-sT) which works unprivileged.
-		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+		// SYN scan needs root — fall back to TCP connect.
+		if exitErr, ok := err.(*exec.ExitError); ok {
 			stderr := string(exitErr.Stderr)
-			if strings.Contains(stderr, "requires root") || strings.Contains(stderr, "Operation not permitted") {
-				log.Printf("scanner: SYN scan failed (no raw socket) — falling back to unprivileged TCP connect scan")
+			if strings.Contains(stderr, "requires root") ||
+				strings.Contains(stderr, "Operation not permitted") ||
+				strings.Contains(stderr, "raw socket") {
+				log.Printf("scanner: SYN scan failed — falling back to TCP connect")
 				for i, a := range args {
 					if a == "-sS" {
-						args[i] = "-sT" // -sV stays for service detection
+						args[i] = "-sT"
 						break
 					}
 				}
@@ -104,7 +215,62 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 		}
 	}
 
-	// Parse nmap XML output.
+	return parseNmapXML(out)
+}
+
+// nmapScan is the full-fallback path when arp-scan is unavailable.
+// Scans entire CIDRs with nmap (slower but works without arp-scan).
+func (s *Scanner) nmapScan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
+	args := []string{
+		"-oX", "-",
+		"--open",
+		"-T4",
+		"--host-timeout", "2m",
+	}
+
+	if len(ports) == 0 {
+		args = append(args, "-sn")
+	} else {
+		args = append(args, "-sS", "-sV")
+		portList := make([]string, len(ports))
+		for i, p := range ports {
+			portList[i] = strconv.Itoa(p)
+		}
+		args = append(args, "-p", strings.Join(portList, ","))
+	}
+	args = append(args, cidrs...)
+
+	log.Printf("scanner: running nmap %s", strings.Join(args, " "))
+
+	cmd := exec.CommandContext(ctx, s.nmapBin(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "requires root") ||
+				strings.Contains(stderr, "Operation not permitted") ||
+				strings.Contains(stderr, "raw socket") {
+				log.Printf("scanner: SYN scan failed — falling back to TCP connect")
+				for i, a := range args {
+					if a == "-sS" {
+						args[i] = "-sT"
+						break
+					}
+				}
+				args = append(args, "--unprivileged")
+				cmd2 := exec.CommandContext(ctx, s.nmapBin(), args...)
+				out, err = cmd2.Output()
+				if err != nil {
+					return nil, fmt.Errorf("nmap -sT failed: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("nmap failed: %w\nstderr: %s", err, stderr)
+			}
+		} else {
+			return nil, fmt.Errorf("nmap failed: %w", err)
+		}
+	}
+
 	candidates, err := parseNmapXML(out)
 	if err != nil {
 		return nil, fmt.Errorf("parse nmap XML: %w", err)
@@ -116,7 +282,6 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 
 // --- nmap XML parsing ---
 
-// nmapRun is the root element of nmap's -oX output.
 type nmapRun struct {
 	XMLName xml.Name   `xml:"nmaprun"`
 	Hosts   []nmapHost `xml:"host"`
@@ -135,13 +300,13 @@ type nmapStatus struct {
 
 type nmapAddress struct {
 	Addr     string `xml:"addr,attr"`
-	AddrType string `xml:"addrtype,attr"` // ipv4, ipv6, mac
-	Vendor   string `xml:"vendor,attr"`   // MAC vendor (e.g. "Apple", "HP")
+	AddrType string `xml:"addrtype,attr"`
+	Vendor   string `xml:"vendor,attr"`
 }
 
 type nmapHostname struct {
 	Name string `xml:"name,attr"`
-	Type string `xml:"type,attr"` // user, PTR
+	Type string `xml:"type,attr"`
 }
 
 type nmapPort struct {
@@ -152,13 +317,13 @@ type nmapPort struct {
 }
 
 type nmapState struct {
-	State string `xml:"state,attr"` // open, closed, filtered
+	State string `xml:"state,attr"`
 }
 
 type nmapService struct {
 	Name    string `xml:"name,attr"`
-	Product string `xml:"product,attr"` // e.g. "OpenSSH", "nginx", "Microsoft IIS"
-	Version string `xml:"version,attr"` // e.g. "8.9", "1.24"
+	Product string `xml:"product,attr"`
+	Version string `xml:"version,attr"`
 	Extra   string `xml:"extrainfo,attr"`
 }
 
@@ -174,7 +339,6 @@ func parseNmapXML(data []byte) ([]Candidate, error) {
 			continue
 		}
 
-		// Find IP address + MAC address/vendor.
 		var addr, macAddr, macVendor string
 		for _, a := range h.Addresses {
 			switch a.AddrType {
@@ -191,14 +355,12 @@ func parseNmapXML(data []byte) ([]Candidate, error) {
 			continue
 		}
 
-		// Hostname from rDNS or user-supplied.
 		var hostname string
 		for _, hn := range h.Hostnames {
 			hostname = hn.Name
 			break
 		}
 
-		// Collect open ports + service descriptions.
 		var openPorts []int
 		var services []string
 		for _, p := range h.Ports {
@@ -215,15 +377,14 @@ func parseNmapXML(data []byte) ([]Candidate, error) {
 			}
 		}
 
-		c := Candidate{
+		out = append(out, Candidate{
 			Address:    addr,
 			Hostname:   hostname,
 			OpenPorts:  openPorts,
 			MACAddress: macAddr,
 			MACVendor:  macVendor,
 			Services:   services,
-		}
-		out = append(out, c)
+		})
 	}
 	return out, nil
 }

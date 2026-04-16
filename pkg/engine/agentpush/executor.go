@@ -160,11 +160,12 @@ func (e *Executor) PushToHost(ctx context.Context, host HostTarget, secretRef, a
 		mode uint32
 	}
 	files := map[string]uploadEntry{
-		"/opt/triton/triton-agent":  {e.AgentBinary, 0o755},
-		"/opt/triton/agent.crt":     {agentCert.CertPEM, 0o644},
-		"/opt/triton/agent.key":     {agentCert.KeyPEM, 0o600},
-		"/opt/triton/engine-ca.crt": {agentCert.EngineCACert, 0o644},
-		"/opt/triton/agent.yaml":    {agentConfig, 0o644},
+		"/opt/triton/triton-agent":                 {e.AgentBinary, 0o755},
+		"/opt/triton/agent.crt":                    {agentCert.CertPEM, 0o644},
+		"/opt/triton/agent.key":                    {agentCert.KeyPEM, 0o600},
+		"/opt/triton/engine-ca.crt":                {agentCert.EngineCACert, 0o644},
+		"/opt/triton/agent.yaml":                   {agentConfig, 0o644},
+		"/etc/systemd/system/triton-agent.service": {[]byte(systemdUnit), 0o644},
 	}
 
 	for path, f := range files {
@@ -174,13 +175,12 @@ func (e *Executor) PushToHost(ctx context.Context, host HostTarget, secretRef, a
 	}
 
 	// 6. Install + start systemd service via SSH.
+	// The unit file is already uploaded via SFTP above — no heredoc needed.
 	runCmd := e.runCmd
 	if runCmd == nil {
 		runCmd = defaultSSHRunCommand
 	}
 	commands := []string{
-		`cat > /etc/systemd/system/triton-agent.service << 'TRITON_EOF'
-` + systemdUnit + `TRITON_EOF`,
 		"systemctl daemon-reload",
 		"systemctl enable triton-agent",
 		"systemctl start triton-agent",

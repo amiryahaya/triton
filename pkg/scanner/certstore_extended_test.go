@@ -70,7 +70,7 @@ func TestWindowsCertStore_ParsesPowerShellBase64Output(t *testing.T) {
 	m.cmdRunnerLimited = stubRunnerLimited(b64+"\n", nil)
 
 	findings := make(chan *model.Finding, 16)
-	err := m.scanWindowsCertStore(context.Background(), findings)
+	err := m.scanOneWindowsStore(context.Background(), windowsCertStores[0], findings)
 	close(findings)
 	require.NoError(t, err)
 
@@ -95,7 +95,7 @@ func TestWindowsCertStore_EmptyOutput(t *testing.T) {
 	m.cmdRunnerLimited = stubRunnerLimited("", nil)
 
 	findings := make(chan *model.Finding, 8)
-	err := m.scanWindowsCertStore(context.Background(), findings)
+	err := m.scanOneWindowsStore(context.Background(), windowsCertStores[0], findings)
 	close(findings)
 	assert.NoError(t, err)
 	assert.Empty(t, collectChan(findings))
@@ -109,7 +109,7 @@ func TestWindowsCertStore_RunnerError(t *testing.T) {
 	findings := make(chan *model.Finding, 8)
 	// Errors must not propagate — a missing PowerShell should just
 	// produce zero findings, not abort the whole scan.
-	err := m.scanWindowsCertStore(context.Background(), findings)
+	err := m.scanOneWindowsStore(context.Background(), windowsCertStores[0], findings)
 	close(findings)
 	assert.NoError(t, err)
 	assert.Empty(t, collectChan(findings))

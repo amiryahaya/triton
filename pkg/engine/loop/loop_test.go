@@ -197,6 +197,49 @@ func TestLoop_SpawnsScanWorkerAfterEnroll(t *testing.T) {
 	<-done
 }
 
+func TestLoop_SpawnsPushWorkerAndAgentGateway(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := &mockClient{}
+
+	pwDone := make(chan struct{})
+	pw := &fakeWorker{done: pwDone}
+
+	var gwStarted atomic.Bool
+	gwDone := make(chan struct{})
+
+	done := make(chan struct{})
+	go func() {
+		_ = Run(ctx, m, Config{
+			HeartbeatInterval: 5 * time.Millisecond,
+			PushWorker:        pw,
+			AgentGateway: func(ctx context.Context) error {
+				gwStarted.Store(true)
+				close(gwDone)
+				<-ctx.Done()
+				return nil
+			},
+		})
+		close(done)
+	}()
+
+	select {
+	case <-pwDone:
+	case <-time.After(time.Second):
+		t.Fatal("PushWorker.Run was not invoked")
+	}
+	select {
+	case <-gwDone:
+	case <-time.After(time.Second):
+		t.Fatal("AgentGateway was not invoked")
+	}
+	if !gwStarted.Load() {
+		t.Fatal("AgentGateway did not start")
+	}
+	cancel()
+	<-done
+}
+
 func TestRun_ContinuesAfterHeartbeatFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -77,6 +77,8 @@
     '/credentials/new': renderNewCredential,
     '/scan-jobs': renderScanJobs,
     '/scan-jobs/new': renderNewScanJob,
+    '/fleet': renderFleet,
+    '/fleet/push': renderPushAgent,
     '/audit': renderAudit,
   };
 
@@ -107,6 +109,11 @@
     const scanJobMatch = path.match(/^\/scan-jobs\/([0-9a-f-]{36})$/);
     if (scanJobMatch) {
       renderScanJobDetail(document.getElementById('app'), scanJobMatch[1]);
+      return;
+    }
+    const pushJobMatch = path.match(/^\/fleet\/push\/([0-9a-f-]{36})$/);
+    if (pushJobMatch) {
+      renderPushJobDetail(document.getElementById('app'), pushJobMatch[1]);
       return;
     }
     const h = routes[path] || renderDashboard;
@@ -231,7 +238,7 @@
         list.innerHTML = '<table><thead><tr><th>Name</th><th>Description</th>' + headActions + '</tr></thead><tbody>' +
           groups.map(g => {
             const actions = showActions
-              ? `<td><a href="#/scan-jobs/new?group_id=${escapeHTML(g.id)}" class="button">Scan now</a></td>`
+              ? `<td><a href="#/scan-jobs/new?group_id=${escapeHTML(g.id)}" class="button">Scan now</a> <a href="#/fleet/push?group_id=${escapeHTML(g.id)}" class="button">Push agent</a></td>`
               : '';
             return `<tr>
               <td><strong>${escapeHTML(g.name)}</strong></td>
@@ -1506,6 +1513,215 @@
       if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
     }
   }
+  // ---------- Fleet Management (Phase 6 Task 10) ----------
+
+  function agentStatusClass(status) {
+    switch (status) {
+      case 'healthy': return 'online';
+      case 'unhealthy': return 'offline';
+      case 'installing': return 'claimed';
+      case 'uninstalled': return 'cancelled';
+      default: return status;
+    }
+  }
+
+  async function renderFleet(el) {
+    el.innerHTML = `
+      <h1>Agent Fleet</h1>
+      <p class="muted">Agents are installed on hosts via SSH push. Once installed, they run scans locally and submit findings through the engine.</p>
+      ${canMutate() ? '<p><a href="#/fleet/push" class="button primary">Push agent to group</a></p>' : ''}
+      <h2>Installed agents</h2>
+      <div id="agents">loading&hellip;</div>
+      <h2>Push job history</h2>
+      <div id="jobs">loading&hellip;</div>
+    `;
+
+    try {
+      const [agentsResp, jobsResp] = await Promise.all([
+        authedFetch('/api/v1/manage/agent-push/agents'),
+        authedFetch('/api/v1/manage/agent-push/?limit=20'),
+      ]);
+      const agents = await agentsResp.json();
+      const jobs = await jobsResp.json();
+
+      // Agents table
+      const agentsEl = el.querySelector('#agents');
+      if (!agents || agents.length === 0) {
+        agentsEl.innerHTML = '<p><em>No agents installed yet.</em></p>';
+      } else {
+        agentsEl.innerHTML = `<table>
+          <thead><tr><th>Host</th><th>Status</th><th>Version</th><th>Last heartbeat</th><th>Installed</th><th></th></tr></thead>
+          <tbody>${agents.map(a => `<tr>
+            <td>${escapeHTML(a.host_id)}</td>
+            <td><span class="badge badge-${agentStatusClass(a.status)}">${escapeHTML(a.status)}</span></td>
+            <td>${escapeHTML(a.version || '\u2014')}</td>
+            <td>${a.last_heartbeat ? timeAgo(a.last_heartbeat) : '\u2014'}</td>
+            <td>${timeAgo(a.installed_at)}</td>
+            <td>${canMutate() && a.status !== 'uninstalled' ? `<button class="uninstall danger" data-host="${escapeHTML(a.host_id)}">Uninstall</button>` : ''}</td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+
+        agentsEl.querySelectorAll('button.uninstall').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm('Uninstall agent from this host?')) return;
+            const hostID = btn.dataset.host;
+            const r = await authedFetch('/api/v1/manage/agent-push/agents/' + hostID + '/uninstall', { method: 'POST' });
+            if (r.ok) route();
+            else alert('Uninstall failed: ' + r.status);
+          });
+        });
+      }
+
+      // Push jobs table
+      const jobsEl = el.querySelector('#jobs');
+      if (!jobs || jobs.length === 0) {
+        jobsEl.innerHTML = '<p><em>No push jobs yet.</em></p>';
+      } else {
+        jobsEl.innerHTML = `<table>
+          <thead><tr><th>Requested</th><th>Hosts</th><th>Progress</th><th>Status</th><th></th></tr></thead>
+          <tbody>${jobs.map(j => `<tr>
+            <td>${timeAgo(j.requested_at)}</td>
+            <td>${j.progress_total}</td>
+            <td>${j.progress_done}/${j.progress_total}${j.progress_failed > 0 ? ` (${j.progress_failed} failed)` : ''}</td>
+            <td><span class="badge badge-${escapeHTML(j.status)}">${escapeHTML(j.status)}</span></td>
+            <td><a href="#/fleet/push/${escapeHTML(j.id)}">View &rarr;</a></td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') {
+        el.querySelector('#agents').textContent = 'Error loading fleet data.';
+      }
+    }
+  }
+
+  async function renderPushAgent(el) {
+    if (!canMutate()) {
+      el.innerHTML = '<h1>Push Agent</h1><p>Only Engineers and Owners can push agents.</p>';
+      return;
+    }
+
+    // Parse query string from hash for group preselection
+    const qs = window.location.hash.split('?')[1] || '';
+    const params = new URLSearchParams(qs);
+    const preselectedGroup = params.get('group_id') || '';
+
+    el.innerHTML = `
+      <h1>Push Agent to Group</h1>
+      <form id="pushForm">
+        <label>Target group
+          <select name="group_id" required><option value="">\u2014 choose group \u2014</option></select>
+        </label>
+        <label>Bootstrap credential (SSH password, SSH key, or bootstrap-admin)
+          <select name="credential_profile_id" required><option value="">\u2014 choose credential \u2014</option></select>
+        </label>
+        <div class="button-row">
+          <a href="#/fleet" class="button">Cancel</a>
+          <button class="primary">Push agent</button>
+        </div>
+        <div id="push_err"></div>
+      </form>
+    `;
+
+    // Populate selectors
+    try {
+      const [groupsResp, credsResp] = await Promise.all([
+        authedFetch('/api/v1/manage/groups/'),
+        authedFetch('/api/v1/manage/credentials/'),
+      ]);
+      const groups = await groupsResp.json();
+      const creds = await credsResp.json();
+      const groupSel = el.querySelector('[name=group_id]');
+      for (const g of groups || []) {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        if (g.id === preselectedGroup) opt.selected = true;
+        groupSel.appendChild(opt);
+      }
+      const credSel = el.querySelector('[name=credential_profile_id]');
+      for (const c of creds || []) {
+        if (c.auth_type === 'ssh-password' || c.auth_type === 'bootstrap-admin' || c.auth_type === 'ssh-key') {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = escapeHTML(c.name) + ' (' + escapeHTML(c.auth_type) + ')';
+          credSel.appendChild(opt);
+        }
+      }
+    } catch (e) {
+      // Selector population failed — form still usable if user types UUIDs, but
+      // more practically this means the API is unreachable. Error ignored per
+      // existing pattern (renderNewScanJob does the same).
+    }
+
+    el.querySelector('#pushForm').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const body = {
+        group_id: ev.target.group_id.value,
+        credential_profile_id: ev.target.credential_profile_id.value,
+      };
+      const resp = await authedFetch('/api/v1/manage/agent-push/', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        el.querySelector('#push_err').innerHTML = '<p class="error">' + escapeHTML(txt) + '</p>';
+        return;
+      }
+      const job = await resp.json();
+      window.location.hash = '#/fleet/push/' + job.id;
+    });
+  }
+
+  async function renderPushJobDetail(el, jobID) {
+    el.innerHTML = '<p>loading&hellip;</p>';
+    try {
+      const resp = await authedFetch('/api/v1/manage/agent-push/' + jobID);
+      if (!resp.ok) { el.innerHTML = '<p>Not found.</p>'; return; }
+      const job = await resp.json();
+
+      const running = ['queued', 'claimed', 'running'].includes(job.status);
+      const canCancel = canMutate() && job.status === 'queued';
+      const pct = job.progress_total > 0 ? Math.round(100 * job.progress_done / job.progress_total) : 0;
+
+      el.innerHTML = `
+        <p><a href="#/fleet">&larr; Back to fleet</a></p>
+        <h1>Push Job</h1>
+        <dl class="kv">
+          <dt>Status</dt><dd><span class="badge badge-${escapeHTML(job.status)}">${escapeHTML(job.status)}</span></dd>
+          <dt>Hosts</dt><dd>${job.progress_total}</dd>
+          <dt>Progress</dt><dd>
+            ${job.progress_done} installed${job.progress_failed > 0 ? ', ' + job.progress_failed + ' failed' : ''} (${pct}%)
+            <span class="progress-bar"><span class="progress-bar-fill" style="width:${pct}%"></span></span>
+          </dd>
+          <dt>Requested</dt><dd>${timeAgo(job.requested_at)}</dd>
+          ${job.claimed_at ? '<dt>Claimed</dt><dd>' + timeAgo(job.claimed_at) + '</dd>' : ''}
+          ${job.completed_at ? '<dt>Completed</dt><dd>' + timeAgo(job.completed_at) + '</dd>' : ''}
+          ${job.error ? '<dt>Error</dt><dd class="error">' + escapeHTML(job.error) + '</dd>' : ''}
+        </dl>
+        ${canCancel ? '<button id="cancelPush" class="danger">Cancel</button>' : ''}
+      `;
+
+      if (canCancel) {
+        el.querySelector('#cancelPush').addEventListener('click', async () => {
+          if (!confirm('Cancel this push job?')) return;
+          const r = await authedFetch('/api/v1/manage/agent-push/' + jobID + '/cancel', { method: 'POST' });
+          if (r.ok) route();
+          else alert('Cancel failed: ' + r.status);
+        });
+      }
+
+      if (running) {
+        setTimeout(() => {
+          if (window.location.hash === '#/fleet/push/' + jobID) route();
+        }, 5000);
+      }
+    } catch (e) {
+      if (e.message !== 'unauthorized') el.innerHTML = '<p>Error: ' + escapeHTML(e.message) + '</p>';
+    }
+  }
+
   // ---------- Audit Log (Phase 7 Task 8) ----------
 
   async function renderAudit(el) {

@@ -193,6 +193,12 @@ services:
       # engine derives a key from its in-memory X25519 private key —
       # DEV ONLY, log emits a WARNING. Production MUST set this.
       TRITON_ENGINE_KEYSTORE_KEY: "${TRITON_ENGINE_KEYSTORE_KEY:-}"
+      # Onboarding Phase 6 — agent push + gateway.
+      TRITON_AGENT_GATEWAY_ADDR: ":9443"
+      TRITON_AGENT_BINARY_PATH: /opt/triton/triton-agent
+      TRITON_ENGINE_ADVERTISE_ADDR: "${TRITON_ENGINE_ADVERTISE_ADDR:-engine:9443}"
+    ports:
+      - "9443:9443"
     volumes:
       # Operator mints a bundle via the portal admin UI
       # (POST /api/v1/manage/engines/), saves bytes to ./bundle.tar.gz,

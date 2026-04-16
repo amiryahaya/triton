@@ -67,6 +67,9 @@ var (
 	// DNSSEC active query flags (Wave 2 §6.1)
 	dnssecZones []string
 
+	// Keystore password list (PCert parity sprint)
+	keystorePasswords []string
+
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
 	rootCmd = &cobra.Command{
@@ -176,6 +179,8 @@ func init() {
 		"OIDC identity provider URL to probe (repeatable, e.g. --oidc-endpoint https://auth.example.com)")
 	rootCmd.PersistentFlags().StringSliceVar(&dnssecZones, "dnssec-zone", nil,
 		"DNS zone to query via dig for DNSSEC algorithm inventory (repeatable, e.g. --dnssec-zone example.com)")
+	rootCmd.PersistentFlags().StringSliceVar(&keystorePasswords, "keystore-passwords", nil,
+		"Passwords to try on PKCS#12/JKS/JCEKS keystores (comma-separated, env: TRITON_KEYSTORE_PASSWORDS)")
 
 	// eBPF trace flags (Linux-only; other platforms emit a skipped-finding).
 	rootCmd.PersistentFlags().Duration("ebpf-window", 60*time.Second,
@@ -404,6 +409,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	if v, _ := cmd.Flags().GetString("pcap-filter"); v != "" {
 		cfg.PcapFilter = v
+	}
+
+	// Keystore passwords: CLI flag → env var → empty (built-in defaults only).
+	if len(keystorePasswords) > 0 {
+		cfg.KeystorePasswords = keystorePasswords
+	} else if envPW := os.Getenv("TRITON_KEYSTORE_PASSWORDS"); envPW != "" {
+		cfg.KeystorePasswords = strings.Split(envPW, ",")
 	}
 
 	// Gate optional features behind licence tier.

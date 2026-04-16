@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+
+# ---- build stage ----
+FROM docker.io/library/golang:1.25 AS build
+WORKDIR /src
+# go.mod pins a newer minor; let Go's toolchain mechanism fetch it.
+ENV GOTOOLCHAIN=auto
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build \
+    -trimpath \
+    -ldflags "-s -w -X github.com/amiryahaya/triton/internal/version.Version=${VERSION}" \
+    -o /out/triton-agent \
+    ./cmd/triton-agent
+
+# ---- runtime stage ----
+# distroless/static:nonroot bundles CA certs — needed because the agent
+# makes outbound mTLS calls to the engine gateway on :9443.
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /out/triton-agent /triton-agent
+ENTRYPOINT ["/triton-agent"]

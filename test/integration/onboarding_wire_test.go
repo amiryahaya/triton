@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	// Portal types
+	"github.com/amiryahaya/triton/pkg/server/agentpush"
 	creds "github.com/amiryahaya/triton/pkg/server/credentials"
 	disc "github.com/amiryahaya/triton/pkg/server/discovery"
 	scanjobs "github.com/amiryahaya/triton/pkg/server/scanjobs"
@@ -268,5 +269,89 @@ func TestWireFormat_DiscoveryJob(t *testing.T) {
 	}
 	if len(ports) != 3 {
 		t.Errorf("ports = %v, want 3 elements", ports)
+	}
+}
+
+// TestWireFormat_PushJobPayload_RoundTrips verifies portal PushJobPayload
+// JSON round-trips into engine client.PushJobPayload without field loss.
+// Portal types use uuid.UUID; engine client types use string — Go's
+// uuid.UUID marshals as a plain JSON string so the engine side can
+// unmarshal it without special handling.
+func TestWireFormat_PushJobPayload_RoundTrips(t *testing.T) {
+	portal := agentpush.PushJobPayload{
+		ID:                  uuid.Must(uuid.NewV7()),
+		CredentialSecretRef: uuid.Must(uuid.NewV7()),
+		CredentialAuthType:  "bootstrap-admin",
+		Hosts: []agentpush.HostTarget{
+			{ID: uuid.Must(uuid.NewV7()), Address: "10.0.0.5", Port: 22, Hostname: "app-01", OS: "linux"},
+		},
+	}
+
+	b, err := json.Marshal(portal)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var engine client.PushJobPayload
+	if err := json.Unmarshal(b, &engine); err != nil {
+		t.Fatalf("unmarshal into engine type: %v", err)
+	}
+
+	if engine.ID != portal.ID.String() {
+		t.Errorf("ID mismatch: portal=%s engine=%s", portal.ID, engine.ID)
+	}
+	if engine.CredentialSecretRef != portal.CredentialSecretRef.String() {
+		t.Errorf("CredentialSecretRef mismatch: portal=%s engine=%s", portal.CredentialSecretRef, engine.CredentialSecretRef)
+	}
+	if engine.CredentialAuthType != portal.CredentialAuthType {
+		t.Errorf("CredentialAuthType mismatch: portal=%s engine=%s", portal.CredentialAuthType, engine.CredentialAuthType)
+	}
+	if len(engine.Hosts) != 1 {
+		t.Fatalf("Hosts: want 1, got %d", len(engine.Hosts))
+	}
+	h := engine.Hosts[0]
+	if h.ID != portal.Hosts[0].ID.String() {
+		t.Errorf("Host ID mismatch: portal=%s engine=%s", portal.Hosts[0].ID, h.ID)
+	}
+	if h.Address != "10.0.0.5" {
+		t.Errorf("Host Address: want 10.0.0.5, got %s", h.Address)
+	}
+	if h.Port != 22 {
+		t.Errorf("Host Port: want 22, got %d", h.Port)
+	}
+	if h.Hostname != "app-01" {
+		t.Errorf("Host Hostname: want app-01, got %s", h.Hostname)
+	}
+	if h.OS != "linux" {
+		t.Errorf("Host OS: want linux, got %s", h.OS)
+	}
+}
+
+// TestWireFormat_RegisterAgentRequest_AcceptsStringUUID verifies that the
+// portal's registerAgentRequest (which uses uuid.UUID for HostID) can
+// decode a plain string UUID as sent by the engine client.
+func TestWireFormat_RegisterAgentRequest_AcceptsStringUUID(t *testing.T) {
+	hostID := uuid.Must(uuid.NewV7())
+	// Simulate what the engine sends (plain string UUID):
+	engineJSON := `{"host_id":"` + hostID.String() + `","cert_fingerprint":"abc123","version":"1.0"}`
+
+	// Simulate what the portal decodes into:
+	type portalReq struct {
+		HostID          uuid.UUID `json:"host_id"`
+		CertFingerprint string    `json:"cert_fingerprint"`
+		Version         string    `json:"version"`
+	}
+	var req portalReq
+	if err := json.Unmarshal([]byte(engineJSON), &req); err != nil {
+		t.Fatalf("portal decode failed: %v — wire-format mismatch between engine string and portal uuid.UUID", err)
+	}
+	if req.HostID == uuid.Nil {
+		t.Error("HostID decoded as nil")
+	}
+	if req.HostID != hostID {
+		t.Errorf("HostID mismatch: want %s, got %s", hostID, req.HostID)
+	}
+	if req.CertFingerprint != "abc123" {
+		t.Errorf("CertFingerprint: want abc123, got %s", req.CertFingerprint)
 	}
 }

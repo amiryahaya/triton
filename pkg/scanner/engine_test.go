@@ -54,7 +54,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 54 modules:
+	// Should register all 55 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
@@ -70,7 +70,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + PCert parity wave 2: tls_observer + ftps + ssh_cert + ldif.
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 54)
+	assert.Len(t, eng.modules, 55)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -606,6 +606,7 @@ func TestRegisterDefaultModules_AllKnownModulesPresent(t *testing.T) {
 		"ebpf_trace",
 		"tpm",
 		"uefi",
+		"archive",
 		// PCert parity wave 2
 		"tls_observer",
 		"ftps",

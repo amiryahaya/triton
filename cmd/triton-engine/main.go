@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdh"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"log"
@@ -16,6 +18,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/amiryahaya/triton/pkg/engine/agentgw"
+	"github.com/amiryahaya/triton/pkg/engine/agentpush"
 	"github.com/amiryahaya/triton/pkg/engine/client"
 	"github.com/amiryahaya/triton/pkg/engine/credentials"
 	trcrypto "github.com/amiryahaya/triton/pkg/engine/crypto"
@@ -153,11 +157,82 @@ func run() int {
 		Executor: scanExecutor,
 	}
 
+	// ---- Agent push (Onboarding Phase 6) ----
+
+	// Load agent binary for push distribution.
+	agentBinaryPath := os.Getenv("TRITON_AGENT_BINARY_PATH")
+	if agentBinaryPath == "" {
+		agentBinaryPath = "/opt/triton/triton-agent"
+	}
+	var agentBinary []byte
+	if data, err := os.ReadFile(agentBinaryPath); err == nil {
+		agentBinary = data
+		log.Printf("loaded agent binary: %s (%d bytes)", agentBinaryPath, len(data))
+	} else {
+		log.Printf("WARNING: agent binary not found at %s — push jobs will fail until provided", agentBinaryPath)
+	}
+
+	// Parse engine cert for per-host cert minting.
+	engineX509, err := x509.ParseCertificate(c.TLSCert.Certificate[0])
+	if err != nil {
+		log.Printf("parse engine cert: %v", err)
+		return 1
+	}
+	engineSigner, ok := c.TLSCert.PrivateKey.(crypto.Signer)
+	if !ok {
+		log.Printf("engine private key is not a crypto.Signer")
+		return 1
+	}
+
+	// Agent gateway address — the listener binds to this addr; the
+	// advertise address (included in agent configs) may differ.
+	agentGWAddr := os.Getenv("TRITON_AGENT_GATEWAY_ADDR")
+	if agentGWAddr == "" {
+		agentGWAddr = ":9443"
+	}
+	engineAdvertiseAddr := os.Getenv("TRITON_ENGINE_ADVERTISE_ADDR")
+	if engineAdvertiseAddr == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			engineAdvertiseAddr = hostname + agentGWAddr
+		} else {
+			engineAdvertiseAddr = "localhost" + agentGWAddr
+		}
+	}
+
+	agentStore := agentgw.NewInMemoryAgentStore()
+
+	pushExecutor := &agentpush.Executor{
+		Keystore:      ks,
+		EngineCert:    engineX509,
+		EngineKey:     engineSigner,
+		EngineAddress: engineAdvertiseAddr,
+		AgentBinary:   agentBinary,
+	}
+	pushWorker := &agentpush.Worker{
+		Client:   c,
+		Executor: pushExecutor,
+	}
+
+	agentGWHandlers := &agentgw.Handlers{
+		AgentStore:     agentStore,
+		ScanDispatcher: nil, // wired in a follow-up
+	}
+	agentGWServer := &agentgw.Server{
+		Addr:       agentGWAddr,
+		EngineCert: c.TLSCert,
+		EngineX509: engineX509,
+		Handlers:   agentGWHandlers,
+	}
+
 	cfg := loop.Config{
 		DiscoveryWorker:      discoveryWorker,
 		CredentialHandler:    credHandler,
 		CredentialTestWorker: credTestWorker,
 		ScanWorker:           scanWorker,
+		PushWorker:           pushWorker,
+		AgentGateway: func(ctx context.Context) error {
+			return agentGWServer.ListenAndServe(ctx)
+		},
 		OnEnrolled: func(ctx context.Context) {
 			if err := c.SubmitEncryptionPubkey(ctx, pub); err != nil {
 				log.Printf("submit encryption pubkey: %v", err)

@@ -47,6 +47,7 @@ type Client struct {
 	PortalURL string
 	EngineID  string
 	HTTP      *http.Client
+	TLSCert   tls.Certificate // engine's mTLS cert+key from bundle
 }
 
 // requestTimeout is the per-request timeout applied to the underlying
@@ -114,6 +115,7 @@ func New(bundlePath string) (*Client, error) {
 	return &Client{
 		PortalURL: manifest.ReportServerURL,
 		EngineID:  manifest.EngineID.String(),
+		TLSCert:   cert,
 		HTTP: &http.Client{
 			Timeout: requestTimeout,
 			Transport: &http.Transport{

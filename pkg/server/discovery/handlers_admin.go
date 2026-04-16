@@ -137,8 +137,10 @@ func (h *AdminHandlers) CreateDiscovery(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	// Distinguish absent/null ports (nil slice → apply defaults) from
+	// explicitly empty ports (non-nil empty slice → ping sweep, no TCP).
 	ports := req.Ports
-	if len(ports) == 0 {
+	if ports == nil {
 		ports = append([]int(nil), DefaultDiscoveryPorts...)
 	}
 	for _, p := range ports {

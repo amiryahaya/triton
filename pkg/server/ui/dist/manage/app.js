@@ -82,11 +82,18 @@
     '/audit': renderAudit,
   };
 
+  function setSidebarVisible(visible) {
+    var sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.style.display = visible ? '' : 'none';
+  }
+
   function route() {
     if (!getToken()) {
+      setSidebarVisible(false);
       renderLogin();
       return;
     }
+    setSidebarVisible(true);
     const rawPath = window.location.hash.replace('#', '') || '/dashboard';
     // Strip query string (e.g. #/scan-jobs/new?group_id=<uuid>) before
     // matching static routes or UUID-suffixed dynamic routes.
@@ -725,7 +732,12 @@
         <label>CIDRs (one per line)
           <textarea name="cidrs" rows="4" required placeholder="10.0.0.0/24&#10;192.168.1.0/24"></textarea>
         </label>
-        <label>Ports (comma-separated, defaults to 22,80,443,3389,5985)
+        <fieldset style="border:1px solid var(--border,#ccc);padding:.75rem;border-radius:6px;margin:.5rem 0">
+          <legend style="font-weight:600;padding:0 .25rem">Probe type</legend>
+          <label style="display:block;margin-bottom:.25rem"><input type="radio" name="probe_type" value="ping" checked> Ping sweep (find all live hosts)</label>
+          <label style="display:block"><input type="radio" name="probe_type" value="tcp"> TCP port scan (find hosts + open ports)</label>
+        </fieldset>
+        <label id="ports_label" style="display:none">Ports (comma-separated, defaults to 22,80,443,3389,5985)
           <input name="ports" placeholder="22,80,443,3389,5985">
         </label>
         <div class="button-row">
@@ -735,6 +747,14 @@
         <div id="new_err"></div>
       </form>
     `;
+
+    // Toggle ports input visibility based on probe type selection.
+    const portsLabel = el.querySelector('#ports_label');
+    el.querySelectorAll('input[name="probe_type"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        portsLabel.style.display = radio.value === 'tcp' && radio.checked ? '' : 'none';
+      });
+    });
 
     const sel = el.querySelector('#engine_sel');
     try {
@@ -755,14 +775,21 @@
       ev.preventDefault();
       const f = ev.target;
       const cidrs = f.cidrs.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      const portsStr = f.ports.value.trim();
-      const ports = portsStr
-        ? portsStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= 65535)
-        : [];
+      const probeType = f.probe_type.value;
+      const payload = { engine_id: f.engine_id.value, cidrs };
+      if (probeType === 'ping') {
+        payload.ports = []; // explicitly empty = ping sweep
+      } else {
+        const portsStr = f.ports.value.trim();
+        if (portsStr) {
+          payload.ports = portsStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= 65535);
+        }
+        // omit ports entirely → server applies default [22,80,443,3389,5985]
+      }
       try {
         const resp = await authedFetch('/api/v1/manage/discoveries/', {
           method: 'POST',
-          body: JSON.stringify({ engine_id: f.engine_id.value, cidrs, ports }),
+          body: JSON.stringify(payload),
         });
         if (!resp.ok) {
           const txt = await resp.text();

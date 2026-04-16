@@ -231,11 +231,22 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, engineID uuid.UUID) (JobP
 		payload.Hosts[i].Port = port
 	}
 
-	if _, err := tx.Exec(ctx,
-		`UPDATE scan_jobs SET status = 'claimed', claimed_at = NOW() WHERE id = $1`,
+	// Guard on status='queued'. FOR UPDATE SKIP LOCKED prevents a
+	// concurrent claim from racing us, but a CancelJob update that
+	// commits between our SELECT's snapshot and this UPDATE could
+	// otherwise silently un-cancel the job. If the row moved out of
+	// 'queued' under us, treat it as "someone else won" and return
+	// found=false so the caller re-polls.
+	ct, err := tx.Exec(ctx,
+		`UPDATE scan_jobs SET status = 'claimed', claimed_at = NOW()
+		 WHERE id = $1 AND status = 'queued'`,
 		jobID,
-	); err != nil {
+	)
+	if err != nil {
 		return JobPayload{}, false, fmt.Errorf("update claim scan job: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return JobPayload{}, false, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return JobPayload{}, false, fmt.Errorf("commit claim scan job: %w", err)

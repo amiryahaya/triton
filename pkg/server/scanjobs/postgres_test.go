@@ -249,6 +249,28 @@ func TestScanJobs_ClaimNext_SingleUse(t *testing.T) {
 		"exactly one goroutine claims the only queued job")
 }
 
+func TestScanJobs_ClaimNext_LostRaceToCancel(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	j, err := f.store.CreateJob(ctx, newJob(f, false))
+	require.NoError(t, err)
+
+	// Simulate a racing cancel that wins: flip the row to 'cancelled'
+	// directly, as if CancelJob's UPDATE committed between our SELECT
+	// snapshot and final UPDATE. The guarded UPDATE must see 0 rows
+	// affected and return found=false.
+	_, err = f.pool.Exec(ctx,
+		`UPDATE scan_jobs SET status='cancelled', completed_at=NOW() WHERE id = $1`,
+		j.ID,
+	)
+	require.NoError(t, err)
+
+	_, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	assert.False(t, ok, "ClaimNext must return found=false when the row moved out of queued")
+}
+
 func TestScanJobs_CancelQueued_OK(t *testing.T) {
 	f := setupFixture(t)
 	ctx := context.Background()

@@ -172,8 +172,8 @@ func TestLicenseFlow_Standalone_FreeGuard(t *testing.T) {
 	cfg.DBUrl = "postgres://triton:triton@localhost:5434/triton?sslmode=disable"
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "quick", cfg.Profile)
-	assert.Len(t, cfg.Modules, 3)
-	expected := map[string]bool{"certificates": true, "keys": true, "packages": true}
+	assert.Len(t, cfg.Modules, 4)
+	expected := map[string]bool{"certificates": true, "keys": true, "packages": true, "ldif": true}
 	for _, m := range cfg.Modules {
 		assert.True(t, expected[m], "unexpected module for free tier: %s", m)
 	}

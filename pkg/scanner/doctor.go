@@ -376,6 +376,22 @@ func RunDoctorChecks(profile string) *DoctorReport {
 		})
 	}
 
+	// 5b. TLS observer (live capture) check
+	if activeModules["tls_observer"] {
+		ok, detail := pcapDoctorCheck()
+		status := CheckPass
+		if !ok {
+			status = CheckWarn
+		}
+		report.Checks = append(report.Checks, CheckResult{
+			Module:     "tls_observer",
+			CheckName:  "live capture privileges",
+			Status:     status,
+			Message:    detail,
+			Suggestion: "Run as root or grant CAP_NET_RAW for live pcap capture. Offline .pcap analysis needs no privileges.",
+		})
+	}
+
 	// 6. OCI image scanning checks
 	if activeModules["oci_image"] {
 		// go-containerregistry is always available (compiled-in dependency)

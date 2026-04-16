@@ -18,6 +18,7 @@ import (
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/crypto"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/internal/tlsutil"
 )
 
 const defaultProbeTimeout = 5 * time.Second
@@ -496,69 +497,63 @@ func (m *ProtocolModule) probeCipherPreference(ctx context.Context, addr string,
 
 // enhancedChainValidation inspects peer certificates for weak signatures,
 // upcoming expiry, and extracts SANs from the leaf certificate.
+// Chain analysis is delegated to tlsutil.WalkCertChain; this method is
+// responsible only for emitting findings.
 func (m *ProtocolModule) enhancedChainValidation(ctx context.Context, addr string, certs []*x509.Certificate, findings chan<- *model.Finding) error {
 	chainLen := len(certs)
-	for i, cert := range certs {
+	entries := tlsutil.WalkCertChain(certs)
+
+	for _, e := range entries {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		position, _ := chainPosition(i, chainLen, cert)
-
-		// Weak signature algorithm detection
-		if isWeakSignatureAlgorithm(cert.SignatureAlgorithm) {
+		// Weak signature algorithm detection.
+		if e.WeakSignature {
 			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 				ID:            uuid.Must(uuid.NewV7()).String(),
 				Function:      "Weak certificate signature algorithm",
-				Algorithm:     sigAlgoToPQCAlgorithm(cert.SignatureAlgorithm),
-				Subject:       cert.Subject.String(),
-				Issuer:        cert.Issuer.String(),
-				ChainPosition: position,
+				Algorithm:     e.WeakSigAlgo,
+				Subject:       e.Cert.Subject.String(),
+				Issuer:        e.Cert.Issuer.String(),
+				ChainPosition: e.Position,
 				ChainDepth:    chainLen,
-				Purpose:       fmt.Sprintf("Certificate uses weak signature algorithm %s", cert.SignatureAlgorithm),
+				Purpose:       fmt.Sprintf("Certificate uses weak signature algorithm %s", e.Cert.SignatureAlgorithm),
 			}, findings); err != nil {
 				return err
 			}
 		}
 
-		// Certificate expiry warning (within 30 days, but not yet expired)
-		if cert.NotAfter.After(time.Now()) {
-			daysRemaining := int(time.Until(cert.NotAfter).Hours() / 24)
-			if daysRemaining <= 30 {
-				notAfter := cert.NotAfter
-				if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
-					ID:            uuid.Must(uuid.NewV7()).String(),
-					Function:      "Certificate expiry warning",
-					Algorithm:     certAlgoName(cert),
-					Subject:       cert.Subject.String(),
-					NotAfter:      &notAfter,
-					ChainPosition: position,
-					ChainDepth:    chainLen,
-					Purpose:       fmt.Sprintf("Certificate expires in %d days", daysRemaining),
-				}, findings); err != nil {
-					return err
-				}
+		// Certificate expiry warning (within 30 days, but not yet expired).
+		if e.ExpiryWarning {
+			notAfter := e.Cert.NotAfter
+			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
+				ID:            uuid.Must(uuid.NewV7()).String(),
+				Function:      "Certificate expiry warning",
+				Algorithm:     tlsutil.CertAlgoName(e.Cert),
+				Subject:       e.Cert.Subject.String(),
+				NotAfter:      &notAfter,
+				ChainPosition: e.Position,
+				ChainDepth:    chainLen,
+				Purpose:       fmt.Sprintf("Certificate expires in %d days", e.DaysRemaining),
+			}, findings); err != nil {
+				return err
 			}
 		}
 
-		// SAN extraction (leaf only)
-		if i == 0 && (len(cert.DNSNames) > 0 || len(cert.IPAddresses) > 0) {
-			var sans []string
-			sans = append(sans, cert.DNSNames...)
-			for _, ip := range cert.IPAddresses {
-				sans = append(sans, ip.String())
-			}
+		// SAN extraction (leaf only).
+		if len(e.SANs) > 0 {
 			if err := m.emitFinding(ctx, addr, &model.CryptoAsset{
 				ID:            uuid.Must(uuid.NewV7()).String(),
 				Function:      "TLS certificate SANs",
-				Algorithm:     certAlgoName(cert),
-				Subject:       cert.Subject.String(),
-				SANs:          sans,
-				ChainPosition: position,
+				Algorithm:     tlsutil.CertAlgoName(e.Cert),
+				Subject:       e.Cert.Subject.String(),
+				SANs:          e.SANs,
+				ChainPosition: e.Position,
 				ChainDepth:    chainLen,
-				Purpose:       fmt.Sprintf("Certificate has %d SANs", len(sans)),
+				Purpose:       fmt.Sprintf("Certificate has %d SANs", len(e.SANs)),
 			}, findings); err != nil {
 				return err
 			}
@@ -640,7 +635,7 @@ func (m *ProtocolModule) checkRevocation(ctx context.Context, addr string, certs
 		}
 
 		position, _ := chainPosition(i, len(certs), cert)
-		algoName := certAlgoName(cert)
+		algoName := tlsutil.CertAlgoName(cert)
 
 		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
 			ID:               uuid.Must(uuid.NewV7()).String(),
@@ -760,13 +755,6 @@ func (m *ProtocolModule) checkCRL(ctx context.Context, cert *x509.Certificate) s
 	return "GOOD"
 }
 
-// certAlgoName extracts the algorithm name from a certificate's public key.
-// It delegates to the shared certPublicKeyInfo helper.
-func certAlgoName(cert *x509.Certificate) string {
-	name, _ := certPublicKeyInfo(cert)
-	return name
-}
-
 // cipherSuiteAlgorithm extracts the primary symmetric algorithm from a TLS cipher suite.
 func cipherSuiteAlgorithm(suite uint16) string {
 	name := tls.CipherSuiteName(suite)
@@ -826,39 +814,6 @@ func cipherSuiteKeyExchange(suiteName string) (keyExchange string, pfs bool) {
 		return "DHE", true
 	default:
 		return "RSA", false
-	}
-}
-
-// isWeakSignatureAlgorithm returns true if the certificate signature algorithm is
-// considered weak (MD2, MD5, SHA-1 based).
-func isWeakSignatureAlgorithm(algo x509.SignatureAlgorithm) bool {
-	switch algo {
-	case x509.MD2WithRSA, x509.MD5WithRSA, x509.SHA1WithRSA, x509.DSAWithSHA1, x509.ECDSAWithSHA1:
-		return true
-	default:
-		return false
-	}
-}
-
-// sigAlgoToPQCAlgorithm maps a Go x509.SignatureAlgorithm to a PQC registry algorithm name.
-func sigAlgoToPQCAlgorithm(algo x509.SignatureAlgorithm) string {
-	switch algo {
-	case x509.SHA1WithRSA, x509.ECDSAWithSHA1, x509.DSAWithSHA1:
-		return "SHA-1"
-	case x509.SHA256WithRSA, x509.SHA256WithRSAPSS, x509.ECDSAWithSHA256:
-		return "SHA-256"
-	case x509.SHA384WithRSA, x509.SHA384WithRSAPSS, x509.ECDSAWithSHA384:
-		return "SHA-384"
-	case x509.SHA512WithRSA, x509.SHA512WithRSAPSS, x509.ECDSAWithSHA512:
-		return "SHA-512"
-	case x509.PureEd25519:
-		return "Ed25519"
-	case x509.MD5WithRSA:
-		return "MD5"
-	case x509.MD2WithRSA:
-		return "MD2"
-	default:
-		return algo.String()
 	}
 }
 

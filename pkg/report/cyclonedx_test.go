@@ -599,6 +599,45 @@ func TestCycloneDX_SurfacesQualityWarnings(t *testing.T) {
 	}
 }
 
+func TestCycloneDX_SurfacesJA3Properties(t *testing.T) {
+	tmp := t.TempDir()
+	out := tmp + "/ja3.cdx.json"
+	asset := &model.CryptoAsset{
+		ID:              "asset-ja3",
+		Algorithm:       "TLS_AES_128_GCM_SHA256",
+		PQCStatus:       model.PQCStatusSafe,
+		JA3Fingerprint:  "e7d705a3286e19ea42f587b344ee6865",
+		JA3SFingerprint: "a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5",
+	}
+	result := &model.ScanResult{
+		Metadata: model.ScanMetadata{Hostname: "ja3-host"},
+		Findings: []model.Finding{
+			{ID: "f1", Module: "tls_observer", CryptoAsset: asset},
+		},
+	}
+	g := New(tmp)
+	if err := g.GenerateCycloneDXBOM(result, out); err != nil {
+		t.Fatalf("GenerateCycloneDXBOM: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !contains(s, "triton:ja3") {
+		t.Error("missing triton:ja3 property")
+	}
+	if !contains(s, "e7d705a3286e19ea42f587b344ee6865") {
+		t.Error("missing JA3 fingerprint value")
+	}
+	if !contains(s, "triton:ja3s") {
+		t.Error("missing triton:ja3s property")
+	}
+	if !contains(s, "a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5") {
+		t.Error("missing JA3S fingerprint value")
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

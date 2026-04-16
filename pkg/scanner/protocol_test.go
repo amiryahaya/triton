@@ -25,6 +25,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/scanner/internal/tlsutil"
 )
 
 // Compile-time interface check
@@ -1349,8 +1350,15 @@ func TestIsWeakSignatureAlgorithm(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.algo.String(), func(t *testing.T) {
-			assert.Equal(t, tt.weak, isWeakSignatureAlgorithm(tt.algo))
+			t.Parallel()
+			cert := &x509.Certificate{SignatureAlgorithm: tt.algo}
+			entries := tlsutil.WalkCertChain([]*x509.Certificate{cert})
+			if len(entries) != 1 {
+				t.Fatalf("expected 1 entry, got %d", len(entries))
+			}
+			assert.Equal(t, tt.weak, entries[0].WeakSignature)
 		})
 	}
 }
@@ -1487,8 +1495,10 @@ func TestSigAlgoToPQCAlgorithm(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.algo.String(), func(t *testing.T) {
-			assert.Equal(t, tt.want, sigAlgoToPQCAlgorithm(tt.algo))
+			t.Parallel()
+			assert.Equal(t, tt.want, tlsutil.SigAlgoToPQCName(tt.algo))
 		})
 	}
 }

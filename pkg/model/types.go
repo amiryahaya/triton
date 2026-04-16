@@ -26,6 +26,7 @@ const (
 	TargetLDAP
 	TargetOCIImage          // OCI image reference (e.g. nginx:1.25)
 	TargetKubernetesCluster // kubeconfig path (Wave 1 Sprint 1b)
+	TargetPcap              // pcap file or live network capture
 )
 
 // PQC readiness status constants.
@@ -234,6 +235,14 @@ type CryptoAsset struct {
 	KeyExchange    string   `json:"keyExchange,omitempty"`    // "ECDHE", "DHE", "RSA", "TLS13"
 	ForwardSecrecy bool     `json:"forwardSecrecy,omitempty"` // true if ECDHE/DHE
 	SANs           []string `json:"sans,omitempty"`           // Subject Alternative Names
+
+	// TLS fingerprinting (pcap observer / passive capture)
+	JA3Fingerprint  string `json:"ja3Fingerprint,omitempty"`
+	JA3SFingerprint string `json:"ja3sFingerprint,omitempty"`
+	JA4Fingerprint  string `json:"ja4Fingerprint,omitempty"`
+	JA4SFingerprint string `json:"ja4sFingerprint,omitempty"`
+	SNI             string `json:"sni,omitempty"`
+	TLSFlowSource   string `json:"tlsFlowSource,omitempty"` // "pcap_file" or "live_capture"
 
 	// Container image annotation (populated by OCIImageModule delegation
 	// wrapper). Empty on filesystem-scan findings.

@@ -223,6 +223,19 @@ func findingToComponent(f *model.Finding) CDXComponent {
 		}
 	}
 
+	if asset.JA3Fingerprint != "" {
+		comp.Properties = append(comp.Properties, CDXProperty{Name: "triton:ja3", Value: asset.JA3Fingerprint})
+	}
+	if asset.JA3SFingerprint != "" {
+		comp.Properties = append(comp.Properties, CDXProperty{Name: "triton:ja3s", Value: asset.JA3SFingerprint})
+	}
+	if asset.JA4Fingerprint != "" {
+		comp.Properties = append(comp.Properties, CDXProperty{Name: "triton:ja4", Value: asset.JA4Fingerprint})
+	}
+	if asset.JA4SFingerprint != "" {
+		comp.Properties = append(comp.Properties, CDXProperty{Name: "triton:ja4s", Value: asset.JA4SFingerprint})
+	}
+
 	return comp
 }
 

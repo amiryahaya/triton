@@ -168,6 +168,7 @@ var defaultModuleFactories = []func(*scannerconfig.Config) Module{
 	func(c *scannerconfig.Config) Module { return NewEBPFTraceModule(c) },
 	func(c *scannerconfig.Config) Module { return NewTPMModule(c) },
 	func(c *scannerconfig.Config) Module { return NewUEFIModule(c) },
+	func(c *scannerconfig.Config) Module { return NewArchiveModule(c) },
 }
 
 // RegisterDefaultModules registers every factory in defaultModuleFactories.

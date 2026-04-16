@@ -121,6 +121,70 @@ func TestQueue_BuildSQL_DefaultCompletedAtColumn(t *testing.T) {
 	}
 }
 
+func TestNew_PanicsOnInvalidIdentifier(t *testing.T) {
+	valid := Config{
+		Table:             "scan_jobs",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
+		RequestedAtColumn: "requested_at",
+		CompletedAtColumn: "completed_at",
+		QueuedStatus:      "queued",
+		ClaimedStatus:     "claimed",
+		TerminalStatuses:  []string{"completed", "failed", "cancelled"},
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(c *Config)
+	}{
+		{"table with SQL injection", func(c *Config) { c.Table = `scan_jobs"; DROP TABLE scan_jobs; --` }},
+		{"table with space", func(c *Config) { c.Table = "scan jobs" }},
+		{"empty table", func(c *Config) { c.Table = "" }},
+		{"status column with semicolon", func(c *Config) { c.StatusColumn = "status;evil" }},
+		{"terminal status with quote", func(c *Config) { c.TerminalStatuses = []string{"completed", "'); DROP TABLE"} }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := valid
+			cfg.TerminalStatuses = append([]string(nil), valid.TerminalStatuses...)
+			tt.mutate(&cfg)
+
+			defer func() {
+				if r := recover(); r == nil {
+					t.Error("expected panic for invalid identifier, got none")
+				}
+			}()
+			New(nil, cfg)
+		})
+	}
+}
+
+func TestNew_DefensiveCopyOfTerminalStatuses(t *testing.T) {
+	statuses := []string{"completed", "failed"}
+	cfg := Config{
+		Table:             "scan_jobs",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
+		RequestedAtColumn: "requested_at",
+		CompletedAtColumn: "completed_at",
+		QueuedStatus:      "queued",
+		ClaimedStatus:     "claimed",
+		TerminalStatuses:  statuses,
+	}
+	q := New(nil, cfg)
+
+	// Mutate the original slice after construction.
+	statuses[0] = "HACKED"
+
+	// The queue's internal config should not have changed.
+	if strings.Contains(q.finishSQL, "HACKED") {
+		t.Error("terminal statuses were not defensively copied")
+	}
+}
+
 func TestStaleReaper_DefaultsApply(t *testing.T) {
 	r := &StaleReaper{Reclaimer: &fakeReclaimer{}, Label: "test"}
 	ctx, cancel := context.WithCancel(context.Background())

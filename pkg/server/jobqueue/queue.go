@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,6 +27,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// identifierRE validates SQL identifiers used in Config to prevent
+// injection via fmt.Sprintf-built SQL. Allows typical Postgres
+// identifiers: start with letter or underscore, then alphanumerics or
+// underscores, up to 63 chars (Postgres NAMEDATALEN - 1).
+var identifierRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,62}$`)
 
 // Sentinel errors returned by Queue methods. Consumers should wrap or
 // translate these into their own domain sentinels if handler-layer
@@ -80,10 +88,32 @@ type Queue struct {
 }
 
 // New constructs a Queue with pre-built SQL for the given config.
+// Panics if any Config field contains an invalid SQL identifier to
+// prevent injection via the fmt.Sprintf-built SQL in buildSQL.
 func New(pool *pgxpool.Pool, cfg Config) *Queue {
 	if cfg.CompletedAtColumn == "" {
 		cfg.CompletedAtColumn = "completed_at"
 	}
+
+	// Validate all identifiers to prevent SQL injection via Config.
+	for _, id := range []string{
+		cfg.Table, cfg.EngineIDColumn, cfg.StatusColumn,
+		cfg.ClaimedAtColumn, cfg.RequestedAtColumn,
+		cfg.CompletedAtColumn, cfg.QueuedStatus, cfg.ClaimedStatus,
+	} {
+		if !identifierRE.MatchString(id) {
+			panic(fmt.Sprintf("jobqueue.New: invalid SQL identifier %q", id))
+		}
+	}
+	for _, s := range cfg.TerminalStatuses {
+		if !identifierRE.MatchString(s) {
+			panic(fmt.Sprintf("jobqueue.New: invalid terminal status %q", s))
+		}
+	}
+
+	// Defensive copy so callers cannot mutate after construction.
+	cfg.TerminalStatuses = slices.Clone(cfg.TerminalStatuses)
+
 	q := &Queue{pool: pool, cfg: cfg}
 	q.buildSQL()
 	return q

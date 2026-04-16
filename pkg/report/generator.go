@@ -115,6 +115,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 		.status-UNSAFE { color: #b71c1c; font-weight: bold; }
 		.hybrid-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 0.7em; font-weight: bold; color: #fff; background: #6a1b9a; border-radius: 3px; vertical-align: middle; }
 		.quality-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 0.7em; font-weight: bold; color: #fff; background: #c62828; border-radius: 3px; vertical-align: middle; }
+		.ja-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 0.7em; font-weight: bold; color: #fff; background: #1565c0; border-radius: 3px; vertical-align: middle; }
 		.quality-details { font-size: 0.8em; color: #c62828; margin-top: 4px; }
 		.meta { color: #666; font-size: 0.9em; }
 		.chart-section { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; margin: 20px 0; }
@@ -231,6 +232,14 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 		}
 		if len(row.asset.QualityWarnings) > 0 {
 			algoCell += ` <span class="quality-badge" title="Key-material quality warnings">⚠ QUALITY</span>`
+		}
+		if row.asset.JA3Fingerprint != "" {
+			algoCell += fmt.Sprintf(` <span class="ja-badge" title="JA3: %s">JA3</span>`,
+				html.EscapeString(row.asset.JA3Fingerprint))
+		}
+		if row.asset.JA4Fingerprint != "" {
+			algoCell += fmt.Sprintf(` <span class="ja-badge" title="JA4: %s">JA4</span>`,
+				html.EscapeString(row.asset.JA4Fingerprint))
 		}
 		b.WriteString(fmt.Sprintf(`		<tr>
 			<td>CBOM #%d</td>

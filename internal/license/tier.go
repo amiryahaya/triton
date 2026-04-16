@@ -180,6 +180,7 @@ func proModules() []string {
 		"ftps",
 		"ssh_cert",
 		"ldif",
+		"python_ast",
 		// k8s_live, secrets_mgr, kerberos_runtime are enterprise-only — do NOT add.
 	}
 }

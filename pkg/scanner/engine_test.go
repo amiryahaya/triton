@@ -54,7 +54,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 45 modules:
+	// Should register all 54 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
@@ -66,10 +66,11 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + supply_chain (Wave 3) + kerberos_runtime (Wave 3)
 	// + enrollment (Wave 3) + fido2 (Wave 4) + blockchain (Wave 4)
 	// + helm_chart (Wave 4) + asn1_oid (comprehensive-only byte scanner)
-	// + java_bytecode (comprehensive-only .class/.jar scanner).
+	// + java_bytecode (comprehensive-only .class/.jar scanner)
+	// + PCert parity wave 2: tls_observer + ftps + ssh_cert + ldif.
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 50)
+	assert.Len(t, eng.modules, 54)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -166,6 +167,12 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.True(t, names["fido2"])
 	assert.True(t, names["blockchain"])
 	assert.True(t, names["helm_chart"])
+
+	// PCert parity wave 2 — TLS observer, FTPS, SSH cert, LDIF scanners.
+	assert.True(t, names["tls_observer"])
+	assert.True(t, names["ftps"])
+	assert.True(t, names["ssh_cert"])
+	assert.True(t, names["ldif"])
 }
 
 func TestScanWithNoModules(t *testing.T) {
@@ -599,6 +606,11 @@ func TestRegisterDefaultModules_AllKnownModulesPresent(t *testing.T) {
 		"ebpf_trace",
 		"tpm",
 		"uefi",
+		// PCert parity wave 2
+		"tls_observer",
+		"ftps",
+		"ssh_cert",
+		"ldif",
 	}
 
 	for _, name := range expected {

@@ -185,6 +185,17 @@ func init() {
 	rootCmd.PersistentFlags().Bool("ebpf-skip-kprobes", false,
 		"skip kernel kprobes in ebpf_trace (Linux only)")
 
+	// Pcap / TLS observer flags
+	rootCmd.PersistentFlags().String("pcap-file", "",
+		"path to .pcap/.pcapng file for offline TLS observation")
+	rootCmd.PersistentFlags().String("pcap-interface", "",
+		"network interface for live TLS capture (Linux only, requires CAP_NET_RAW)")
+	rootCmd.PersistentFlags().Duration("pcap-window", 30*time.Second,
+		"live capture duration for tls_observer (clamped to [1s, 5m])")
+	rootCmd.PersistentFlags().String("pcap-filter", "tcp port 443",
+		"BPF filter for tls_observer (default: tcp port 443)")
+	rootCmd.MarkFlagsMutuallyExclusive("pcap-file", "pcap-interface")
+
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 }
@@ -367,6 +378,32 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	if v, err := cmd.Flags().GetBool("ebpf-skip-kprobes"); err == nil {
 		cfg.EBPFSkipKprobes = v
+	}
+
+	// Apply pcap / TLS observer flag overrides.
+	if v, _ := cmd.Flags().GetString("pcap-file"); v != "" {
+		cfg.PcapFile = v
+		cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+			Type: model.TargetPcap, Value: v,
+		})
+	}
+	if v, _ := cmd.Flags().GetString("pcap-interface"); v != "" {
+		cfg.PcapInterface = v
+		cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+			Type: model.TargetPcap, Value: "iface:" + v,
+		})
+	}
+	if v, err := cmd.Flags().GetDuration("pcap-window"); err == nil && v > 0 {
+		if v < time.Second {
+			v = time.Second
+		}
+		if v > 5*time.Minute {
+			v = 5 * time.Minute
+		}
+		cfg.PcapWindow = v
+	}
+	if v, _ := cmd.Flags().GetString("pcap-filter"); v != "" {
+		cfg.PcapFilter = v
 	}
 
 	// Gate optional features behind licence tier.

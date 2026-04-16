@@ -108,7 +108,7 @@ func TestAllowedFormats(t *testing.T) {
 
 func TestAllowedModules(t *testing.T) {
 	free := AllowedModules(TierFree)
-	require.Equal(t, []string{"certificates", "keys", "packages"}, free)
+	require.Equal(t, []string{"certificates", "keys", "packages", "ldif"}, free)
 
 	// Pro returns an explicit whitelist that includes oci_image but not k8s_live
 	pro := AllowedModules(TierPro)

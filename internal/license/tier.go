@@ -128,7 +128,7 @@ func AllowedFormats(t Tier) []string {
 }
 
 // freeModules is the restricted set for the free tier.
-var freeModules = []string{"certificates", "keys", "packages"}
+var freeModules = []string{"certificates", "keys", "packages", "ldif"}
 
 // AllowedModules returns the module list for the tier.
 // Returns nil for the enterprise tier (all modules allowed).
@@ -176,6 +176,10 @@ func proModules() []string {
 		"ebpf_trace",
 		"tpm",
 		"uefi",
+		"tls_observer",
+		"ftps",
+		"ssh_cert",
+		"ldif",
 		// k8s_live, secrets_mgr, kerberos_runtime are enterprise-only — do NOT add.
 	}
 }

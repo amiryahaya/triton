@@ -27,9 +27,13 @@ type Config struct {
 	K8sNamespace    string   // namespace filter for k8s_live; empty means all namespaces
 	DNSSECZones     []string // zones to query via dig for active DNSSEC probing
 
+	// Pcap / TLS observer settings (consumed by tls_observer module).
+	PcapFile      string
+	PcapInterface string
 	// PcapWindow is the observation window for live capture via tls_observer.
 	// Zero means use the module's built-in default (30 s).
 	PcapWindow time.Duration
+	PcapFilter string
 
 	// eBPF trace settings (consumed by ebpf_trace module on Linux).
 	// Defaults populated by Load() for the comprehensive profile only.
@@ -89,7 +93,7 @@ var profiles = map[string]ScanProfile{
 		// else scans it. service_mesh and xml_dsig stay in
 		// comprehensive only — they're niche per host and cheap
 		// to skip when not present.
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn", "password_hash", "deps_ecosystems", "mail_server", "dnssec", "netinfra", "messaging", "db_atrest"},
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "scripts", "webapp", "configs", "containers", "certstore", "database", "deps", "web_server", "vpn", "password_hash", "deps_ecosystems", "mail_server", "dnssec", "netinfra", "messaging", "db_atrest", "ftps", "ssh_cert", "ldif"},
 		Depth:   10,
 		Workers: 8,
 	},
@@ -108,7 +112,7 @@ var profiles = map[string]ScanProfile{
 		//
 		// Wave 0 — OCI image scanning module for pulling and
 		// analyzing container images (requires explicit --image flag).
-		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec", "vpn_runtime", "netinfra", "firmware", "messaging", "db_atrest", "secrets_mgr", "supply_chain", "kerberos_runtime", "enrollment", "fido2", "blockchain", "helm_chart", "asn1_oid", "java_bytecode", "dotnet_il", "ebpf_trace", "tpm", "uefi"},
+		Modules: []string{"certificates", "keys", "packages", "libraries", "binaries", "kernel", "scripts", "webapp", "configs", "processes", "network", "protocol", "containers", "certstore", "database", "hsm", "ldap", "codesign", "deps", "web_server", "vpn", "container_signatures", "password_hash", "auth_material", "deps_ecosystems", "service_mesh", "xml_dsig", "mail_server", "oci_image", "dnssec", "vpn_runtime", "netinfra", "firmware", "messaging", "db_atrest", "secrets_mgr", "supply_chain", "kerberos_runtime", "enrollment", "fido2", "blockchain", "helm_chart", "asn1_oid", "java_bytecode", "dotnet_il", "ebpf_trace", "tpm", "uefi", "tls_observer", "ftps", "ssh_cert", "ldif"},
 		Depth:   -1, // unlimited
 		Workers: 16,
 	},
@@ -157,6 +161,18 @@ func Load(profile string) *Config {
 			targets = append(targets, model.ScanTarget{Type: model.TargetHSM, Value: "auto"})
 		case "ldap":
 			// No auto-discovery for LDAP — requires explicit target via --target flag
+		case "ftps", "ssh_cert":
+			// ftps and ssh_cert need network targets like protocol does
+			hasNetwork := false
+			for _, t := range targets {
+				if t.Type == model.TargetNetwork {
+					hasNetwork = true
+					break
+				}
+			}
+			if !hasNetwork {
+				targets = append(targets, model.ScanTarget{Type: model.TargetNetwork, Value: "local"})
+			}
 		}
 	}
 

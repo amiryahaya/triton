@@ -883,13 +883,15 @@
       <td><input type="checkbox" name="cand" value="${c.id}" ${c.promoted ? 'disabled' : ''}></td>
       <td>${escapeHTML(c.address)}${c.promoted ? ' <span class="badge badge-enrolled">promoted</span>' : ''}</td>
       <td>${escapeHTML(c.hostname || '')}</td>
+      <td>${escapeHTML(c.mac_vendor || '')}</td>
       <td>${(c.open_ports || []).join(', ')}</td>
+      <td>${(c.services || []).map(s => escapeHTML(s)).join('<br>')}</td>
       <td>${timeAgo(c.detected_at)}</td>
     </tr>`).join('');
     return `
       <form id="promoteForm">
         <table>
-          <thead><tr><th></th><th>Address</th><th>Hostname</th><th>Open ports</th><th>Detected</th></tr></thead>
+          <thead><tr><th></th><th>Address</th><th>Hostname</th><th>Vendor</th><th>Open ports</th><th>Services</th><th>Detected</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <label>Promote selected to group

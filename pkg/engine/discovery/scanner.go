@@ -54,7 +54,7 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 		"-oX", "-", // XML output to stdout
 		"--open", // only show open ports
 		"-T4",    // aggressive timing (fast)
-		"--host-timeout", "30s",
+		"--host-timeout", "2m",
 	}
 
 	if len(ports) == 0 {

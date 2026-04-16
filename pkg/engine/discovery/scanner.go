@@ -8,10 +8,15 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 )
 
 // maxAddressesPerCIDR caps how many addresses a single CIDR can
@@ -58,17 +63,144 @@ type result struct {
 	port    int
 }
 
-// Scan expands cidrs to host addresses, probes each (addr, port)
-// pair with a TCP connect, and returns one Candidate per address
-// that had at least one open port. Per-CIDR expansion is capped at
-// maxAddressesPerCIDR; exceeding the cap returns an error without
-// probing anything.
-func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
+// PingSweep sends ICMP echo requests to all addresses in the given
+// CIDRs and returns the addresses that responded. Requires CAP_NET_RAW
+// on Linux. Falls back to TCP-connect on port 80 if ICMP fails (no
+// permissions).
+func (s *Scanner) PingSweep(ctx context.Context, cidrs []string) ([]Candidate, error) {
 	addrs, err := expandCIDRs(cidrs)
 	if err != nil {
 		return nil, err
 	}
-	if len(addrs) == 0 || len(ports) == 0 {
+	if len(addrs) == 0 {
+		return nil, nil
+	}
+
+	timeout := s.DialTimeout
+	if timeout == 0 {
+		timeout = 1 * time.Second
+	}
+	workers := s.Workers
+	if workers <= 0 {
+		workers = 128
+	}
+
+	// Try ICMP first; if no permission, log and fall back to TCP:80.
+	alive, err := s.icmpSweep(ctx, addrs, timeout, workers)
+	if err != nil {
+		log.Printf("ICMP ping failed (%v) — falling back to TCP:80 probe", err)
+		return s.Scan(ctx, cidrs, []int{80})
+	}
+
+	out := make([]Candidate, 0, len(alive))
+	for _, addr := range alive {
+		out = append(out, Candidate{Address: addr})
+	}
+	return out, nil
+}
+
+// icmpSweep sends ICMP echo requests to all addrs and collects
+// replies. Returns an error if the ICMP socket cannot be opened
+// (e.g. missing CAP_NET_RAW), signalling the caller to fall back.
+func (s *Scanner) icmpSweep(ctx context.Context, addrs []string, timeout time.Duration, workers int) ([]string, error) {
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return nil, fmt.Errorf("icmp listen: %w (need CAP_NET_RAW)", err)
+	}
+	defer conn.Close()
+
+	// Give 2× single-host timeout for the full sweep, but respect
+	// the parent context deadline if it's tighter.
+	sweepDeadline := time.Now().Add(timeout * 2)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(sweepDeadline) {
+		sweepDeadline = dl
+	}
+	_ = conn.SetReadDeadline(sweepDeadline)
+
+	// Sender: fan out ICMP echo requests.
+	var mu sync.Mutex
+	alive := map[string]bool{}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+	for i, addr := range addrs {
+		if ctx.Err() != nil {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(seq int, target string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			dst, resolveErr := net.ResolveIPAddr("ip4", target)
+			if resolveErr != nil {
+				return
+			}
+
+			msg := icmp.Message{
+				Type: ipv4.ICMPTypeEcho,
+				Code: 0,
+				Body: &icmp.Echo{
+					ID:   os.Getpid() & 0xffff,
+					Seq:  seq,
+					Data: []byte("triton-ping"),
+				},
+			}
+			b, marshalErr := msg.Marshal(nil)
+			if marshalErr != nil {
+				return
+			}
+			_, _ = conn.WriteTo(b, dst)
+		}(i, addr)
+	}
+	wg.Wait()
+
+	// Receiver: read replies until deadline.
+	buf := make([]byte, 1500)
+	for {
+		if ctx.Err() != nil {
+			break
+		}
+		n, peer, readErr := conn.ReadFrom(buf)
+		if readErr != nil {
+			break // timeout or ctx cancelled
+		}
+		parsed, parseErr := icmp.ParseMessage(1, buf[:n]) // protocol 1 = ICMPv4
+		if parseErr != nil {
+			continue
+		}
+		if parsed.Type == ipv4.ICMPTypeEchoReply {
+			mu.Lock()
+			alive[peer.String()] = true
+			mu.Unlock()
+		}
+	}
+
+	out := make([]string, 0, len(alive))
+	for addr := range alive {
+		out = append(out, addr)
+	}
+	return out, nil
+}
+
+// Scan expands cidrs to host addresses, probes each (addr, port)
+// pair with a TCP connect, and returns one Candidate per address
+// that had at least one open port. If ports is empty, delegates to
+// PingSweep for ICMP-based host discovery. Per-CIDR expansion is
+// capped at maxAddressesPerCIDR; exceeding the cap returns an error
+// without probing anything.
+func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
+	// Empty ports = ping-only sweep.
+	if len(ports) == 0 {
+		return s.PingSweep(ctx, cidrs)
+	}
+
+	addrs, err := expandCIDRs(cidrs)
+	if err != nil {
+		return nil, err
+	}
+	if len(addrs) == 0 {
 		return nil, nil
 	}
 
@@ -82,7 +214,14 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 	}
 
 	probes := make(chan probe)
-	results := make(chan result, workers)
+	// Size the results buffer for worst case (all probes succeed) to
+	// prevent workers from blocking on a full channel, which caused
+	// missed hosts on /24 scans with many open ports.
+	bufSize := len(addrs) * len(ports)
+	if bufSize > 65536 {
+		bufSize = 65536
+	}
+	results := make(chan result, bufSize)
 
 	dialer := &net.Dialer{Timeout: dialTimeout}
 

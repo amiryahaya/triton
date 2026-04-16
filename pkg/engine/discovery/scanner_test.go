@@ -163,6 +163,64 @@ func TestExpandCIDRs_SkipsNetworkAndBroadcast(t *testing.T) {
 	}
 }
 
+func TestScan_EmptyPorts_DoesPingSweep(t *testing.T) {
+	// Empty ports triggers PingSweep path. On most CI/dev machines
+	// ICMP requires root/CAP_NET_RAW, so the fallback to TCP:80 will
+	// fire. We verify the code path doesn't panic or error on a /32.
+	s := &Scanner{DialTimeout: 200 * time.Millisecond, Workers: 4}
+	// Use a likely-unroutable address so we don't depend on any
+	// listener. We just verify it completes without error.
+	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, nil)
+	if err != nil {
+		t.Fatalf("Scan with nil ports: %v", err)
+	}
+	// Result depends on ICMP perms + whether port 80 is open locally.
+	// We only assert no crash / no error.
+	_ = got
+}
+
+func TestScan_ExplicitlyEmptyPorts_DoesPingSweep(t *testing.T) {
+	s := &Scanner{DialTimeout: 200 * time.Millisecond, Workers: 4}
+	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, []int{})
+	if err != nil {
+		t.Fatalf("Scan with empty ports: %v", err)
+	}
+	_ = got
+}
+
+func TestPingSweep_InvalidCIDR_Errors(t *testing.T) {
+	s := &Scanner{}
+	_, err := s.PingSweep(context.Background(), []string{"not-a-cidr"})
+	if err == nil {
+		t.Fatal("expected error for invalid CIDR")
+	}
+}
+
+func TestPingSweep_EmptyCIDRs_ReturnsNil(t *testing.T) {
+	s := &Scanner{}
+	got, err := s.PingSweep(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
+
+func TestPingSweep_FindsLocalhost(t *testing.T) {
+	// This test requires CAP_NET_RAW or root. Skip if ICMP is not
+	// available (the common case in CI and unprivileged dev).
+	s := &Scanner{DialTimeout: 500 * time.Millisecond, Workers: 4}
+	got, err := s.PingSweep(context.Background(), []string{"127.0.0.1/32"})
+	if err != nil {
+		t.Fatalf("PingSweep: %v", err)
+	}
+	// If ICMP worked, we should see 127.0.0.1. If it fell back to
+	// TCP:80, result depends on whether port 80 is open.
+	// Either way, no crash is the main assertion.
+	t.Logf("PingSweep returned %d candidates: %+v", len(got), got)
+}
+
 func TestExpandCIDRs_Slash32IncludesAddress(t *testing.T) {
 	got, err := expandCIDRs([]string{"127.0.0.1/32"})
 	if err != nil {

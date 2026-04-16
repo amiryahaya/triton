@@ -209,7 +209,7 @@ func startEngineGateway(
 	certPath, keyPath string,
 ) (*http.Server, error) {
 	gwHandlers := &enginepkg.GatewayHandlers{Store: store}
-	discoveryGateway := &discoverypkg.GatewayHandlers{Store: discoveryStore}
+	discoveryGateway := &discoverypkg.GatewayHandlers{Store: discoveryStore, Audit: audit}
 	credGateway := &credentialspkg.GatewayHandlers{
 		Store:          credStore,
 		InventoryStore: credInventory,

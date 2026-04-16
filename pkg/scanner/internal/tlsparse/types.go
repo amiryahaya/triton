@@ -11,7 +11,7 @@ type ClientHelloInfo struct {
 	ECPointFormats   []uint8
 	SNI              string
 	ALPNProtocols    []string
-	SignatureSchemes  []uint16
+	SignatureSchemes []uint16
 }
 
 // ServerHelloInfo holds parsed fields from a TLS ServerHello message.

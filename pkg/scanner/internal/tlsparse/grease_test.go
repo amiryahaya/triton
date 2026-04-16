@@ -44,7 +44,7 @@ func TestFilterGREASE(t *testing.T) {
 
 func TestFilterGREASE_Empty(t *testing.T) {
 	got := FilterGREASE(nil)
-	if got != nil && len(got) != 0 {
+	if len(got) != 0 {
 		t.Errorf("FilterGREASE(nil) = %v, want nil or empty", got)
 	}
 }

@@ -824,7 +824,6 @@ func cipherSuiteKeyExchange(suiteName string) (keyExchange string, pfs bool) {
 	}
 }
 
-
 // allTLS12CipherSuiteIDs returns a combined list of all TLS 1.2 cipher suite IDs
 // from both secure and insecure suites.
 func allTLS12CipherSuiteIDs() []uint16 {

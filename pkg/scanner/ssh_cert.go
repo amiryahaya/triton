@@ -139,11 +139,11 @@ func (m *SSHCertModule) emitKeyFindings(ctx context.Context, addr string, key ss
 func (m *SSHCertModule) emitHostKeyFinding(ctx context.Context, addr string, key ssh.PublicKey, function string, findings chan<- *model.Finding) error {
 	algo, keySize := sshKeyAlgorithmAndSize(key)
 	asset := &model.CryptoAsset{
-		ID:       uuid.Must(uuid.NewV7()).String(),
-		Function: function,
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Function:  function,
 		Algorithm: algo,
-		KeySize:  keySize,
-		Purpose:  fmt.Sprintf("SSH host key presented by %s", addr),
+		KeySize:   keySize,
+		Purpose:   fmt.Sprintf("SSH host key presented by %s", addr),
 	}
 	crypto.ClassifyCryptoAsset(asset)
 
@@ -205,7 +205,7 @@ func (m *SSHCertModule) sendFinding(ctx context.Context, addr string, asset *mod
 
 // sshKeyAlgorithmAndSize returns (algorithmName, keyBits) for an SSH public key.
 // It delegates to sshPublicKeyAlgorithmAndSize after unwrapping certificates.
-func sshKeyAlgorithmAndSize(key ssh.PublicKey) (string, int) {
+func sshKeyAlgorithmAndSize(key ssh.PublicKey) (algo string, size int) {
 	// Unwrap certificate to the underlying key.
 	if cert, ok := key.(*ssh.Certificate); ok {
 		return sshPublicKeyAlgorithmAndSize(cert.Key)
@@ -215,7 +215,7 @@ func sshKeyAlgorithmAndSize(key ssh.PublicKey) (string, int) {
 
 // sshPublicKeyAlgorithmAndSize maps an ssh.PublicKey to its canonical algorithm
 // name (as used in the crypto registry) and key size in bits.
-func sshPublicKeyAlgorithmAndSize(key ssh.PublicKey) (string, int) {
+func sshPublicKeyAlgorithmAndSize(key ssh.PublicKey) (algo string, size int) {
 	switch key.Type() {
 	case ssh.KeyAlgoRSA, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSASHA512:
 		if cryptoKey, ok := key.(ssh.CryptoPublicKey); ok {
@@ -232,7 +232,7 @@ func sshPublicKeyAlgorithmAndSize(key ssh.PublicKey) (string, int) {
 		return "ECDSA-P521", 521
 	case ssh.KeyAlgoED25519:
 		return "Ed25519", 256
-	case ssh.KeyAlgoDSA:
+	case ssh.KeyAlgoDSA: //nolint:staticcheck // SSH DSA support for audit coverage
 		if cryptoKey, ok := key.(ssh.CryptoPublicKey); ok {
 			// DSA keys carry the key length in their underlying struct.
 			// We access it via reflection-free type assertion.
@@ -244,4 +244,3 @@ func sshPublicKeyAlgorithmAndSize(key ssh.PublicKey) (string, int) {
 		return key.Type(), 0
 	}
 }
-

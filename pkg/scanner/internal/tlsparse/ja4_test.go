@@ -7,10 +7,10 @@ import (
 
 func TestJA4_Structure(t *testing.T) {
 	ch := &ClientHelloInfo{
-		TLSVersion:   0x0303,
-		CipherSuites: []uint16{0x1301, 0x1302, 0xc02b},
-		Extensions:   []uint16{0x0000, 0x000a, 0x000b, 0x0010},
-		SNI:          "example.com",
+		TLSVersion:    0x0303,
+		CipherSuites:  []uint16{0x1301, 0x1302, 0xc02b},
+		Extensions:    []uint16{0x0000, 0x000a, 0x000b, 0x0010},
+		SNI:           "example.com",
 		ALPNProtocols: []string{"h2"},
 	}
 	fp := JA4(ch)
@@ -56,7 +56,7 @@ func TestJA4_GREASEFiltered(t *testing.T) {
 	ch := &ClientHelloInfo{
 		TLSVersion:   0x0303,
 		CipherSuites: []uint16{0x0a0a, 0x1301}, // GREASE + real
-		Extensions:   []uint16{0x0a0a, 0x000a},  // GREASE + real
+		Extensions:   []uint16{0x0a0a, 0x000a}, // GREASE + real
 		SNI:          "test.local",
 	}
 	fp := JA4(ch)

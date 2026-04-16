@@ -88,7 +88,7 @@ func buildTestClientHelloBody(t *testing.T) []byte {
 	sniName := []byte("example.com")
 	sniValue := make([]byte, 5+len(sniName))
 	binary.BigEndian.PutUint16(sniValue[0:2], uint16(3+len(sniName))) // list_len
-	sniValue[2] = 0x00                                                 // name_type = host_name
+	sniValue[2] = 0x00                                                // name_type = host_name
 	binary.BigEndian.PutUint16(sniValue[3:5], uint16(len(sniName)))
 	copy(sniValue[5:], sniName)
 

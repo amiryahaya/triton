@@ -30,9 +30,9 @@ type PacketSource interface {
 
 // PcapFileReader reads packets from a .pcap file using pcapgo (pure Go, no CGO).
 type PcapFileReader struct {
-	f      *os.File
-	r      *pcapgo.Reader
-	ltype  layers.LinkType
+	f     *os.File
+	r     *pcapgo.Reader
+	ltype layers.LinkType
 }
 
 // NewPcapFileReader opens the named .pcap file and prepares it for reading.
@@ -43,7 +43,7 @@ func NewPcapFileReader(path string) (*PcapFileReader, error) {
 	}
 	r, err := pcapgo.NewReader(f)
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	return &PcapFileReader{f: f, r: r, ltype: r.LinkType()}, nil

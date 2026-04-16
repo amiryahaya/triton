@@ -10,9 +10,9 @@ import (
 
 func TestJA3_BasicVector(t *testing.T) {
 	ch := &ClientHelloInfo{
-		TLSVersion:   0x0303, // 771
-		CipherSuites: []uint16{0x1301, 0x1302}, // 4865, 4866
-		Extensions:   []uint16{0x000a, 0x000b},  // 10, 11
+		TLSVersion:     0x0303,                   // 771
+		CipherSuites:   []uint16{0x1301, 0x1302}, // 4865, 4866
+		Extensions:     []uint16{0x000a, 0x000b}, // 10, 11
 		EllipticCurves: []uint16{0x001d, 0x0017}, // 29, 23
 		ECPointFormats: []uint8{0},
 	}
@@ -40,9 +40,9 @@ func TestJA3_BasicVector(t *testing.T) {
 
 func TestJA3_GREASEFiltered(t *testing.T) {
 	ch := &ClientHelloInfo{
-		TLSVersion:   0x0303,
-		CipherSuites: []uint16{0x0a0a, 0x1301}, // GREASE + real
-		Extensions:   []uint16{0x0a0a, 0x000a},  // GREASE + real
+		TLSVersion:     0x0303,
+		CipherSuites:   []uint16{0x0a0a, 0x1301}, // GREASE + real
+		Extensions:     []uint16{0x0a0a, 0x000a}, // GREASE + real
 		EllipticCurves: []uint16{0x0a0a, 0x001d}, // GREASE + real
 		ECPointFormats: []uint8{0},
 	}
@@ -59,9 +59,9 @@ func TestJA3_GREASEFiltered(t *testing.T) {
 
 func TestJA3_EmptyCiphers(t *testing.T) {
 	ch := &ClientHelloInfo{
-		TLSVersion:   0x0303,
-		CipherSuites: nil,
-		Extensions:   nil,
+		TLSVersion:     0x0303,
+		CipherSuites:   nil,
+		Extensions:     nil,
 		EllipticCurves: nil,
 		ECPointFormats: nil,
 	}
@@ -78,8 +78,8 @@ func TestJA3_EmptyCiphers(t *testing.T) {
 
 func TestJA3S_BasicVector(t *testing.T) {
 	sh := &ServerHelloInfo{
-		TLSVersion:  0x0303, // 771
-		CipherSuite: 0x1301, // 4865
+		TLSVersion:  0x0303,                   // 771
+		CipherSuite: 0x1301,                   // 4865
 		Extensions:  []uint16{0x0010, 0xff01}, // 16, 65281
 	}
 	raw, hash := JA3S(sh)

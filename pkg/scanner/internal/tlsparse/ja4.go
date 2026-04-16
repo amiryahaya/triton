@@ -119,7 +119,7 @@ func ja4ALPNCode(protos []string) string {
 		return "00"
 	}
 	p := protos[0]
-	if len(p) == 0 {
+	if p == "" {
 		return "00"
 	}
 	if len(p) == 1 {

@@ -86,18 +86,6 @@ func buildALPNExtension(protocols []string) []byte {
 	return buildExtension(0x0010, data)
 }
 
-// buildSupportedVersionsExtension builds supported_versions (type 0x002b) for ClientHello.
-func buildSupportedVersionsExtension(versions []uint16) []byte {
-	var list []byte
-	for _, v := range versions {
-		list = putU16BE(list, v)
-	}
-	var data []byte
-	data = putU8(data, uint8(len(list)))
-	data = append(data, list...)
-	return buildExtension(0x002b, data)
-}
-
 // buildClientHello assembles a raw ClientHello starting at the handshake type byte.
 func buildClientHello(version uint16, ciphers []uint16, exts []byte) []byte {
 	var body []byte
@@ -151,8 +139,8 @@ func buildServerHello(version uint16, cipher uint16, exts []byte) []byte {
 // buildTLSRecord wraps a handshake message in a TLS record header.
 func buildTLSRecord(handshake []byte) []byte {
 	var rec []byte
-	rec = putU8(rec, 0x16)           // content_type: handshake
-	rec = putU16BE(rec, 0x0303)      // version TLS 1.2
+	rec = putU8(rec, 0x16)      // content_type: handshake
+	rec = putU16BE(rec, 0x0303) // version TLS 1.2
 	rec = append(rec, lenPrefixed16(handshake)...)
 	return rec
 }

@@ -87,7 +87,7 @@ func (m *TLSObserverModule) Scan(ctx context.Context, target model.ScanTarget, f
 	if err != nil {
 		return fmt.Errorf("tls_observer: open source %q: %w", target.Value, err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	// For live capture, apply a timeout via context cancellation.
 	if isLive {

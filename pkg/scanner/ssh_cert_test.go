@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"io"
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -292,4 +293,56 @@ func TestSSHCert_OpenSSHCertificate(t *testing.T) {
 	assert.Equal(t, "42", certFinding.CryptoAsset.SerialNumber)
 	assert.NotNil(t, certFinding.CryptoAsset.NotBefore)
 	assert.NotNil(t, certFinding.CryptoAsset.NotAfter)
+}
+
+func TestSSHCert_InfinityCertValidBefore(t *testing.T) {
+	t.Parallel()
+	// math.MaxUint64 is OpenSSH's sentinel for "certificate never expires".
+	// Converting it with int64() overflows to -1, yielding a 1969 date.
+	// The fix leaves NotAfter nil when ValidBefore == sshCertTimeInfinity.
+
+	_, caPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	caSigner, err := ssh.NewSignerFromKey(caPriv)
+	require.NoError(t, err)
+
+	hostPriv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	hostPub, err := ssh.NewPublicKey(&hostPriv.PublicKey)
+	require.NoError(t, err)
+
+	// ValidBefore = math.MaxUint64 → perpetual certificate, no expiry.
+	cert := &ssh.Certificate{
+		CertType:    ssh.HostCert,
+		Key:         hostPub,
+		ValidAfter:  uint64(time.Now().Add(-time.Hour).Unix()),
+		ValidBefore: math.MaxUint64,
+		Serial:      99,
+	}
+	require.NoError(t, cert.SignCert(rand.Reader, caSigner))
+
+	hostSigner, err := ssh.NewSignerFromKey(hostPriv)
+	require.NoError(t, err)
+	certSigner, err := ssh.NewCertSigner(cert, hostSigner)
+	require.NoError(t, err)
+
+	addr, cleanup := startMockSSHServer(t, certSigner)
+	defer cleanup()
+
+	m := NewSSHCertModule(&scannerconfig.Config{})
+	findings := collectSSHFindings(t, m, model.ScanTarget{Value: addr, Type: model.TargetNetwork})
+	require.NotEmpty(t, findings)
+
+	var certFinding *model.Finding
+	for _, f := range findings {
+		if f.CryptoAsset != nil && f.CryptoAsset.Function == "SSH host certificate" {
+			certFinding = f
+			break
+		}
+	}
+	require.NotNil(t, certFinding, "expected SSH host certificate finding")
+	assert.NotNil(t, certFinding.CryptoAsset.NotBefore, "NotBefore should be set")
+	assert.Nil(t, certFinding.CryptoAsset.NotAfter,
+		"NotAfter must be nil for perpetual cert (ValidBefore=MaxUint64), got %v",
+		certFinding.CryptoAsset.NotAfter)
 }

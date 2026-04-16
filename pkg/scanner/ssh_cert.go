@@ -150,6 +150,11 @@ func (m *SSHCertModule) emitHostKeyFinding(ctx context.Context, addr string, key
 	return m.sendFinding(ctx, addr, asset, findings)
 }
 
+// sshCertTimeInfinity is the OpenSSH sentinel value for "no expiry".
+// When cert.ValidBefore == sshCertTimeInfinity, the certificate never expires
+// and we leave NotAfter nil rather than overflowing int64 to a 1969 date.
+const sshCertTimeInfinity = ^uint64(0)
+
 // emitCertFindings emits one finding for the certified host key and one for
 // the certificate metadata itself.
 func (m *SSHCertModule) emitCertFindings(ctx context.Context, addr string, cert *ssh.Certificate, findings chan<- *model.Finding) error {
@@ -162,8 +167,8 @@ func (m *SSHCertModule) emitCertFindings(ctx context.Context, addr string, cert 
 	algo, keySize := sshKeyAlgorithmAndSize(cert.Key)
 	caAlgo, _ := sshPublicKeyAlgorithmAndSize(cert.SignatureKey)
 
+	// ValidAfter is always safe to convert: real UNIX timestamps fit in int64.
 	validAfter := time.Unix(int64(cert.ValidAfter), 0).UTC()
-	validBefore := time.Unix(int64(cert.ValidBefore), 0).UTC()
 
 	asset := &model.CryptoAsset{
 		ID:           uuid.Must(uuid.NewV7()).String(),
@@ -173,9 +178,17 @@ func (m *SSHCertModule) emitCertFindings(ctx context.Context, addr string, cert 
 		Issuer:       caAlgo, // CA key type encoded as Issuer for display
 		SerialNumber: fmt.Sprintf("%d", cert.Serial),
 		NotBefore:    &validAfter,
-		NotAfter:     &validBefore,
-		Purpose:      fmt.Sprintf("OpenSSH host certificate presented by %s (CA: %s)", addr, caAlgo),
+		// NotAfter is set below only when ValidBefore is not the infinity sentinel.
+		Purpose: fmt.Sprintf("OpenSSH host certificate presented by %s (CA: %s)", addr, caAlgo),
 	}
+
+	// Guard against the OpenSSH "forever" sentinel (math.MaxUint64). Converting
+	// it with int64() overflows to -1 and produces a spurious 1969 expiry date.
+	if cert.ValidBefore != sshCertTimeInfinity {
+		validBefore := time.Unix(int64(cert.ValidBefore), 0).UTC()
+		asset.NotAfter = &validBefore
+	}
+
 	crypto.ClassifyCryptoAsset(asset)
 
 	return m.sendFinding(ctx, addr, asset, findings)

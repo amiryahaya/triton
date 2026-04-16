@@ -106,7 +106,15 @@ func (m *FTPSModule) probeExplicit(ctx context.Context, addr string, findings ch
 	if err != nil {
 		return false, nil // unreachable — not an error, just skip
 	}
-	defer func() { _ = conn.Close() }()
+	// connOwned tracks whether conn is still responsible for closing the
+	// underlying TCP connection. Once we hand ownership to tlsConn we must
+	// not close conn separately (tls.Client wraps and owns it).
+	connOwned := true
+	defer func() {
+		if connOwned {
+			_ = conn.Close()
+		}
+	}()
 
 	// Expect the 220 banner.
 	reader := bufio.NewReader(conn)
@@ -130,7 +138,7 @@ func (m *FTPSModule) probeExplicit(ctx context.Context, addr string, findings ch
 		return false, nil
 	}
 
-	// Upgrade the plain connection to TLS.
+	// Upgrade the plain connection to TLS. From this point tlsConn owns conn.
 	tlsConn := tls.Client(conn, &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // we audit, not validate trust
 		MinVersion:         tls.VersionTLS10,
@@ -138,6 +146,7 @@ func (m *FTPSModule) probeExplicit(ctx context.Context, addr string, findings ch
 	if err = tlsConn.Handshake(); err != nil {
 		return false, nil
 	}
+	connOwned = false // tlsConn owns the connection now
 	defer func() { _ = tlsConn.Close() }()
 
 	state := tlsConn.ConnectionState()
@@ -151,8 +160,17 @@ func (m *FTPSModule) probeImplicit(ctx context.Context, addr string, findings ch
 	if err != nil {
 		return nil // unreachable — not an error
 	}
-	defer func() { _ = conn.Close() }()
+	// connOwned tracks whether conn is still responsible for closing the
+	// underlying TCP connection. Once we hand ownership to tlsConn we must
+	// not close conn separately (tls.Client wraps and owns it).
+	connOwned := true
+	defer func() {
+		if connOwned {
+			_ = conn.Close()
+		}
+	}()
 
+	// Wrap conn in TLS immediately (no FTP command exchange for implicit FTPS).
 	tlsConn := tls.Client(conn, &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // we audit, not validate trust
 		MinVersion:         tls.VersionTLS10,
@@ -160,6 +178,7 @@ func (m *FTPSModule) probeImplicit(ctx context.Context, addr string, findings ch
 	if err = tlsConn.Handshake(); err != nil {
 		return nil
 	}
+	connOwned = false // tlsConn owns the connection now
 	defer func() { _ = tlsConn.Close() }()
 
 	state := tlsConn.ConnectionState()

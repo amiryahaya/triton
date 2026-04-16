@@ -187,7 +187,7 @@ func init() {
 
 	// Pcap / TLS observer flags
 	rootCmd.PersistentFlags().String("pcap-file", "",
-		"path to .pcap/.pcapng file for offline TLS observation")
+		"path to .pcap file for offline TLS observation (pcapng not yet supported; convert with editcap -F pcap)")
 	rootCmd.PersistentFlags().String("pcap-interface", "",
 		"network interface for live TLS capture (Linux only, requires CAP_NET_RAW)")
 	rootCmd.PersistentFlags().Duration("pcap-window", 30*time.Second,

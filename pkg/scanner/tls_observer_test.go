@@ -3,9 +3,13 @@ package scanner
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
@@ -202,12 +206,14 @@ func TestTLSObserver_PcapFile(t *testing.T) {
 
 	// At minimum we expect a negotiated cipher finding and a fingerprint finding.
 	var hasFingerprint, hasCipher bool
+	var fpFinding *model.Finding
 	for _, f := range got {
 		if f.CryptoAsset == nil {
 			continue
 		}
 		if f.CryptoAsset.JA3Fingerprint != "" {
 			hasFingerprint = true
+			fpFinding = f
 		}
 		if f.CryptoAsset.Algorithm != "" && f.CryptoAsset.JA3Fingerprint == "" {
 			hasCipher = true
@@ -235,6 +241,19 @@ func TestTLSObserver_PcapFile(t *testing.T) {
 	}
 	if !hasCipher {
 		t.Error("expected a finding with negotiated cipher, found none")
+	}
+
+	// The test sends both ClientHello and ServerHello, so all 4 fingerprints must be set.
+	if fpFinding != nil {
+		if fpFinding.CryptoAsset.JA3SFingerprint == "" {
+			t.Error("expected JA3S fingerprint to be set (ServerHello was sent)")
+		}
+		if fpFinding.CryptoAsset.JA4Fingerprint == "" {
+			t.Error("expected JA4 fingerprint to be set (ClientHello was sent)")
+		}
+		if fpFinding.CryptoAsset.JA4SFingerprint == "" {
+			t.Error("expected JA4S fingerprint to be set (ServerHello was sent)")
+		}
 	}
 }
 
@@ -459,4 +478,17 @@ func TestTLSObserver_ShortPayloadIgnored(t *testing.T) {
 	if count != 0 {
 		t.Errorf("expected 0 findings for short payload, got %d", count)
 	}
+}
+
+func TestTLSObserver_ReaderFactoryError(t *testing.T) {
+	cfg := scannerconfig.Load("comprehensive")
+	m := NewTLSObserverModule(cfg)
+	m.readerFactory = func(_ string) (tlsparse.PacketSource, error) {
+		return nil, errors.New("file not found")
+	}
+	findings := make(chan *model.Finding, 8)
+	target := model.ScanTarget{Type: model.TargetPcap, Value: "missing.pcap"}
+	err := m.Scan(context.Background(), target, findings)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "file not found")
 }

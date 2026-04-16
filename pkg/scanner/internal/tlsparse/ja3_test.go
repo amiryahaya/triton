@@ -20,22 +20,23 @@ func TestJA3_BasicVector(t *testing.T) {
 
 	// Format: TLSVersion,CipherSuites,Extensions,EllipticCurves,ECPointFormats
 	// All decimal, dash-separated within groups
-	if !strings.HasPrefix(raw, "771,") {
-		t.Errorf("JA3 raw should start with TLS version 771, got %q", raw)
+	const wantRaw = "771,4865-4866,10-11,29-23,0"
+	if raw != wantRaw {
+		t.Errorf("JA3 raw = %q, want %q", raw, wantRaw)
 	}
 	parts := strings.Split(raw, ",")
 	if len(parts) != 5 {
 		t.Errorf("JA3 raw should have 5 comma-separated parts, got %d: %q", len(parts), raw)
 	}
-	if len(hash) != 32 {
-		t.Errorf("JA3 hash should be 32 hex chars (MD5), got len=%d: %q", len(hash), hash)
+	// Known-answer: md5("771,4865-4866,10-11,29-23,0")
+	const wantHash = "8150a3a1f3293b354572405efc20ad75"
+	if hash != wantHash {
+		t.Errorf("JA3 hash = %q, want %q", hash, wantHash)
 	}
 	// hash must be valid hex
 	if _, err := hex.DecodeString(hash); err != nil {
 		t.Errorf("JA3 hash is not valid hex: %q", hash)
 	}
-	t.Logf("JA3 raw: %s", raw)
-	t.Logf("JA3 hash: %s", hash)
 }
 
 func TestJA3_GREASEFiltered(t *testing.T) {
@@ -85,21 +86,22 @@ func TestJA3S_BasicVector(t *testing.T) {
 	raw, hash := JA3S(sh)
 
 	// JA3S format: TLSVersion,CipherSuite,Extensions
-	if !strings.HasPrefix(raw, "771,") {
-		t.Errorf("JA3S raw should start with 771, got %q", raw)
+	const wantRaw = "771,4865,16-65281"
+	if raw != wantRaw {
+		t.Errorf("JA3S raw = %q, want %q", raw, wantRaw)
 	}
 	parts := strings.Split(raw, ",")
 	if len(parts) != 3 {
 		t.Errorf("JA3S raw should have 3 comma-separated parts, got %d: %q", len(parts), raw)
 	}
-	if len(hash) != 32 {
-		t.Errorf("JA3S hash should be 32 hex chars, got %d", len(hash))
+	// Known-answer: md5("771,4865,16-65281")
+	const wantHash = "6c3ca5ef1eaa02b420ac4992193a9d57"
+	if hash != wantHash {
+		t.Errorf("JA3S hash = %q, want %q", hash, wantHash)
 	}
 	if _, err := hex.DecodeString(hash); err != nil {
 		t.Errorf("JA3S hash not valid hex: %q", hash)
 	}
-	t.Logf("JA3S raw: %s", raw)
-	t.Logf("JA3S hash: %s", hash)
 }
 
 func TestJA3S_GREASEFiltered(t *testing.T) {
@@ -117,7 +119,7 @@ func TestJA3S_GREASEFiltered(t *testing.T) {
 
 func TestJA3_KnownVector(t *testing.T) {
 	// Construct a known JA3: TLS 1.2 ClientHello with single cipher, no extensions
-	// JA3 raw = "771,47,,,"  (TLS_RSA_WITH_3DES_EDE_CBC_SHA = 0x002f = 47)
+	// JA3 raw = "771,47,,,"  (TLS_RSA_WITH_AES_128_CBC_SHA = 0x002f = 47)
 	ch := &ClientHelloInfo{
 		TLSVersion:     0x0303,
 		CipherSuites:   []uint16{0x002f},
@@ -125,9 +127,14 @@ func TestJA3_KnownVector(t *testing.T) {
 		EllipticCurves: nil,
 		ECPointFormats: nil,
 	}
-	raw, _ := JA3(ch)
-	wantRaw := "771,47,,,"
+	raw, hash := JA3(ch)
+	const wantRaw = "771,47,,,"
 	if raw != wantRaw {
 		t.Errorf("JA3 raw = %q, want %q", raw, wantRaw)
+	}
+	// Known-answer: md5("771,47,,,")
+	const wantHash = "fde4273625b2ac63bd01d9c500dac91b"
+	if hash != wantHash {
+		t.Errorf("JA3 hash = %q, want %q", hash, wantHash)
 	}
 }

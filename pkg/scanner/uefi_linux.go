@@ -28,7 +28,14 @@ func (m *UEFIModule) scan(ctx context.Context, _ model.ScanTarget, findings chan
 		varRoot = m.cfg.UEFIVarRoot
 	}
 	if _, err := os.Stat(varRoot); err != nil {
-		return nil // no EFI -> silent no-op
+		return nil // no EFI → silent no-op
+	}
+	// Verify at least the SecureBoot variable exists — an empty efivars mount
+	// (e.g. a tempdir in tests, or a VM with no UEFI firmware) should be
+	// treated as "no UEFI" rather than "SecureBoot disabled".
+	sbData, _ := uefivars.ReadVariable(varRoot, "SecureBoot-"+uefivars.EFIGlobalGUID)
+	if sbData == nil {
+		return nil // no SecureBoot variable → host has no UEFI Secure Boot
 	}
 
 	// State findings.
@@ -170,7 +177,7 @@ func (m *UEFIModule) emitCertFindings(ctx context.Context, varRoot, varName stri
 }
 
 // certAlgoAndSize derives the algorithm name and key size from an X.509 certificate.
-func certAlgoAndSize(cert *stdx509.Certificate) (string, int) {
+func certAlgoAndSize(cert *stdx509.Certificate) (algo string, keySize int) {
 	switch cert.PublicKeyAlgorithm {
 	case stdx509.RSA:
 		if pub, ok := cert.PublicKey.(*rsa.PublicKey); ok {

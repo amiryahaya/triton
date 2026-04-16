@@ -27,6 +27,10 @@ type Config struct {
 	K8sNamespace    string   // namespace filter for k8s_live; empty means all namespaces
 	DNSSECZones     []string // zones to query via dig for active DNSSEC probing
 
+	// PcapWindow is the observation window for live capture via tls_observer.
+	// Zero means use the module's built-in default (30 s).
+	PcapWindow time.Duration
+
 	// eBPF trace settings (consumed by ebpf_trace module on Linux).
 	// Defaults populated by Load() for the comprehensive profile only.
 	EBPFWindow      time.Duration

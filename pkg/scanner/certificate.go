@@ -264,17 +264,6 @@ func (m *CertificateModule) createLockedContainerFinding(path, containerType str
 	}
 }
 
-// parseJKS detects JKS files by magic bytes. Go cannot natively parse JKS,
-// so we return nil certs but the caller can still create a finding for the container.
-func (m *CertificateModule) parseJKS(data []byte) ([]*x509.Certificate, error) {
-	if len(data) < 4 || !isJKSMagic(data[:4]) {
-		return nil, fmt.Errorf("not a valid JKS file")
-	}
-	// JKS detected but we can't parse it natively — return nil certs
-	// The Scan method will handle creating a basic finding for this container
-	return nil, nil
-}
-
 func isJKSMagic(b []byte) bool {
 	return len(b) >= 4 && binary.BigEndian.Uint32(b) == 0xFEEDFEED
 }
@@ -439,31 +428,6 @@ func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *
 		Confidence:  0.95,
 		Module:      "certificates",
 		Timestamp:   now,
-	}
-}
-
-// createContainerFinding creates a finding for a crypto container file (JKS, etc.)
-// where we detect the file type but can't parse the contents.
-func (m *CertificateModule) createContainerFinding(path, containerType string) *model.Finding {
-	asset := &model.CryptoAsset{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		Function:  containerType + " keystore",
-		Algorithm: "Unknown",
-		Purpose:   "Certificate/key container",
-	}
-	crypto.ClassifyCryptoAsset(asset)
-
-	return &model.Finding{
-		ID:       uuid.Must(uuid.NewV7()).String(),
-		Category: 5,
-		Source: model.FindingSource{
-			Type: "file",
-			Path: path,
-		},
-		CryptoAsset: asset,
-		Confidence:  0.70,
-		Module:      "certificates",
-		Timestamp:   time.Now(),
 	}
 }
 

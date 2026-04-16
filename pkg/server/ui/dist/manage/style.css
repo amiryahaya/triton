@@ -170,3 +170,21 @@ textarea.cred-key { font-family: ui-monospace, monospace; height: 180px; }
 .fail-cell { color: #991b1b; }
 .conditional { display: none; }
 .conditional.show { display: block; }
+
+/* Scan Jobs (Phase 5 / Task 11) */
+.progress-bar {
+  width: 200px;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.5rem;
+}
+.progress-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 300ms;
+}

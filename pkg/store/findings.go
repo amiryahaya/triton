@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -110,6 +111,115 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		}
 		return nil
 	}
+	if err := insertFindingsInTx(ctx, tx, findings); err != nil {
+		return fmt.Errorf("insert findings: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// SaveScanWithJobContext is the Onboarding-Phase-5 scan-job-tagged
+// counterpart to SaveScanWithFindings. Persists the scan blob with the
+// new engine_id + scan_job_id columns populated, then extracts +
+// inserts findings in the same transaction so a partially-tagged scan
+// row never appears.
+//
+// The ID, blob marshal, encryption, and findings-extraction logic
+// mirror SaveScanWithFindings exactly — only the scans INSERT differs
+// (two extra columns). Keeping the two methods side-by-side is
+// preferred over a shared internal helper because (a) the column set
+// is small enough that the duplication stays auditable and (b) the
+// encryption + single-tenant short-circuit branches are easier to
+// reason about when each public method is self-contained.
+func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.ScanResult, engineID, scanJobID uuid.UUID) error {
+	if scan == nil {
+		return fmt.Errorf("cannot save nil scan result")
+	}
+	if scan.ID == "" {
+		return fmt.Errorf("scan result must have an ID")
+	}
+
+	blob, err := json.Marshal(scan)
+	if err != nil {
+		return fmt.Errorf("marshalling scan result: %w", err)
+	}
+	if enc := s.loadEncryptor(); enc != nil {
+		encrypted, encErr := enc.Encrypt(blob)
+		if encErr != nil {
+			return fmt.Errorf("encrypting scan result: %w", encErr)
+		}
+		blob = encrypted
+	}
+
+	var orgID *string
+	if scan.OrgID != "" {
+		orgID = &scan.OrgID
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO scans
+		  (id, hostname, timestamp, profile,
+		   total_findings, safe, transitional, deprecated, unsafe,
+		   result_json, org_id, findings_extracted_at,
+		   engine_id, scan_job_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13)
+		ON CONFLICT (id) DO UPDATE SET
+		  hostname = EXCLUDED.hostname,
+		  timestamp = EXCLUDED.timestamp,
+		  profile = EXCLUDED.profile,
+		  total_findings = EXCLUDED.total_findings,
+		  safe = EXCLUDED.safe,
+		  transitional = EXCLUDED.transitional,
+		  deprecated = EXCLUDED.deprecated,
+		  unsafe = EXCLUDED.unsafe,
+		  result_json = EXCLUDED.result_json,
+		  org_id = EXCLUDED.org_id,
+		  findings_extracted_at = EXCLUDED.findings_extracted_at,
+		  engine_id = EXCLUDED.engine_id,
+		  scan_job_id = EXCLUDED.scan_job_id
+	`,
+		scan.ID,
+		scan.Metadata.Hostname,
+		scan.Metadata.Timestamp.UTC(),
+		scan.Metadata.ScanProfile,
+		scan.Summary.TotalFindings,
+		scan.Summary.Safe,
+		scan.Summary.Transitional,
+		scan.Summary.Deprecated,
+		scan.Summary.Unsafe,
+		blob,
+		orgID,
+		engineID,
+		scanJobID,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert scan: %w", err)
+	}
+
+	// Single-tenant short-circuit (matches SaveScanWithFindings B1
+	// safety net): findings.org_id is UUID NOT NULL so an empty
+	// scan.OrgID would fail the insert and cascade-roll-back the scan
+	// row too. In a Phase-5 deployment the gateway runs under mTLS +
+	// engine identity; org should always be set, but we keep the
+	// short-circuit so dev / single-tenant deployments still persist
+	// the scan row.
+	if scan.OrgID == "" {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit tx: %w", err)
+		}
+		return nil
+	}
+
+	findings := ExtractFindings(scan)
 	if err := insertFindingsInTx(ctx, tx, findings); err != nil {
 		return fmt.Errorf("insert findings: %w", err)
 	}

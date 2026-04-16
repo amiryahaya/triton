@@ -41,6 +41,12 @@ type Store interface {
 	// with host address + port before handing it off to the engine.
 	// Missing IDs are silently omitted.
 	GetHostsByIDs(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) ([]Host, error)
+
+	// GetEnginesForHosts returns the distinct engine_ids among the
+	// provided host IDs. Hosts with NULL engine_id are excluded. Hosts
+	// belonging to other orgs are excluded. Scan-job creation uses this
+	// to enforce the one-engine-per-job invariant.
+	GetEnginesForHosts(ctx context.Context, orgID uuid.UUID, hostIDs []uuid.UUID) (map[uuid.UUID]struct{}, error)
 }
 
 type HostFilters struct {

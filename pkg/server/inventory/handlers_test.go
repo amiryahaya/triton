@@ -202,6 +202,10 @@ func (f *fakeStore) GetHostsByIDs(_ context.Context, _ uuid.UUID, _ []uuid.UUID)
 	return nil, nil
 }
 
+func (f *fakeStore) GetEnginesForHosts(_ context.Context, _ uuid.UUID, _ []uuid.UUID) (map[uuid.UUID]struct{}, error) {
+	return map[uuid.UUID]struct{}{}, nil
+}
+
 // --- test helpers ---
 
 func makeReqWithClaims(t *testing.T, method, path string, body any, role string) (*http.Request, uuid.UUID, uuid.UUID) {

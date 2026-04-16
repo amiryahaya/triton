@@ -44,6 +44,10 @@ type Config struct {
 	// after first successful Enroll. Optional.
 	CredentialTestWorker Worker
 
+	// ScanWorker runs scan jobs claimed from the portal. Spawned after
+	// first successful Enroll. Optional.
+	ScanWorker Worker
+
 	// OnEnrolled is called exactly once, immediately after the first
 	// successful Enroll and before any Worker is spawned. Intended for
 	// the engine to publish its encryption pubkey once the portal has
@@ -87,6 +91,9 @@ func Run(ctx context.Context, c clientAPI, cfg Config) error {
 	}
 	if cfg.CredentialTestWorker != nil {
 		go cfg.CredentialTestWorker.Run(ctx)
+	}
+	if cfg.ScanWorker != nil {
+		go cfg.ScanWorker.Run(ctx)
 	}
 
 	t := time.NewTicker(cfg.HeartbeatInterval)

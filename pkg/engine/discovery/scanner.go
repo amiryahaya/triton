@@ -171,10 +171,11 @@ func (s *Scanner) icmpSweep(ctx context.Context, addrs []string, timeout time.Du
 // that had at least one open port. If ports is empty, delegates to
 // PingSweep for ICMP-based host discovery.
 //
-// Implementation is deliberately simple: one host at a time,
-// all ports per host, then next host. No goroutine pools, no
-// channels, no race conditions. A /24 × 6 ports takes ~5 min
-// (254 hosts × 6 ports × ~130ms avg per unreachable host).
+// Concurrency model: one goroutine per host (bounded by a semaphore
+// of 16). Each goroutine scans its host's ports sequentially. This
+// avoids the broken channel-pool design while keeping a /24 scan
+// under 5 minutes (254 hosts / 16 parallel = 16 rounds × ~30s per
+// unreachable host = ~8 min worst case).
 func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
 	if len(ports) == 0 {
 		return s.PingSweep(ctx, cidrs)
@@ -192,38 +193,54 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 	if dialTimeout == 0 {
 		dialTimeout = 5 * time.Second
 	}
+	concurrency := 16 // max hosts scanned in parallel
 
-	log.Printf("scanner: scanning %d hosts × %d ports (%s timeout per probe)",
-		len(addrs), len(ports), dialTimeout)
+	log.Printf("scanner: scanning %d hosts × %d ports (%d parallel, %s timeout)",
+		len(addrs), len(ports), concurrency, dialTimeout)
 
 	dialer := &net.Dialer{Timeout: dialTimeout}
+
+	// Results collected per-host, protected by mutex.
+	var mu sync.Mutex
 	var out []Candidate
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, concurrency)
 
 	for _, addr := range addrs {
 		if ctx.Err() != nil {
 			break
 		}
+		sem <- struct{}{} // acquire
+		wg.Add(1)
+		go func(host string) {
+			defer wg.Done()
+			defer func() { <-sem }() // release
 
-		var openPorts []int
-		for _, port := range ports {
-			if ctx.Err() != nil {
-				break
+			var openPorts []int
+			for _, port := range ports {
+				if ctx.Err() != nil {
+					return
+				}
+				target := net.JoinHostPort(host, strconv.Itoa(port))
+				conn, err := dialer.DialContext(ctx, "tcp", target)
+				if err != nil {
+					continue
+				}
+				_ = conn.Close()
+				openPorts = append(openPorts, port)
 			}
-			target := net.JoinHostPort(addr, strconv.Itoa(port))
-			conn, err := dialer.DialContext(ctx, "tcp", target)
-			if err != nil {
-				continue
-			}
-			_ = conn.Close()
-			openPorts = append(openPorts, port)
-		}
 
-		if len(openPorts) > 0 {
-			log.Printf("scanner: found %s with ports %v", addr, openPorts)
-			out = append(out, Candidate{Address: addr, OpenPorts: openPorts})
-		}
+			if len(openPorts) > 0 {
+				log.Printf("scanner: found %s with ports %v", host, openPorts)
+				mu.Lock()
+				out = append(out, Candidate{Address: host, OpenPorts: openPorts})
+				mu.Unlock()
+			}
+		}(addr)
 	}
 
+	wg.Wait()
 	log.Printf("scanner: done — %d candidates from %d hosts", len(out), len(addrs))
 	return out, nil
 }

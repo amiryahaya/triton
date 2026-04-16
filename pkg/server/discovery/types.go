@@ -68,6 +68,9 @@ type Candidate struct {
 	Address    net.IP    `json:"address"`
 	Hostname   string    `json:"hostname,omitempty"`
 	OpenPorts  []int     `json:"open_ports"`
+	MACAddress string    `json:"mac_address,omitempty"`
+	MACVendor  string    `json:"mac_vendor,omitempty"`
+	Services   []string  `json:"services,omitempty"`
 	DetectedAt time.Time `json:"detected_at"`
 	Promoted   bool      `json:"promoted"`
 }

@@ -17,9 +17,12 @@ import (
 // Candidate is a host nmap found with at least one open port (or
 // responsive to ping). Address is the dotted-quad / IPv6 string form.
 type Candidate struct {
-	Address   string
-	Hostname  string
-	OpenPorts []int
+	Address    string
+	Hostname   string
+	OpenPorts  []int
+	MACAddress string   // from nmap L2 detection (same subnet only)
+	MACVendor  string   // e.g. "Apple", "Raspberry Pi Foundation"
+	Services   []string // e.g. ["ssh OpenSSH 8.9", "http nginx 1.24"]
 }
 
 // Scanner shells out to nmap for network discovery. Zero-value is
@@ -58,8 +61,8 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 		// Ping sweep — find all live hosts, no port scan.
 		args = append(args, "-sn")
 	} else {
-		// SYN scan on specific ports.
-		args = append(args, "-sS")
+		// SYN scan on specific ports with service version detection.
+		args = append(args, "-sS", "-sV")
 		portList := make([]string, len(ports))
 		for i, p := range ports {
 			portList[i] = strconv.Itoa(p)
@@ -83,7 +86,7 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 				log.Printf("scanner: SYN scan failed (no raw socket) — falling back to unprivileged TCP connect scan")
 				for i, a := range args {
 					if a == "-sS" {
-						args[i] = "-sT"
+						args[i] = "-sT" // -sV stays for service detection
 						break
 					}
 				}
@@ -133,6 +136,7 @@ type nmapStatus struct {
 type nmapAddress struct {
 	Addr     string `xml:"addr,attr"`
 	AddrType string `xml:"addrtype,attr"` // ipv4, ipv6, mac
+	Vendor   string `xml:"vendor,attr"`   // MAC vendor (e.g. "Apple", "HP")
 }
 
 type nmapHostname struct {
@@ -152,7 +156,10 @@ type nmapState struct {
 }
 
 type nmapService struct {
-	Name string `xml:"name,attr"`
+	Name    string `xml:"name,attr"`
+	Product string `xml:"product,attr"` // e.g. "OpenSSH", "nginx", "Microsoft IIS"
+	Version string `xml:"version,attr"` // e.g. "8.9", "1.24"
+	Extra   string `xml:"extrainfo,attr"`
 }
 
 func parseNmapXML(data []byte) ([]Candidate, error) {
@@ -167,12 +174,17 @@ func parseNmapXML(data []byte) ([]Candidate, error) {
 			continue
 		}
 
-		// Find the IPv4 (or IPv6) address.
-		var addr string
+		// Find IP address + MAC address/vendor.
+		var addr, macAddr, macVendor string
 		for _, a := range h.Addresses {
-			if a.AddrType == "ipv4" || a.AddrType == "ipv6" {
-				addr = a.Addr
-				break
+			switch a.AddrType {
+			case "ipv4", "ipv6":
+				if addr == "" {
+					addr = a.Addr
+				}
+			case "mac":
+				macAddr = a.Addr
+				macVendor = a.Vendor
 			}
 		}
 		if addr == "" {
@@ -186,18 +198,30 @@ func parseNmapXML(data []byte) ([]Candidate, error) {
 			break
 		}
 
-		// Collect open ports.
+		// Collect open ports + service descriptions.
 		var openPorts []int
+		var services []string
 		for _, p := range h.Ports {
 			if p.State.State == "open" {
 				openPorts = append(openPorts, p.PortID)
+				svc := p.Service.Name
+				if p.Service.Product != "" {
+					svc += " " + p.Service.Product
+					if p.Service.Version != "" {
+						svc += " " + p.Service.Version
+					}
+				}
+				services = append(services, svc)
 			}
 		}
 
 		c := Candidate{
-			Address:   addr,
-			Hostname:  hostname,
-			OpenPorts: openPorts,
+			Address:    addr,
+			Hostname:   hostname,
+			OpenPorts:  openPorts,
+			MACAddress: macAddr,
+			MACVendor:  macVendor,
+			Services:   services,
 		}
 		out = append(out, c)
 	}

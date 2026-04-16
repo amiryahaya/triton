@@ -65,6 +65,27 @@ func TestUEFIModule_Linux_EmitsFindings(t *testing.T) {
 	}
 }
 
+func TestClassifySetupMode_AllCombinations(t *testing.T) {
+	cases := []struct {
+		secureBoot, setupMode    bool
+		wantStatus, wantEvidence string
+	}{
+		{true, false, "SAFE", "SetupMode=0, SecureBoot=1 (production)"},
+		{false, false, "TRANSITIONAL", "SetupMode=0, SecureBoot=0 (locked but disabled)"},
+		{false, true, "DEPRECATED", "SetupMode=1, SecureBoot=0 (unprovisioned)"},
+		{true, true, "UNSAFE", "SetupMode=1, SecureBoot=1 (anomalous)"},
+	}
+	for _, c := range cases {
+		status, evidence := classifySetupMode(c.secureBoot, c.setupMode)
+		if status != c.wantStatus {
+			t.Errorf("SB=%v SM=%v → status=%q, want %q", c.secureBoot, c.setupMode, status, c.wantStatus)
+		}
+		if evidence != c.wantEvidence {
+			t.Errorf("SB=%v SM=%v → evidence=%q, want %q", c.secureBoot, c.setupMode, evidence, c.wantEvidence)
+		}
+	}
+}
+
 func TestUEFIModule_Linux_NoEFISilent(t *testing.T) {
 	cfg := &scannerconfig.Config{UEFIVarRoot: t.TempDir()}
 	m := NewUEFIModule(cfg)

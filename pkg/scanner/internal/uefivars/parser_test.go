@@ -161,3 +161,49 @@ func TestParseSignatureList_MultipleEntriesInOneList(t *testing.T) {
 		t.Errorf("EntryIndex: %d/%d, want 0/1", entries[0].EntryIndex, entries[1].EntryIndex)
 	}
 }
+
+func TestParseSignatureList_FixturePK(t *testing.T) {
+	data, err := ReadVariable("testdata/efivars", "PK-"+EFIGlobalGUID)
+	if err != nil {
+		t.Fatalf("ReadVariable: %v", err)
+	}
+	if data == nil {
+		t.Fatal("PK fixture missing")
+		return
+	}
+	entries, err := ParseSignatureList(data)
+	if err != nil {
+		t.Fatalf("ParseSignatureList: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+		return
+	}
+	if entries[0].Type != SigTypeX509 {
+		t.Errorf("Type = %v, want SigTypeX509", entries[0].Type)
+	}
+	if len(entries[0].Data) < 100 {
+		t.Errorf("cert data suspiciously short: %d bytes", len(entries[0].Data))
+	}
+}
+
+func TestParseSignatureList_FixtureDbx(t *testing.T) {
+	data, err := ReadVariable("testdata/efivars", "dbx-"+EFIGlobalGUID)
+	if err != nil {
+		t.Fatalf("ReadVariable: %v", err)
+	}
+	entries, err := ParseSignatureList(data)
+	if err != nil {
+		t.Fatalf("ParseSignatureList: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+		return
+	}
+	if entries[0].Type != SigTypeSHA256 {
+		t.Errorf("Type = %v, want SigTypeSHA256", entries[0].Type)
+	}
+	if len(entries[0].Data) != 32 {
+		t.Errorf("hash len = %d, want 32", len(entries[0].Data))
+	}
+}

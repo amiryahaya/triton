@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -58,6 +60,13 @@ type ScanDispatcher interface {
 	SubmitFindings(ctx context.Context, hostID string, scanResult []byte) error
 }
 
+// PortalRelay relays agent lifecycle events to the portal. The engine
+// acts as a proxy — agents talk to the engine, the engine relays to
+// the portal. Nil means no relay (used in tests).
+type PortalRelay interface {
+	RelayHeartbeat(ctx context.Context, hostID, certFingerprint string) error
+}
+
 // ScanCommand describes a scan the agent should execute.
 type ScanCommand struct {
 	ScanProfile string   `json:"scan_profile"`
@@ -68,6 +77,7 @@ type ScanCommand struct {
 type Handlers struct {
 	AgentStore     AgentStore
 	ScanDispatcher ScanDispatcher
+	PortalRelay    PortalRelay
 }
 
 // Mount registers agent gateway routes on the router.
@@ -106,7 +116,9 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // Heartbeat handles POST /agent/heartbeat. Only registered agents
-// (those with a HostID) are accepted.
+// (those with a HostID) are accepted. The heartbeat is recorded locally
+// and relayed to the portal asynchronously (fire-and-forget) so the
+// portal can update last_heartbeat and flip installing→healthy.
 func (h *Handlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	agent := AgentFromContext(r.Context())
 	if agent == nil || agent.HostID == "" {
@@ -114,6 +126,18 @@ func (h *Handlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.AgentStore.RecordHeartbeat(agent.CertFingerprint)
+
+	// Relay heartbeat to portal (fire-and-forget for speed).
+	if h.PortalRelay != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := h.PortalRelay.RelayHeartbeat(ctx, agent.HostID, agent.CertFingerprint); err != nil {
+				log.Printf("relay heartbeat for %s: %v", agent.HostID, err)
+			}
+		}()
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

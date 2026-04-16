@@ -3,6 +3,7 @@ package tritonagent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -69,6 +70,41 @@ type stubScanner struct {
 
 func (s *stubScanner) RunScan(_ context.Context, _ string) (any, error) {
 	return s.result, s.err
+}
+
+// ---------------------------------------------------------------------------
+// reregisterAPI: heartbeat returns ErrUnauthorized on first call to
+// simulate engine restart. Subsequent heartbeats succeed once re-registered.
+// ---------------------------------------------------------------------------
+
+type reregisterAPI struct {
+	mu             sync.Mutex
+	registerCalls  int
+	heartbeatCount int32 // atomic
+}
+
+func (s *reregisterAPI) Register(_ context.Context, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.registerCalls++
+	return nil
+}
+
+func (s *reregisterAPI) Heartbeat(_ context.Context) error {
+	n := atomic.AddInt32(&s.heartbeatCount, 1)
+	if n == 1 {
+		// First heartbeat after initial register — simulate engine restart
+		return fmt.Errorf("/agent/heartbeat: %w", ErrUnauthorized)
+	}
+	return nil
+}
+
+func (s *reregisterAPI) PollScan(_ context.Context) (*ScanCommand, error) {
+	return nil, nil
+}
+
+func (s *reregisterAPI) SubmitFindings(_ context.Context, _ []byte) error {
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +198,31 @@ func TestRun_RetriesRegisterOnFailure(t *testing.T) {
 	api.mu.Unlock()
 	if regCalls < 3 {
 		t.Fatalf("expected at least 3 register calls (2 failures + 1 success), got %d", regCalls)
+	}
+}
+
+func TestRun_ReRegistersOnHeartbeat401(t *testing.T) {
+	// Simulate engine restart: heartbeat returns 401 (unauthorized)
+	// on first call, then succeeds after re-register.
+	api := &reregisterAPI{}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	err := Run(ctx, api, Config{
+		HeartbeatInterval: 50 * time.Millisecond,
+		PollInterval:      50 * time.Millisecond,
+		Version:           "1.0.0-test",
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+
+	api.mu.Lock()
+	regCalls := api.registerCalls
+	api.mu.Unlock()
+	// Initial register (1) + re-register from 401 (at least 1 more)
+	if regCalls < 2 {
+		t.Fatalf("expected at least 2 register calls (initial + re-register), got %d", regCalls)
 	}
 }
 

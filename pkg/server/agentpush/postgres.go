@@ -347,6 +347,23 @@ func (s *PostgresStore) UpdateAgentHeartbeat(ctx context.Context, agentID uuid.U
 	return nil
 }
 
+// RecordAgentHeartbeat atomically updates last_heartbeat for the agent
+// identified by host_id and flips status from 'installing' to 'healthy'
+// on first heartbeat. Uninstalled agents are not re-activated.
+func (s *PostgresStore) RecordAgentHeartbeat(ctx context.Context, hostID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE fleet_agents
+		 SET last_heartbeat = NOW(),
+		     status = CASE WHEN status = 'installing' THEN 'healthy' ELSE status END
+		 WHERE host_id = $1 AND status != 'uninstalled'`,
+		hostID,
+	)
+	if err != nil {
+		return fmt.Errorf("record agent heartbeat: %w", err)
+	}
+	return nil
+}
+
 func (s *PostgresStore) SetAgentStatus(ctx context.Context, agentID uuid.UUID, status string) error {
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE fleet_agents SET status = $2 WHERE id = $1`,

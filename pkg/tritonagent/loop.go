@@ -3,6 +3,7 @@ package tritonagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"time"
 )
@@ -82,7 +83,14 @@ func Run(ctx context.Context, c EngineAPI, cfg Config) error {
 				return
 			case <-t.C:
 				if err := c.Heartbeat(ctx); err != nil {
-					log.Printf("heartbeat: %v", err)
+					if errors.Is(err, ErrUnauthorized) {
+						log.Printf("heartbeat returned 401 — re-registering")
+						if regErr := c.Register(ctx, cfg.Version); regErr != nil {
+							log.Printf("re-register: %v", regErr)
+						}
+					} else {
+						log.Printf("heartbeat: %v", err)
+					}
 				}
 			}
 		}

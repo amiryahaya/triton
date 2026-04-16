@@ -160,6 +160,35 @@ func (h *GatewayHandlers) Finish(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// AgentHeartbeat records an agent heartbeat relayed from the engine.
+// Atomically flips 'installing' → 'healthy' on first heartbeat and
+// updates last_heartbeat on every subsequent one.
+func (h *GatewayHandlers) AgentHeartbeat(w http.ResponseWriter, r *http.Request) {
+	eng := engine.EngineFromContext(r.Context())
+	if eng == nil {
+		writeErr(w, http.StatusInternalServerError, "missing engine context")
+		return
+	}
+	var body struct {
+		HostID          string `json:"host_id"`
+		CertFingerprint string `json:"cert_fingerprint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	hostID, err := uuid.Parse(body.HostID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad host_id")
+		return
+	}
+	if err := h.Store.RecordAgentHeartbeat(r.Context(), hostID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type registerAgentRequest struct {
 	HostID          uuid.UUID `json:"host_id"`
 	CertFingerprint string    `json:"cert_fingerprint"`

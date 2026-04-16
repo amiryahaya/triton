@@ -36,5 +36,6 @@ type Store interface {
 	GetAgent(ctx context.Context, orgID, id uuid.UUID) (FleetAgent, error)
 	ListAgents(ctx context.Context, orgID uuid.UUID) ([]FleetAgent, error)
 	UpdateAgentHeartbeat(ctx context.Context, agentID uuid.UUID) error
+	RecordAgentHeartbeat(ctx context.Context, hostID uuid.UUID) error
 	SetAgentStatus(ctx context.Context, agentID uuid.UUID, status string) error
 }

@@ -86,6 +86,13 @@ func (c *Client) FinishPushJob(ctx context.Context, jobID, status, errMsg string
 	return c.postJSONNoContent(ctx, "/api/v1/engine/agent-push/"+jobID+"/finish", body)
 }
 
+// RelayAgentHeartbeat relays an agent heartbeat to the portal so it can
+// update last_heartbeat and flip installing→healthy. Expected 204.
+func (c *Client) RelayAgentHeartbeat(ctx context.Context, hostID, certFingerprint string) error {
+	body := map[string]string{"host_id": hostID, "cert_fingerprint": certFingerprint}
+	return c.postJSONNoContent(ctx, "/api/v1/engine/agent-push/agents/heartbeat", body)
+}
+
 // registerAgentBody is the POST body for /engine/agent-push/agents/register.
 type registerAgentBody struct {
 	HostID          string `json:"host_id"`

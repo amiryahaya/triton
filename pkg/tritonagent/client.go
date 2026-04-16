@@ -9,12 +9,19 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
 )
+
+// ErrUnauthorized is returned when the engine responds with HTTP 401,
+// indicating the agent is not registered (e.g. after an engine restart
+// that cleared its in-memory agent store). The agent loop should
+// re-register when it receives this error.
+var ErrUnauthorized = errors.New("unauthorized")
 
 // ScanCommand describes a scan the agent should execute, received from
 // the engine's agent gateway via GET /agent/scan.
@@ -50,10 +57,11 @@ func NewClient(engineURL, certPath, keyPath, caPath, hostID string) (*Client, er
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      pool,
-		//nolint:gosec // MVP — engine uses self-signed server cert; the
-		// agent already authenticates the engine via mTLS mutual verification.
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
+		// engine-ca.crt is the engine's own self-signed cert which IS the
+		// TLS server cert. A self-signed cert verifies against a pool
+		// containing itself, so RootCAs validation passes without
+		// InsecureSkipVerify.
+		MinVersion: tls.VersionTLS12,
 	}
 
 	return &Client{
@@ -144,6 +152,9 @@ func (c *Client) postJSON(ctx context.Context, path string, body any) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("%s: %w", path, ErrUnauthorized)
+	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
 	}

@@ -11,12 +11,16 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/engine/agentpush"
 )
 
 // ---------------------------------------------------------------------------
@@ -67,6 +71,26 @@ func requestWithCert(method, path string, body []byte, cert *x509.Certificate) *
 		PeerCertificates: []*x509.Certificate{cert},
 	}
 	return r
+}
+
+// stubRelay records heartbeat relay calls.
+type stubRelay struct {
+	mu    sync.Mutex
+	calls []string // host IDs
+	err   error
+}
+
+func (r *stubRelay) RelayHeartbeat(_ context.Context, hostID, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, hostID)
+	return r.err
+}
+
+func (r *stubRelay) callCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.calls)
 }
 
 // stubDispatcher records calls for test verification.
@@ -237,6 +261,48 @@ func TestHeartbeat_RegisteredAgent_204(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
+}
+
+func TestHeartbeat_RelaysToPortal(t *testing.T) {
+	store := NewInMemoryAgentStore()
+	cert, _ := selfSignedCert(t, "relay-host")
+	fp := fingerprint(cert)
+	store.RegisterAgent("host-relay", fp, "1.0.0")
+
+	relay := &stubRelay{}
+	h := &Handlers{AgentStore: store, PortalRelay: relay}
+
+	req := requestWithCert("POST", "/agent/heartbeat", nil, cert)
+	ctx := context.WithValue(req.Context(), agentCtxKey{}, &AgentIdentity{
+		HostID:          "host-relay",
+		CertFingerprint: fp,
+	})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	h.Heartbeat(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+
+	// The relay runs in a goroutine — wait briefly for it to execute.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if relay.callCount() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if relay.callCount() != 1 {
+		t.Fatalf("expected 1 relay call, got %d", relay.callCount())
+	}
+	relay.mu.Lock()
+	if relay.calls[0] != "host-relay" {
+		t.Fatalf("expected relay for host-relay, got %s", relay.calls[0])
+	}
+	relay.mu.Unlock()
 }
 
 func TestPollScan_NoPending_204(t *testing.T) {
@@ -411,5 +477,66 @@ func TestVerifyAgentCert_WrongIssuer(t *testing.T) {
 
 	if err := verifyAgentCert(agentCert, engineCert); err == nil {
 		t.Fatal("expected verification to fail for wrong issuer")
+	}
+}
+
+// TestVerifyAgentCert_NonCAParent_MintedCert verifies that a cert minted
+// by MintAgentCert (production path) passes verifyAgentCert even though
+// the engine cert lacks IsCA/BasicConstraints. This is the I2 regression
+// test — Go's x509.Certificate.Verify would reject this but our raw
+// Ed25519 signature check works.
+func TestVerifyAgentCert_NonCAParent_MintedCert(t *testing.T) {
+	// Generate a non-CA engine cert (matches production — no IsCA flag).
+	engineCert, enginePriv := selfSignedCert(t, "engine-no-ca")
+	if engineCert.IsCA {
+		t.Fatal("selfSignedCert should not set IsCA")
+	}
+
+	// Mint an agent cert using the production MintAgentCert function.
+	ac, err := agentpush.MintAgentCert(engineCert, enginePriv, "test-host")
+	if err != nil {
+		t.Fatalf("MintAgentCert: %v", err)
+	}
+	agentBlock, _ := pem.Decode(ac.CertPEM)
+	if agentBlock == nil {
+		t.Fatal("failed to PEM-decode agent cert")
+	}
+	leaf, err := x509.ParseCertificate(agentBlock.Bytes)
+	if err != nil {
+		t.Fatalf("parse agent cert: %v", err)
+	}
+
+	// Verify using the raw Ed25519 signature check (NOT x509.Verify
+	// which would fail because the issuer is not a CA).
+	if err := verifyAgentCert(leaf, engineCert); err != nil {
+		t.Fatalf("verifyAgentCert failed with non-CA parent: %v", err)
+	}
+
+	// Confirm that standard x509.Verify WOULD fail (proving the custom
+	// check is necessary).
+	pool := x509.NewCertPool()
+	pool.AddCert(engineCert)
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool}); err == nil {
+		t.Fatal("expected x509.Verify to fail for non-CA issuer (it passed — the custom check may be unnecessary)")
+	}
+}
+
+// TestVerifyAgentCert_WrongKey_Fails verifies that a cert signed by
+// engine A is rejected when verified against engine B.
+func TestVerifyAgentCert_WrongKey_Fails(t *testing.T) {
+	engineA, engineAPriv := selfSignedCert(t, "engine-A")
+	engineB, _ := selfSignedCert(t, "engine-B")
+
+	// Mint a cert with engine A's key.
+	ac, err := agentpush.MintAgentCert(engineA, engineAPriv, "rogue-host")
+	if err != nil {
+		t.Fatalf("MintAgentCert: %v", err)
+	}
+	agentBlock, _ := pem.Decode(ac.CertPEM)
+	leaf, _ := x509.ParseCertificate(agentBlock.Bytes)
+
+	// Verify against engine B — should fail.
+	if err := verifyAgentCert(leaf, engineB); err == nil {
+		t.Fatal("expected verification to fail for wrong engine key")
 	}
 }

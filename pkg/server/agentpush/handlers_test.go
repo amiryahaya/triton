@@ -42,9 +42,10 @@ type fakeStore struct {
 	}
 	finishErr error
 
-	agents      []FleetAgent
-	registerErr error
-	statusErr   error
+	agents           []FleetAgent
+	registerErr      error
+	statusErr        error
+	heartbeatHostIDs []uuid.UUID
 }
 
 func newFakeStore() *fakeStore {
@@ -126,6 +127,11 @@ func (f *fakeStore) ListAgents(_ context.Context, _ uuid.UUID) ([]FleetAgent, er
 }
 
 func (f *fakeStore) UpdateAgentHeartbeat(_ context.Context, _ uuid.UUID) error { return nil }
+
+func (f *fakeStore) RecordAgentHeartbeat(_ context.Context, hostID uuid.UUID) error {
+	f.heartbeatHostIDs = append(f.heartbeatHostIDs, hostID)
+	return nil
+}
 
 func (f *fakeStore) SetAgentStatus(_ context.Context, _ uuid.UUID, _ string) error {
 	return f.statusErr
@@ -498,6 +504,42 @@ func TestGatewayRegisterAgent_204(t *testing.T) {
 	require.Len(t, fs.agents, 1)
 	assert.Equal(t, hostID, fs.agents[0].HostID)
 	assert.Equal(t, engID, fs.agents[0].EngineID)
+}
+
+func TestGatewayAgentHeartbeat_FlipsToHealthy_204(t *testing.T) {
+	fs := newFakeStore()
+	fs.heartbeatHostIDs = []uuid.UUID{}
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	hostID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"host_id":          hostID.String(),
+		"cert_fingerprint": "abcdef",
+	}
+	req := gwReq(http.MethodPost, "/engine/agent-push/agents/heartbeat", body, &engine.Engine{ID: uuid.Must(uuid.NewV7()), OrgID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	require.Len(t, fs.heartbeatHostIDs, 1)
+	assert.Equal(t, hostID, fs.heartbeatHostIDs[0])
+}
+
+func TestGatewayAgentHeartbeat_BadHostID_400(t *testing.T) {
+	fs := newFakeStore()
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	body := map[string]any{
+		"host_id":          "not-a-uuid",
+		"cert_fingerprint": "abcdef",
+	}
+	req := gwReq(http.MethodPost, "/engine/agent-push/agents/heartbeat", body, &engine.Engine{ID: uuid.Must(uuid.NewV7()), OrgID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestGatewayRegisterAgent_MissingFingerprint_400(t *testing.T) {

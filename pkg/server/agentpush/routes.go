@@ -29,4 +29,5 @@ func MountGatewayRoutes(r chi.Router, h *GatewayHandlers) {
 	r.Post("/{id}/progress", h.Progress)
 	r.Post("/{id}/finish", h.Finish)
 	r.Post("/agents/register", h.RegisterAgent)
+	r.Post("/agents/heartbeat", h.AgentHeartbeat)
 }

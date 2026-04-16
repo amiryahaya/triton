@@ -21,6 +21,14 @@ var (
 	// but is no longer queued — an engine has already claimed it and
 	// owns the lifecycle from here.
 	ErrJobNotCancellable = errors.New("discovery job not cancellable")
+
+	// ErrJobNotOwned is returned by FinishJob when the caller's
+	// engine ID does not match the engine that claimed the job.
+	ErrJobNotOwned = errors.New("discovery job not owned by this engine")
+
+	// ErrJobAlreadyTerminal is returned by FinishJob when the job
+	// has already reached a terminal state (completed/failed/cancelled).
+	ErrJobAlreadyTerminal = errors.New("discovery job already in terminal state")
 )
 
 // Store is the persistence contract for discovery jobs + candidates.
@@ -64,8 +72,9 @@ type Store interface {
 
 	// FinishJob flips a claimed/running job to the given terminal
 	// status, stamps completed_at, stores any error message, and
-	// records the final candidate count.
-	FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string, candidateCount int) error
+	// records the final candidate count. engineID enforces ownership:
+	// only the engine that claimed the job may finish it.
+	FinishJob(ctx context.Context, engineID, jobID uuid.UUID, status JobStatus, errMsg string, candidateCount int) error
 
 	// ReclaimStale flips status back to 'queued' for jobs whose status is
 	// 'claimed' or 'running' with claimed_at older than cutoff. This lets

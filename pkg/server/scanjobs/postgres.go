@@ -288,22 +288,22 @@ func (s *PostgresStore) UpdateProgress(ctx context.Context, jobID uuid.UUID, don
 	return nil
 }
 
-// FinishJob transitions a job to its terminal state. Returns
-// ErrJobAlreadyTerminal if the row is already completed/failed/cancelled.
-func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string) error {
-	ct, err := s.pool.Exec(ctx,
-		`UPDATE scan_jobs
-		 SET status = $1, error = NULLIF($2, ''), completed_at = NOW()
-		 WHERE id = $3 AND status NOT IN ('completed', 'failed', 'cancelled')`,
-		string(status), errMsg, jobID,
-	)
-	if err != nil {
-		return fmt.Errorf("finish scan job: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
+// FinishJob transitions a job to its terminal state via the generic
+// jobqueue, which enforces engine ownership (engine_id guard) and
+// rejects already-terminal rows. No domain-specific columns need
+// updating on the finish path for scan jobs.
+func (s *PostgresStore) FinishJob(ctx context.Context, engineID, jobID uuid.UUID, status JobStatus, errMsg string) error {
+	err := s.queue.Finish(ctx, engineID, jobID, string(status), errMsg)
+	switch {
+	case errors.Is(err, jobqueue.ErrNotFound):
+		return ErrJobNotFound
+	case errors.Is(err, jobqueue.ErrNotOwned):
+		return ErrJobNotOwned
+	case errors.Is(err, jobqueue.ErrAlreadyTerminal):
 		return ErrJobAlreadyTerminal
+	default:
+		return err
 	}
-	return nil
 }
 
 // ReclaimStale returns claimed/running jobs whose claimed_at is older

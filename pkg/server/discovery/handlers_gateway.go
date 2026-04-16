@@ -125,7 +125,7 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Error != "" {
-		if err := h.Store.FinishJob(r.Context(), jobID, StatusFailed, body.Error, 0); err != nil {
+		if err := h.Store.FinishJob(r.Context(), eng.ID, jobID, StatusFailed, body.Error, 0); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -156,7 +156,7 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := h.Store.FinishJob(r.Context(), jobID, StatusCompleted, "", len(cs)); err != nil {
+	if err := h.Store.FinishJob(r.Context(), eng.ID, jobID, StatusCompleted, "", len(cs)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

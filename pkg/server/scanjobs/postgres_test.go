@@ -291,10 +291,29 @@ func TestScanJobs_FinishJob_TerminalGuard(t *testing.T) {
 
 	j, err := f.store.CreateJob(ctx, newJob(f, false))
 	require.NoError(t, err)
+	// Claim the job first so FinishJob's ownership guard passes.
+	_, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
 
-	require.NoError(t, f.store.FinishJob(ctx, j.ID, StatusCompleted, ""))
-	err = f.store.FinishJob(ctx, j.ID, StatusCompleted, "")
+	require.NoError(t, f.store.FinishJob(ctx, f.engineID, j.ID, StatusCompleted, ""))
+	err = f.store.FinishJob(ctx, f.engineID, j.ID, StatusCompleted, "")
 	assert.ErrorIs(t, err, ErrJobAlreadyTerminal)
+}
+
+func TestScanJobs_FinishJob_WrongEngine_RejectsNotOwned(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	j, err := f.store.CreateJob(ctx, newJob(f, false))
+	require.NoError(t, err)
+	_, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	rogueEngine := uuid.Must(uuid.NewV7())
+	err = f.store.FinishJob(ctx, rogueEngine, j.ID, StatusCompleted, "")
+	assert.ErrorIs(t, err, ErrJobNotOwned, "rogue engine should not finish another engine's job")
 }
 
 func TestScanJobs_UpdateProgress_FlipsClaimedToRunning(t *testing.T) {

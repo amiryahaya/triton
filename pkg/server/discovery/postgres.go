@@ -244,36 +244,37 @@ func (s *PostgresStore) InsertCandidates(ctx context.Context, jobID uuid.UUID, c
 	return nil
 }
 
-func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string, candidateCount int) error {
-	switch status {
-	case StatusCompleted, StatusFailed, StatusRunning:
-		// running is allowed so engines can transition claimed → running
-		// mid-scan without closing the job out.
-	default:
-		return fmt.Errorf("invalid finish status: %s", status)
+func (s *PostgresStore) FinishJob(ctx context.Context, engineID, jobID uuid.UUID, status JobStatus, errMsg string, candidateCount int) error {
+	// Delegate terminal-state transition + ownership guard to jobqueue.
+	if err := s.queue.Finish(ctx, engineID, jobID, string(status), errMsg); err != nil {
+		return translateJobqueueError(err)
 	}
-	var errArg *string
-	if errMsg != "" {
-		errArg = &errMsg
-	}
-	var completedAt *time.Time
-	if status == StatusCompleted || status == StatusFailed {
-		now := time.Now().UTC()
-		completedAt = &now
-	}
-	_, err := s.pool.Exec(ctx,
-		`UPDATE discovery_jobs
-		 SET status = $1,
-		     error = $2,
-		     completed_at = COALESCE($3, completed_at),
-		     candidate_count = $4
-		 WHERE id = $5`,
-		string(status), errArg, completedAt, candidateCount, jobID,
-	)
-	if err != nil {
-		return fmt.Errorf("finish discovery job: %w", err)
+	// Domain-specific: update candidate_count separately.
+	if candidateCount >= 0 {
+		_, err := s.pool.Exec(ctx,
+			`UPDATE discovery_jobs SET candidate_count = $2 WHERE id = $1`,
+			jobID, candidateCount,
+		)
+		if err != nil {
+			return fmt.Errorf("update discovery candidate_count: %w", err)
+		}
 	}
 	return nil
+}
+
+// translateJobqueueError maps generic jobqueue sentinels to discovery-
+// domain sentinels so handler-layer error matching is stable.
+func translateJobqueueError(err error) error {
+	switch {
+	case errors.Is(err, jobqueue.ErrNotFound):
+		return fmt.Errorf("%w: %v", ErrJobNotFound, err)
+	case errors.Is(err, jobqueue.ErrNotOwned):
+		return ErrJobNotOwned
+	case errors.Is(err, jobqueue.ErrAlreadyTerminal):
+		return ErrJobAlreadyTerminal
+	default:
+		return err
+	}
 }
 
 // ReclaimStale resets jobs that were claimed or running but whose

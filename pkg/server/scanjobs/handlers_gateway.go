@@ -181,12 +181,17 @@ func (h *GatewayHandlers) Finish(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid status")
 		return
 	}
-	if err := h.Store.FinishJob(r.Context(), jobID, JobStatus(body.Status), body.Error); err != nil {
-		if errors.Is(err, ErrJobAlreadyTerminal) {
+	if err := h.Store.FinishJob(r.Context(), eng.ID, jobID, JobStatus(body.Status), body.Error); err != nil {
+		switch {
+		case errors.Is(err, ErrJobAlreadyTerminal):
 			writeErr(w, http.StatusConflict, "job already terminal")
-			return
+		case errors.Is(err, ErrJobNotOwned):
+			writeErr(w, http.StatusForbidden, "job not owned by this engine")
+		case errors.Is(err, ErrJobNotFound):
+			writeErr(w, http.StatusNotFound, "job not found")
+		default:
+			writeErr(w, http.StatusInternalServerError, "finish job: "+err.Error())
 		}
-		writeErr(w, http.StatusInternalServerError, "finish job: "+err.Error())
 		return
 	}
 	h.audit(r, "scanjobs.job.finished", jobID.String(), map[string]any{

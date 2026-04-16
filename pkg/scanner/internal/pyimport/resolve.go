@@ -52,19 +52,33 @@ func IsStdlib(module string) bool {
 //  2. root/a/b/c/__init__.py  (package)
 //
 // Returns the first existing path, or "" if neither exists.
+// Any module name that would resolve to a path outside root (e.g. via ".."
+// segments) is rejected and returns "".
 func ResolveModule(module, root string) string {
 	// Convert dotted name to path segments.
 	parts := strings.Split(module, ".")
 	rel := filepath.Join(parts...)
 
+	// rootAnchor is the canonical root with a trailing separator so that
+	// strings.HasPrefix gives an exact directory-boundary match.
+	rootAnchor := filepath.Clean(root) + string(filepath.Separator)
+
 	// Try module file first.
 	candidate := filepath.Join(root, rel+".py")
+	// Guard against path traversal via ".." segments in module names.
+	if !strings.HasPrefix(filepath.Clean(candidate), rootAnchor) {
+		return ""
+	}
 	if fileExists(candidate) {
 		return candidate
 	}
 
 	// Try package __init__.py.
 	candidate = filepath.Join(root, rel, "__init__.py")
+	// Guard against path traversal via ".." segments in module names.
+	if !strings.HasPrefix(filepath.Clean(candidate), rootAnchor) {
+		return ""
+	}
 	if fileExists(candidate) {
 		return candidate
 	}

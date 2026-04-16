@@ -47,17 +47,21 @@ func ParseSource(filePath, packageName string, r io.Reader) (*FileImports, error
 				// Check if it closes on this line (odd number of markers).
 				if toggles%2 == 1 {
 					inTripleQuote = false
+					// Fall through: the text after the closing """ may contain
+					// valid Python code (e.g. an import or call on the same line).
+				} else {
+					continue
 				}
-				continue
+			} else {
+				// Not in triple-quote, check if we enter one.
+				if toggles%2 == 1 {
+					// Odd number means we open (and don't close on same line).
+					inTripleQuote = true
+					continue
+				}
+				// Even number: opens and closes on same line — treat as string
+				// literal but still fall through so code before/after is parsed.
 			}
-			// Not in triple-quote, check if we enter one.
-			if toggles%2 == 1 {
-				// Odd number means we open (and don't close on same line).
-				inTripleQuote = true
-				continue
-			}
-			// Even number: opens and closes on same line, treat as string literal, skip content.
-			continue
 		}
 		if inTripleQuote {
 			continue

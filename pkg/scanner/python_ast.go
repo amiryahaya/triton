@@ -17,6 +17,10 @@ import (
 	"github.com/amiryahaya/triton/pkg/scanner/internal/pyimport"
 )
 
+// maxPythonFiles caps the number of Python files accumulated during the walk
+// phase to prevent unbounded memory growth on very large repositories.
+const maxPythonFiles = 50_000
+
 // PythonASTModule scans Python source files (.py) for crypto-API usage by
 // parsing import statements and function calls. It operates in two phases:
 //
@@ -76,6 +80,11 @@ func (m *PythonASTModule) Scan(ctx context.Context, target model.ScanTarget, fin
 		filesMatched: &matched,
 		matchFile:    isPythonFile,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
+			// Cap total files to avoid unbounded memory growth.
+			if len(allFiles) >= maxPythonFiles {
+				return nil // skip remaining files
+			}
+
 			// Detect project root once from the first file encountered.
 			if projectRoot == "" {
 				projectRoot = pyimport.DetectProjectRoot(filepath.Dir(path))

@@ -387,7 +387,30 @@ func RunDoctorChecks(profile string) *DoctorReport {
 		}, CheckDockerConfig())
 	}
 
-	// 7. TPM scanner prereq (Linux-only; non-Linux WARN).
+	// 7. UEFI scanner prereq (Linux-only; non-Linux WARN).
+	if activeModules["uefi"] {
+		status := CheckPass
+		message := "/sys/firmware/efi/efivars accessible"
+		suggestion := ""
+		if runtime.GOOS != "linux" {
+			status = CheckWarn
+			message = "uefi: Linux-only"
+			suggestion = "uefi module will emit a skipped-finding on " + runtime.GOOS
+		} else if _, err := os.Stat("/sys/firmware/efi/efivars"); err != nil {
+			status = CheckWarn
+			message = "uefi: /sys/firmware/efi/efivars not present"
+			suggestion = "No UEFI firmware detected. VM or legacy BIOS system?"
+		}
+		report.Checks = append(report.Checks, CheckResult{
+			Module:     "uefi",
+			CheckName:  "efivars",
+			Status:     status,
+			Message:    message,
+			Suggestion: suggestion,
+		})
+	}
+
+	// 8. TPM scanner prereq (Linux-only; non-Linux WARN).
 	if activeModules["tpm"] {
 		status := CheckPass
 		message := "/sys/class/tpm accessible"

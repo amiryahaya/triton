@@ -735,7 +735,8 @@
         <fieldset style="border:1px solid var(--border,#ccc);padding:.75rem;border-radius:6px;margin:.5rem 0">
           <legend style="font-weight:600;padding:0 .25rem">Probe type</legend>
           <label style="display:block;margin-bottom:.25rem"><input type="radio" name="probe_type" value="ping" checked> Ping sweep (find all live hosts)</label>
-          <label style="display:block"><input type="radio" name="probe_type" value="tcp"> TCP port scan (find hosts + open ports)</label>
+          <label style="display:block"><input type="radio" name="probe_type" value="tcp"> TCP port scan (find hosts + open ports, service versions, vendor info)</label>
+          <p class="muted small" style="margin-top:.25rem">Note: Ping sweep only detects if a host is alive. To identify services, OS vendor, and device type, use TCP port scan.</p>
         </fieldset>
         <label id="ports_label" style="display:none">Ports (comma-separated, defaults to 22,80,443,3389,5985)
           <input name="ports" placeholder="22,80,443,3389,5985">

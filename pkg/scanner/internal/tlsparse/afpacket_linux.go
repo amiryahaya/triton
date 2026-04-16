@@ -48,7 +48,7 @@ func (r *AFPacketReader) NextPacket() (*Packet, error) {
 		data, ci, err := r.handle.ReadPacketData()
 		if err != nil {
 			// afpacket signals handle close as an error; normalise to io.EOF.
-			if errors.Is(err, afpacket.ErrPoll) {
+			if errors.Is(err, afpacket.ErrPoll) || errors.Is(err, io.EOF) {
 				return nil, io.EOF
 			}
 			return nil, err

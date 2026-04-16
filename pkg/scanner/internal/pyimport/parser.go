@@ -108,16 +108,7 @@ func ParseSource(filePath, packageName string, r io.Reader) (*FileImports, error
 
 		if isImportLine(parseable) {
 			imps := parseImportLine(parseable, packageName, lineNum, aliasMap)
-			if imps != nil {
-				for i := range imps {
-					imp := &imps[i]
-					// Check if multi-line (ends with open paren, no close paren).
-					if imp == nil {
-						continue
-					}
-					fi.Imports = append(fi.Imports, *imp)
-				}
-			}
+			fi.Imports = append(fi.Imports, imps...)
 			// Check for multi-line: the raw parseable ends with "(" without ")"
 			// This is handled below via multiLineImport being set.
 			// Re-check: if last import has open paren.

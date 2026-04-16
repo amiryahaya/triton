@@ -1,8 +1,6 @@
 package pyimport
 
 import (
-	"strings"
-
 	"github.com/amiryahaya/triton/pkg/crypto"
 )
 
@@ -113,17 +111,18 @@ func ClassifyCrypto(g *ImportGraph, files []FileImports) []CryptoMatch {
 	for _, fi := range files {
 		// Check function calls first.
 		for _, call := range fi.Calls {
-			if _, ok := crypto.LookupPythonCrypto(call.FullPath); ok {
-				k := dedupKey{call.FullPath, fi.Path}
-				if seen[k] {
-					continue
-				}
-				seen[k] = true
-
-				isImported := len(importedBy[fi.Path]) > 0
-				m := cryptoMatchForFile(fi.Path, call.FullPath, call.Line, isImported, findChain)
-				result = append(result, m)
+			if _, ok := crypto.LookupPythonCrypto(call.FullPath); !ok {
+				continue
 			}
+			k := dedupKey{call.FullPath, fi.Path}
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+
+			isImported := len(importedBy[fi.Path]) > 0
+			m := cryptoMatchForFile(fi.Path, call.FullPath, call.Line, isImported, findChain)
+			result = append(result, m)
 		}
 
 		// Check import statements (module-level crypto imports).
@@ -143,17 +142,18 @@ func ClassifyCrypto(g *ImportGraph, files []FileImports) []CryptoMatch {
 			}
 
 			for _, cand := range candidates {
-				if _, ok := crypto.LookupPythonCrypto(cand.path); ok {
-					k := dedupKey{cand.path, fi.Path}
-					if seen[k] {
-						continue
-					}
-					seen[k] = true
-
-					isImported := len(importedBy[fi.Path]) > 0
-					m := cryptoMatchForFile(fi.Path, cand.path, cand.line, isImported, findChain)
-					result = append(result, m)
+				if _, ok := crypto.LookupPythonCrypto(cand.path); !ok {
+					continue
 				}
+				k := dedupKey{cand.path, fi.Path}
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+
+				isImported := len(importedBy[fi.Path]) > 0
+				m := cryptoMatchForFile(fi.Path, cand.path, cand.line, isImported, findChain)
+				result = append(result, m)
 			}
 		}
 	}
@@ -191,19 +191,4 @@ func cryptoMatchForFile(
 	}
 
 	return m
-}
-
-// resolveImportToPath resolves a dotted module import name to a file path using
-// the package-to-path index. Returns "" if not found. Used internally.
-func resolveImportToPath(imp string, pkgToPath map[string]string) string {
-	if p, ok := pkgToPath[imp]; ok {
-		return p
-	}
-	// Try prefix match: "myapp.utils" might partially match "myapp".
-	for pkg, path := range pkgToPath {
-		if strings.HasPrefix(imp, pkg+".") {
-			return path
-		}
-	}
-	return ""
 }

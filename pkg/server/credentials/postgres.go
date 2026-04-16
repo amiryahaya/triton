@@ -10,17 +10,45 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/amiryahaya/triton/pkg/server/jobqueue"
 )
 
 // PostgresStore implements Store against a pgx connection pool owned
-// by the caller (usually pkg/store.PostgresStore).
+// by the caller (usually pkg/store.PostgresStore). Queue operations
+// (claim, reclaim) are delegated to embedded jobqueue.Queue instances;
+// domain-specific logic (ack, finish, enrichment) remains here.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool          *pgxpool.Pool
+	deliveryQueue *jobqueue.Queue
+	testQueue     *jobqueue.Queue
 }
 
 // NewPostgresStore wraps a pool. The caller owns the pool's lifetime.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
-	return &PostgresStore{pool: pool}
+	dq := jobqueue.New(pool, jobqueue.Config{
+		Table:             "credential_deliveries",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
+		RequestedAtColumn: "requested_at",
+		CompletedAtColumn: "acked_at",
+		QueuedStatus:      "queued",
+		ClaimedStatus:     "claimed",
+		TerminalStatuses:  []string{"acked", "failed"},
+	})
+	tq := jobqueue.New(pool, jobqueue.Config{
+		Table:             "credential_tests",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
+		RequestedAtColumn: "requested_at",
+		CompletedAtColumn: "completed_at",
+		QueuedStatus:      "queued",
+		ClaimedStatus:     "claimed",
+		TerminalStatuses:  []string{"completed", "failed", "cancelled"},
+	})
+	return &PostgresStore{pool: pool, deliveryQueue: dq, testQueue: tq}
 }
 
 // Compile-time interface satisfaction assertion.
@@ -197,44 +225,19 @@ func scanDelivery(scanner pgx.Row) (Delivery, error) {
 }
 
 // ClaimNextDelivery pops the oldest queued delivery for engineID using
-// SELECT ... FOR UPDATE SKIP LOCKED so concurrent engines (or restart
-// races) never double-claim a row.
+// the generic jobqueue claim, then enriches the ID into a full Delivery.
 func (s *PostgresStore) ClaimNextDelivery(ctx context.Context, engineID uuid.UUID) (Delivery, bool, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return Delivery{}, false, fmt.Errorf("claim delivery: begin tx: %w", err)
+	id, found, err := s.deliveryQueue.ClaimNextID(ctx, engineID)
+	if !found || err != nil {
+		return Delivery{}, false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after a successful Commit is a documented pgx no-op (ErrTxClosed).
-
-	row := tx.QueryRow(ctx,
-		`SELECT `+deliverySelectCols+`
-		 FROM credential_deliveries
-		 WHERE engine_id = $1 AND status = 'queued'
-		 ORDER BY requested_at ASC
-		 FOR UPDATE SKIP LOCKED
-		 LIMIT 1`,
-		engineID,
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+deliverySelectCols+` FROM credential_deliveries WHERE id = $1`, id,
 	)
 	d, err := scanDelivery(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Delivery{}, false, nil
-		}
-		return Delivery{}, false, fmt.Errorf("scan claim delivery: %w", err)
+		return Delivery{}, false, fmt.Errorf("enrich claimed delivery: %w", err)
 	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE credential_deliveries SET status = 'claimed', claimed_at = NOW() WHERE id = $1`,
-		d.ID,
-	); err != nil {
-		return Delivery{}, false, fmt.Errorf("update claim delivery: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Delivery{}, false, fmt.Errorf("commit claim delivery: %w", err)
-	}
-	d.Status = "claimed"
-	now := time.Now().UTC()
-	d.ClaimedAt = &now
 	return d, true, nil
 }
 
@@ -262,18 +265,9 @@ func (s *PostgresStore) AckDelivery(ctx context.Context, id uuid.UUID, errMsg st
 }
 
 // ReclaimStaleDeliveries flips claimed rows older than cutoff back to
-// queued. Idempotent — if no rows match, does nothing.
+// queued. Delegates to the generic jobqueue.Queue implementation.
 func (s *PostgresStore) ReclaimStaleDeliveries(ctx context.Context, cutoff time.Time) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE credential_deliveries
-		 SET status = 'queued', claimed_at = NULL
-		 WHERE status = 'claimed' AND claimed_at IS NOT NULL AND claimed_at < $1`,
-		cutoff,
-	)
-	if err != nil {
-		return fmt.Errorf("reclaim stale deliveries: %w", err)
-	}
-	return nil
+	return s.deliveryQueue.ReclaimStale(ctx, cutoff)
 }
 
 // --- test jobs ---
@@ -344,41 +338,17 @@ func (s *PostgresStore) ListTestResults(ctx context.Context, testID uuid.UUID) (
 }
 
 func (s *PostgresStore) ClaimNextTest(ctx context.Context, engineID uuid.UUID) (TestJob, bool, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return TestJob{}, false, fmt.Errorf("claim test: begin tx: %w", err)
+	id, found, err := s.testQueue.ClaimNextID(ctx, engineID)
+	if !found || err != nil {
+		return TestJob{}, false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after a successful Commit is a documented pgx no-op (ErrTxClosed).
-
-	row := tx.QueryRow(ctx,
-		`SELECT `+testSelectCols+`
-		 FROM credential_tests
-		 WHERE engine_id = $1 AND status = 'queued'
-		 ORDER BY requested_at ASC
-		 FOR UPDATE SKIP LOCKED
-		 LIMIT 1`,
-		engineID,
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+testSelectCols+` FROM credential_tests WHERE id = $1`, id,
 	)
 	t, err := scanTestJob(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return TestJob{}, false, nil
-		}
-		return TestJob{}, false, fmt.Errorf("scan claim test: %w", err)
+		return TestJob{}, false, fmt.Errorf("enrich claimed test job: %w", err)
 	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE credential_tests SET status = 'claimed', claimed_at = NOW() WHERE id = $1`,
-		t.ID,
-	); err != nil {
-		return TestJob{}, false, fmt.Errorf("update claim test: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return TestJob{}, false, fmt.Errorf("commit claim test: %w", err)
-	}
-	t.Status = "claimed"
-	now := time.Now().UTC()
-	t.ClaimedAt = &now
 	return t, true, nil
 }
 
@@ -436,17 +406,7 @@ func (s *PostgresStore) FinishTestJob(ctx context.Context, id uuid.UUID, status,
 }
 
 func (s *PostgresStore) ReclaimStaleTests(ctx context.Context, cutoff time.Time) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE credential_tests
-		 SET status = 'queued', claimed_at = NULL
-		 WHERE status IN ('claimed', 'running')
-		   AND claimed_at IS NOT NULL AND claimed_at < $1`,
-		cutoff,
-	)
-	if err != nil {
-		return fmt.Errorf("reclaim stale tests: %w", err)
-	}
-	return nil
+	return s.testQueue.ReclaimStale(ctx, cutoff)
 }
 
 func (s *PostgresStore) GetEngineEncryptionPubkey(ctx context.Context, engineID uuid.UUID) ([]byte, error) {

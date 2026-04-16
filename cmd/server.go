@@ -327,8 +327,8 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// Credentials stale-queue reaper. Same partial-index constraint as
 	// discovery — claimed or running rows never get re-picked unless we
 	// flip them back to queued. One reaper sweeps both delivery + test
-	// queues on a shared cutoff.
-	go (&credentialspkg.StaleReaper{Store: credStore}).Run(srv.Context())
+	// queues on a shared cutoff via the credentialReclaimer adapter.
+	go (&jobqueue.StaleReaper{Reclaimer: credentialReclaimer{credStore}, Label: "credentials"}).Run(srv.Context())
 
 	// Scan jobs stale-queue reaper. Same partial-index constraint as
 	// discovery + credentials — claimed or running rows never get
@@ -497,6 +497,22 @@ func parseRequestRateLimitEnv() *auth.RequestRateLimiterConfig {
 
 // envOrLegacy returns the value of the canonical env var when set,
 // or the legacy env var's value with a deprecation warning when the
+// credentialReclaimer adapts credentials.Store (which has two separate
+// reclaim methods) to the single-method jobqueue.Reclaimer interface.
+// This lets one StaleReaper sweep both the delivery and test queues on
+// a shared cutoff, matching the pre-refactor credentials.StaleReaper
+// behaviour.
+type credentialReclaimer struct {
+	store credentialspkg.Store
+}
+
+func (c credentialReclaimer) ReclaimStale(ctx context.Context, cutoff time.Time) error {
+	if err := c.store.ReclaimStaleDeliveries(ctx, cutoff); err != nil {
+		return err
+	}
+	return c.store.ReclaimStaleTests(ctx, cutoff)
+}
+
 // legacy one is still in use. Empty means neither was set.
 func envOrLegacy(canonical, legacy string) string {
 	if v := os.Getenv(canonical); v != "" {

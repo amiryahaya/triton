@@ -18,6 +18,7 @@ import (
 // long-poll loop; zero values use the defaults below.
 type GatewayHandlers struct {
 	Store        Store
+	Audit        AuditRecorder // may be nil — audit events are best-effort
 	PollTimeout  time.Duration
 	PollInterval time.Duration
 }
@@ -31,6 +32,13 @@ func NewGatewayHandlers(s Store) *GatewayHandlers {
 		PollTimeout:  30 * time.Second,
 		PollInterval: 1 * time.Second,
 	}
+}
+
+func (h *GatewayHandlers) audit(r *http.Request, event, subject string, fields map[string]any) {
+	if h.Audit == nil {
+		return
+	}
+	h.Audit.Record(r.Context(), event, subject, fields)
 }
 
 // Poll implements GET /engine/discovery/poll. It long-polls for the
@@ -117,10 +125,13 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Error != "" {
-		if err := h.Store.FinishJob(r.Context(), jobID, StatusFailed, body.Error, 0); err != nil {
+		if err := h.Store.FinishJob(r.Context(), eng.ID, jobID, StatusFailed, body.Error, 0); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		h.audit(r, "discovery.job.failed", jobID.String(), map[string]any{
+			"engine_id": eng.ID.String(),
+		})
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -145,9 +156,13 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := h.Store.FinishJob(r.Context(), jobID, StatusCompleted, "", len(cs)); err != nil {
+	if err := h.Store.FinishJob(r.Context(), eng.ID, jobID, StatusCompleted, "", len(cs)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.audit(r, "discovery.candidates.submitted", jobID.String(), map[string]any{
+		"engine_id":       eng.ID.String(),
+		"candidate_count": len(cs),
+	})
 	w.WriteHeader(http.StatusNoContent)
 }

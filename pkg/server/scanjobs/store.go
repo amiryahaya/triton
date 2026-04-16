@@ -24,6 +24,10 @@ var (
 	// completed/failed/cancelled. Idempotent retry from a crashed
 	// engine sees this and can move on.
 	ErrJobAlreadyTerminal = errors.New("scanjobs: job already in terminal state")
+
+	// ErrJobNotOwned: FinishJob called with an engine ID that does
+	// not match the engine that claimed the job.
+	ErrJobNotOwned = errors.New("scanjobs: job not owned by this engine")
 )
 
 // Store persists scan jobs and brokers the engine claim/progress/finish
@@ -60,8 +64,10 @@ type Store interface {
 	UpdateProgress(ctx context.Context, jobID uuid.UUID, done, failed int) error
 
 	// FinishJob transitions a job to its terminal state and stamps
-	// completed_at. Returns ErrJobAlreadyTerminal on a second call.
-	FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string) error
+	// completed_at. engineID enforces ownership: only the engine that
+	// claimed the job may finish it. Returns ErrJobAlreadyTerminal on
+	// a second call, ErrJobNotOwned if engineID mismatches.
+	FinishJob(ctx context.Context, engineID, jobID uuid.UUID, status JobStatus, errMsg string) error
 
 	// ReclaimStale flips claimed/running rows whose claimed_at is
 	// older than cutoff back to queued so another (or the same)

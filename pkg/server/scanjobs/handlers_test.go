@@ -91,7 +91,7 @@ func (f *fakeStore) UpdateProgress(_ context.Context, _ uuid.UUID, done, failed 
 	return nil
 }
 
-func (f *fakeStore) FinishJob(_ context.Context, id uuid.UUID, status JobStatus, errMsg string) error {
+func (f *fakeStore) FinishJob(_ context.Context, _ /* engineID */, id uuid.UUID, status JobStatus, errMsg string) error {
 	if f.finishErr != nil {
 		return f.finishErr
 	}

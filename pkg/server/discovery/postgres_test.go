@@ -220,8 +220,12 @@ func TestPostgresStore_FinishJob_UpdatesFields(t *testing.T) {
 
 	saved, err := f.store.CreateJob(ctx, makeJob(f))
 	require.NoError(t, err)
+	// Claim the job first so FinishJob's ownership guard passes.
+	_, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
 
-	require.NoError(t, f.store.FinishJob(ctx, saved.ID, StatusCompleted, "", 42))
+	require.NoError(t, f.store.FinishJob(ctx, f.engineID, saved.ID, StatusCompleted, "", 42))
 
 	got, err := f.store.GetJob(ctx, f.orgID, saved.ID)
 	require.NoError(t, err)
@@ -233,11 +237,29 @@ func TestPostgresStore_FinishJob_UpdatesFields(t *testing.T) {
 	// Failed with message.
 	saved2, err := f.store.CreateJob(ctx, makeJob(f))
 	require.NoError(t, err)
-	require.NoError(t, f.store.FinishJob(ctx, saved2.ID, StatusFailed, "boom", 0))
+	_, ok, err = f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, f.store.FinishJob(ctx, f.engineID, saved2.ID, StatusFailed, "boom", 0))
 	got2, err := f.store.GetJob(ctx, f.orgID, saved2.ID)
 	require.NoError(t, err)
 	assert.Equal(t, StatusFailed, got2.Status)
 	assert.Equal(t, "boom", got2.Error)
+}
+
+func TestPostgresStore_FinishJob_WrongEngine_RejectsNotOwned(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	saved, err := f.store.CreateJob(ctx, makeJob(f))
+	require.NoError(t, err)
+	_, ok, err := f.store.ClaimNext(ctx, f.engineID)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	rogueEngine := uuid.Must(uuid.NewV7())
+	err = f.store.FinishJob(ctx, rogueEngine, saved.ID, StatusCompleted, "", 0)
+	assert.ErrorIs(t, err, ErrJobNotOwned, "rogue engine should not finish another engine's job")
 }
 
 func TestPostgresStore_MarkCandidatesPromoted_Bulk(t *testing.T) {

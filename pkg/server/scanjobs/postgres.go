@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/server/jobqueue"
 )
 
 // scanStoreAPI is the narrow surface scanjobs needs from the underlying
@@ -25,17 +26,31 @@ type scanStoreAPI interface {
 }
 
 // PostgresStore implements Store. The pool is owned by the caller;
-// scanStore is the narrow scan-persistence dependency.
+// scanStore is the narrow scan-persistence dependency. Queue operations
+// (claim, cancel, reclaim) are delegated to the embedded jobqueue.Queue;
+// domain-specific enrichment remains here.
 type PostgresStore struct {
 	pool      *pgxpool.Pool
 	scanStore scanStoreAPI
+	queue     *jobqueue.Queue
 }
 
 // NewPostgresStore wires the dependencies. scanStore may be nil during
 // admin-only flows, but RecordScanResult will panic if invoked without
 // it (the Phase-5 gateway always provides one).
 func NewPostgresStore(pool *pgxpool.Pool, scanStore scanStoreAPI) *PostgresStore {
-	return &PostgresStore{pool: pool, scanStore: scanStore}
+	q := jobqueue.New(pool, jobqueue.Config{
+		Table:             "scan_jobs",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
+		RequestedAtColumn: "requested_at",
+		CompletedAtColumn: "completed_at",
+		QueuedStatus:      "queued",
+		ClaimedStatus:     "claimed",
+		TerminalStatuses:  []string{"completed", "failed", "cancelled"},
+	})
+	return &PostgresStore{pool: pool, scanStore: scanStore, queue: q}
 }
 
 // Compile-time interface satisfaction assertion.
@@ -131,76 +146,52 @@ func (s *PostgresStore) ListJobs(ctx context.Context, orgID uuid.UUID, limit int
 
 // CancelJob flips a queued job to cancelled. Disambiguates between
 // "row does not exist" (404) and "row exists but is past queued"
-// (409) so the handler layer can return the right HTTP status without
-// a second round-trip.
+// (409) via the generic jobqueue.Queue implementation.
 func (s *PostgresStore) CancelJob(ctx context.Context, orgID, id uuid.UUID) error {
-	ct, err := s.pool.Exec(ctx,
-		`UPDATE scan_jobs SET status = 'cancelled', completed_at = NOW()
-		 WHERE org_id = $1 AND id = $2 AND status = 'queued'`,
-		orgID, id,
-	)
-	if err != nil {
-		return fmt.Errorf("cancel scan job: %w", err)
+	err := s.queue.Cancel(ctx, orgID, id)
+	switch {
+	case errors.Is(err, jobqueue.ErrNotFound):
+		return ErrJobNotFound
+	case errors.Is(err, jobqueue.ErrNotCancellable):
+		return ErrJobNotCancellable
+	default:
+		return err
 	}
-	if ct.RowsAffected() != 0 {
-		return nil
-	}
-	// Disambiguate: does the row exist at all?
-	var curStatus string
-	err = s.pool.QueryRow(ctx,
-		`SELECT status FROM scan_jobs WHERE org_id = $1 AND id = $2`,
-		orgID, id,
-	).Scan(&curStatus)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrJobNotFound
-		}
-		return fmt.Errorf("cancel scan job (status check): %w", err)
-	}
-	return ErrJobNotCancellable
 }
 
-// ClaimNext atomically grabs the oldest queued job for engineID and
-// enriches the wire payload with resolved host addresses + credential
-// metadata. All work happens inside a single transaction so concurrent
-// engines (or restart races) never double-claim a row.
+// ClaimNext atomically grabs the oldest queued job for engineID via
+// the generic jobqueue claim, then enriches the wire payload with
+// resolved host addresses + credential metadata.
 //
 // Port resolution: ssh-* → 22, winrm-* → 5985, no credential → 22.
 // Address comes from inventory_hosts.address (INET, the /32 or /128
 // suffix is stripped before being returned to the engine).
 func (s *PostgresStore) ClaimNext(ctx context.Context, engineID uuid.UUID) (JobPayload, bool, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return JobPayload{}, false, fmt.Errorf("claim scan job: begin tx: %w", err)
+	id, found, err := s.queue.ClaimNextID(ctx, engineID)
+	if !found || err != nil {
+		return JobPayload{}, false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after a successful Commit is a documented pgx no-op (ErrTxClosed).
+	return s.enrichClaimedJob(ctx, id)
+}
 
+// enrichClaimedJob loads the claimed row's fields and resolves host
+// targets + credential metadata into a wire-ready JobPayload.
+func (s *PostgresStore) enrichClaimedJob(ctx context.Context, jobID uuid.UUID) (JobPayload, bool, error) {
 	var (
-		jobID         uuid.UUID
 		hostIDs       []uuid.UUID
 		profileStr    string
 		credProfileID *uuid.UUID
 	)
-	row := tx.QueryRow(ctx,
-		`SELECT id, host_ids, scan_profile, credential_profile_id
-		 FROM scan_jobs
-		 WHERE engine_id = $1 AND status = 'queued'
-		 ORDER BY requested_at ASC
-		 FOR UPDATE SKIP LOCKED
-		 LIMIT 1`,
-		engineID,
-	)
-	if err := row.Scan(&jobID, &hostIDs, &profileStr, &credProfileID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return JobPayload{}, false, nil
-		}
-		return JobPayload{}, false, fmt.Errorf("scan claim scan job: %w", err)
+	err := s.pool.QueryRow(ctx,
+		`SELECT host_ids, scan_profile, credential_profile_id
+		 FROM scan_jobs WHERE id = $1`,
+		jobID,
+	).Scan(&hostIDs, &profileStr, &credProfileID)
+	if err != nil {
+		return JobPayload{}, false, fmt.Errorf("enrich claimed scan job: %w", err)
 	}
 
-	// Enrich with host targets. address is INET — cast to text and
-	// strip the /32 (IPv4) or /128 (IPv6) prefix so the engine gets a
-	// plain dotted-quad / colon-hex address.
-	hosts, err := loadHostTargets(ctx, tx, hostIDs)
+	hosts, err := loadHostTargetsFromPool(ctx, s.pool, hostIDs)
 	if err != nil {
 		return JobPayload{}, false, err
 	}
@@ -215,7 +206,7 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, engineID uuid.UUID) (JobP
 	if credProfileID != nil {
 		var secretRef uuid.UUID
 		var authType string
-		if err := tx.QueryRow(ctx,
+		if err := s.pool.QueryRow(ctx,
 			`SELECT secret_ref, auth_type FROM credentials_profiles WHERE id = $1`,
 			*credProfileID,
 		).Scan(&secretRef, &authType); err != nil {
@@ -230,28 +221,29 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, engineID uuid.UUID) (JobP
 	for i := range payload.Hosts {
 		payload.Hosts[i].Port = port
 	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE scan_jobs SET status = 'claimed', claimed_at = NOW() WHERE id = $1`,
-		jobID,
-	); err != nil {
-		return JobPayload{}, false, fmt.Errorf("update claim scan job: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return JobPayload{}, false, fmt.Errorf("commit claim scan job: %w", err)
-	}
 	return payload, true, nil
 }
 
-// loadHostTargets hydrates HostTarget rows from inventory_hosts. INET
-// addresses are cast to text and stripped of any /32 or /128 prefix —
-// host-scoped INET values always carry a single-host mask in
-// PostgreSQL and the engine wants a bare address for SSH dial.
-func loadHostTargets(ctx context.Context, tx pgx.Tx, hostIDs []uuid.UUID) ([]HostTarget, error) {
+// querier is the pgx query interface shared by *pgxpool.Pool and pgx.Tx.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// loadHostTargetsFromPool hydrates HostTarget rows using the connection
+// pool (for use after the claim transaction has committed).
+func loadHostTargetsFromPool(ctx context.Context, pool *pgxpool.Pool, hostIDs []uuid.UUID) ([]HostTarget, error) {
+	return loadHostTargetsFrom(ctx, pool, hostIDs)
+}
+
+// loadHostTargetsFrom is the shared implementation. INET addresses are
+// cast to text and stripped of any /32 or /128 prefix — host-scoped
+// INET values always carry a single-host mask in PostgreSQL and the
+// engine wants a bare address for SSH dial.
+func loadHostTargetsFrom(ctx context.Context, q querier, hostIDs []uuid.UUID) ([]HostTarget, error) {
 	if len(hostIDs) == 0 {
 		return nil, nil
 	}
-	rows, err := tx.Query(ctx,
+	rows, err := q.Query(ctx,
 		`SELECT id, COALESCE(address::text, ''),
 		        COALESCE(hostname, ''), COALESCE(os, '')
 		 FROM inventory_hosts WHERE id = ANY($1)`,
@@ -296,40 +288,28 @@ func (s *PostgresStore) UpdateProgress(ctx context.Context, jobID uuid.UUID, don
 	return nil
 }
 
-// FinishJob transitions a job to its terminal state. Returns
-// ErrJobAlreadyTerminal if the row is already completed/failed/cancelled.
-func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string) error {
-	ct, err := s.pool.Exec(ctx,
-		`UPDATE scan_jobs
-		 SET status = $1, error = NULLIF($2, ''), completed_at = NOW()
-		 WHERE id = $3 AND status NOT IN ('completed', 'failed', 'cancelled')`,
-		string(status), errMsg, jobID,
-	)
-	if err != nil {
-		return fmt.Errorf("finish scan job: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
+// FinishJob transitions a job to its terminal state via the generic
+// jobqueue, which enforces engine ownership (engine_id guard) and
+// rejects already-terminal rows. No domain-specific columns need
+// updating on the finish path for scan jobs.
+func (s *PostgresStore) FinishJob(ctx context.Context, engineID, jobID uuid.UUID, status JobStatus, errMsg string) error {
+	err := s.queue.Finish(ctx, engineID, jobID, string(status), errMsg)
+	switch {
+	case errors.Is(err, jobqueue.ErrNotFound):
+		return ErrJobNotFound
+	case errors.Is(err, jobqueue.ErrNotOwned):
+		return ErrJobNotOwned
+	case errors.Is(err, jobqueue.ErrAlreadyTerminal):
 		return ErrJobAlreadyTerminal
+	default:
+		return err
 	}
-	return nil
 }
 
 // ReclaimStale returns claimed/running jobs whose claimed_at is older
-// than cutoff to the queued state so another engine can pick them up.
-// Idempotent.
+// than cutoff to the queued state. Delegates to jobqueue.Queue.
 func (s *PostgresStore) ReclaimStale(ctx context.Context, cutoff time.Time) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE scan_jobs
-		 SET status = 'queued', claimed_at = NULL
-		 WHERE status IN ('claimed', 'running')
-		   AND claimed_at IS NOT NULL
-		   AND claimed_at < $1`,
-		cutoff,
-	)
-	if err != nil {
-		return fmt.Errorf("reclaim stale scan jobs: %w", err)
-	}
-	return nil
+	return s.queue.ReclaimStale(ctx, cutoff)
 }
 
 // RecordScanResult unmarshals the JSON-marshalled ScanResult and
@@ -340,6 +320,13 @@ func (s *PostgresStore) ReclaimStale(ctx context.Context, cutoff time.Time) erro
 // carries Metadata.Hostname) but is part of the interface so future
 // tagging — e.g. inventory_hosts.last_scan_id — can land without a
 // signature change.
+//
+// NOTE (TOCTOU): The ownership+status check below runs outside the
+// SaveScanWithJobContext transaction. A race is theoretically possible
+// where the reaper reclaims the job between the check and the insert.
+// Accepted for Phase 7: the consequence is a phantom scan row tagged to
+// the wrong engine, which is detectable + correctable. A transactional
+// wrap would require SaveScanWithJobContext to accept an external tx.
 func (s *PostgresStore) RecordScanResult(ctx context.Context, jobID, engineID, hostID uuid.UUID, scanPayload []byte) error {
 	_ = hostID
 	if s.scanStore == nil {

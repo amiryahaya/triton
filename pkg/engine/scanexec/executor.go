@@ -156,6 +156,9 @@ func defaultRunScanner(ctx context.Context, profile, hostname string, reader fsa
 	}
 
 	progressCh := make(chan scanner.Progress, 32)
+	// NOTE: scanner.Engine.Scan() defers close(progressCh), so this drain
+	// goroutine always terminates when Scan returns — even on ctx cancel.
+	// No goroutine leak.
 	go func() {
 		for range progressCh {
 		}

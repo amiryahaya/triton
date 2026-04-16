@@ -214,6 +214,66 @@ func TestWorker_ScansAndFinishes_Mixed(t *testing.T) {
 	}
 }
 
+func TestWorker_NilCredential_ShortCircuitsWithError(t *testing.T) {
+	// Job with nil CredentialSecretRef — every host should fail with a
+	// clear message without ever reaching the HostScanner.
+	hosts := []client.ScanHostTarget{
+		{ID: "h1", Address: "10.0.0.1", Port: 22},
+		{ID: "h2", Address: "10.0.0.2", Port: 22},
+	}
+	job := &client.ScanJobPayload{
+		ID: "j-nil-cred", ScanProfile: "quick",
+		CredentialSecretRef: nil,
+		Hosts:               hosts,
+	}
+	api := &fakeAPI{polls: []pollResult{{job: job}}}
+	scanCalled := false
+	exec := &fakeScanner{byHost: map[string]HostResult{
+		"h1": {Success: true},
+		"h2": {Success: true},
+	}}
+	// Override: detect if ScanHost is called.
+	tracker := &trackingScanner{inner: exec, called: &scanCalled}
+	runWorkerUntilFinish(t, api, tracker, 1)
+
+	if scanCalled {
+		t.Error("ScanHost should not be called when credential is nil")
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if len(api.finishCalls) != 1 {
+		t.Fatalf("expected 1 finish call, got %d", len(api.finishCalls))
+	}
+	if api.finishCalls[0].status != "failed" {
+		t.Errorf("status = %q, want failed", api.finishCalls[0].status)
+	}
+	// All hosts must report progress with error
+	if len(api.progress) != 2 {
+		t.Errorf("progress calls = %d, want 2", len(api.progress))
+	}
+	for _, batch := range api.progress {
+		for _, u := range batch {
+			if u.Status != "failed" {
+				t.Errorf("host progress status = %q, want failed", u.Status)
+			}
+			if !strings.Contains(u.Error, "no credential profile configured") {
+				t.Errorf("host error = %q, want credential message", u.Error)
+			}
+		}
+	}
+}
+
+// trackingScanner wraps a HostScanner and sets *called to true when ScanHost is invoked.
+type trackingScanner struct {
+	inner  HostScanner
+	called *bool
+}
+
+func (t *trackingScanner) ScanHost(ctx context.Context, host HostTarget, secretRef, authType, profile string) HostResult {
+	*t.called = true
+	return t.inner.ScanHost(ctx, host, secretRef, authType, profile)
+}
+
 func TestWorker_PollError_BacksOff(t *testing.T) {
 	job := newJob("j1", "h1")
 	api := &fakeAPI{polls: []pollResult{

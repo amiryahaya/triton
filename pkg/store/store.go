@@ -181,6 +181,10 @@ type Store interface {
 	// Used by the Excel Remediation Log sheet. Phase 5.
 	ListFindingStatusLog(ctx context.Context, orgID string, limit int) ([]FindingStatusEntry, error)
 
+	// GetOnboardingMetrics returns milestone timestamps for the org's
+	// onboarding journey, derived from audit events.
+	GetOnboardingMetrics(ctx context.Context, orgID string) (*OnboardingMetrics, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }
@@ -209,6 +213,19 @@ type AuditFilter struct {
 	Since     *time.Time
 	Until     *time.Time
 	Limit     int
+}
+
+// OnboardingMetrics records the first time each onboarding milestone
+// was reached for a given org. MinutesToFirstScan is nil if the org
+// hasn't completed a scan yet.
+type OnboardingMetrics struct {
+	Signup             *time.Time `json:"t_signup,omitempty"`
+	Engine             *time.Time `json:"t_engine,omitempty"`
+	Hosts              *time.Time `json:"t_hosts,omitempty"`
+	Creds              *time.Time `json:"t_creds,omitempty"`
+	Scan               *time.Time `json:"t_scan,omitempty"`
+	Results            *time.Time `json:"t_results,omitempty"`
+	MinutesToFirstScan *float64   `json:"minutes_to_first_scan"`
 }
 
 // ScanFilter specifies criteria for listing scans.

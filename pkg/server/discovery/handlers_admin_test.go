@@ -161,7 +161,7 @@ func (f *fakeStore) InsertCandidates(_ context.Context, jobID uuid.UUID, cs []Ca
 	return nil
 }
 
-func (f *fakeStore) FinishJob(_ context.Context, jobID uuid.UUID, status JobStatus, errMsg string, count int) error {
+func (f *fakeStore) FinishJob(_ context.Context, _ /* engineID */, jobID uuid.UUID, status JobStatus, errMsg string, count int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finishCalls = append(f.finishCalls, finishCall{JobID: jobID, Status: status, Err: errMsg, Count: count})

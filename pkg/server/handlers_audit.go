@@ -88,3 +88,27 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, events)
 }
+
+// GET /api/v1/manage/onboarding-metrics — Phase 7 Task 9.
+//
+// Returns milestone timestamps for the caller's org. Any
+// authenticated user can view their own org's onboarding progress.
+func (s *Server) handleOnboardingMetrics(w http.ResponseWriter, r *http.Request) {
+	requester := UserFromContext(r.Context())
+	if requester == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	orgID := requester.OrgID
+	if orgID == "" {
+		writeError(w, http.StatusForbidden, "onboarding metrics require an organization-scoped user")
+		return
+	}
+	metrics, err := s.store.GetOnboardingMetrics(r.Context(), orgID)
+	if err != nil {
+		log.Printf("onboarding metrics: store error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
+}

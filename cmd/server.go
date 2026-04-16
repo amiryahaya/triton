@@ -25,6 +25,7 @@ import (
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
+	"github.com/amiryahaya/triton/pkg/server/jobqueue"
 	scanjobspkg "github.com/amiryahaya/triton/pkg/server/scanjobs"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -321,19 +322,19 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// the partial index on status='queued' makes that job invisible to
 	// ClaimNext forever. The reaper flips claims older than 15m back to
 	// queued so another engine (or a retrying engine) can pick them up.
-	go (&discoverypkg.StaleReaper{Store: discoveryStore}).Run(srv.Context())
+	go (&jobqueue.StaleReaper{Reclaimer: discoveryStore, Label: "discovery"}).Run(srv.Context())
 
 	// Credentials stale-queue reaper. Same partial-index constraint as
 	// discovery — claimed or running rows never get re-picked unless we
 	// flip them back to queued. One reaper sweeps both delivery + test
-	// queues on a shared cutoff.
-	go (&credentialspkg.StaleReaper{Store: credStore}).Run(srv.Context())
+	// queues on a shared cutoff via the credentialReclaimer adapter.
+	go (&jobqueue.StaleReaper{Reclaimer: credentialReclaimer{credStore}, Label: "credentials"}).Run(srv.Context())
 
 	// Scan jobs stale-queue reaper. Same partial-index constraint as
 	// discovery + credentials — claimed or running rows never get
 	// re-picked unless we flip them back to queued. Longer timeout
-	// (30m default) because scan jobs run longer than cred tests.
-	go (&scanjobspkg.StaleReaper{Store: scanJobsStore}).Run(srv.Context())
+	// (30m) because scan jobs run longer than cred tests.
+	go (&jobqueue.StaleReaper{Reclaimer: scanJobsStore, Label: "scanjobs", Timeout: 30 * time.Minute}).Run(srv.Context())
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level
@@ -496,6 +497,22 @@ func parseRequestRateLimitEnv() *auth.RequestRateLimiterConfig {
 
 // envOrLegacy returns the value of the canonical env var when set,
 // or the legacy env var's value with a deprecation warning when the
+// credentialReclaimer adapts credentials.Store (which has two separate
+// reclaim methods) to the single-method jobqueue.Reclaimer interface.
+// This lets one StaleReaper sweep both the delivery and test queues on
+// a shared cutoff, matching the pre-refactor credentials.StaleReaper
+// behaviour.
+type credentialReclaimer struct {
+	store credentialspkg.Store
+}
+
+func (c credentialReclaimer) ReclaimStale(ctx context.Context, cutoff time.Time) error {
+	if err := c.store.ReclaimStaleDeliveries(ctx, cutoff); err != nil {
+		return err
+	}
+	return c.store.ReclaimStaleTests(ctx, cutoff)
+}
+
 // legacy one is still in use. Empty means neither was set.
 func envOrLegacy(canonical, legacy string) string {
 	if v := os.Getenv(canonical); v != "" {

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // WriteAudit inserts a single audit event. Called fire-and-forget
@@ -115,4 +117,22 @@ func (s *PostgresStore) ListAudit(ctx context.Context, filter AuditFilter) ([]Au
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// GetOnboardingMetrics returns milestone timestamps for the given org
+// from the onboarding_metrics view (migration v22). Returns a
+// zero-value struct when no milestones exist yet.
+func (s *PostgresStore) GetOnboardingMetrics(ctx context.Context, orgID string) (*OnboardingMetrics, error) {
+	var m OnboardingMetrics
+	err := s.pool.QueryRow(ctx,
+		`SELECT t_signup, t_engine, t_hosts, t_creds, t_scan, t_results, minutes_to_first_scan
+		 FROM onboarding_metrics WHERE org_id = $1`, orgID,
+	).Scan(&m.Signup, &m.Engine, &m.Hosts, &m.Creds, &m.Scan, &m.Results, &m.MinutesToFirstScan)
+	if err == pgx.ErrNoRows {
+		return &OnboardingMetrics{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("querying onboarding metrics: %w", err)
+	}
+	return &m, nil
 }

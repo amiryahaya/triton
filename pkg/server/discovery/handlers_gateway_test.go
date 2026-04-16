@@ -2,10 +2,12 @@ package discovery
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,6 +163,89 @@ func TestSubmit_InvalidAddress_SkipsCandidate(t *testing.T) {
 	require.Len(t, fs.insertCalls, 1)
 	require.Len(t, fs.insertCalls[0].Candidates, 1, "malformed addresses are silently skipped")
 	assert.True(t, fs.insertCalls[0].Candidates[0].Address.Equal(net.ParseIP("10.0.0.5")))
+}
+
+// fakeAuditRecorder captures audit events emitted by gateway handlers.
+type fakeAuditRecorder struct {
+	mu     sync.Mutex
+	events []auditEvent
+}
+
+type auditEvent struct {
+	Event   string
+	Subject string
+	Fields  map[string]any
+}
+
+func (f *fakeAuditRecorder) Record(_ context.Context, event, subject string, fields map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, auditEvent{Event: event, Subject: subject, Fields: fields})
+}
+
+func TestSubmit_EmitsAuditEvent(t *testing.T) {
+	fs := newFakeStore()
+	audit := &fakeAuditRecorder{}
+	h := &GatewayHandlers{Store: fs, Audit: audit}
+	r := buildGatewayRouter(h)
+
+	engID := uuid.Must(uuid.NewV7())
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"candidates": []map[string]any{
+			{"address": "10.0.0.1", "open_ports": []int{22}},
+		},
+	}
+	req := gwReq(http.MethodPost, "/engine/discovery/"+jobID.String()+"/submit", body,
+		&engine.Engine{ID: engID})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	require.Len(t, audit.events, 1, "expected one audit event")
+	assert.Equal(t, "discovery.candidates.submitted", audit.events[0].Event)
+	assert.Equal(t, jobID.String(), audit.events[0].Subject)
+	assert.Equal(t, engID.String(), audit.events[0].Fields["engine_id"])
+	assert.Equal(t, 1, audit.events[0].Fields["candidate_count"])
+}
+
+func TestSubmit_ErrorEmitsAuditEvent(t *testing.T) {
+	fs := newFakeStore()
+	audit := &fakeAuditRecorder{}
+	h := &GatewayHandlers{Store: fs, Audit: audit}
+	r := buildGatewayRouter(h)
+
+	engID := uuid.Must(uuid.NewV7())
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{"error": "engine timeout"}
+	req := gwReq(http.MethodPost, "/engine/discovery/"+jobID.String()+"/submit", body,
+		&engine.Engine{ID: engID})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	require.Len(t, audit.events, 1, "expected one audit event for failure path")
+	assert.Equal(t, "discovery.job.failed", audit.events[0].Event)
+	assert.Equal(t, jobID.String(), audit.events[0].Subject)
+}
+
+func TestSubmit_NilAudit_NoPanic(t *testing.T) {
+	fs := newFakeStore()
+	h := NewGatewayHandlers(fs) // Audit is nil
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"candidates": []map[string]any{
+			{"address": "10.0.0.1", "open_ports": []int{22}},
+		},
+	}
+	req := gwReq(http.MethodPost, "/engine/discovery/"+jobID.String()+"/submit", body,
+		&engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code, "nil Audit must not panic")
 }
 
 func TestSubmit_NoEngineContext_500(t *testing.T) {

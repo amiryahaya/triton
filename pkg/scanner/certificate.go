@@ -288,9 +288,13 @@ func discoverKeytool() string {
 	return ""
 }
 
-// runKeytoolLimited executes keytool with a stdout cap of 32MB.
-func runKeytoolLimited(ctx context.Context, keytoolBin string, args ...string) ([]byte, error) {
+// runKeytoolLimitedWithEnv executes keytool with extra env vars and a
+// stdout cap of 32MB. The env slice is appended to os.Environ() so the
+// subprocess inherits PATH (needed to find JRE) while receiving the
+// password via a scoped env var invisible to /proc/<pid>/cmdline.
+func runKeytoolLimitedWithEnv(ctx context.Context, keytoolBin string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, keytoolBin, args...)
+	cmd.Env = append(os.Environ(), env...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -339,13 +343,16 @@ func (m *CertificateModule) parseKeystoreViaKeytool(ctx context.Context, path, s
 	}
 
 	for _, pw := range m.keystorePasswords() {
-		args := []string{"-list", "-rfc", "-keystore", path, "-storepass", pw}
+		// Pass password via env var (keytool -storepass:env) to avoid
+		// leaking user-configured passwords in /proc/<pid>/cmdline.
+		// The env var is scoped to this subprocess only via cmd.Env.
+		args := []string{"-list", "-rfc", "-keystore", path, "-storepass:env", "TRITON_KS_PW"}
 		if storeType != "" {
 			args = append(args, "-storetype", storeType)
 		}
 
 		subCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		out, err := runKeytoolLimited(subCtx, keytoolBin, args...)
+		out, err := runKeytoolLimitedWithEnv(subCtx, keytoolBin, []string{"TRITON_KS_PW=" + pw}, args...)
 		cancel()
 
 		if err != nil {

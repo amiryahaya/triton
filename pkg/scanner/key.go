@@ -473,11 +473,12 @@ func detectOpenSSHCipher(der []byte) string {
 		return ""
 	}
 	offset := len(magic)
-	strLen := int(binary.BigEndian.Uint32(der[offset : offset+4]))
+	rawLen := binary.BigEndian.Uint32(der[offset : offset+4])
 	offset += 4
-	if offset+strLen > len(der) {
+	// Guard against overflow on 32-bit platforms and unreasonably long names.
+	if rawLen > 64 || offset+int(rawLen) > len(der) {
 		return ""
 	}
-	return string(der[offset : offset+strLen])
+	return string(der[offset : offset+int(rawLen)])
 }
 

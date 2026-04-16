@@ -51,8 +51,14 @@ func (m *UEFIModule) scan(ctx context.Context, _ model.ScanTarget, findings chan
 }
 
 func (m *UEFIModule) emitStateFinding(ctx context.Context, varRoot string, findings chan<- *model.Finding) error {
-	sb, _ := uefivars.ReadBoolVariable(varRoot, "SecureBoot-"+uefivars.EFIGlobalGUID)
-	sm, _ := uefivars.ReadBoolVariable(varRoot, "SetupMode-"+uefivars.EFIGlobalGUID)
+	sb, sbErr := uefivars.ReadBoolVariable(varRoot, "SecureBoot-"+uefivars.EFIGlobalGUID)
+	if sbErr != nil {
+		return emitUEFISkipped(ctx, findings, "read SecureBoot: "+sbErr.Error())
+	}
+	sm, smErr := uefivars.ReadBoolVariable(varRoot, "SetupMode-"+uefivars.EFIGlobalGUID)
+	if smErr != nil {
+		return emitUEFISkipped(ctx, findings, "read SetupMode: "+smErr.Error())
+	}
 
 	// SecureBoot finding.
 	sbStatus := "SAFE"

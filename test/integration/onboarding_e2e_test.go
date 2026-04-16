@@ -234,7 +234,7 @@ func TestOnboarding_PortalJourney_ZeroToFirstScan(t *testing.T) {
 	// --- 12. Engine finishes job ---
 	err = scanJobsStore.UpdateProgress(ctx, jobID, 1, 0)
 	require.NoError(t, err)
-	err = scanJobsStore.FinishJob(ctx, jobID, scanjobspkg.StatusCompleted, "")
+	err = scanJobsStore.FinishJob(ctx, engineID, jobID, scanjobspkg.StatusCompleted, "")
 	require.NoError(t, err)
 
 	// --- 13. Verify job is completed via admin API ---
@@ -244,10 +244,14 @@ func TestOnboarding_PortalJourney_ZeroToFirstScan(t *testing.T) {
 	require.Equal(t, 0, job.ProgressFailed)
 
 	// --- 14. Verify onboarding metrics ---
-	// Audit events are written asynchronously; give them a moment.
-	time.Sleep(200 * time.Millisecond)
-
-	metrics := getOnboardingMetrics(t, ts.URL, jwt)
+	// Audit events are written asynchronously; poll until they land
+	// rather than sleeping a fixed duration.
+	var metrics store.OnboardingMetrics
+	require.Eventually(t, func() bool {
+		metrics = getOnboardingMetrics(t, ts.URL, jwt)
+		return metrics.Engine != nil && metrics.Hosts != nil &&
+			metrics.Creds != nil && metrics.Scan != nil && metrics.Results != nil
+	}, 2*time.Second, 50*time.Millisecond, "onboarding metrics did not converge within 2s")
 	// t_engine: derived from engines.bundle_issued_at (CreateEngine API).
 	require.NotNil(t, metrics.Engine, "t_engine should be set after engine creation")
 	// t_hosts: derived from audit_events where event_type LIKE 'inventory.host%'.

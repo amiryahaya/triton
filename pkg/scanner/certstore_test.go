@@ -9,8 +9,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -245,6 +248,79 @@ func TestCertKeyInfo_DefaultBranch(t *testing.T) {
 	algo, size := certKeyInfo(cert)
 	assert.Equal(t, "ECDSA-P521", algo)
 	assert.Equal(t, 521, size)
+}
+
+func TestWindowsCertStore_AdditionalStores(t *testing.T) {
+	// Generate a real ECDSA P-256 cert and base64-encode its DER for the mock.
+	cert := generateCertStoreObj(t, "ECDSA", 256)
+	import64 := encodeBase64DER(cert.Raw)
+
+	// Track which PowerShell scripts were invoked.
+	var mu sync.Mutex
+	calledScripts := make([]string, 0, 5)
+
+	mockRunner := func(_ context.Context, _ int64, name string, args ...string) ([]byte, error) {
+		if name != "powershell" {
+			return nil, fmt.Errorf("unexpected command: %s", name)
+		}
+		// Extract the script argument (last arg after "-Command").
+		script := ""
+		for i, a := range args {
+			if a == "-Command" && i+1 < len(args) {
+				script = args[i+1]
+			}
+		}
+		mu.Lock()
+		calledScripts = append(calledScripts, script)
+		mu.Unlock()
+		// Return one base64 DER line per call.
+		return []byte(import64 + "\n"), nil
+	}
+
+	m := &CertStoreModule{
+		config:           &scannerconfig.Config{},
+		cmdRunnerLimited: mockRunner,
+	}
+
+	findings := make(chan *model.Finding, 50)
+	err := m.scanWindowsCertStores(context.Background(), findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var results []*model.Finding
+	for f := range findings {
+		results = append(results, f)
+	}
+
+	// Expect exactly one finding per store (5 stores × 1 cert each).
+	require.Len(t, results, 5)
+
+	// Collect the source paths emitted.
+	sourcePaths := make(map[string]bool)
+	for _, f := range results {
+		sourcePaths[f.Source.Path] = true
+	}
+
+	wantPaths := []string{
+		`os:certstore:windows:LocalMachine\Root`,
+		`os:certstore:windows:LocalMachine\CA`,
+		`os:certstore:windows:LocalMachine\My`,
+		`os:certstore:windows:CurrentUser\Root`,
+		`os:certstore:windows:CurrentUser\My`,
+	}
+	for _, p := range wantPaths {
+		assert.True(t, sourcePaths[p], "missing source path: %s", p)
+	}
+
+	// Verify PowerShell was called 5 times (once per store).
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Len(t, calledScripts, 5)
+}
+
+// encodeBase64DER returns the standard base64 encoding of raw DER bytes.
+func encodeBase64DER(der []byte) string {
+	return base64.StdEncoding.EncodeToString(der)
 }
 
 // generateCertStorePEM creates a self-signed certificate in PEM format.

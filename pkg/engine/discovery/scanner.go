@@ -48,21 +48,6 @@ type Scanner struct {
 	Workers     int
 }
 
-// probe is a single (address, port) unit of work fanned out over the
-// worker pool.
-type probe struct {
-	address string
-	port    int
-}
-
-// result is a worker's verdict for a single probe. Only "open"
-// results are forwarded to the collector; closed ports are dropped
-// at the worker to keep channel traffic low.
-type result struct {
-	address string
-	port    int
-}
-
 // PingSweep sends ICMP echo requests to all addresses in the given
 // CIDRs and returns the addresses that responded. Requires CAP_NET_RAW
 // on Linux. Falls back to TCP-connect on port 80 if ICMP fails (no
@@ -107,7 +92,7 @@ func (s *Scanner) icmpSweep(ctx context.Context, addrs []string, timeout time.Du
 	if err != nil {
 		return nil, fmt.Errorf("icmp listen: %w (need CAP_NET_RAW)", err)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck // best-effort close on ICMP socket
 
 	// Give 2× single-host timeout for the full sweep, but respect
 	// the parent context deadline if it's tighter.
@@ -158,10 +143,7 @@ func (s *Scanner) icmpSweep(ctx context.Context, addrs []string, timeout time.Du
 
 	// Receiver: read replies until deadline.
 	buf := make([]byte, 1500)
-	for {
-		if ctx.Err() != nil {
-			break
-		}
+	for ctx.Err() == nil {
 		n, peer, readErr := conn.ReadFrom(buf)
 		if readErr != nil {
 			break // timeout or ctx cancelled
@@ -187,11 +169,13 @@ func (s *Scanner) icmpSweep(ctx context.Context, addrs []string, timeout time.Du
 // Scan expands cidrs to host addresses, probes each (addr, port)
 // pair with a TCP connect, and returns one Candidate per address
 // that had at least one open port. If ports is empty, delegates to
-// PingSweep for ICMP-based host discovery. Per-CIDR expansion is
-// capped at maxAddressesPerCIDR; exceeding the cap returns an error
-// without probing anything.
+// PingSweep for ICMP-based host discovery.
+//
+// Implementation is deliberately simple: one host at a time,
+// all ports per host, then next host. No goroutine pools, no
+// channels, no race conditions. A /24 × 6 ports takes ~5 min
+// (254 hosts × 6 ports × ~130ms avg per unreachable host).
 func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
-	// Empty ports = ping-only sweep.
 	if len(ports) == 0 {
 		return s.PingSweep(ctx, cidrs)
 	}
@@ -206,98 +190,41 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 
 	dialTimeout := s.DialTimeout
 	if dialTimeout == 0 {
-		dialTimeout = 5 * time.Second // container NAT adds latency for ARP + conntrack setup
-	}
-	workers := s.Workers
-	if workers <= 0 {
-		// Scale workers down for large scans to avoid overwhelming
-		// container NAT conntrack. 128 concurrent dials through podman
-		// NAT causes silent drops on /24+ subnets.
-		totalProbes := len(addrs) * len(ports)
-		switch {
-		case totalProbes > 2000:
-			workers = 32
-		case totalProbes > 500:
-			workers = 64
-		default:
-			workers = 128
-		}
+		dialTimeout = 5 * time.Second
 	}
 
-	probes := make(chan probe)
-	// Size the results buffer for worst case (all probes succeed) to
-	// prevent workers from blocking on a full channel, which caused
-	// missed hosts on /24 scans with many open ports.
-	bufSize := len(addrs) * len(ports)
-	if bufSize > 65536 {
-		bufSize = 65536
-	}
-	results := make(chan result, bufSize)
+	log.Printf("scanner: scanning %d hosts × %d ports (%s timeout per probe)",
+		len(addrs), len(ports), dialTimeout)
 
 	dialer := &net.Dialer{Timeout: dialTimeout}
+	var out []Candidate
 
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for p := range probes {
-				if ctx.Err() != nil {
-					return
-				}
-				conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(p.address, strconv.Itoa(p.port)))
-				if err != nil {
-					continue
-				}
-				_ = conn.Close()
-				select {
-				case results <- result(p):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
-
-	// Feeder: emits every (addr, port) pair then closes the probes
-	// channel so workers exit. Respects ctx cancellation.
-	go func() {
-		defer close(probes)
-		for _, a := range addrs {
-			for _, port := range ports {
-				select {
-				case probes <- probe{address: a, port: port}:
-				case <-ctx.Done():
-					return
-				}
-			}
+	for _, addr := range addrs {
+		if ctx.Err() != nil {
+			break
 		}
-	}()
 
-	// Closer: wait for workers to drain, then close results so the
-	// collector loop below can terminate.
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Single-goroutine collector — no mutex needed.
-	byAddr := make(map[string]*Candidate)
-	var order []string
-	for r := range results {
-		c, ok := byAddr[r.address]
-		if !ok {
-			c = &Candidate{Address: r.address}
-			byAddr[r.address] = c
-			order = append(order, r.address)
+		var openPorts []int
+		for _, port := range ports {
+			if ctx.Err() != nil {
+				break
+			}
+			target := net.JoinHostPort(addr, strconv.Itoa(port))
+			conn, err := dialer.DialContext(ctx, "tcp", target)
+			if err != nil {
+				continue
+			}
+			_ = conn.Close()
+			openPorts = append(openPorts, port)
 		}
-		c.OpenPorts = append(c.OpenPorts, r.port)
+
+		if len(openPorts) > 0 {
+			log.Printf("scanner: found %s with ports %v", addr, openPorts)
+			out = append(out, Candidate{Address: addr, OpenPorts: openPorts})
+		}
 	}
 
-	out := make([]Candidate, 0, len(order))
-	for _, a := range order {
-		out = append(out, *byAddr[a])
-	}
+	log.Printf("scanner: done — %d candidates from %d hosts", len(out), len(addrs))
 	return out, nil
 }
 

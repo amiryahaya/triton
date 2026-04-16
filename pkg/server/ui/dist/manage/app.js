@@ -94,7 +94,7 @@
       return;
     }
     setSidebarVisible(true);
-    const rawPath = window.location.hash.replace('#', '') || '/dashboard';
+    const rawPath = window.location.hash.replace('#', '') || '/groups';
     // Strip query string (e.g. #/scan-jobs/new?group_id=<uuid>) before
     // matching static routes or UUID-suffixed dynamic routes.
     const path = rawPath.split('?')[0];
@@ -235,8 +235,19 @@
     `;
     try {
       const resp = await authedFetch('/api/v1/manage/groups');
-      const groups = await resp.json();
+      let groups = await resp.json();
       const list = el.querySelector('#list');
+
+      // Auto-create a default group if the tenant has none yet.
+      if ((!groups || !groups.length) && canMutate()) {
+        await authedFetch('/api/v1/manage/groups', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'Default', description: 'Auto-created default group' }),
+        });
+        const retry = await authedFetch('/api/v1/manage/groups');
+        groups = await retry.json();
+      }
+
       if (!groups || !groups.length) {
         list.innerHTML = '<p><em>No groups yet.</em></p>';
       } else {
@@ -761,13 +772,16 @@
     try {
       const resp = await authedFetch('/api/v1/manage/engines/');
       const engines = await resp.json();
+      let firstOnline = null;
       for (const e of engines || []) {
         if (e.status === 'revoked') continue;
         const opt = document.createElement('option');
-        opt.value = e.id;
-        opt.textContent = `${e.label} (${e.status})`;
+        opt.value = e.id || e.ID;
+        opt.textContent = `${e.label || e.Label} (${e.status || e.Status})`;
+        if ((e.status || e.Status) === 'online' && !firstOnline) firstOnline = opt;
         sel.appendChild(opt);
       }
+      if (firstOnline) firstOnline.selected = true;
     } catch (e) {
       if (e.message !== 'unauthorized') console.error('engines load', e);
     }
@@ -1063,13 +1077,16 @@
       const engines = await engResp.json();
       const groups = await grpResp.json();
       const engSel = el.querySelector('#engine_sel');
+      let firstOnlineEng = null;
       for (const e of engines || []) {
-        if (e.status === 'revoked') continue;
+        if ((e.status || e.Status) === 'revoked') continue;
         const opt = document.createElement('option');
-        opt.value = e.id;
-        opt.textContent = `${e.label} (${e.status})`;
+        opt.value = e.id || e.ID;
+        opt.textContent = `${e.label || e.Label} (${e.status || e.Status})`;
+        if ((e.status || e.Status) === 'online' && !firstOnlineEng) firstOnlineEng = opt;
         engSel.appendChild(opt);
       }
+      if (firstOnlineEng) firstOnlineEng.selected = true;
       const grpSel = el.querySelector('#group_sel');
       for (const g of groups || []) {
         const opt = document.createElement('option');

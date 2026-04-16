@@ -818,6 +818,147 @@ func buildSyntheticCertDERForScanner(t *testing.T, sigOID, pubKeyOID string) []b
 	return wrapASN1Scanner(0x30, certContent)
 }
 
+func TestParsePKCS12_ExpandedPasswords(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Create a PKCS#12 with password "password" — was NOT in old 3-password list,
+	// but IS in the new expanded builtins.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "expanded-pw-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	p12Data, err := pkcs12.Modern.Encode(key, cert, nil, "password")
+	require.NoError(t, err)
+
+	p12File := filepath.Join(tmpDir, "expanded.p12")
+	err = os.WriteFile(p12File, p12Data, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "should decrypt PKCS#12 with expanded password list")
+	assert.Contains(t, collected[0].CryptoAsset.Subject, "expanded-pw-test")
+	assert.Equal(t, 0.95, collected[0].Confidence)
+}
+
+func TestParsePKCS12_UserConfiguredPassword(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Create a PKCS#12 with a custom password not in any builtin list.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "user-pw-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	p12Data, err := pkcs12.Modern.Encode(key, cert, nil, "mySecretP@ss")
+	require.NoError(t, err)
+
+	p12File := filepath.Join(tmpDir, "userpw.p12")
+	err = os.WriteFile(p12File, p12Data, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{
+		KeystorePasswords: []string{"mySecretP@ss"},
+	})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "should decrypt PKCS#12 with user-configured password")
+	assert.Contains(t, collected[0].CryptoAsset.Subject, "user-pw-test")
+	assert.Equal(t, 0.95, collected[0].Confidence)
+}
+
+func TestParsePKCS12_FailOpen(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Create a PKCS#12 with a password not in any list.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "failopen-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err)
+
+	p12Data, err := pkcs12.Modern.Encode(key, cert, nil, "unknowablePassword!$#")
+	require.NoError(t, err)
+
+	p12File := filepath.Join(tmpDir, "locked.p12")
+	err = os.WriteFile(p12File, p12Data, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "should emit a locked-container finding instead of skipping")
+	finding := collected[0]
+	assert.Equal(t, "Unknown", finding.CryptoAsset.Algorithm)
+	assert.Contains(t, finding.CryptoAsset.Purpose, "password-protected")
+	assert.Equal(t, 0.50, finding.Confidence)
+	assert.Equal(t, 5, finding.Category)
+}
+
 func TestCertificateFinding_SurfacesQualityWarnings(t *testing.T) {
 	// Construct a cert with a deliberately broken modulus: n = 9973 * large_prime.
 	// 9973 is the largest prime ≤ 10000 (consistent with keyquality.smallPrimeMax).

@@ -84,7 +84,17 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 			}
 
 			if err != nil {
-				return nil // Skip parse errors
+				// PKCS#12/PFX: emit a locked-container finding instead of silently skipping.
+				if err == errPKCS12Locked && (ext == ".p12" || ext == ".pfx") {
+					finding := m.createLockedContainerFinding(path, "PKCS#12")
+					select {
+					case findings <- finding:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+					return nil
+				}
+				return nil // Skip other parse errors
 			}
 
 			for _, cert := range certs {
@@ -152,11 +162,31 @@ func (m *CertificateModule) parseCertificateFile(ctx context.Context, reader fsa
 	return certs, nil
 }
 
+var errPKCS12Locked = fmt.Errorf("could not decode PKCS#12 with known passwords")
+
+// keystorePasswords returns a merged, deduplicated password list: user-configured
+// passwords first, then built-in defaults.
+func (m *CertificateModule) keystorePasswords() []string {
+	builtins := []string{"", "changeit", "changeme", "password", "secret", "triton", "server", "client", "keystore"}
+	if m.config == nil || len(m.config.KeystorePasswords) == 0 {
+		return builtins
+	}
+	seen := make(map[string]struct{}, len(m.config.KeystorePasswords)+len(builtins))
+	var merged []string
+	for _, pw := range append(m.config.KeystorePasswords, builtins...) {
+		if _, ok := seen[pw]; !ok {
+			seen[pw] = struct{}{}
+			merged = append(merged, pw)
+		}
+	}
+	return merged
+}
+
 // parsePKCS12 attempts to decode a PKCS#12/PFX container.
-// Tries empty password first, then common defaults.
+// Tries all passwords from keystorePasswords(). Returns errPKCS12Locked when
+// no password works, enabling the caller to emit a locked-container finding.
 func (m *CertificateModule) parsePKCS12(data []byte) ([]*x509.Certificate, error) {
-	passwords := []string{"", "changeit", "changeme"}
-	for _, pw := range passwords {
+	for _, pw := range m.keystorePasswords() {
 		_, cert, caCerts, err := pkcs12.DecodeChain(data, pw)
 		if err == nil {
 			var certs []*x509.Certificate
@@ -167,7 +197,32 @@ func (m *CertificateModule) parsePKCS12(data []byte) ([]*x509.Certificate, error
 			return certs, nil
 		}
 	}
-	return nil, fmt.Errorf("could not decode PKCS#12 with known passwords")
+	return nil, errPKCS12Locked
+}
+
+// createLockedContainerFinding creates a finding for a password-protected crypto
+// container that could not be decrypted with any known password.
+func (m *CertificateModule) createLockedContainerFinding(path, containerType string) *model.Finding {
+	asset := &model.CryptoAsset{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Function:  containerType + " container",
+		Algorithm: "Unknown",
+		Purpose:   "password-protected container (could not decrypt)",
+	}
+	crypto.ClassifyCryptoAsset(asset)
+
+	return &model.Finding{
+		ID:       uuid.Must(uuid.NewV7()).String(),
+		Category: 5,
+		Source: model.FindingSource{
+			Type: "file",
+			Path: path,
+		},
+		CryptoAsset: asset,
+		Confidence:  0.50,
+		Module:      "certificates",
+		Timestamp:   time.Now(),
+	}
 }
 
 // parseJKS detects JKS files by magic bytes. Go cannot natively parse JKS,

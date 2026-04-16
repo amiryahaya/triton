@@ -333,8 +333,8 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// Scan jobs stale-queue reaper. Same partial-index constraint as
 	// discovery + credentials — claimed or running rows never get
 	// re-picked unless we flip them back to queued. Longer timeout
-	// (30m default) because scan jobs run longer than cred tests.
-	go (&scanjobspkg.StaleReaper{Store: scanJobsStore}).Run(srv.Context())
+	// (30m) because scan jobs run longer than cred tests.
+	go (&jobqueue.StaleReaper{Reclaimer: scanJobsStore, Label: "scanjobs", Timeout: 30 * time.Minute}).Run(srv.Context())
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level

@@ -13,12 +13,12 @@ import (
 func buildSignatureList(sigTypeGUID string, sigData []byte) []byte {
 	guidBytes := guidFromString(sigTypeGUID)
 	sigSize := uint32(16 + len(sigData)) // 16 = owner GUID
-	listSize := uint32(28 + sigSize)      // 28 = EFI_SIGNATURE_LIST header
+	listSize := 28 + sigSize             // 28 = EFI_SIGNATURE_LIST header
 	var buf bytes.Buffer
-	buf.Write(guidBytes)                                                  // SignatureType
-	binary.Write(&buf, binary.LittleEndian, listSize)                    // SignatureListSize
-	binary.Write(&buf, binary.LittleEndian, uint32(0))                   // SignatureHeaderSize
-	binary.Write(&buf, binary.LittleEndian, sigSize)                     // SignatureSize
+	buf.Write(guidBytes)                               // SignatureType
+	binary.Write(&buf, binary.LittleEndian, listSize)  // SignatureListSize
+	binary.Write(&buf, binary.LittleEndian, uint32(0)) // SignatureHeaderSize
+	binary.Write(&buf, binary.LittleEndian, sigSize)   // SignatureSize
 	// SignatureData: owner (16 zero bytes) + data
 	buf.Write(make([]byte, 16))
 	buf.Write(sigData)
@@ -132,8 +132,8 @@ func TestParseSignatureList_MultipleEntriesInOneList(t *testing.T) {
 	hash2 := make([]byte, 32)
 	hash2[0] = 0xBB
 	guidBytes := guidFromString(CertSHA256GUID)
-	sigSize := uint32(16 + 32)        // owner + hash
-	listSize := uint32(28 + 2*sigSize) // header + 2 entries
+	sigSize := uint32(16 + 32) // owner + hash
+	listSize := 28 + 2*sigSize // header + 2 entries
 	var buf bytes.Buffer
 	buf.Write(guidBytes)
 	binary.Write(&buf, binary.LittleEndian, listSize)

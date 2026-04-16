@@ -48,7 +48,7 @@ func TestUEFIRevocationRegistry_HashesAre64Hex(t *testing.T) {
 			t.Errorf("CVE %s hash len = %d, want 64", r.CVE, len(r.SHA256Hex))
 		}
 		for _, c := range r.SHA256Hex {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 				t.Errorf("CVE %s hash has non-lowercase-hex char %c", r.CVE, c)
 			}
 		}

@@ -129,6 +129,9 @@ SGVsbG8gV29ybGQhIFRoaXMgaXMgYSBmYWtlIGVuY3J5cHRlZCBrZXkgYm9keQ==
 	cfg.ScanTargets = []model.ScanTarget{
 		{Type: model.TargetFilesystem, Value: tmpDir, Depth: 5},
 	}
+	// Clear exclude patterns — the default list includes "/tmp" which
+	// matches t.TempDir() on Linux CI and silently skips all files.
+	cfg.ExcludePatterns = nil
 
 	eng := scanner.New(cfg)
 	eng.RegisterDefaultModules()
@@ -144,21 +147,6 @@ SGVsbG8gV29ybGQhIFRoaXMgaXMgYSBmYWtlIGVuY3J5cHRlZCBrZXkgYm9keQ==
 
 	result := eng.Scan(ctx, progressCh)
 	require.NotNil(t, result, "scan result must not be nil")
-
-	// Diagnostic: dump tmpDir contents and all finding paths so CI failures
-	// show what the engine actually saw.
-	entries, _ := os.ReadDir(tmpDir)
-	t.Logf("tmpDir=%s  entries=%d", tmpDir, len(entries))
-	for _, e := range entries {
-		info, _ := e.Info()
-		if info != nil {
-			t.Logf("  %s  size=%d", e.Name(), info.Size())
-		}
-	}
-	t.Logf("total findings=%d  modules=%v  targets=%v", len(result.Findings), cfg.Modules, cfg.ScanTargets)
-	for i := range result.Findings {
-		t.Logf("  finding[%d] module=%s path=%s algo=%s", i, result.Findings[i].Module, result.Findings[i].Source.Path, result.Findings[i].CryptoAsset.Algorithm)
-	}
 
 	// ── Tally findings by fixture ─────────────────────────────────────────────
 	var (

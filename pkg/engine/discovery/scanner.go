@@ -206,7 +206,7 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 
 	dialTimeout := s.DialTimeout
 	if dialTimeout == 0 {
-		dialTimeout = 2 * time.Second // increased from 500ms — containerized NAT needs more headroom
+		dialTimeout = 5 * time.Second // container NAT adds latency for ARP + conntrack setup
 	}
 	workers := s.Workers
 	if workers <= 0 {

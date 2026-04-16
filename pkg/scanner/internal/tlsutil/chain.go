@@ -97,7 +97,7 @@ func CertAlgoName(cert *x509.Certificate) string {
 	case *rsa.PublicKey:
 		return fmt.Sprintf("RSA-%d", pub.N.BitLen())
 	case *ecdsa.PublicKey:
-		return fmt.Sprintf("ECDSA-%d", pub.Curve.Params().BitSize)
+		return fmt.Sprintf("ECDSA-P%d", pub.Curve.Params().BitSize)
 	case ed25519.PublicKey:
 		return "Ed25519"
 	default:

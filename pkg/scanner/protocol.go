@@ -635,7 +635,7 @@ func (m *ProtocolModule) checkRevocation(ctx context.Context, addr string, certs
 		}
 
 		position, _ := chainPosition(i, len(certs), cert)
-		algoName := certAlgoName(cert)
+		algoName := tlsutil.CertAlgoName(cert)
 
 		_ = m.emitFinding(ctx, addr, &model.CryptoAsset{
 			ID:               uuid.Must(uuid.NewV7()).String(),
@@ -753,13 +753,6 @@ func (m *ProtocolModule) checkCRL(ctx context.Context, cert *x509.Certificate) s
 	}
 
 	return "GOOD"
-}
-
-// certAlgoName extracts the algorithm name from a certificate's public key.
-// It delegates to the shared certPublicKeyInfo helper.
-func certAlgoName(cert *x509.Certificate) string {
-	name, _ := certPublicKeyInfo(cert)
-	return name
 }
 
 // cipherSuiteAlgorithm extracts the primary symmetric algorithm from a TLS cipher suite.

@@ -21,6 +21,7 @@ import (
 	"github.com/amiryahaya/triton/internal/mailer"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/server"
+	agentpushpkg "github.com/amiryahaya/triton/pkg/server/agentpush"
 	credentialspkg "github.com/amiryahaya/triton/pkg/server/credentials"
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
@@ -288,6 +289,24 @@ func runServer(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Agent push — Onboarding Phase 6. Admin routes mount under the
+	// authenticated portal subtree; the gateway routes (poll/progress/
+	// finish/register) live on the mTLS listener. The stale reaper uses
+	// a 30-minute timeout because push jobs involve binary upload + install.
+	agentPushStore := agentpushpkg.NewPostgresStore(db.Pool())
+	if cfg.JWTSigningKey != nil {
+		agentPushAdmin := &agentpushpkg.AdminHandlers{
+			Store:          agentPushStore,
+			InventoryStore: invStore,
+			Audit:          server.NewAuditAdapter(srv),
+		}
+		if err := srv.MountAuthenticated("/api/v1/manage/agent-push", func(r chi.Router) {
+			agentpushpkg.MountAdminRoutes(r, agentPushAdmin)
+		}); err != nil {
+			return fmt.Errorf("mounting agent-push admin routes: %w", err)
+		}
+	}
+
 	if cfg.JWTSigningKey != nil {
 		adminHandlers := &enginepkg.AdminHandlers{
 			Store:     engineStore,
@@ -308,7 +327,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("portal TLS cert: %w", err)
 	}
-	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, scanJobsStore, invStore, server.NewAuditAdapter(srv), certPath, keyPath)
+	gatewaySrv, err := startEngineGateway(srv.Context(), engineGatewayAddr(), engineStore, discoveryStore, credStore, scanJobsStore, agentPushStore, invStore, server.NewAuditAdapter(srv), certPath, keyPath)
 	if err != nil {
 		return fmt.Errorf("starting engine gateway: %w", err)
 	}
@@ -335,6 +354,10 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// re-picked unless we flip them back to queued. Longer timeout
 	// (30m) because scan jobs run longer than cred tests.
 	go (&jobqueue.StaleReaper{Reclaimer: scanJobsStore, Label: "scanjobs", Timeout: 30 * time.Minute}).Run(srv.Context())
+
+	// Agent push stale-job reaper. Push jobs involve binary upload +
+	// systemd install so they run long — 30m timeout matches scan jobs.
+	go (&jobqueue.StaleReaper{Reclaimer: agentPushStore, Label: "agent-push", Timeout: 30 * time.Minute}).Run(srv.Context())
 
 	// Analytics Phase 1 — kick off the one-shot findings-table backfill
 	// in the background. Runs once per process start; the scan-level

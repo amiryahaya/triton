@@ -206,11 +206,22 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 
 	dialTimeout := s.DialTimeout
 	if dialTimeout == 0 {
-		dialTimeout = 500 * time.Millisecond
+		dialTimeout = 2 * time.Second // increased from 500ms — containerized NAT needs more headroom
 	}
 	workers := s.Workers
 	if workers <= 0 {
-		workers = 128
+		// Scale workers down for large scans to avoid overwhelming
+		// container NAT conntrack. 128 concurrent dials through podman
+		// NAT causes silent drops on /24+ subnets.
+		totalProbes := len(addrs) * len(ports)
+		switch {
+		case totalProbes > 2000:
+			workers = 32
+		case totalProbes > 500:
+			workers = 64
+		default:
+			workers = 128
+		}
 	}
 
 	probes := make(chan probe)

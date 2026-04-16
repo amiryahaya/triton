@@ -91,9 +91,14 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 			isKeystore := ext == ".jks" || ext == ".jceks" || ext == ".bks" ||
 				ext == ".uber" || ext == ".keystore" || ext == ".truststore"
 			if isKeystore && err == nil && len(certs) == 0 {
-				containerType := strings.ToUpper(strings.TrimPrefix(ext, "."))
-				if ext == ".keystore" || ext == ".truststore" {
+				var containerType string
+				switch ext {
+				case ".keystore", ".truststore":
 					containerType = "Java"
+				case ".bks", ".uber":
+					containerType = "BKS"
+				default:
+					containerType = strings.ToUpper(strings.TrimPrefix(ext, "."))
 				}
 				finding := m.createLockedContainerFinding(path, containerType)
 				select {
@@ -210,9 +215,13 @@ func (m *CertificateModule) keystorePasswords() []string {
 	if m.config == nil || len(m.config.KeystorePasswords) == 0 {
 		return builtins
 	}
-	seen := make(map[string]struct{}, len(m.config.KeystorePasswords)+len(builtins))
+	// Pre-allocate to avoid aliasing the caller's KeystorePasswords slice.
+	combined := make([]string, 0, len(m.config.KeystorePasswords)+len(builtins))
+	combined = append(combined, m.config.KeystorePasswords...)
+	combined = append(combined, builtins...)
+	seen := make(map[string]struct{}, len(combined))
 	var merged []string
-	for _, pw := range append(m.config.KeystorePasswords, builtins...) {
+	for _, pw := range combined {
 		if _, ok := seen[pw]; !ok {
 			seen[pw] = struct{}{}
 			merged = append(merged, pw)
@@ -295,6 +304,7 @@ func discoverKeytool() string {
 func runKeytoolLimitedWithEnv(ctx context.Context, keytoolBin string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, keytoolBin, args...)
 	cmd.Env = append(os.Environ(), env...)
+	cmd.Stderr = io.Discard // prevent stderr pipe buffer deadlock
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -478,21 +488,19 @@ func (m *CertificateModule) buildPQCAlgorithmName(cert *x509.Certificate) string
 
 // detectHybridCert checks if a certificate uses a composite/hybrid algorithm.
 // Returns true and the component algorithms if it's a hybrid cert.
-func (m *CertificateModule) detectHybridCert(cert *x509.Certificate) (isHybrid bool, components []string) {
+func (m *CertificateModule) detectHybridCert(cert *x509.Certificate) (bool, []string) {
 	// Check signature algorithm OID
 	sigOID := crypto.ExtractSignatureOID(cert.Raw)
 	if sigOID != "" && crypto.IsCompositeOID(sigOID) {
 		entry, _ := crypto.LookupOID(sigOID)
-		components := crypto.CompositeComponents(entry.Algorithm)
-		return true, components
+		return true, crypto.CompositeComponents(entry.Algorithm)
 	}
 
 	// Check public key algorithm OID
 	pkOID := crypto.ExtractPublicKeyOID(cert.Raw)
 	if pkOID != "" && crypto.IsCompositeOID(pkOID) {
 		entry, _ := crypto.LookupOID(pkOID)
-		components := crypto.CompositeComponents(entry.Algorithm)
-		return true, components
+		return true, crypto.CompositeComponents(entry.Algorithm)
 	}
 
 	return false, nil

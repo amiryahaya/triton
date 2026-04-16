@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // ScanJobPayload is the engine-local wire shape for a pulled scan job.
@@ -88,6 +89,21 @@ type submitScanFindingsBody struct {
 	ScanResult    json.RawMessage `json:"scan_result"`
 }
 
+// uploadTimeout bounds a SubmitScanFindings round-trip. Comprehensive
+// scan payloads can reach tens of megabytes; the default 30s
+// requestTimeout on c.HTTP is not enough for a slow WAN link.
+const uploadTimeout = 5 * time.Minute
+
+// uploadClient reuses the mTLS-configured transport from c.HTTP but
+// raises the per-request timeout to uploadTimeout so large scan-result
+// uploads don't get aborted mid-stream.
+func (c *Client) uploadClient() *http.Client {
+	return &http.Client{
+		Timeout:   uploadTimeout,
+		Transport: c.HTTP.Transport,
+	}
+}
+
 // SubmitScanFindings posts the full scan result for one host. Expected server
 // response is 204. scanResult should be the marshaled bytes of a
 // *model.ScanResult; the portal persists it verbatim.
@@ -97,7 +113,7 @@ func (c *Client) SubmitScanFindings(ctx context.Context, jobID, hostID string, s
 		FindingsCount: findings,
 		ScanResult:    json.RawMessage(scanResult),
 	}
-	return c.postJSONNoContent(ctx, "/api/v1/engine/scans/"+jobID+"/submit", body)
+	return c.postJSONNoContentWithClient(ctx, c.uploadClient(), "/api/v1/engine/scans/"+jobID+"/submit", body)
 }
 
 // FinishScanJob posts the terminal status for a scan job. status is expected
@@ -115,6 +131,13 @@ func (c *Client) FinishScanJob(ctx context.Context, jobID, status, errMsg string
 // expects HTTP 204, and returns any deviation as an error. Centralizes the
 // request boilerplate shared by the scan-job helpers.
 func (c *Client) postJSONNoContent(ctx context.Context, path string, body any) error {
+	return c.postJSONNoContentWithClient(ctx, c.HTTP, path, body)
+}
+
+// postJSONNoContentWithClient is postJSONNoContent with caller-supplied
+// *http.Client so SubmitScanFindings can use a longer upload timeout
+// without affecting the smaller Progress / Finish payloads.
+func (c *Client) postJSONNoContentWithClient(ctx context.Context, hc *http.Client, path string, body any) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal %s body: %w", path, err)
@@ -124,7 +147,7 @@ func (c *Client) postJSONNoContent(ctx context.Context, path string, body any) e
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.HTTP.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("post %s: %w", path, err)
 	}

@@ -24,7 +24,7 @@ type AFPacketReader struct {
 // bpfFilter is accepted for API compatibility but is not applied in this
 // implementation — callers should filter at the PacketSource consumer level.
 // Returns an error if the process lacks the required privileges.
-func NewLiveCaptureReader(iface string, bpfFilter string) (PacketSource, error) {
+func NewLiveCaptureReader(iface, bpfFilter string) (PacketSource, error) {
 	if os.Geteuid() != 0 {
 		return nil, errors.New("live capture requires root or CAP_NET_RAW")
 	}

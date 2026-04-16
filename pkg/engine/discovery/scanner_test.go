@@ -2,231 +2,121 @@ package discovery
 
 import (
 	"context"
-	"net"
-	"strconv"
-	"strings"
+	"encoding/xml"
 	"testing"
-	"time"
 )
 
-// listenLocal opens a TCP listener on 127.0.0.1:0 and returns the
-// listener + the chosen port. The caller is responsible for closing.
-func listenLocal(t *testing.T) (net.Listener, int) {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	_, portStr, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
-		t.Fatalf("splithostport: %v", err)
-	}
-	port, _ := strconv.Atoi(portStr)
-	return ln, port
-}
+func TestParseNmapXML_BasicHosts(t *testing.T) {
+	data := []byte(`<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <status state="up"/>
+    <address addr="192.168.0.1" addrtype="ipv4"/>
+    <hostnames><hostname name="router.local" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port>
+      <port protocol="tcp" portid="80"><state state="open"/><service name="http"/></port>
+      <port protocol="tcp" portid="443"><state state="open"/><service name="https"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/>
+    <address addr="192.168.0.166" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="80"><state state="open"/><service name="http"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="down"/>
+    <address addr="192.168.0.2" addrtype="ipv4"/>
+  </host>
+</nmaprun>`)
 
-func TestScanner_DetectsOpenPort(t *testing.T) {
-	ln, openPort := listenLocal(t)
-	defer func() { _ = ln.Close() }()
-
-	s := &Scanner{DialTimeout: 100 * time.Millisecond, Workers: 4}
-	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, []int{openPort, openPort + 1})
+	candidates, err := parseNmapXML(data)
 	if err != nil {
-		t.Fatalf("Scan: %v", err)
+		t.Fatalf("parseNmapXML: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("candidates = %d, want 1: %+v", len(got), got)
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
 	}
-	if got[0].Address != "127.0.0.1" {
-		t.Errorf("address = %q, want 127.0.0.1", got[0].Address)
+	if candidates[0].Address != "192.168.0.1" {
+		t.Errorf("host 0 address: %s", candidates[0].Address)
 	}
-	if len(got[0].OpenPorts) != 1 || got[0].OpenPorts[0] != openPort {
-		t.Errorf("OpenPorts = %v, want [%d]", got[0].OpenPorts, openPort)
+	if candidates[0].Hostname != "router.local" {
+		t.Errorf("host 0 hostname: %s", candidates[0].Hostname)
 	}
-}
-
-func TestScanner_MultipleOpenPorts(t *testing.T) {
-	ln1, p1 := listenLocal(t)
-	defer func() { _ = ln1.Close() }()
-	ln2, p2 := listenLocal(t)
-	defer func() { _ = ln2.Close() }()
-
-	s := &Scanner{DialTimeout: 100 * time.Millisecond, Workers: 4}
-	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, []int{p1, p2})
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
+	if len(candidates[0].OpenPorts) != 3 {
+		t.Errorf("host 0 ports: %v", candidates[0].OpenPorts)
 	}
-	if len(got) != 1 {
-		t.Fatalf("candidates = %d, want 1", len(got))
-	}
-	seen := map[int]bool{}
-	for _, p := range got[0].OpenPorts {
-		seen[p] = true
-	}
-	if !seen[p1] || !seen[p2] {
-		t.Errorf("OpenPorts = %v, want both %d and %d", got[0].OpenPorts, p1, p2)
+	if candidates[1].Address != "192.168.0.166" {
+		t.Errorf("host 1 address: %s", candidates[1].Address)
 	}
 }
 
-func TestScanner_ClosedPorts_NoCandidate(t *testing.T) {
-	// Bind a listener to claim a port, then close it so we know the
-	// port is free. Racy in theory, safe enough in practice — the
-	// kernel won't immediately reassign it inside this test.
-	ln, port := listenLocal(t)
-	_ = ln.Close()
+func TestParseNmapXML_PingSweep_NoPorts(t *testing.T) {
+	data := []byte(`<?xml version="1.0"?>
+<nmaprun>
+  <host><status state="up"/><address addr="10.0.0.1" addrtype="ipv4"/></host>
+  <host><status state="up"/><address addr="10.0.0.5" addrtype="ipv4"/></host>
+  <host><status state="down"/><address addr="10.0.0.2" addrtype="ipv4"/></host>
+</nmaprun>`)
 
-	s := &Scanner{DialTimeout: 100 * time.Millisecond, Workers: 4}
-	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, []int{port})
+	candidates, err := parseNmapXML(data)
 	if err != nil {
-		t.Fatalf("Scan: %v", err)
+		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Errorf("candidates = %d, want 0: %+v", len(got), got)
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2, got %d", len(candidates))
+	}
+	if len(candidates[0].OpenPorts) != 0 {
+		t.Errorf("expected no ports for ping sweep, got %v", candidates[0].OpenPorts)
 	}
 }
 
-func TestScanner_CIDRTooLarge_Errors(t *testing.T) {
-	s := &Scanner{}
-	_, err := s.Scan(context.Background(), []string{"10.0.0.0/8"}, []int{80})
+func TestParseNmapXML_Empty(t *testing.T) {
+	data := []byte(`<?xml version="1.0"?><nmaprun></nmaprun>`)
+	candidates, err := parseNmapXML(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected 0, got %d", len(candidates))
+	}
+}
+
+func TestParseNmapXML_IPv6(t *testing.T) {
+	data := []byte(`<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <status state="up"/>
+    <address addr="fe80::1" addrtype="ipv6"/>
+    <ports><port protocol="tcp" portid="22"><state state="open"/></port></ports>
+  </host>
+</nmaprun>`)
+	candidates, err := parseNmapXML(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Address != "fe80::1" {
+		t.Errorf("IPv6: %+v", candidates)
+	}
+}
+
+func TestNmapXML_StructTags(t *testing.T) {
+	var run nmapRun
+	data := []byte(`<nmaprun><host><status state="up"/><address addr="1.2.3.4" addrtype="ipv4"/></host></nmaprun>`)
+	if err := xml.Unmarshal(data, &run); err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Hosts) != 1 {
+		t.Fatalf("expected 1 host, got %d", len(run.Hosts))
+	}
+}
+
+func TestScan_NmapNotFound_Error(t *testing.T) {
+	s := Scanner{NmapPath: "/nonexistent/nmap"}
+	_, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, []int{80})
 	if err == nil {
-		t.Fatalf("expected error for /8 CIDR")
-	}
-	if !strings.Contains(err.Error(), "cap") {
-		t.Errorf("error = %v, want cap-related message", err)
-	}
-}
-
-func TestScanner_InvalidCIDR_Errors(t *testing.T) {
-	s := &Scanner{}
-	_, err := s.Scan(context.Background(), []string{"not-a-cidr"}, []int{80})
-	if err == nil {
-		t.Fatalf("expected error for invalid CIDR")
-	}
-}
-
-func TestScanner_ContextCancellation(t *testing.T) {
-	s := &Scanner{DialTimeout: 2 * time.Second, Workers: 32}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Cancel after 100ms; scan should return promptly.
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
-
-	start := time.Now()
-	// 10.99.99.0/24 is (likely) unroutable here; TCP connect attempts
-	// will hang to DialTimeout. Cancellation must unblock faster than
-	// that.
-	_, _ = s.Scan(ctx, []string{"10.99.99.0/24"}, []int{9999})
-	elapsed := time.Since(start)
-	if elapsed > 1500*time.Millisecond {
-		t.Errorf("Scan took %v after cancel, want <1.5s", elapsed)
-	}
-}
-
-func TestScanner_TotalAddressesCap_Errors(t *testing.T) {
-	// Five /16 blocks: each passes the per-CIDR cap of 65,536, but the
-	// total (~327k) should trip maxAddressesTotal (262,144).
-	cidrs := []string{
-		"10.0.0.0/16",
-		"10.1.0.0/16",
-		"10.2.0.0/16",
-		"10.3.0.0/16",
-		"10.4.0.0/16",
-	}
-	_, err := expandCIDRs(cidrs)
-	if err == nil {
-		t.Fatalf("expected error for 5 × /16 total exceeding cap")
-	}
-	if !strings.Contains(err.Error(), "total addresses") {
-		t.Errorf("error = %v, want total-addresses cap message", err)
-	}
-}
-
-func TestExpandCIDRs_SkipsNetworkAndBroadcast(t *testing.T) {
-	got, err := expandCIDRs([]string{"192.168.1.0/30"})
-	if err != nil {
-		t.Fatalf("expandCIDRs: %v", err)
-	}
-	// /30 = 4 addresses; skip .0 and .3; expect .1 and .2.
-	want := []string{"192.168.1.1", "192.168.1.2"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestScan_EmptyPorts_DoesPingSweep(t *testing.T) {
-	// Empty ports triggers PingSweep path. On most CI/dev machines
-	// ICMP requires root/CAP_NET_RAW, so the fallback to TCP:80 will
-	// fire. We verify the code path doesn't panic or error on a /32.
-	s := &Scanner{DialTimeout: 200 * time.Millisecond, Workers: 4}
-	// Use a likely-unroutable address so we don't depend on any
-	// listener. We just verify it completes without error.
-	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, nil)
-	if err != nil {
-		t.Fatalf("Scan with nil ports: %v", err)
-	}
-	// Result depends on ICMP perms + whether port 80 is open locally.
-	// We only assert no crash / no error.
-	_ = got
-}
-
-func TestScan_ExplicitlyEmptyPorts_DoesPingSweep(t *testing.T) {
-	s := &Scanner{DialTimeout: 200 * time.Millisecond, Workers: 4}
-	got, err := s.Scan(context.Background(), []string{"127.0.0.1/32"}, []int{})
-	if err != nil {
-		t.Fatalf("Scan with empty ports: %v", err)
-	}
-	_ = got
-}
-
-func TestPingSweep_InvalidCIDR_Errors(t *testing.T) {
-	s := &Scanner{}
-	_, err := s.PingSweep(context.Background(), []string{"not-a-cidr"})
-	if err == nil {
-		t.Fatal("expected error for invalid CIDR")
-	}
-}
-
-func TestPingSweep_EmptyCIDRs_ReturnsNil(t *testing.T) {
-	s := &Scanner{}
-	got, err := s.PingSweep(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != nil {
-		t.Errorf("got %v, want nil", got)
-	}
-}
-
-func TestPingSweep_FindsLocalhost(t *testing.T) {
-	// This test requires CAP_NET_RAW or root. Skip if ICMP is not
-	// available (the common case in CI and unprivileged dev).
-	s := &Scanner{DialTimeout: 500 * time.Millisecond, Workers: 4}
-	got, err := s.PingSweep(context.Background(), []string{"127.0.0.1/32"})
-	if err != nil {
-		t.Fatalf("PingSweep: %v", err)
-	}
-	// If ICMP worked, we should see 127.0.0.1. If it fell back to
-	// TCP:80, result depends on whether port 80 is open.
-	// Either way, no crash is the main assertion.
-	t.Logf("PingSweep returned %d candidates: %+v", len(got), got)
-}
-
-func TestExpandCIDRs_Slash32IncludesAddress(t *testing.T) {
-	got, err := expandCIDRs([]string{"127.0.0.1/32"})
-	if err != nil {
-		t.Fatalf("expandCIDRs: %v", err)
-	}
-	if len(got) != 1 || got[0] != "127.0.0.1" {
-		t.Errorf("got %v, want [127.0.0.1]", got)
+		t.Fatal("expected error when nmap not found")
 	}
 }

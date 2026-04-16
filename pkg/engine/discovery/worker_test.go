@@ -88,7 +88,7 @@ func TestWorker_ScansAndSubmits(t *testing.T) {
 
 	w := &Worker{
 		Client:      fc,
-		Scanner:     &Scanner{DialTimeout: 100 * time.Millisecond, Workers: 2},
+		Scanner:     &Scanner{},
 		ScanTimeout: 2 * time.Second,
 	}
 
@@ -138,7 +138,7 @@ func TestWorker_ScanError_SubmitsWithErrMsg(t *testing.T) {
 
 	w := &Worker{
 		Client:      fc,
-		Scanner:     &Scanner{DialTimeout: 100 * time.Millisecond, Workers: 1},
+		Scanner:     &Scanner{},
 		ScanTimeout: 2 * time.Second,
 	}
 
@@ -191,7 +191,7 @@ func TestWorker_PollError_RetriesAfterBackoff(t *testing.T) {
 
 	w := &Worker{
 		Client:        fc,
-		Scanner:       &Scanner{DialTimeout: 100 * time.Millisecond, Workers: 1},
+		Scanner:       &Scanner{},
 		ScanTimeout:   2 * time.Second,
 		PollErrorWait: 10 * time.Millisecond,
 	}

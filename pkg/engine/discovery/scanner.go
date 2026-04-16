@@ -1,331 +1,204 @@
 // Package discovery implements the engine-side network discovery
-// scanner and worker. The scanner expands operator-supplied CIDRs into
-// host addresses and probes each (address, port) pair with a bounded
-// TCP connect; the worker long-polls the portal for jobs, drives the
-// scanner, and streams candidates back.
+// scanner and worker. The scanner shells out to nmap for reliable,
+// fast host detection; the worker long-polls the portal for jobs,
+// drives the scanner, and streams candidates back.
 package discovery
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"log"
-	"net"
-	"os"
+	"os/exec"
 	"strconv"
-	"sync"
-	"time"
-
-	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
+	"strings"
 )
 
-// maxAddressesPerCIDR caps how many addresses a single CIDR can
-// expand to. A /16 (65,536 addresses) is the largest block we're
-// willing to probe in one job — anything larger almost certainly
-// represents operator error and would flood the network.
-const maxAddressesPerCIDR = 65536
-
-// maxAddressesTotal caps the total address count across all CIDRs in
-// one job. Without this, an operator could submit e.g. 50 × /16 and
-// blow past the per-CIDR cap cumulatively, expanding to ~3.2M entries
-// and OOMing the engine. 262,144 = 4 × /16, generous enough for real
-// multi-subnet audits while preventing runaway expansions.
-const maxAddressesTotal = 262144
-
-// Candidate is a host the scanner confirmed responsive on at least
-// one of the requested ports. Address is the dotted-quad / IPv6
-// string form so the worker can trivially JSON-encode it.
+// Candidate is a host nmap found with at least one open port (or
+// responsive to ping). Address is the dotted-quad / IPv6 string form.
 type Candidate struct {
 	Address   string
 	Hostname  string
 	OpenPorts []int
 }
 
-// Scanner probes networks for open TCP ports. Zero-value Scanner uses
-// production defaults (500ms dial timeout, 128 workers).
+// Scanner shells out to nmap for network discovery. Zero-value is
+// ready to use (nmap must be on $PATH).
 type Scanner struct {
-	DialTimeout time.Duration
-	Workers     int
+	// NmapPath overrides the nmap binary location. Default: "nmap".
+	NmapPath string
 }
 
-// PingSweep sends ICMP echo requests to all addresses in the given
-// CIDRs and returns the addresses that responded. Requires CAP_NET_RAW
-// on Linux. Falls back to TCP-connect on port 80 if ICMP fails (no
-// permissions).
-func (s *Scanner) PingSweep(ctx context.Context, cidrs []string) ([]Candidate, error) {
-	addrs, err := expandCIDRs(cidrs)
-	if err != nil {
-		return nil, err
+func (s *Scanner) nmapBin() string {
+	if s.NmapPath != "" {
+		return s.NmapPath
 	}
-	if len(addrs) == 0 {
+	return "nmap"
+}
+
+// Scan runs nmap against the given CIDRs and ports. If ports is empty,
+// runs a ping sweep (-sn). If ports is non-empty, runs a SYN scan (-sS)
+// on those ports. Returns one Candidate per responsive host.
+//
+// Requires nmap on $PATH and CAP_NET_RAW (or root) for SYN scan.
+// Falls back to TCP connect scan (-sT) if SYN scan fails (no privileges).
+func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
+	if len(cidrs) == 0 {
 		return nil, nil
 	}
 
-	timeout := s.DialTimeout
-	if timeout == 0 {
-		timeout = 1 * time.Second
-	}
-	workers := s.Workers
-	if workers <= 0 {
-		workers = 128
+	args := []string{
+		"-oX", "-", // XML output to stdout
+		"--open", // only show open ports
+		"-T4",    // aggressive timing (fast)
+		"--host-timeout", "30s",
 	}
 
-	// Try ICMP first; if no permission, log and fall back to TCP:80.
-	alive, err := s.icmpSweep(ctx, addrs, timeout, workers)
+	if len(ports) == 0 {
+		// Ping sweep — find all live hosts, no port scan.
+		args = append(args, "-sn")
+	} else {
+		// SYN scan on specific ports.
+		args = append(args, "-sS")
+		portList := make([]string, len(ports))
+		for i, p := range ports {
+			portList[i] = strconv.Itoa(p)
+		}
+		args = append(args, "-p", strings.Join(portList, ","))
+	}
+
+	// Append all CIDRs as targets.
+	args = append(args, cidrs...)
+
+	log.Printf("scanner: running nmap %s", strings.Join(args, " "))
+
+	cmd := exec.CommandContext(ctx, s.nmapBin(), args...)
+	out, err := cmd.Output()
 	if err != nil {
-		log.Printf("ICMP ping failed (%v) — falling back to TCP:80 probe", err)
-		return s.Scan(ctx, cidrs, []int{80})
+		// SYN scan requires root/CAP_NET_RAW. If it fails, retry with
+		// TCP connect scan (-sT) which works unprivileged.
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "requires root") || strings.Contains(stderr, "Operation not permitted") {
+				log.Printf("scanner: SYN scan failed (no root/CAP_NET_RAW) — falling back to TCP connect scan")
+				for i, a := range args {
+					if a == "-sS" {
+						args[i] = "-sT"
+						break
+					}
+				}
+				cmd2 := exec.CommandContext(ctx, s.nmapBin(), args...)
+				out, err = cmd2.Output()
+				if err != nil {
+					return nil, fmt.Errorf("nmap -sT failed: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("nmap failed: %w\nstderr: %s", err, stderr)
+			}
+		} else {
+			return nil, fmt.Errorf("nmap failed: %w", err)
+		}
 	}
 
-	out := make([]Candidate, 0, len(alive))
-	for _, addr := range alive {
-		out = append(out, Candidate{Address: addr})
+	// Parse nmap XML output.
+	candidates, err := parseNmapXML(out)
+	if err != nil {
+		return nil, fmt.Errorf("parse nmap XML: %w", err)
 	}
-	return out, nil
+
+	log.Printf("scanner: done — %d candidates found", len(candidates))
+	return candidates, nil
 }
 
-// icmpSweep sends ICMP echo requests to all addrs and collects
-// replies. Returns an error if the ICMP socket cannot be opened
-// (e.g. missing CAP_NET_RAW), signalling the caller to fall back.
-func (s *Scanner) icmpSweep(ctx context.Context, addrs []string, timeout time.Duration, workers int) ([]string, error) {
-	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-	if err != nil {
-		return nil, fmt.Errorf("icmp listen: %w (need CAP_NET_RAW)", err)
+// --- nmap XML parsing ---
+
+// nmapRun is the root element of nmap's -oX output.
+type nmapRun struct {
+	XMLName xml.Name   `xml:"nmaprun"`
+	Hosts   []nmapHost `xml:"host"`
+}
+
+type nmapHost struct {
+	Status    nmapStatus     `xml:"status"`
+	Addresses []nmapAddress  `xml:"address"`
+	Hostnames []nmapHostname `xml:"hostnames>hostname"`
+	Ports     []nmapPort     `xml:"ports>port"`
+}
+
+type nmapStatus struct {
+	State string `xml:"state,attr"`
+}
+
+type nmapAddress struct {
+	Addr     string `xml:"addr,attr"`
+	AddrType string `xml:"addrtype,attr"` // ipv4, ipv6, mac
+}
+
+type nmapHostname struct {
+	Name string `xml:"name,attr"`
+	Type string `xml:"type,attr"` // user, PTR
+}
+
+type nmapPort struct {
+	Protocol string      `xml:"protocol,attr"`
+	PortID   int         `xml:"portid,attr"`
+	State    nmapState   `xml:"state"`
+	Service  nmapService `xml:"service"`
+}
+
+type nmapState struct {
+	State string `xml:"state,attr"` // open, closed, filtered
+}
+
+type nmapService struct {
+	Name string `xml:"name,attr"`
+}
+
+func parseNmapXML(data []byte) ([]Candidate, error) {
+	var run nmapRun
+	if err := xml.Unmarshal(data, &run); err != nil {
+		return nil, err
 	}
-	defer conn.Close() //nolint:errcheck // best-effort close on ICMP socket
 
-	// Give 2× single-host timeout for the full sweep, but respect
-	// the parent context deadline if it's tighter.
-	sweepDeadline := time.Now().Add(timeout * 2)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(sweepDeadline) {
-		sweepDeadline = dl
-	}
-	_ = conn.SetReadDeadline(sweepDeadline)
-
-	// Sender: fan out ICMP echo requests.
-	var mu sync.Mutex
-	alive := map[string]bool{}
-
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, workers)
-	for i, addr := range addrs {
-		if ctx.Err() != nil {
-			break
-		}
-		sem <- struct{}{}
-		wg.Add(1)
-		go func(seq int, target string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			dst, resolveErr := net.ResolveIPAddr("ip4", target)
-			if resolveErr != nil {
-				return
-			}
-
-			msg := icmp.Message{
-				Type: ipv4.ICMPTypeEcho,
-				Code: 0,
-				Body: &icmp.Echo{
-					ID:   os.Getpid() & 0xffff,
-					Seq:  seq,
-					Data: []byte("triton-ping"),
-				},
-			}
-			b, marshalErr := msg.Marshal(nil)
-			if marshalErr != nil {
-				return
-			}
-			_, _ = conn.WriteTo(b, dst)
-		}(i, addr)
-	}
-	wg.Wait()
-
-	// Receiver: read replies until deadline.
-	buf := make([]byte, 1500)
-	for ctx.Err() == nil {
-		n, peer, readErr := conn.ReadFrom(buf)
-		if readErr != nil {
-			break // timeout or ctx cancelled
-		}
-		parsed, parseErr := icmp.ParseMessage(1, buf[:n]) // protocol 1 = ICMPv4
-		if parseErr != nil {
+	var out []Candidate
+	for _, h := range run.Hosts {
+		if h.Status.State != "up" {
 			continue
 		}
-		if parsed.Type == ipv4.ICMPTypeEchoReply {
-			mu.Lock()
-			alive[peer.String()] = true
-			mu.Unlock()
+
+		// Find the IPv4 (or IPv6) address.
+		var addr string
+		for _, a := range h.Addresses {
+			if a.AddrType == "ipv4" || a.AddrType == "ipv6" {
+				addr = a.Addr
+				break
+			}
 		}
-	}
+		if addr == "" {
+			continue
+		}
 
-	out := make([]string, 0, len(alive))
-	for addr := range alive {
-		out = append(out, addr)
-	}
-	return out, nil
-}
-
-// Scan expands cidrs to host addresses, probes each (addr, port)
-// pair with a TCP connect, and returns one Candidate per address
-// that had at least one open port. If ports is empty, delegates to
-// PingSweep for ICMP-based host discovery.
-//
-// Concurrency model: one goroutine per host (bounded by a semaphore
-// of 16). Each goroutine scans its host's ports sequentially. This
-// avoids the broken channel-pool design while keeping a /24 scan
-// under 5 minutes (254 hosts / 16 parallel = 16 rounds × ~30s per
-// unreachable host = ~8 min worst case).
-func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Candidate, error) {
-	if len(ports) == 0 {
-		return s.PingSweep(ctx, cidrs)
-	}
-
-	addrs, err := expandCIDRs(cidrs)
-	if err != nil {
-		return nil, err
-	}
-	if len(addrs) == 0 {
-		return nil, nil
-	}
-
-	dialTimeout := s.DialTimeout
-	if dialTimeout == 0 {
-		dialTimeout = 5 * time.Second
-	}
-	concurrency := 16 // max hosts scanned in parallel
-
-	log.Printf("scanner: scanning %d hosts × %d ports (%d parallel, %s timeout)",
-		len(addrs), len(ports), concurrency, dialTimeout)
-
-	dialer := &net.Dialer{Timeout: dialTimeout}
-
-	// Results collected per-host, protected by mutex.
-	var mu sync.Mutex
-	var out []Candidate
-
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, concurrency)
-
-	for _, addr := range addrs {
-		if ctx.Err() != nil {
+		// Hostname from rDNS or user-supplied.
+		var hostname string
+		for _, hn := range h.Hostnames {
+			hostname = hn.Name
 			break
 		}
-		sem <- struct{}{} // acquire
-		wg.Add(1)
-		go func(host string) {
-			defer wg.Done()
-			defer func() { <-sem }() // release
 
-			var openPorts []int
-			for _, port := range ports {
-				if ctx.Err() != nil {
-					return
-				}
-				target := net.JoinHostPort(host, strconv.Itoa(port))
-				conn, err := dialer.DialContext(ctx, "tcp", target)
-				if err != nil {
-					continue
-				}
-				_ = conn.Close()
-				openPorts = append(openPorts, port)
+		// Collect open ports.
+		var openPorts []int
+		for _, p := range h.Ports {
+			if p.State.State == "open" {
+				openPorts = append(openPorts, p.PortID)
 			}
-
-			if len(openPorts) > 0 {
-				log.Printf("scanner: found %s with ports %v", host, openPorts)
-				mu.Lock()
-				out = append(out, Candidate{Address: host, OpenPorts: openPorts})
-				mu.Unlock()
-			}
-		}(addr)
-	}
-
-	wg.Wait()
-	log.Printf("scanner: done — %d candidates from %d hosts", len(out), len(addrs))
-	return out, nil
-}
-
-// expandCIDRs walks each CIDR and returns the full list of host
-// addresses. For IPv4 blocks with a mask of /30 or larger (i.e.
-// smaller than /30), the network and broadcast addresses are skipped
-// per RFC 3021. For /31 and /32 every address is usable. IPv6 blocks
-// include all addresses unchanged.
-func expandCIDRs(cidrs []string) ([]string, error) {
-	var out []string
-	for _, c := range cidrs {
-		_, ipnet, err := net.ParseCIDR(c)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR %q: %w", c, err)
 		}
 
-		ones, bits := ipnet.Mask.Size()
-		isV4 := bits == 32
-		skipNetBcast := isV4 && ones <= 30
-
-		// Pre-count with the cap check so we don't start allocating a
-		// /8 before noticing it's huge.
-		hostBits := bits - ones
-		var count uint64
-		if hostBits >= 64 {
-			count = maxAddressesPerCIDR + 1 // definitely too large
-		} else {
-			count = uint64(1) << uint(hostBits)
+		c := Candidate{
+			Address:   addr,
+			Hostname:  hostname,
+			OpenPorts: openPorts,
 		}
-		if skipNetBcast && count >= 2 {
-			count -= 2
-		}
-		if count > maxAddressesPerCIDR {
-			return nil, fmt.Errorf("CIDR %q expands to %d addresses, exceeds cap of %d", c, count, maxAddressesPerCIDR)
-		}
-		if uint64(len(out))+count > maxAddressesTotal {
-			return nil, fmt.Errorf("total addresses exceed cap %d across all CIDRs", maxAddressesTotal)
-		}
-
-		start := ipnet.IP
-		if isV4 {
-			start = start.To4()
-		}
-		ip := make(net.IP, len(start))
-		copy(ip, start)
-
-		first := true
-		for ipnet.Contains(ip) {
-			// For /30 and larger IPv4 blocks, skip the network address
-			// on the first iteration and break before the broadcast.
-			if skipNetBcast && first {
-				first = false
-				incIP(ip)
-				continue
-			}
-			first = false
-
-			// Peek ahead: if the next address would fall outside the
-			// block AND we're skipping broadcasts, this one is the
-			// broadcast and should be dropped.
-			if skipNetBcast {
-				next := make(net.IP, len(ip))
-				copy(next, ip)
-				incIP(next)
-				if !ipnet.Contains(next) {
-					break
-				}
-			}
-
-			out = append(out, ip.String())
-			incIP(ip)
-		}
+		out = append(out, c)
 	}
 	return out, nil
-}
-
-// incIP adds 1 to ip in place, treating it as a big-endian integer.
-// Overflow wraps silently — callers are expected to bound the loop
-// with ipnet.Contains.
-func incIP(ip net.IP) {
-	for i := len(ip) - 1; i >= 0; i-- {
-		ip[i]++
-		if ip[i] != 0 {
-			return
-		}
-	}
 }

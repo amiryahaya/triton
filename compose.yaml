@@ -118,7 +118,10 @@ services:
       # URL the engine binary dials for gateway API calls. Baked into
       # bundle.yaml on issuance. Must be reachable from whatever host
       # runs the engine binary.
-      TRITON_PORTAL_URL: "${TRITON_PORTAL_URL:-https://triton:8443}"
+      # With network_mode: host, the engine runs on the host network.
+      # Use localhost (not the compose service name "triton") so the
+      # engine can reach the portal's mTLS listener.
+      TRITON_PORTAL_URL: "${TRITON_PORTAL_URL:-https://localhost:8443}"
     ports:
       - "8090:8080"
       - "8443:8443"
@@ -184,6 +187,7 @@ services:
     image: triton-engine:local
     container_name: triton-engine
     profiles: [engine]
+    network_mode: host
     depends_on:
       - triton
     cap_add:
@@ -199,9 +203,8 @@ services:
       # Onboarding Phase 6 — agent push + gateway.
       TRITON_AGENT_GATEWAY_ADDR: ":9443"
       TRITON_AGENT_BINARY_PATH: /opt/triton/triton-agent
-      TRITON_ENGINE_ADVERTISE_ADDR: "${TRITON_ENGINE_ADVERTISE_ADDR:-engine:9443}"
-    ports:
-      - "9443:9443"
+      TRITON_ENGINE_ADVERTISE_ADDR: "${TRITON_ENGINE_ADVERTISE_ADDR:-localhost:9443}"
+    # No ports mapping needed — network_mode: host exposes ports directly.
     volumes:
       # Operator mints a bundle via the portal admin UI
       # (POST /api/v1/manage/engines/), saves bytes to ./bundle.tar.gz,

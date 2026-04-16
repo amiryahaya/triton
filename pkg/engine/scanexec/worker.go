@@ -80,6 +80,7 @@ func (w *Worker) runOne(ctx context.Context, job *client.ScanJobPayload) {
 	}
 
 	done, failed := 0, 0
+	var firstErr string
 	for i := range job.Hosts {
 		if ctx.Err() != nil {
 			return
@@ -117,6 +118,9 @@ func (w *Worker) runOne(ctx context.Context, job *client.ScanJobPayload) {
 			failed++
 			update.Status = "failed"
 			update.Error = res.Error
+			if firstErr == "" {
+				firstErr = res.Error
+			}
 		}
 
 		if err := w.Client.SubmitScanProgress(ctx, job.ID, []client.ScanProgressUpdate{update}); err != nil {
@@ -127,12 +131,23 @@ func (w *Worker) runOne(ctx context.Context, job *client.ScanJobPayload) {
 	finalStatus := "completed"
 	errMsg := ""
 	total := len(job.Hosts)
+	// Surface a representative per-host error so the UI shows *why* a
+	// host failed, not just the count. ErrNotFound from keystore (a
+	// deleted credential mid-scan) used to silently vanish here.
 	switch {
 	case failed > 0 && done == 0:
 		finalStatus = "failed"
-		errMsg = fmt.Sprintf("all %d hosts failed", total)
+		if firstErr != "" {
+			errMsg = fmt.Sprintf("all %d hosts failed; first error: %s", total, firstErr)
+		} else {
+			errMsg = fmt.Sprintf("all %d hosts failed", total)
+		}
 	case failed > 0:
-		errMsg = fmt.Sprintf("%d of %d hosts failed", failed, total)
+		if firstErr != "" {
+			errMsg = fmt.Sprintf("%d of %d hosts failed; first error: %s", failed, total, firstErr)
+		} else {
+			errMsg = fmt.Sprintf("%d of %d hosts failed", failed, total)
+		}
 	}
 	if err := w.Client.FinishScanJob(ctx, job.ID, finalStatus, errMsg); err != nil {
 		log.Printf("finish scan job: %v", err)

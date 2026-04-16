@@ -189,6 +189,9 @@ func TestWorker_ScansAndFinishes_AllFailed(t *testing.T) {
 	if !strings.Contains(api.finishCalls[0].errMsg, "all 2 hosts failed") {
 		t.Errorf("errMsg = %q", api.finishCalls[0].errMsg)
 	}
+	if !strings.Contains(api.finishCalls[0].errMsg, "dial refused") {
+		t.Errorf("expected first-error to be surfaced in errMsg, got %q", api.finishCalls[0].errMsg)
+	}
 }
 
 func TestWorker_ScansAndFinishes_Mixed(t *testing.T) {
@@ -211,6 +214,9 @@ func TestWorker_ScansAndFinishes_Mixed(t *testing.T) {
 	}
 	if !strings.Contains(api.finishCalls[0].errMsg, "1 of 3 hosts failed") {
 		t.Errorf("errMsg = %q", api.finishCalls[0].errMsg)
+	}
+	if !strings.Contains(api.finishCalls[0].errMsg, "timeout") {
+		t.Errorf("expected first-error surfaced, got %q", api.finishCalls[0].errMsg)
 	}
 }
 

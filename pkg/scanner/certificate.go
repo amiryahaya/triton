@@ -8,6 +8,9 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -70,12 +73,29 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 		reader:       m.reader,
 		processFile: func(ctx context.Context, reader fsadapter.FileReader, path string) error {
 			ext := strings.ToLower(filepath.Ext(path))
-
 			certs, err := m.parseCertificateFile(ctx, reader, path)
 
-			// JKS files can't be fully parsed but should produce a finding
-			if (ext == ".jks") && err == nil && len(certs) == 0 {
-				finding := m.createContainerFinding(path, "JKS")
+			// Fail-open for locked PKCS#12/PFX containers
+			if err == errPKCS12Locked {
+				finding := m.createLockedContainerFinding(path, "PKCS#12")
+				select {
+				case findings <- finding:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				return nil
+			}
+
+			// Keystore types: if keytool returned 0 certs (absent or all passwords failed),
+			// emit a locked-container finding so the keystore is still recorded.
+			isKeystore := ext == ".jks" || ext == ".jceks" || ext == ".bks" ||
+				ext == ".uber" || ext == ".keystore" || ext == ".truststore"
+			if isKeystore && err == nil && len(certs) == 0 {
+				containerType := strings.ToUpper(strings.TrimPrefix(ext, "."))
+				if ext == ".keystore" || ext == ".truststore" {
+					containerType = "Java"
+				}
+				finding := m.createLockedContainerFinding(path, containerType)
 				select {
 				case findings <- finding:
 				case <-ctx.Done():
@@ -85,16 +105,6 @@ func (m *CertificateModule) Scan(ctx context.Context, target model.ScanTarget, f
 			}
 
 			if err != nil {
-				// PKCS#12/PFX: emit a locked-container finding instead of silently skipping.
-				if err == errPKCS12Locked && (ext == ".p12" || ext == ".pfx") {
-					finding := m.createLockedContainerFinding(path, "PKCS#12")
-					select {
-					case findings <- finding:
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-					return nil
-				}
 				return nil // Skip other parse errors
 			}
 
@@ -115,7 +125,9 @@ func (m *CertificateModule) isCertificateFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".pem" || ext == ".crt" || ext == ".cer" ||
 		ext == ".der" || ext == ".p7b" || ext == ".p7c" ||
-		ext == ".p12" || ext == ".pfx" || ext == ".jks"
+		ext == ".p12" || ext == ".pfx" || ext == ".jks" ||
+		ext == ".jceks" || ext == ".bks" || ext == ".uber" ||
+		ext == ".keystore" || ext == ".truststore"
 }
 
 func (m *CertificateModule) parseCertificateFile(ctx context.Context, reader fsadapter.FileReader, path string) ([]*x509.Certificate, error) {
@@ -131,9 +143,30 @@ func (m *CertificateModule) parseCertificateFile(ctx context.Context, reader fsa
 		return m.parsePKCS12(data)
 	}
 
-	// JKS (Java KeyStore) — detect magic bytes, report as opaque container
+	// JKS (Java KeyStore) — try keytool first, fall back to container finding
 	if ext == ".jks" {
-		return m.parseJKS(data)
+		if len(data) >= 4 && isJKSMagic(data[:4]) {
+			return m.parseKeystoreViaKeytool(ctx, path, "JKS")
+		}
+		return nil, fmt.Errorf("not a valid JKS file")
+	}
+
+	// JCEKS keystores
+	if ext == ".jceks" {
+		if len(data) >= 4 && isJCEKSMagic(data[:4]) {
+			return m.parseKeystoreViaKeytool(ctx, path, "JCEKS")
+		}
+		return nil, fmt.Errorf("not a valid JCEKS file")
+	}
+
+	// BKS / UBER keystores (BouncyCastle)
+	if ext == ".bks" || ext == ".uber" {
+		return m.parseKeystoreViaKeytool(ctx, path, "BKS")
+	}
+
+	// Generic .keystore / .truststore — try keytool with auto-detect
+	if ext == ".keystore" || ext == ".truststore" {
+		return m.parseKeystoreViaKeytool(ctx, path, "")
 	}
 
 	// PKCS#7 / CMS (.p7b, .p7c) — may contain certificate chains
@@ -244,6 +277,99 @@ func (m *CertificateModule) parseJKS(data []byte) ([]*x509.Certificate, error) {
 
 func isJKSMagic(b []byte) bool {
 	return len(b) >= 4 && binary.BigEndian.Uint32(b) == 0xFEEDFEED
+}
+
+func isJCEKSMagic(b []byte) bool {
+	return len(b) >= 4 && binary.BigEndian.Uint32(b) == 0xCECECECE
+}
+
+// discoverKeytool locates keytool from JAVA_HOME/JDK_HOME env vars or PATH.
+func discoverKeytool() string {
+	for _, env := range []string{"JAVA_HOME", "JDK_HOME"} {
+		if home := os.Getenv(env); home != "" {
+			candidate := filepath.Join(home, "bin", "keytool")
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+	if path, err := exec.LookPath("keytool"); err == nil {
+		return path
+	}
+	return ""
+}
+
+// runKeytoolLimited executes keytool with a stdout cap of 32MB.
+func runKeytoolLimited(ctx context.Context, keytoolBin string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, keytoolBin, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	const maxKeytoolStdout = 32 * 1024 * 1024 // 32 MB
+	out, readErr := io.ReadAll(io.LimitReader(stdout, maxKeytoolStdout))
+	_, _ = io.Copy(io.Discard, stdout)
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		return out, readErr
+	}
+	return out, waitErr
+}
+
+// parsePEMCertsFromBytes decodes all PEM CERTIFICATE blocks from pemData.
+func parsePEMCertsFromBytes(pemData []byte) []*x509.Certificate {
+	var certs []*x509.Certificate
+	rest := pemData
+	for len(rest) > 0 {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err == nil {
+			certs = append(certs, cert)
+		}
+	}
+	return certs
+}
+
+// parseKeystoreViaKeytool runs keytool -list -rfc on the given keystore file,
+// trying all configured passwords. Returns nil, nil when keytool is absent or
+// no password succeeds (caller emits a container finding).
+func (m *CertificateModule) parseKeystoreViaKeytool(ctx context.Context, path, storeType string) ([]*x509.Certificate, error) {
+	keytoolBin := discoverKeytool()
+	if keytoolBin == "" {
+		return nil, nil // keytool not found — caller emits container finding
+	}
+
+	for _, pw := range m.keystorePasswords() {
+		args := []string{"-list", "-rfc", "-keystore", path, "-storepass", pw}
+		if storeType != "" {
+			args = append(args, "-storetype", storeType)
+		}
+
+		subCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		out, err := runKeytoolLimited(subCtx, keytoolBin, args...)
+		cancel()
+
+		if err != nil {
+			continue // wrong password or keytool error — try next
+		}
+
+		certs := parsePEMCertsFromBytes(out)
+		if len(certs) > 0 {
+			return certs, nil
+		}
+	}
+
+	return nil, nil // all passwords failed — caller emits container finding
 }
 
 // parsePKCS7 parses a PKCS#7/CMS SignedData bundle (.p7b, .p7c) and returns

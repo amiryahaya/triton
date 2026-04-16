@@ -500,8 +500,10 @@ func TestParseJKSFile(t *testing.T) {
 	require.Len(t, collected, 1)
 	finding := collected[0]
 	require.NotNil(t, finding.CryptoAsset)
-	assert.Equal(t, "JKS keystore", finding.CryptoAsset.Function)
-	assert.Equal(t, 0.70, finding.Confidence)
+	// After Task 4, JKS goes via parseKeystoreViaKeytool → nil (keytool absent) →
+	// createLockedContainerFinding. Confidence is 0.50, Function is "JKS container".
+	assert.Contains(t, finding.CryptoAsset.Function, "JKS")
+	assert.Equal(t, 0.50, finding.Confidence)
 }
 
 func TestBuildPQCAlgorithmName_UnknownCert(t *testing.T) {
@@ -1045,6 +1047,353 @@ func buildDegenerateP7B(certDERs ...[]byte) ([]byte, error) {
 		chain = append(chain, der...)
 	}
 	return gopkcs7.DegenerateCertificate(chain)
+}
+
+// --- Task 4: JKS/JCEKS/BKS Full Parsing via keytool ---
+
+func TestCertificateModule_NewExtensions(t *testing.T) {
+	t.Parallel()
+	m := NewCertificateModule(&scannerconfig.Config{})
+
+	// New extensions
+	assert.True(t, m.isCertificateFile("/path/to/store.jceks"))
+	assert.True(t, m.isCertificateFile("/path/to/store.bks"))
+	assert.True(t, m.isCertificateFile("/path/to/store.uber"))
+	assert.True(t, m.isCertificateFile("/path/to/store.keystore"))
+	assert.True(t, m.isCertificateFile("/path/to/store.truststore"))
+
+	// Case-insensitive
+	assert.True(t, m.isCertificateFile("/path/to/store.JCEKS"))
+	assert.True(t, m.isCertificateFile("/path/to/store.KeyStore"))
+
+	// Existing extensions still work
+	assert.True(t, m.isCertificateFile("/path/to/cert.pem"))
+	assert.True(t, m.isCertificateFile("/path/to/cert.jks"))
+	assert.True(t, m.isCertificateFile("/path/to/cert.p12"))
+
+	// Non-cert extensions still return false
+	assert.False(t, m.isCertificateFile("/path/to/file.txt"))
+	assert.False(t, m.isCertificateFile("/path/to/file.xml"))
+}
+
+func TestCertificateModule_JCEKSDetection(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Build a minimal JCEKS-magic file (0xCECECECE + padding)
+	jceksData := make([]byte, 104)
+	binary.BigEndian.PutUint32(jceksData, 0xCECECECE)
+
+	jceksFile := filepath.Join(tmpDir, "test.jceks")
+	err := os.WriteFile(jceksFile, jceksData, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// keytool is not available in test env → emit a container finding (fail-open)
+	require.Len(t, collected, 1, "JCEKS file should produce exactly one finding")
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	// Confidence is 0.50 (locked container) or 0.70 (old createContainerFinding);
+	// the task spec uses createLockedContainerFinding (0.50).
+	assert.Equal(t, "Unknown", finding.CryptoAsset.Algorithm)
+	assert.Equal(t, 5, finding.Category)
+	assert.Equal(t, "certificates", finding.Module)
+}
+
+func TestKeystorePasswords_Dedup(t *testing.T) {
+	t.Parallel()
+	// Overlap: "changeit" and "password" are already in builtins
+	m := NewCertificateModule(&scannerconfig.Config{
+		KeystorePasswords: []string{"changeit", "password", "myCustomPw"},
+	})
+
+	pws := m.keystorePasswords()
+
+	// Verify no duplicates
+	seen := make(map[string]int)
+	for _, pw := range pws {
+		seen[pw]++
+	}
+	for pw, count := range seen {
+		assert.Equal(t, 1, count, "password %q appears %d times", pw, count)
+	}
+
+	// Custom password should be present and appear before builtins (first)
+	require.NotEmpty(t, pws)
+	assert.Equal(t, "changeit", pws[0], "user-supplied passwords should come first")
+	assert.Contains(t, pws, "myCustomPw")
+}
+
+func TestCertificateModule_GenericKeystoreExtensions(t *testing.T) {
+	t.Parallel()
+
+	// .keystore and .truststore with garbage content → keytool not available → container finding
+	for _, ext := range []string{".keystore", ".truststore"} {
+		ext := ext
+		t.Run(ext, func(t *testing.T) {
+			t.Parallel()
+			// Each subtest gets its own tmpDir to avoid cross-contamination
+			subDir := t.TempDir()
+			f, err := os.CreateTemp(subDir, "*"+ext)
+			require.NoError(t, err)
+			_, err = f.Write([]byte("notakeystore"))
+			require.NoError(t, err)
+			f.Close()
+			tmpDir := subDir
+
+			m := NewCertificateModule(&scannerconfig.Config{})
+			findings := make(chan *model.Finding, 10)
+			target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+			err = m.Scan(context.Background(), target, findings)
+			require.NoError(t, err)
+			close(findings)
+
+			var collected []*model.Finding
+			for ff := range findings {
+				collected = append(collected, ff)
+			}
+			// Should produce exactly one finding (container finding)
+			require.Len(t, collected, 1)
+			assert.Equal(t, "Unknown", collected[0].CryptoAsset.Algorithm)
+		})
+	}
+}
+
+func TestCertificateModule_BKSDetection(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// .bks file (BouncyCastle) with some bytes — keytool not available → container finding
+	bksFile := filepath.Join(tmpDir, "test.bks")
+	err := os.WriteFile(bksFile, []byte{0x00, 0x00, 0x00, 0x02, 0xDE, 0xAD, 0xBE, 0xEF}, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "BKS file should produce one container finding")
+	assert.Equal(t, "Unknown", collected[0].CryptoAsset.Algorithm)
+	assert.Equal(t, 5, collected[0].Category)
+}
+
+func TestCertificateModule_InvalidJCEKSMagic(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// .jceks file with wrong magic → returns error → no finding
+	jceksFile := filepath.Join(tmpDir, "bad.jceks")
+	err := os.WriteFile(jceksFile, []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "invalid JCEKS magic should produce no findings")
+}
+
+func TestCertificateModule_JKSViaKeytool(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Create a minimal JKS file with magic bytes (existing behavior should be preserved)
+	jksData := make([]byte, 104)
+	binary.BigEndian.PutUint32(jksData, 0xFEEDFEED)
+
+	jksFile := filepath.Join(tmpDir, "test.jks")
+	err := os.WriteFile(jksFile, jksData, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// keytool not available in test env → falls back to container finding
+	require.Len(t, collected, 1)
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, 5, finding.Category)
+	assert.Equal(t, "Unknown", finding.CryptoAsset.Algorithm)
+}
+
+func TestCertificateModule_JKSInvalidMagic(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// .jks file with wrong magic → returns error → no finding
+	jksFile := filepath.Join(tmpDir, "bad.jks")
+	err := os.WriteFile(jksFile, []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, 0644)
+	require.NoError(t, err)
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	assert.Empty(t, collected, "invalid JKS magic should produce no findings")
+}
+
+func TestCertificateModule_JKSFindingShape(t *testing.T) {
+	t.Parallel()
+	// After Task 4, JKS files with valid magic → keytool path → container finding with
+	// same shape as before (just via createLockedContainerFinding instead of createContainerFinding).
+	// Verify the finding is produced and has the right confidence.
+	tmpDir := t.TempDir()
+
+	jksData := make([]byte, 104)
+	binary.BigEndian.PutUint32(jksData, 0xFEEDFEED)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "shape.jks"), jksData, 0644))
+
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	err := m.Scan(context.Background(), model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+	require.Len(t, collected, 1)
+	f := collected[0]
+	assert.Equal(t, 5, f.Category)
+	assert.Equal(t, "certificates", f.Module)
+	// confidence for locked container is 0.50
+	assert.Equal(t, 0.50, f.Confidence)
+}
+
+func TestKeytoolNotFound_ReturnsNilNil(t *testing.T) {
+	t.Parallel()
+	m := NewCertificateModule(&scannerconfig.Config{})
+	// When keytool is not in PATH and no JAVA_HOME, discoverKeytool returns "".
+	// We test indirectly: parseKeystoreViaKeytool returns nil, nil.
+	certs, err := m.parseKeystoreViaKeytool(context.Background(), "/nonexistent.jks", "JKS")
+	assert.NoError(t, err)
+	assert.Nil(t, certs)
+}
+
+func TestParsePEMCertsFromBytes_SingleCert(t *testing.T) {
+	t.Parallel()
+	// Test parsePEMCertsFromBytes directly
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "keytool-pem-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	var pemBuf strings.Builder
+	err = pem.Encode(&pemBufWriter{buf: &pemBuf}, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	require.NoError(t, err)
+
+	certs := parsePEMCertsFromBytes([]byte(pemBuf.String()))
+	require.Len(t, certs, 1)
+	assert.Equal(t, "keytool-pem-test", certs[0].Subject.CommonName)
+}
+
+// pemBufWriter adapts strings.Builder to io.Writer for pem.Encode.
+type pemBufWriter struct{ buf *strings.Builder }
+
+func (w *pemBufWriter) Write(p []byte) (int, error) { return w.buf.Write(p) }
+
+func TestParsePEMCertsFromBytes_MultipleCerts(t *testing.T) {
+	t.Parallel()
+	// Two certs in one PEM block
+	var pemData []byte
+	for i := 0; i < 2; i++ {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		template := &x509.Certificate{
+			SerialNumber: big.NewInt(int64(i + 1)),
+			Subject:      pkix.Name{CommonName: "cert-" + strconv.Itoa(i)},
+			NotBefore:    time.Now().Add(-1 * time.Hour),
+			NotAfter:     time.Now().Add(24 * time.Hour),
+		}
+		certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+		require.NoError(t, err)
+		pemData = append(pemData, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})...)
+	}
+
+	certs := parsePEMCertsFromBytes(pemData)
+	assert.Len(t, certs, 2)
+}
+
+func TestParsePEMCertsFromBytes_SkipsNonCertBlocks(t *testing.T) {
+	t.Parallel()
+	// Private key block should be skipped
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "skip-test"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+
+	var pemData []byte
+	pemData = append(pemData, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("fake")})...)
+	pemData = append(pemData, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})...)
+
+	certs := parsePEMCertsFromBytes(pemData)
+	assert.Len(t, certs, 1)
+}
+
+func TestParsePEMCertsFromBytes_Empty(t *testing.T) {
+	t.Parallel()
+	certs := parsePEMCertsFromBytes([]byte{})
+	assert.Nil(t, certs)
 }
 
 func TestCertificateFinding_SurfacesQualityWarnings(t *testing.T) {

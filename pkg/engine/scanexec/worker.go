@@ -94,7 +94,19 @@ func (w *Worker) runOne(ctx context.Context, job *client.ScanJobPayload) {
 			Hostname: host.Hostname,
 			OS:       host.OS,
 		}
-		res := w.Executor.ScanHost(hctx, target, secretRef, job.CredentialAuthType, job.ScanProfile)
+
+		var res HostResult
+		if secretRef == "" {
+			// No credential configured — cannot authenticate to host.
+			// Short-circuit instead of sending an empty secret_ref to the
+			// keystore, which would produce a confusing "not found" error.
+			res = HostResult{
+				HostID: host.ID,
+				Error:  "no credential profile configured for this scan job; assign a credential before scanning",
+			}
+		} else {
+			res = w.Executor.ScanHost(hctx, target, secretRef, job.CredentialAuthType, job.ScanProfile)
+		}
 		cancel()
 
 		update := client.ScanProgressUpdate{

@@ -327,6 +327,13 @@ func (s *PostgresStore) ReclaimStale(ctx context.Context, cutoff time.Time) erro
 // carries Metadata.Hostname) but is part of the interface so future
 // tagging — e.g. inventory_hosts.last_scan_id — can land without a
 // signature change.
+//
+// NOTE (TOCTOU): The ownership+status check below runs outside the
+// SaveScanWithJobContext transaction. A race is theoretically possible
+// where the reaper reclaims the job between the check and the insert.
+// Accepted for Phase 7: the consequence is a phantom scan row tagged to
+// the wrong engine, which is detectable + correctable. A transactional
+// wrap would require SaveScanWithJobContext to accept an external tx.
 func (s *PostgresStore) RecordScanResult(ctx context.Context, jobID, engineID, hostID uuid.UUID, scanPayload []byte) error {
 	_ = hostID
 	if s.scanStore == nil {

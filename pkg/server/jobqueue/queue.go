@@ -70,13 +70,13 @@ type Queue struct {
 	cfg  Config
 
 	// Pre-built SQL (computed once at construction).
-	claimSelectSQL   string
-	claimUpdateSQL   string
-	finishSQL        string
-	reclaimSQL       string
-	cancelSQL        string
-	disambiguateSQL  string
-	cancelLookupSQL  string
+	claimSelectSQL  string
+	claimUpdateSQL  string
+	finishSQL       string
+	reclaimSQL      string
+	cancelSQL       string
+	disambiguateSQL string
+	cancelLookupSQL string
 }
 
 // New constructs a Queue with pre-built SQL for the given config.
@@ -166,7 +166,7 @@ func (q *Queue) ClaimNextID(ctx context.Context, engineID uuid.UUID) (uuid.UUID,
 	if err != nil {
 		return uuid.Nil, false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback is a no-op after commit
 
 	var id uuid.UUID
 	err = tx.QueryRow(ctx, q.claimSelectSQL, engineID).Scan(&id)

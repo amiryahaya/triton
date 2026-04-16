@@ -104,10 +104,10 @@ func TestQueue_BuildSQL_ContainsAllColumns(t *testing.T) {
 
 func TestQueue_BuildSQL_DefaultCompletedAtColumn(t *testing.T) {
 	cfg := Config{
-		Table:            "test_table",
-		EngineIDColumn:   "engine_id",
-		StatusColumn:     "status",
-		ClaimedAtColumn:  "claimed_at",
+		Table:             "test_table",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
 		RequestedAtColumn: "requested_at",
 		// CompletedAtColumn deliberately empty — should default
 		QueuedStatus:     "queued",

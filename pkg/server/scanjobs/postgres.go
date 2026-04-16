@@ -235,13 +235,6 @@ func loadHostTargetsFromPool(ctx context.Context, pool *pgxpool.Pool, hostIDs []
 	return loadHostTargetsFrom(ctx, pool, hostIDs)
 }
 
-// loadHostTargets hydrates HostTarget rows from inventory_hosts using a
-// transaction (retained for backward compatibility with any callers
-// that need transactional reads).
-func loadHostTargets(ctx context.Context, tx pgx.Tx, hostIDs []uuid.UUID) ([]HostTarget, error) {
-	return loadHostTargetsFrom(ctx, tx, hostIDs)
-}
-
 // loadHostTargetsFrom is the shared implementation. INET addresses are
 // cast to text and stripped of any /32 or /128 prefix — host-scoped
 // INET values always carry a single-host mask in PostgreSQL and the

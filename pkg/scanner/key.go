@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	stdcrypto "crypto"
 	"crypto/ecdsa"
@@ -363,7 +364,7 @@ const opensshKeyMagic = "openssh-key-v1\x00"
 //
 // Returns a *model.Finding ready to emit, or nil if the file is not a
 // recognisably-encrypted private key (falls through to normal parsing).
-func (m *KeyModule) detectEncryptedKeyFinding(data []byte, content, path string) *model.Finding {
+func (m *KeyModule) detectEncryptedKeyFinding(data []byte, _, path string) *model.Finding {
 	block, _ := pem.Decode(data)
 
 	// ── 1. RFC 1423 legacy encrypted PEM (Proc-Type / DEK-Info headers) ──
@@ -400,13 +401,13 @@ func (m *KeyModule) detectEncryptedKeyFinding(data []byte, content, path string)
 			}
 			crypto.ClassifyCryptoAsset(asset)
 			return &model.Finding{
-				ID:       uuid.Must(uuid.NewV7()).String(),
-				Category: 5,
-				Source:   model.FindingSource{Type: "file", Path: path},
+				ID:          uuid.Must(uuid.NewV7()).String(),
+				Category:    5,
+				Source:      model.FindingSource{Type: "file", Path: path},
 				CryptoAsset: asset,
-				Confidence: 0.85,
-				Module:     "keys",
-				Timestamp:  time.Now(),
+				Confidence:  0.85,
+				Module:      "keys",
+				Timestamp:   time.Now(),
 			}
 		}
 	}
@@ -414,21 +415,21 @@ func (m *KeyModule) detectEncryptedKeyFinding(data []byte, content, path string)
 	// ── 2. PKCS#8 encrypted wrapper ──
 	if block != nil && block.Type == "ENCRYPTED PRIVATE KEY" {
 		asset := &model.CryptoAsset{
-			ID:       uuid.Must(uuid.NewV7()).String(),
-			Function: "encrypted-private (PKCS#8)",
+			ID:        uuid.Must(uuid.NewV7()).String(),
+			Function:  "encrypted-private (PKCS#8)",
 			Algorithm: "Unknown",
-			KeySize:  0,
-			Purpose:  "encrypted private key (PKCS#8)",
+			KeySize:   0,
+			Purpose:   "encrypted private key (PKCS#8)",
 		}
 		crypto.ClassifyCryptoAsset(asset)
 		return &model.Finding{
-			ID:       uuid.Must(uuid.NewV7()).String(),
-			Category: 5,
-			Source:   model.FindingSource{Type: "file", Path: path},
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			Category:    5,
+			Source:      model.FindingSource{Type: "file", Path: path},
 			CryptoAsset: asset,
-			Confidence: 0.85,
-			Module:     "keys",
-			Timestamp:  time.Now(),
+			Confidence:  0.85,
+			Module:      "keys",
+			Timestamp:   time.Now(),
 		}
 	}
 
@@ -438,21 +439,21 @@ func (m *KeyModule) detectEncryptedKeyFinding(data []byte, content, path string)
 		if cipher != "" && cipher != "none" {
 			purpose := fmt.Sprintf("encrypted private key (OpenSSH, %s)", cipher)
 			asset := &model.CryptoAsset{
-				ID:       uuid.Must(uuid.NewV7()).String(),
-				Function: "encrypted-private",
+				ID:        uuid.Must(uuid.NewV7()).String(),
+				Function:  "encrypted-private",
 				Algorithm: "Unknown",
-				KeySize:  0,
-				Purpose:  purpose,
+				KeySize:   0,
+				Purpose:   purpose,
 			}
 			crypto.ClassifyCryptoAsset(asset)
 			return &model.Finding{
-				ID:       uuid.Must(uuid.NewV7()).String(),
-				Category: 5,
-				Source:   model.FindingSource{Type: "file", Path: path},
+				ID:          uuid.Must(uuid.NewV7()).String(),
+				Category:    5,
+				Source:      model.FindingSource{Type: "file", Path: path},
 				CryptoAsset: asset,
-				Confidence: 0.85,
-				Module:     "keys",
-				Timestamp:  time.Now(),
+				Confidence:  0.85,
+				Module:      "keys",
+				Timestamp:   time.Now(),
 			}
 		}
 	}
@@ -469,7 +470,7 @@ func detectOpenSSHCipher(der []byte) string {
 	if len(der) < len(magic)+4 {
 		return ""
 	}
-	if string(der[:len(magic)]) != string(magic) {
+	if !bytes.Equal(der[:len(magic)], magic) {
 		return ""
 	}
 	offset := len(magic)
@@ -481,4 +482,3 @@ func detectOpenSSHCipher(der []byte) string {
 	}
 	return string(der[offset : offset+int(rawLen)])
 }
-

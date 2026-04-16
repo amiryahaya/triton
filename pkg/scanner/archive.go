@@ -116,7 +116,7 @@ func (m *ArchiveModule) scanArchive(ctx context.Context, data []byte, archivePat
 		if err != nil {
 			return nil
 		}
-		defer gr.Close()
+		defer func() { _ = gr.Close() }()
 		tarData, err := io.ReadAll(io.LimitReader(gr, archiveMaxTotalExtract))
 		if err != nil {
 			return nil
@@ -293,9 +293,9 @@ func (m *ArchiveModule) parseKeyFromBytes(data []byte, path string) *model.Findi
 			}
 			crypto.ClassifyCryptoAsset(asset)
 			return &model.Finding{
-				ID:       uuid.Must(uuid.NewV7()).String(),
-				Category: 5,
-				Source:   model.FindingSource{Type: "file", Path: path},
+				ID:          uuid.Must(uuid.NewV7()).String(),
+				Category:    5,
+				Source:      model.FindingSource{Type: "file", Path: path},
 				CryptoAsset: asset,
 				Confidence:  0.85,
 				Module:      "archive",
@@ -325,9 +325,9 @@ func (m *ArchiveModule) createCertFinding(path string, cert *x509.Certificate) *
 	}
 	crypto.ClassifyCryptoAsset(asset)
 	return &model.Finding{
-		ID:       uuid.Must(uuid.NewV7()).String(),
-		Category: 5,
-		Source:   model.FindingSource{Type: "file", Path: path},
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		Category:    5,
+		Source:      model.FindingSource{Type: "file", Path: path},
 		CryptoAsset: asset,
 		Confidence:  0.90,
 		Module:      "archive",
@@ -341,6 +341,6 @@ func readZipEntry(f *zip.File, maxSize int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	return io.ReadAll(io.LimitReader(rc, maxSize))
 }

@@ -488,7 +488,7 @@ func (m *CertificateModule) buildPQCAlgorithmName(cert *x509.Certificate) string
 
 // detectHybridCert checks if a certificate uses a composite/hybrid algorithm.
 // Returns true and the component algorithms if it's a hybrid cert.
-func (m *CertificateModule) detectHybridCert(cert *x509.Certificate) (bool, []string) {
+func (m *CertificateModule) detectHybridCert(cert *x509.Certificate) (isHybrid bool, components []string) {
 	// Check signature algorithm OID
 	sigOID := crypto.ExtractSignatureOID(cert.Raw)
 	if sigOID != "" && crypto.IsCompositeOID(sigOID) {

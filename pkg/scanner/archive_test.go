@@ -86,7 +86,7 @@ func TestArchiveModule_ZipWithCert(t *testing.T) {
 
 	certPEM := generateTestCertPEM(t)
 	jarData := buildZip(t, map[string][]byte{
-		"META-INF/server.crt": certPEM,
+		"META-INF/server.crt":  certPEM,
 		"META-INF/MANIFEST.MF": []byte("Manifest-Version: 1.0\n"),
 	})
 

@@ -9,21 +9,21 @@ import (
 )
 
 type Config struct {
-	Profile         string
-	Modules         []string
-	OutputFormat    string
-	OutputFile      string
-	MaxDepth        int
-	FollowSymlinks  bool
-	IncludePatterns []string
-	ExcludePatterns []string
-	MaxFileSize     int64
-	Workers         int
-	ScanTargets     []model.ScanTarget
-	Metrics         bool
-	DBUrl           string
-	Incremental     bool
-	Credentials     ScanCredentials
+	Profile           string
+	Modules           []string
+	OutputFormat      string
+	OutputFile        string
+	MaxDepth          int
+	FollowSymlinks    bool
+	IncludePatterns   []string
+	ExcludePatterns   []string
+	MaxFileSize       int64
+	Workers           int
+	ScanTargets       []model.ScanTarget
+	Metrics           bool
+	DBUrl             string
+	Incremental       bool
+	Credentials       ScanCredentials
 	K8sNamespace      string   // namespace filter for k8s_live; empty means all namespaces
 	DNSSECZones       []string // zones to query via dig for active DNSSEC probing
 	KeystorePasswords []string // user-supplied passwords for PKCS#12/JKS/JCEKS containers

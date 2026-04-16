@@ -687,4 +687,56 @@ FROM milestones m
 FULL OUTER JOIN engine_first e ON e.org_id = m.org_id
 LEFT JOIN scan_first s ON s.org_id = COALESCE(m.org_id, e.org_id);
 `,
+
+	// Version 23: Agent-push jobs + fleet agents (Onboarding Phase 6).
+	// agent_push_jobs is the fifth engine job-queue (after discovery,
+	// credential-delivery, credential-test, scan-jobs). One job pushes
+	// the triton-agent binary + per-host TLS cert to a set of hosts via
+	// SSH using a bootstrap-admin credential profile.
+	// fleet_agents tracks installed agent instances — one row per host.
+	// cert_fingerprint is SHA-256 hex of the agent's leaf cert DER;
+	// UNIQUE globally for mTLS lookup. host_id is also UNIQUE (one agent
+	// per host). Status transitions:
+	//   installing -> healthy (first heartbeat) -> unhealthy (stale) / uninstalled
+	`
+CREATE TABLE agent_push_jobs (
+    id              UUID PRIMARY KEY,
+    org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    engine_id       UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    group_id        UUID REFERENCES inventory_groups(id) ON DELETE SET NULL,
+    host_ids        UUID[] NOT NULL,
+    credential_profile_id UUID NOT NULL REFERENCES credentials_profiles(id) ON DELETE RESTRICT,
+    status          TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (status IN ('queued', 'claimed', 'running', 'completed', 'failed', 'cancelled')),
+    error           TEXT,
+    requested_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+    requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    progress_total  INTEGER NOT NULL DEFAULT 0,
+    progress_done   INTEGER NOT NULL DEFAULT 0,
+    progress_failed INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_agent_push_jobs_engine_queue
+    ON agent_push_jobs(engine_id, requested_at)
+    WHERE status = 'queued';
+
+CREATE TABLE fleet_agents (
+    id               UUID PRIMARY KEY,
+    org_id           UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    host_id          UUID NOT NULL REFERENCES inventory_hosts(id) ON DELETE CASCADE,
+    engine_id        UUID NOT NULL REFERENCES engines(id) ON DELETE CASCADE,
+    cert_fingerprint TEXT NOT NULL UNIQUE,
+    installed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_heartbeat   TIMESTAMPTZ,
+    version          TEXT,
+    status           TEXT NOT NULL DEFAULT 'installing'
+                     CHECK (status IN ('installing', 'healthy', 'unhealthy', 'uninstalled')),
+    UNIQUE (host_id)
+);
+
+CREATE INDEX idx_fleet_agents_engine ON fleet_agents(engine_id);
+CREATE INDEX idx_fleet_agents_status ON fleet_agents(status);
+`,
 }

@@ -435,6 +435,15 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			r.Use(RequestRateLimitByUser(srv.requestLimiter))
 			r.Get("/", srv.handleListAudit)
 		})
+
+		// Onboarding metrics — Phase 7 Task 9. Any authenticated user
+		// can view their own org's progress (no admin requirement).
+		r.Route("/api/v1/manage/onboarding-metrics", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
+			r.Use(BlockUntilPasswordChanged)
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
+			r.Get("/", srv.handleOnboardingMetrics)
+		})
 	}
 
 	// Health check — intentionally outside the auth group so it remains public.

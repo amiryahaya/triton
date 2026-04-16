@@ -641,4 +641,50 @@ ALTER TABLE scans ADD COLUMN engine_id    UUID REFERENCES engines(id) ON DELETE 
 ALTER TABLE scans ADD COLUMN scan_job_id  UUID REFERENCES scan_jobs(id) ON DELETE SET NULL;
 CREATE INDEX idx_scans_scan_job ON scans(scan_job_id) WHERE scan_job_id IS NOT NULL;
 `,
+
+	// Version 22: Onboarding metrics view (Phase 7 Task 9).
+	// Derives per-org milestone timestamps from audit_events plus the
+	// engines table (engine enrollment has no audit event). The view
+	// powers a "time to first scan" card on the management dashboard.
+	`
+CREATE OR REPLACE VIEW onboarding_metrics AS
+WITH milestones AS (
+    SELECT
+        org_id,
+        MIN(CASE WHEN event_type = 'user.create' THEN timestamp END)                        AS t_signup,
+        MIN(CASE WHEN event_type LIKE 'inventory.host%' THEN timestamp END)                  AS t_hosts,
+        MIN(CASE WHEN event_type = 'credentials.profile.create' THEN timestamp END)          AS t_creds,
+        MIN(CASE WHEN event_type = 'scanjobs.job.create' THEN timestamp END)                 AS t_scan,
+        MIN(CASE WHEN event_type = 'discovery.job.create' THEN timestamp END)                AS t_discovery
+    FROM audit_events
+    WHERE org_id IS NOT NULL
+    GROUP BY org_id
+),
+engine_first AS (
+    SELECT org_id, MIN(bundle_issued_at) AS t_engine
+    FROM engines
+    GROUP BY org_id
+),
+scan_first AS (
+    SELECT org_id, MIN(completed_at) AS t_results
+    FROM scan_jobs
+    WHERE status = 'completed'
+    GROUP BY org_id
+)
+SELECT
+    COALESCE(m.org_id, e.org_id) AS org_id,
+    m.t_signup,
+    e.t_engine,
+    m.t_hosts,
+    m.t_creds,
+    m.t_scan,
+    m.t_discovery,
+    s.t_results,
+    CASE WHEN m.t_signup IS NOT NULL AND s.t_results IS NOT NULL
+         THEN EXTRACT(EPOCH FROM (s.t_results - m.t_signup)) / 60.0
+    END AS minutes_to_first_scan
+FROM milestones m
+FULL OUTER JOIN engine_first e ON e.org_id = m.org_id
+LEFT JOIN scan_first s ON s.org_id = COALESCE(m.org_id, e.org_id);
+`,
 }

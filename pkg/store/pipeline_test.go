@@ -142,6 +142,9 @@ func (m *pipelineMockStore) WriteAudit(_ context.Context, _ *AuditEvent) error {
 func (m *pipelineMockStore) ListAudit(_ context.Context, _ AuditFilter) ([]AuditEvent, error) {
 	panic("not implemented")
 }
+func (m *pipelineMockStore) GetOnboardingMetrics(_ context.Context, _ string) (*OnboardingMetrics, error) {
+	panic("not implemented")
+}
 
 // --- Remaining Store methods stubs ---
 

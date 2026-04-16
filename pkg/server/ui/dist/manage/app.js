@@ -165,8 +165,45 @@
     el.innerHTML = `
       <h1>Dashboard</h1>
       <p>Signed in as <strong>${escapeHTML(role) || 'unknown'}</strong>.</p>
-      <p>Add groups and hosts to get started. Scans will be enabled in a later phase.</p>
+      <div id="metrics"></div>
+      <p class="muted">Add groups and hosts to get started. Scans will produce findings visible in Reports.</p>
     `;
+    try {
+      const resp = await authedFetch('/api/v1/manage/onboarding-metrics');
+      if (resp.ok) {
+        const m = await resp.json();
+        const metricsEl = el.querySelector('#metrics');
+        if (m.minutes_to_first_scan != null) {
+          const mins = Math.round(m.minutes_to_first_scan);
+          const color = mins <= 20 ? 'var(--accent)' : mins <= 45 ? '#92400e' : 'var(--error)';
+          metricsEl.innerHTML = `
+            <div class="metric-card">
+              <span class="metric-value" style="color:${color}">${mins} min</span>
+              <span class="metric-label">Time to first scan</span>
+            </div>
+          `;
+        } else {
+          const steps = [
+            { label: 'Signed up', done: !!m.t_signup },
+            { label: 'Engine enrolled', done: !!m.t_engine },
+            { label: 'Hosts added', done: !!m.t_hosts },
+            { label: 'Credential created', done: !!m.t_creds },
+            { label: 'Scan triggered', done: !!m.t_scan },
+            { label: 'Results received', done: !!m.t_results },
+          ];
+          if (steps.some(s => s.done)) {
+            metricsEl.innerHTML = `
+              <h2>Onboarding progress</h2>
+              <ul class="journey-steps">${steps.map(s =>
+                `<li class="${s.done ? 'done' : 'pending'}">${s.done ? '&#10003;' : '&#9675;'} ${escapeHTML(s.label)}</li>`
+              ).join('')}</ul>
+            `;
+          }
+        }
+      }
+    } catch (e) {
+      // Silently degrade — metrics are advisory
+    }
   }
 
   async function renderGroups(el) {

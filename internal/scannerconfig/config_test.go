@@ -28,6 +28,8 @@ func TestLoadQuickProfile(t *testing.T) {
 	assert.NotContains(t, cfg.Modules, "ebpf_trace")
 	// TPM 2.0 attestation analyzer is comprehensive-only (Linux).
 	assert.NotContains(t, cfg.Modules, "tpm")
+	// UEFI Secure Boot key inventory is comprehensive-only (Linux).
+	assert.NotContains(t, cfg.Modules, "uefi")
 
 	maxWorkers := 4
 	if maxWorkers > runtime.NumCPU() {
@@ -72,6 +74,8 @@ func TestLoadStandardProfile(t *testing.T) {
 	assert.NotContains(t, cfg.Modules, "ebpf_trace")
 	// TPM 2.0 attestation analyzer is comprehensive-only (Linux).
 	assert.NotContains(t, cfg.Modules, "tpm")
+	// UEFI Secure Boot key inventory is comprehensive-only (Linux).
+	assert.NotContains(t, cfg.Modules, "uefi")
 }
 
 func TestLoadComprehensiveProfile(t *testing.T) {
@@ -132,6 +136,8 @@ func TestLoadComprehensiveProfile(t *testing.T) {
 	assert.Contains(t, cfg.Modules, "ebpf_trace")
 	// TPM 2.0 attestation analyzer is comprehensive-only (Linux).
 	assert.Contains(t, cfg.Modules, "tpm")
+	// UEFI Secure Boot key inventory is comprehensive-only (Linux).
+	assert.Contains(t, cfg.Modules, "uefi")
 
 	// Should have process and network targets
 	hasProcess := false

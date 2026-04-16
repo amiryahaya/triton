@@ -175,6 +175,7 @@ func proModules() []string {
 		"dotnet_il",
 		"ebpf_trace",
 		"tpm",
+		"uefi",
 		// k8s_live, secrets_mgr, kerberos_runtime are enterprise-only — do NOT add.
 	}
 }

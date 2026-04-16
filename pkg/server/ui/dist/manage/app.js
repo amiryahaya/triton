@@ -77,6 +77,7 @@
     '/credentials/new': renderNewCredential,
     '/scan-jobs': renderScanJobs,
     '/scan-jobs/new': renderNewScanJob,
+    '/audit': renderAudit,
   };
 
   function route() {
@@ -1468,4 +1469,74 @@
       if (e.message !== 'unauthorized') el.innerHTML = `<p>Error: ${escapeHTML(e.message)}</p>`;
     }
   }
+  // ---------- Audit Log (Phase 7 Task 8) ----------
+
+  async function renderAudit(el) {
+    if (!isOwner()) {
+      el.innerHTML = '<h1>Audit Log</h1><p>Only admins can view the audit log.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <h1>Audit Log</h1>
+      <p class="muted">All actions across inventory, credentials, scans, engines, and user management.</p>
+      <div class="filter-row">
+        <input type="text" id="audit_search" placeholder="Filter by event type or target\u2026">
+        <button id="audit_refresh" class="button">Refresh</button>
+      </div>
+      <div id="audit_list">loading\u2026</div>
+    `;
+    const load = async () => {
+      const search = (el.querySelector('#audit_search')?.value || '').trim();
+      let url = '/api/v1/audit?limit=200';
+      if (search) url += '&event_type=' + encodeURIComponent(search);
+      try {
+        const resp = await authedFetch(url);
+        if (!resp.ok) {
+          el.querySelector('#audit_list').innerHTML = '<p class="error">Failed to load audit log.</p>';
+          return;
+        }
+        const events = await resp.json();
+        const list = el.querySelector('#audit_list');
+        if (!events || events.length === 0) {
+          list.innerHTML = '<p><em>No events found.</em></p>';
+          return;
+        }
+        // Client-side substring filter when the server-side event_type
+        // filter requires an exact match but the user typed a partial.
+        const filtered = search
+          ? events.filter(e =>
+              (e.eventType || '').includes(search) ||
+              (e.targetID || '').includes(search))
+          : events;
+        list.innerHTML = renderAuditTable(filtered);
+      } catch (e) {
+        if (e.message !== 'unauthorized') {
+          el.querySelector('#audit_list').innerHTML = '<p class="error">Error loading audit log.</p>';
+        }
+      }
+    };
+    await load();
+    el.querySelector('#audit_refresh')?.addEventListener('click', load);
+    el.querySelector('#audit_search')?.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') load();
+    });
+  }
+
+  function renderAuditTable(events) {
+    return `<table>
+      <thead><tr><th>Time</th><th>Event</th><th>Target</th><th>Actor</th><th>IP</th><th>Details</th></tr></thead>
+      <tbody>${events.map(e => {
+        const details = e.details ? JSON.stringify(e.details) : '';
+        return `<tr>
+          <td>${timeAgo(e.timestamp)}</td>
+          <td><code>${escapeHTML(e.eventType)}</code></td>
+          <td><code class="muted">${escapeHTML(e.targetID || '')}</code></td>
+          <td class="muted">${escapeHTML(e.actorID || '')}</td>
+          <td class="muted">${escapeHTML(e.ipAddress || '')}</td>
+          <td class="muted audit-details">${escapeHTML(details.length > 120 ? details.slice(0, 120) + '\u2026' : details)}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
+
 })();

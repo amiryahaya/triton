@@ -171,6 +171,11 @@ textarea.cred-key { font-family: ui-monospace, monospace; height: 180px; }
 .conditional { display: none; }
 .conditional.show { display: block; }
 
+/* Audit log (Phase 7 Task 8) */
+.filter-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.filter-row input { flex: 1; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--text); font-size: 0.95rem; }
+.audit-details { font-size: 0.8rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Scan Jobs (Phase 5 / Task 11) */
 .progress-bar {
   width: 200px;

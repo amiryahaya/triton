@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amiryahaya/triton/pkg/server"
+	agentpushpkg "github.com/amiryahaya/triton/pkg/server/agentpush"
 	credentialspkg "github.com/amiryahaya/triton/pkg/server/credentials"
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
@@ -204,6 +205,7 @@ func startEngineGateway(
 	discoveryStore discoverypkg.Store,
 	credStore credentialspkg.Store,
 	scanJobsStore scanjobspkg.Store,
+	agentPushStore agentpushpkg.Store,
 	credInventory credentialspkg.InventoryTargetLookup,
 	audit *server.AuditAdapter,
 	certPath, keyPath string,
@@ -221,6 +223,7 @@ func startEngineGateway(
 		Store: scanJobsStore,
 		Audit: audit,
 	}
+	agentPushGateway := agentpushpkg.NewGatewayHandlers(agentPushStore)
 	r := chi.NewRouter()
 	// Stash the request on the context so AuditAdapter can reach
 	// RemoteAddr when recording gateway events.
@@ -242,6 +245,10 @@ func startEngineGateway(
 		// Onboarding Phase 5 — scan-job poll/progress/submit/finish.
 		sub.Route("/scans", func(ssub chi.Router) {
 			scanjobspkg.MountGatewayRoutes(ssub, scanJobsGateway)
+		})
+		// Onboarding Phase 6 — agent-push poll/progress/finish/register.
+		sub.Route("/agent-push", func(apsub chi.Router) {
+			agentpushpkg.MountGatewayRoutes(apsub, agentPushGateway)
 		})
 	})
 	// Back-compat: routes were previously mounted at root (/enroll,

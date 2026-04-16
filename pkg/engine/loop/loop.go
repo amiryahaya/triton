@@ -48,6 +48,15 @@ type Config struct {
 	// first successful Enroll. Optional.
 	ScanWorker Worker
 
+	// PushWorker polls for agent-push jobs and executes them via SSH.
+	// Spawned after first successful Enroll. Optional.
+	PushWorker Worker
+
+	// AgentGateway starts the agent-facing mTLS listener (typically on
+	// :9443). Spawned in its own goroutine after the first successful
+	// Enroll; errors are logged but do not terminate the loop. Optional.
+	AgentGateway func(ctx context.Context) error
+
 	// OnEnrolled is called exactly once, immediately after the first
 	// successful Enroll and before any Worker is spawned. Intended for
 	// the engine to publish its encryption pubkey once the portal has
@@ -94,6 +103,16 @@ func Run(ctx context.Context, c clientAPI, cfg Config) error {
 	}
 	if cfg.ScanWorker != nil {
 		go cfg.ScanWorker.Run(ctx)
+	}
+	if cfg.PushWorker != nil {
+		go cfg.PushWorker.Run(ctx)
+	}
+	if cfg.AgentGateway != nil {
+		go func() {
+			if err := cfg.AgentGateway(ctx); err != nil {
+				log.Printf("agent gateway: %v", err)
+			}
+		}()
 	}
 
 	t := time.NewTicker(cfg.HeartbeatInterval)

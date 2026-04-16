@@ -21,8 +21,12 @@ RUN CGO_ENABLED=0 go build \
 FROM docker.io/library/debian:bookworm-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        nmap ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+        nmap ca-certificates libcap2-bin && \
+    rm -rf /var/lib/apt/lists/* && \
+    # Grant nmap raw-socket capability so SYN scans work without root.
+    # The container still needs cap_add: [NET_RAW] in compose/k8s to
+    # allow the kernel to honor the file capability.
+    setcap cap_net_raw+ep /usr/bin/nmap
 COPY --from=build /out/triton-engine /triton-engine
 # Bundle expected at /etc/triton/bundle.tar.gz via volume mount.
 ENTRYPOINT ["/triton-engine"]

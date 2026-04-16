@@ -41,8 +41,10 @@ func (r *reclaimRecorder) CancelJob(context.Context, uuid.UUID, uuid.UUID) error
 func (r *reclaimRecorder) ClaimNext(context.Context, uuid.UUID) (JobPayload, bool, error) {
 	return JobPayload{}, false, nil
 }
-func (r *reclaimRecorder) UpdateProgress(context.Context, uuid.UUID, int, int) error { return nil }
-func (r *reclaimRecorder) FinishJob(context.Context, uuid.UUID, JobStatus, string) error {
+func (r *reclaimRecorder) UpdateProgress(context.Context, uuid.UUID, uuid.UUID, int, int) error {
+	return nil
+}
+func (r *reclaimRecorder) FinishJob(context.Context, uuid.UUID, uuid.UUID, JobStatus, string) error {
 	return nil
 }
 func (r *reclaimRecorder) RecordScanResult(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, []byte) error {

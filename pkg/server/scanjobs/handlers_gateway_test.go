@@ -114,6 +114,146 @@ func TestProgress_AggregatesCounts(t *testing.T) {
 	assert.Equal(t, 1, fs.updateCalls[0].failed)
 }
 
+func TestProgress_DifferentEngine_403(t *testing.T) {
+	fs := newFakeStore()
+	fs.updateErr = ErrJobNotOwnedByEngine
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	updates := []ProgressUpdate{{HostID: uuid.Must(uuid.NewV7()), Status: "completed"}}
+	req := gwReq(http.MethodPost, "/engine/scans/"+jobID.String()+"/progress", updates, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestProgress_NotFound_404(t *testing.T) {
+	fs := newFakeStore()
+	fs.updateErr = ErrJobNotFound
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	updates := []ProgressUpdate{{HostID: uuid.Must(uuid.NewV7()), Status: "completed"}}
+	req := gwReq(http.MethodPost, "/engine/scans/"+jobID.String()+"/progress", updates, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestSubmit_DifferentEngine_403(t *testing.T) {
+	fs := newFakeStore()
+	fs.recordErr = ErrJobNotOwnedByEngine
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"host_id":        uuid.Must(uuid.NewV7()).String(),
+		"findings_count": 1,
+		"scan_result":    map[string]any{},
+	}
+	req := gwReq(http.MethodPost, "/engine/scans/"+jobID.String()+"/submit", body, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestSubmit_AlreadyTerminal_409(t *testing.T) {
+	fs := newFakeStore()
+	fs.recordErr = ErrJobAlreadyTerminal
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"host_id":        uuid.Must(uuid.NewV7()).String(),
+		"findings_count": 1,
+		"scan_result":    map[string]any{},
+	}
+	req := gwReq(http.MethodPost, "/engine/scans/"+jobID.String()+"/submit", body, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusConflict, rr.Code)
+}
+
+func TestSubmit_NotFound_404(t *testing.T) {
+	fs := newFakeStore()
+	fs.recordErr = ErrJobNotFound
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	body := map[string]any{
+		"host_id":        uuid.Must(uuid.NewV7()).String(),
+		"findings_count": 1,
+		"scan_result":    map[string]any{},
+	}
+	req := gwReq(http.MethodPost, "/engine/scans/"+jobID.String()+"/submit", body, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestSubmit_OversizedBody_413(t *testing.T) {
+	fs := newFakeStore()
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	jobID := uuid.Must(uuid.NewV7())
+	// Build a body just over the 32MB cap that parses as valid JSON
+	// up until the cap — so MaxBytesReader is the thing that trips,
+	// not the JSON decoder itself. We use a JSON string literal whose
+	// internal content is a long run of 'a' characters.
+	filler := bytes.Repeat([]byte("a"), (32<<20)+1024)
+	huge := bytes.Buffer{}
+	huge.WriteString(`{"host_id":"` + uuid.Must(uuid.NewV7()).String() + `","findings_count":1,"scan_result":"`)
+	huge.Write(filler)
+	huge.WriteString(`"}`)
+	req := httptest.NewRequest(http.MethodPost, "/engine/scans/"+jobID.String()+"/submit", bytes.NewReader(huge.Bytes()))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(engine.ContextWithEngineForTesting(req.Context(), &engine.Engine{ID: uuid.Must(uuid.NewV7())}))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	assert.Empty(t, fs.recordCalls, "store must not be called when body is oversized")
+}
+
+func TestFinish_DifferentEngine_403(t *testing.T) {
+	fs := newFakeStore()
+	fs.finishErr = ErrJobNotOwnedByEngine
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	body := map[string]any{"status": "completed"}
+	req := gwReq(http.MethodPost, "/engine/scans/"+uuid.Must(uuid.NewV7()).String()+"/finish", body, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestFinish_NotFound_404(t *testing.T) {
+	fs := newFakeStore()
+	fs.finishErr = ErrJobNotFound
+	h := NewGatewayHandlers(fs)
+	r := buildGatewayRouter(h)
+
+	body := map[string]any{"status": "completed"}
+	req := gwReq(http.MethodPost, "/engine/scans/"+uuid.Must(uuid.NewV7()).String()+"/finish", body, &engine.Engine{ID: uuid.Must(uuid.NewV7())})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+}
+
 func TestSubmit_CallsRecordScanResult(t *testing.T) {
 	fs := newFakeStore()
 	h := NewGatewayHandlers(fs)

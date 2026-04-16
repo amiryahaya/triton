@@ -259,6 +259,13 @@ func startEngineGateway(
 		Handler:           r,
 		TLSConfig:         tlsCfg,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Scan-result submit payloads can reach tens of MB on
+		// comprehensive profiles over slow links. 5 minutes is
+		// generous enough to admit those uploads without letting a
+		// stalled client tie up a goroutine forever.
+		ReadTimeout:    5 * time.Minute,
+		WriteTimeout:   5 * time.Minute,
+		MaxHeaderBytes: 1 << 14, // 16 KB
 	}
 	go func() {
 		log.Printf("engine gateway listening on %s (mTLS required)", addr)

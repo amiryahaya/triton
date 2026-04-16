@@ -33,14 +33,21 @@ type fakeStore struct {
 	claimFind bool
 	claimErr  error
 
-	updateCalls []struct{ done, failed int }
+	updateCalls []struct {
+		engineID uuid.UUID
+		done     int
+		failed   int
+	}
 	recordCalls []struct{ jobID, engineID, hostID uuid.UUID }
 	finishCalls []struct {
-		id     uuid.UUID
-		status JobStatus
-		errMsg string
+		engineID uuid.UUID
+		id       uuid.UUID
+		status   JobStatus
+		errMsg   string
 	}
 	finishErr error
+	recordErr error
+	updateErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -86,26 +93,34 @@ func (f *fakeStore) ClaimNext(_ context.Context, _ uuid.UUID) (JobPayload, bool,
 	return f.claimOut, f.claimFind, nil
 }
 
-func (f *fakeStore) UpdateProgress(_ context.Context, _ uuid.UUID, done, failed int) error {
-	f.updateCalls = append(f.updateCalls, struct{ done, failed int }{done, failed})
-	return nil
+func (f *fakeStore) UpdateProgress(_ context.Context, engineID, _ uuid.UUID, done, failed int) error {
+	f.updateCalls = append(f.updateCalls, struct {
+		engineID uuid.UUID
+		done     int
+		failed   int
+	}{engineID, done, failed})
+	return f.updateErr
 }
 
-func (f *fakeStore) FinishJob(_ context.Context, id uuid.UUID, status JobStatus, errMsg string) error {
+func (f *fakeStore) FinishJob(_ context.Context, engineID, id uuid.UUID, status JobStatus, errMsg string) error {
 	if f.finishErr != nil {
 		return f.finishErr
 	}
 	f.finishCalls = append(f.finishCalls, struct {
-		id     uuid.UUID
-		status JobStatus
-		errMsg string
-	}{id, status, errMsg})
+		engineID uuid.UUID
+		id       uuid.UUID
+		status   JobStatus
+		errMsg   string
+	}{engineID, id, status, errMsg})
 	return nil
 }
 
 func (f *fakeStore) ReclaimStale(_ context.Context, _ time.Time) error { return nil }
 
-func (f *fakeStore) RecordScanResult(_ context.Context, jobID, engineID, hostID uuid.UUID, _ []byte) error {
+func (f *fakeStore) RecordScanResult(_ context.Context, engineID, jobID, hostID uuid.UUID, _ []byte) error {
+	if f.recordErr != nil {
+		return f.recordErr
+	}
 	f.recordCalls = append(f.recordCalls, struct{ jobID, engineID, hostID uuid.UUID }{jobID, engineID, hostID})
 	return nil
 }

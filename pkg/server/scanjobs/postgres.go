@@ -281,34 +281,68 @@ func loadHostTargets(ctx context.Context, tx pgx.Tx, hostIDs []uuid.UUID) ([]Hos
 // UpdateProgress increments per-host counters and flips a still-claimed
 // job to running on the first call. Atomic in a single UPDATE so
 // concurrent progress events from a multi-host engine never race.
-func (s *PostgresStore) UpdateProgress(ctx context.Context, jobID uuid.UUID, done, failed int) error {
-	_, err := s.pool.Exec(ctx,
+// Gated on engine ownership — returns ErrJobNotOwnedByEngine if the job
+// exists but was claimed by a different engine (for example after a
+// reaper-driven reclaim), ErrJobNotFound if the row is gone.
+func (s *PostgresStore) UpdateProgress(ctx context.Context, engineID, jobID uuid.UUID, done, failed int) error {
+	ct, err := s.pool.Exec(ctx,
 		`UPDATE scan_jobs
-		 SET progress_done   = progress_done + $2,
-		     progress_failed = progress_failed + $3,
+		 SET progress_done   = progress_done + $3,
+		     progress_failed = progress_failed + $4,
 		     status          = CASE WHEN status = 'claimed' THEN 'running' ELSE status END
-		 WHERE id = $1`,
-		jobID, done, failed,
+		 WHERE id = $1 AND engine_id = $2`,
+		jobID, engineID, done, failed,
 	)
 	if err != nil {
 		return fmt.Errorf("update scan job progress: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		// Disambiguate wrong-engine vs not-found so the handler can
+		// return the right HTTP status.
+		var curEngineID uuid.UUID
+		if err := s.pool.QueryRow(ctx,
+			`SELECT engine_id FROM scan_jobs WHERE id = $1`, jobID,
+		).Scan(&curEngineID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrJobNotFound
+			}
+			return fmt.Errorf("update scan job progress (ownership check): %w", err)
+		}
+		return ErrJobNotOwnedByEngine
 	}
 	return nil
 }
 
 // FinishJob transitions a job to its terminal state. Returns
-// ErrJobAlreadyTerminal if the row is already completed/failed/cancelled.
-func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status JobStatus, errMsg string) error {
+// ErrJobAlreadyTerminal if the row is already completed/failed/cancelled,
+// ErrJobNotOwnedByEngine if the calling engine doesn't own the job, or
+// ErrJobNotFound if the row doesn't exist.
+func (s *PostgresStore) FinishJob(ctx context.Context, engineID, jobID uuid.UUID, status JobStatus, errMsg string) error {
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE scan_jobs
 		 SET status = $1, error = NULLIF($2, ''), completed_at = NOW()
-		 WHERE id = $3 AND status NOT IN ('completed', 'failed', 'cancelled')`,
-		string(status), errMsg, jobID,
+		 WHERE id = $3 AND engine_id = $4
+		   AND status NOT IN ('completed', 'failed', 'cancelled')`,
+		string(status), errMsg, jobID, engineID,
 	)
 	if err != nil {
 		return fmt.Errorf("finish scan job: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
+		// Disambiguate wrong-engine vs already-terminal vs not-found.
+		var curEngineID uuid.UUID
+		var curStatus string
+		if err := s.pool.QueryRow(ctx,
+			`SELECT engine_id, status FROM scan_jobs WHERE id = $1`, jobID,
+		).Scan(&curEngineID, &curStatus); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrJobNotFound
+			}
+			return fmt.Errorf("finish scan job (ownership check): %w", err)
+		}
+		if curEngineID != engineID {
+			return ErrJobNotOwnedByEngine
+		}
 		return ErrJobAlreadyTerminal
 	}
 	return nil
@@ -340,11 +374,33 @@ func (s *PostgresStore) ReclaimStale(ctx context.Context, cutoff time.Time) erro
 // carries Metadata.Hostname) but is part of the interface so future
 // tagging — e.g. inventory_hosts.last_scan_id — can land without a
 // signature change.
-func (s *PostgresStore) RecordScanResult(ctx context.Context, jobID, engineID, hostID uuid.UUID, scanPayload []byte) error {
+func (s *PostgresStore) RecordScanResult(ctx context.Context, engineID, jobID, hostID uuid.UUID, scanPayload []byte) error {
 	_ = hostID
 	if s.scanStore == nil {
 		return fmt.Errorf("record scan result: scan store not configured")
 	}
+	// Gate the insert on engine ownership + non-terminal state. Prevents
+	// a stale engine (whose claim was reaped) from submitting findings
+	// into a job that engine 2 has since taken over and completed —
+	// which would create phantom duplicate findings tagged to the wrong
+	// engine.
+	var curEngineID uuid.UUID
+	var status string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT engine_id, status FROM scan_jobs WHERE id = $1`, jobID,
+	).Scan(&curEngineID, &status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrJobNotFound
+		}
+		return fmt.Errorf("record scan result (ownership check): %w", err)
+	}
+	if curEngineID != engineID {
+		return ErrJobNotOwnedByEngine
+	}
+	if status == string(StatusCompleted) || status == string(StatusFailed) || status == string(StatusCancelled) {
+		return ErrJobAlreadyTerminal
+	}
+
 	var scan model.ScanResult
 	if err := json.Unmarshal(scanPayload, &scan); err != nil {
 		return fmt.Errorf("unmarshal scan result: %w", err)

@@ -108,8 +108,15 @@ func (h *GatewayHandlers) Progress(w http.ResponseWriter, r *http.Request) {
 			failed++
 		}
 	}
-	if err := h.Store.UpdateProgress(r.Context(), jobID, done, failed); err != nil {
-		writeErr(w, http.StatusInternalServerError, "update progress: "+err.Error())
+	if err := h.Store.UpdateProgress(r.Context(), eng.ID, jobID, done, failed); err != nil {
+		switch {
+		case errors.Is(err, ErrJobNotFound):
+			writeErr(w, http.StatusNotFound, "job not found")
+		case errors.Is(err, ErrJobNotOwnedByEngine):
+			writeErr(w, http.StatusForbidden, "job belongs to a different engine")
+		default:
+			writeErr(w, http.StatusInternalServerError, "update progress: "+err.Error())
+		}
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -120,6 +127,12 @@ type submitRequest struct {
 	FindingsCount int             `json:"findings_count"`
 	ScanResult    json.RawMessage `json:"scan_result"`
 }
+
+// maxSubmitBodyBytes caps the scan-result POST body. Comprehensive scans
+// on a single host with 10k findings produce ~5–10 MB; 32 MB gives
+// comfortable headroom while bounding the portal's OOM exposure to a
+// malicious or buggy engine.
+const maxSubmitBodyBytes = 32 << 20
 
 // Submit persists a per-host scan result. The engine streams one
 // Submit per completed host; Finish is called once when all hosts
@@ -135,13 +148,35 @@ func (h *GatewayHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid job id")
 		return
 	}
+	// Cap the body before decoding so a malicious engine can't stream
+	// an unbounded payload into memory. MaxBytesReader returns an
+	// error whose message is "http: request body too large" once the
+	// cap is tripped — map that to 413.
+	r.Body = http.MaxBytesReader(w, r.Body, maxSubmitBodyBytes)
 	var body submitRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		// MaxBytesReader returns *http.MaxBytesError once the cap is
+		// tripped; json.Decoder wraps it but errors.As still peels
+		// back to the sentinel type.
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) || err.Error() == "http: request body too large" {
+			writeErr(w, http.StatusRequestEntityTooLarge, "scan result exceeds 32MB limit")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := h.Store.RecordScanResult(r.Context(), jobID, eng.ID, body.HostID, body.ScanResult); err != nil {
-		writeErr(w, http.StatusInternalServerError, "record scan result: "+err.Error())
+	if err := h.Store.RecordScanResult(r.Context(), eng.ID, jobID, body.HostID, body.ScanResult); err != nil {
+		switch {
+		case errors.Is(err, ErrJobNotFound):
+			writeErr(w, http.StatusNotFound, "job not found")
+		case errors.Is(err, ErrJobNotOwnedByEngine):
+			writeErr(w, http.StatusForbidden, "job belongs to a different engine")
+		case errors.Is(err, ErrJobAlreadyTerminal):
+			writeErr(w, http.StatusConflict, "job already terminal")
+		default:
+			writeErr(w, http.StatusInternalServerError, "record scan result: "+err.Error())
+		}
 		return
 	}
 	h.audit(r, "scanjobs.host.submitted", jobID.String(), map[string]any{
@@ -181,12 +216,17 @@ func (h *GatewayHandlers) Finish(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid status")
 		return
 	}
-	if err := h.Store.FinishJob(r.Context(), jobID, JobStatus(body.Status), body.Error); err != nil {
-		if errors.Is(err, ErrJobAlreadyTerminal) {
+	if err := h.Store.FinishJob(r.Context(), eng.ID, jobID, JobStatus(body.Status), body.Error); err != nil {
+		switch {
+		case errors.Is(err, ErrJobAlreadyTerminal):
 			writeErr(w, http.StatusConflict, "job already terminal")
-			return
+		case errors.Is(err, ErrJobNotFound):
+			writeErr(w, http.StatusNotFound, "job not found")
+		case errors.Is(err, ErrJobNotOwnedByEngine):
+			writeErr(w, http.StatusForbidden, "job belongs to a different engine")
+		default:
+			writeErr(w, http.StatusInternalServerError, "finish job: "+err.Error())
 		}
-		writeErr(w, http.StatusInternalServerError, "finish job: "+err.Error())
 		return
 	}
 	h.audit(r, "scanjobs.job.finished", jobID.String(), map[string]any{

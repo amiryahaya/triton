@@ -292,9 +292,113 @@ func TestScanJobs_FinishJob_TerminalGuard(t *testing.T) {
 	j, err := f.store.CreateJob(ctx, newJob(f, false))
 	require.NoError(t, err)
 
-	require.NoError(t, f.store.FinishJob(ctx, j.ID, StatusCompleted, ""))
-	err = f.store.FinishJob(ctx, j.ID, StatusCompleted, "")
+	require.NoError(t, f.store.FinishJob(ctx, f.engineID, j.ID, StatusCompleted, ""))
+	err = f.store.FinishJob(ctx, f.engineID, j.ID, StatusCompleted, "")
 	assert.ErrorIs(t, err, ErrJobAlreadyTerminal)
+}
+
+func TestScanJobs_FinishJob_DifferentEngine(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	j, err := f.store.CreateJob(ctx, newJob(f, false))
+	require.NoError(t, err)
+
+	otherEngine := uuid.Must(uuid.NewV7())
+	err = f.store.FinishJob(ctx, otherEngine, j.ID, StatusCompleted, "")
+	assert.ErrorIs(t, err, ErrJobNotOwnedByEngine)
+}
+
+func TestScanJobs_FinishJob_NotFound(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	err := f.store.FinishJob(ctx, f.engineID, uuid.Must(uuid.NewV7()), StatusCompleted, "")
+	assert.ErrorIs(t, err, ErrJobNotFound)
+}
+
+func TestScanJobs_UpdateProgress_DifferentEngine(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	j, err := f.store.CreateJob(ctx, newJob(f, false))
+	require.NoError(t, err)
+
+	otherEngine := uuid.Must(uuid.NewV7())
+	err = f.store.UpdateProgress(ctx, otherEngine, j.ID, 1, 0)
+	assert.ErrorIs(t, err, ErrJobNotOwnedByEngine)
+}
+
+func TestScanJobs_UpdateProgress_NotFound(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	err := f.store.UpdateProgress(ctx, f.engineID, uuid.Must(uuid.NewV7()), 1, 0)
+	assert.ErrorIs(t, err, ErrJobNotFound)
+}
+
+func TestScanJobs_RecordScanResult_DifferentEngine(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	j, err := f.store.CreateJob(ctx, newJob(f, false))
+	require.NoError(t, err)
+
+	scan := model.ScanResult{
+		ID:    uuid.Must(uuid.NewV7()).String(),
+		OrgID: f.orgID.String(),
+		Metadata: model.ScanMetadata{
+			Hostname:    "h-test",
+			Timestamp:   time.Now().UTC(),
+			ScanProfile: "standard",
+		},
+	}
+	payload, err := json.Marshal(scan)
+	require.NoError(t, err)
+
+	otherEngine := uuid.Must(uuid.NewV7())
+	err = f.store.RecordScanResult(ctx, otherEngine, j.ID, f.hostIDs[0], payload)
+	assert.ErrorIs(t, err, ErrJobNotOwnedByEngine)
+}
+
+func TestScanJobs_RecordScanResult_TerminalJob(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	j, err := f.store.CreateJob(ctx, newJob(f, false))
+	require.NoError(t, err)
+	// Move job to terminal state.
+	require.NoError(t, f.store.FinishJob(ctx, f.engineID, j.ID, StatusCompleted, ""))
+
+	scan := model.ScanResult{
+		ID:    uuid.Must(uuid.NewV7()).String(),
+		OrgID: f.orgID.String(),
+		Metadata: model.ScanMetadata{
+			Hostname:    "h-test",
+			Timestamp:   time.Now().UTC(),
+			ScanProfile: "standard",
+		},
+	}
+	payload, err := json.Marshal(scan)
+	require.NoError(t, err)
+
+	err = f.store.RecordScanResult(ctx, f.engineID, j.ID, f.hostIDs[0], payload)
+	assert.ErrorIs(t, err, ErrJobAlreadyTerminal)
+}
+
+func TestScanJobs_RecordScanResult_NotFound(t *testing.T) {
+	f := setupFixture(t)
+	ctx := context.Background()
+
+	scan := model.ScanResult{
+		ID:    uuid.Must(uuid.NewV7()).String(),
+		OrgID: f.orgID.String(),
+		Metadata: model.ScanMetadata{Hostname: "h", Timestamp: time.Now().UTC(), ScanProfile: "standard"},
+	}
+	payload, _ := json.Marshal(scan)
+
+	err := f.store.RecordScanResult(ctx, f.engineID, uuid.Must(uuid.NewV7()), f.hostIDs[0], payload)
+	assert.ErrorIs(t, err, ErrJobNotFound)
 }
 
 func TestScanJobs_UpdateProgress_FlipsClaimedToRunning(t *testing.T) {
@@ -307,7 +411,7 @@ func TestScanJobs_UpdateProgress_FlipsClaimedToRunning(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	require.NoError(t, f.store.UpdateProgress(ctx, j.ID, 1, 0))
+	require.NoError(t, f.store.UpdateProgress(ctx, f.engineID, j.ID, 1, 0))
 
 	got, err := f.store.GetJob(ctx, f.orgID, j.ID)
 	require.NoError(t, err)
@@ -315,7 +419,7 @@ func TestScanJobs_UpdateProgress_FlipsClaimedToRunning(t *testing.T) {
 	assert.Equal(t, 1, got.ProgressDone)
 
 	// Subsequent updates accumulate, status stays running.
-	require.NoError(t, f.store.UpdateProgress(ctx, j.ID, 0, 1))
+	require.NoError(t, f.store.UpdateProgress(ctx, f.engineID, j.ID, 0, 1))
 	got, err = f.store.GetJob(ctx, f.orgID, j.ID)
 	require.NoError(t, err)
 	assert.Equal(t, StatusRunning, got.Status)
@@ -370,7 +474,7 @@ func TestScanJobs_RecordScanResult_WritesTaggedScan(t *testing.T) {
 	payload, err := json.Marshal(scan)
 	require.NoError(t, err)
 
-	require.NoError(t, f.store.RecordScanResult(ctx, j.ID, f.engineID, f.hostIDs[0], payload))
+	require.NoError(t, f.store.RecordScanResult(ctx, f.engineID, j.ID, f.hostIDs[0], payload))
 
 	var engineID, scanJobID uuid.UUID
 	require.NoError(t, f.pool.QueryRow(ctx,

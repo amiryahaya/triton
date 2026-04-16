@@ -80,13 +80,14 @@ func (s *Scanner) Scan(ctx context.Context, cidrs []string, ports []int) ([]Cand
 		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
 			stderr := string(exitErr.Stderr)
 			if strings.Contains(stderr, "requires root") || strings.Contains(stderr, "Operation not permitted") {
-				log.Printf("scanner: SYN scan failed (no root/CAP_NET_RAW) — falling back to TCP connect scan")
+				log.Printf("scanner: SYN scan failed (no raw socket) — falling back to unprivileged TCP connect scan")
 				for i, a := range args {
 					if a == "-sS" {
 						args[i] = "-sT"
 						break
 					}
 				}
+				args = append(args, "--unprivileged")
 				cmd2 := exec.CommandContext(ctx, s.nmapBin(), args...)
 				out, err = cmd2.Output()
 				if err != nil {

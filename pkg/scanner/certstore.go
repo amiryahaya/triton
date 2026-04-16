@@ -130,7 +130,7 @@ func (m *CertStoreModule) Scan(ctx context.Context, _ model.ScanTarget, findings
 			_ = m.parsePEMCerts(ctx, pemData, "os:certstore:linux", "System trust anchor (CA bundle)", findings)
 		}
 	case "windows":
-		_ = m.scanWindowsCertStore(ctx, findings)
+		_ = m.scanWindowsCertStores(ctx, findings)
 	}
 
 	// Java cacerts — cross-platform. Every discovered keystore is
@@ -170,24 +170,50 @@ func (m *CertStoreModule) readLinuxCerts() ([]byte, error) {
 	return nil, fmt.Errorf("no CA bundle found")
 }
 
-// scanWindowsCertStore enumerates the Windows LocalMachine Root
-// store via PowerShell. We ask for each cert's raw DER as base64
-// on its own line; each line is then wrapped into a PEM block and
-// fed through the existing parser. Requires PowerShell on PATH —
-// which every Windows install since 2009 has.
-func (m *CertStoreModule) scanWindowsCertStore(ctx context.Context, findings chan<- *model.Finding) error {
-	// The command enumerates the LocalMachine\Root store and emits
-	// one base64 DER per line. Using -NoProfile keeps startup fast
-	// (no $PROFILE load) and avoids any user-tuned PowerShell env.
-	//
-	// Stdout is capped at windowsRootStoreStdoutCap via the
-	// limited runner so a hostile or misconfigured cert store
-	// cannot balloon the agent's heap (H2 review). Wall-clock
-	// capped at certstoreSubprocessTimeout so a wedged PowerShell
-	// session cannot stall the whole scan.
+// windowsCertStore describes a single Windows certificate store to enumerate.
+type windowsCertStore struct {
+	path       string // PowerShell path, e.g. `Cert:\LocalMachine\Root`
+	sourcePath string // finding source, e.g. `os:certstore:windows:LocalMachine\Root`
+	purpose    string // finding purpose text
+}
+
+// windowsCertStores is the ordered list of Windows certificate stores that
+// scanWindowsCertStores will enumerate. Covers both machine-wide and
+// current-user trust anchors, intermediate CAs, and personal certificates.
+var windowsCertStores = []windowsCertStore{
+	{`Cert:\LocalMachine\Root`, `os:certstore:windows:LocalMachine\Root`, "System trust anchor (Windows Root store)"},
+	{`Cert:\LocalMachine\CA`, `os:certstore:windows:LocalMachine\CA`, "Intermediate CA (Windows)"},
+	{`Cert:\LocalMachine\My`, `os:certstore:windows:LocalMachine\My`, "Machine certificate (Windows)"},
+	{`Cert:\CurrentUser\Root`, `os:certstore:windows:CurrentUser\Root`, "User trust anchor (Windows)"},
+	{`Cert:\CurrentUser\My`, `os:certstore:windows:CurrentUser\My`, "User certificate (Windows)"},
+}
+
+// scanWindowsCertStores enumerates all configured Windows certificate stores.
+// Errors from individual stores are swallowed so a partially-accessible
+// store set still produces useful findings. Context cancellation is
+// honoured between stores.
+func (m *CertStoreModule) scanWindowsCertStores(ctx context.Context, findings chan<- *model.Finding) error {
+	for _, store := range windowsCertStores {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_ = m.scanOneWindowsStore(ctx, store, findings)
+	}
+	return nil
+}
+
+// scanOneWindowsStore enumerates a single Windows certificate store via
+// PowerShell. We ask for each cert's raw DER as base64 on its own line.
+// Requires PowerShell on PATH — which every Windows install since 2009 has.
+//
+// Stdout is capped at windowsRootStoreStdoutCap via the limited runner so a
+// hostile or misconfigured cert store cannot balloon the agent's heap
+// (H2 review). Wall-clock capped at certstoreSubprocessTimeout so a wedged
+// PowerShell session cannot stall the whole scan.
+func (m *CertStoreModule) scanOneWindowsStore(ctx context.Context, store windowsCertStore, findings chan<- *model.Finding) error {
 	subCtx, cancel := context.WithTimeout(ctx, certstoreSubprocessTimeout)
 	defer cancel()
-	const script = `Get-ChildItem Cert:\LocalMachine\Root | ForEach-Object { [Convert]::ToBase64String($_.RawData) }`
+	script := fmt.Sprintf(`Get-ChildItem %s | ForEach-Object { [Convert]::ToBase64String($_.RawData) }`, store.path)
 	out, err := m.cmdRunnerLimited(subCtx, windowsRootStoreStdoutCap,
 		"powershell", "-NoProfile", "-Command", script)
 	if err != nil {
@@ -196,7 +222,7 @@ func (m *CertStoreModule) scanWindowsCertStore(ctx context.Context, findings cha
 		// same tolerance the Linux/macOS paths use.
 		return nil
 	}
-	return m.parseBase64DERList(ctx, out, "os:certstore:windows", "System trust anchor (Windows Root store)", findings)
+	return m.parseBase64DERList(ctx, out, store.sourcePath, store.purpose, findings)
 }
 
 // parseBase64DERList consumes a newline-delimited list of base64-

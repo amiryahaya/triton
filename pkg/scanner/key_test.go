@@ -8,6 +8,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -594,6 +596,170 @@ func TestIsKeyFileExtended(t *testing.T) {
 	// New SSH file patterns
 	assert.True(t, m.isKeyFile("/home/user/.ssh/authorized_keys"))
 	assert.True(t, m.isKeyFile("/home/user/.ssh/known_hosts"))
+}
+
+// ─── Encrypted key detection tests (Task 5) ───────────────────────────────
+
+func TestKeyModule_EncryptedRFC1423(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// RFC 1423 encrypted RSA private key (Proc-Type + DEK-Info headers).
+	// The body is fake — we only need the PEM headers to be present.
+	keyContent := `-----BEGIN RSA PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+DEK-Info: AES-256-CBC,AABBCCDD00112233AABBCCDD00112233
+
+SGVsbG8gV29ybGQhIFRoaXMgaXMgYSBmYWtlIGVuY3J5cHRlZCBrZXkgYm9keQ==
+-----END RSA PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "encrypted.key")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "should emit one finding for RFC 1423 encrypted key")
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Equal(t, "RSA", finding.CryptoAsset.Algorithm)
+	assert.Equal(t, 0, finding.CryptoAsset.KeySize, "key size unknown for encrypted key")
+	assert.Contains(t, finding.CryptoAsset.Purpose, "encrypted")
+	assert.Contains(t, finding.CryptoAsset.Purpose, "AES-256-CBC")
+	assert.Equal(t, "keys", finding.Module)
+	assert.Equal(t, 5, finding.Category)
+}
+
+func TestKeyModule_EncryptedPKCS8(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// PKCS#8 encrypted private key (ENCRYPTED PRIVATE KEY PEM type).
+	keyContent := `-----BEGIN ENCRYPTED PRIVATE KEY-----
+SGVsbG8gV29ybGQhIFRoaXMgaXMgYSBmYWtlIGVuY3J5cHRlZCBQS0NTIzgg
+a2V5IGJvZHkgdGhhdCB3b250IHBhcnNl
+-----END ENCRYPTED PRIVATE KEY-----`
+
+	keyFile := filepath.Join(tmpDir, "encrypted_pkcs8.pem")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "should emit one finding for PKCS#8 encrypted key")
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Contains(t, finding.CryptoAsset.Function, "encrypted")
+	assert.Equal(t, "keys", finding.Module)
+	assert.Equal(t, 5, finding.Category)
+}
+
+func TestKeyModule_EncryptedOpenSSH(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Build a synthetic OpenSSH key blob with cipher "aes256-ctr".
+	// Format: magic "openssh-key-v1\x00" (15 bytes) +
+	//         SSH string: uint32(BE) length + cipher name bytes.
+	cipher := "aes256-ctr"
+	raw := make([]byte, 0, 15+4+len(cipher)+20)
+	raw = append(raw, []byte("openssh-key-v1\x00")...)
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(cipher)))
+	raw = append(raw, lenBuf...)
+	raw = append(raw, []byte(cipher)...)
+	raw = append(raw, make([]byte, 20)...) // padding
+
+	keyContent := "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
+		base64.StdEncoding.EncodeToString(raw) + "\n" +
+		"-----END OPENSSH PRIVATE KEY-----\n"
+
+	keyFile := filepath.Join(tmpDir, "id_encrypted.key")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 1, "should emit one finding for encrypted OpenSSH key")
+	finding := collected[0]
+	require.NotNil(t, finding.CryptoAsset)
+	assert.Contains(t, finding.CryptoAsset.Purpose, "encrypted")
+	assert.Equal(t, "keys", finding.Module)
+	assert.Equal(t, 5, finding.Category)
+}
+
+func TestKeyModule_UnencryptedOpenSSHNotIntercepted(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// An unencrypted OpenSSH key has cipher "none".
+	// Build: magic "openssh-key-v1\x00" (15 bytes) + uint32(4) + "none"
+	noCipher := "none"
+	raw := make([]byte, 0, 15+4+len(noCipher))
+	raw = append(raw, []byte("openssh-key-v1\x00")...)
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(len(noCipher)))
+	raw = append(raw, lenBuf...)
+	raw = append(raw, []byte(noCipher)...)
+
+	keyContent := "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
+		base64.StdEncoding.EncodeToString(raw) + "\n" +
+		"-----END OPENSSH PRIVATE KEY-----\n"
+
+	keyFile := filepath.Join(tmpDir, "unencrypted.key")
+	err := os.WriteFile(keyFile, []byte(keyContent), 0600)
+	require.NoError(t, err)
+
+	m := NewKeyModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	// Should still produce a finding (via existing detectPEMKey path) but NOT as encrypted.
+	require.Len(t, collected, 1)
+	assert.NotContains(t, collected[0].CryptoAsset.Function, "encrypted",
+		"unencrypted OpenSSH key should not be classified as encrypted")
 }
 
 func TestDetectPEMKey_ExtractsPublicKeyByType(t *testing.T) {

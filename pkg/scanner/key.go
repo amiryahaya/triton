@@ -1,13 +1,16 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	stdcrypto "crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/pem"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -158,6 +161,11 @@ func (m *KeyModule) parseKeyFile(ctx context.Context, reader fsadapter.FileReade
 	}
 
 	content := string(data)
+
+	// Check for encrypted keys first — report even though we can't parse contents.
+	if finding := m.detectEncryptedKeyFinding(data, content, path); finding != nil {
+		return finding, nil
+	}
 
 	// Try PEM-based key detection first
 	keyType, algorithm, keySize, pubKey := m.detectPEMKey(data, content)
@@ -339,4 +347,138 @@ func (m *KeyModule) detectSSHPublicKey(content string) (keyType, algorithm strin
 		}
 	}
 	return "", "", 0
+}
+
+// opensshKeyMagic is the 15-byte null-terminated magic string at the start
+// of every OpenSSH private key blob (RFC draft-miller-ssh-agent).
+const opensshKeyMagic = "openssh-key-v1\x00"
+
+// detectEncryptedKeyFinding inspects raw key file bytes and PEM content to
+// identify password-protected private keys that cannot be parsed in plaintext.
+// It recognises three formats:
+//
+//  1. RFC 1423 / OpenSSL legacy: BEGIN RSA/EC/DSA PRIVATE KEY with
+//     Proc-Type: 4,ENCRYPTED + DEK-Info: <cipher>,<iv> headers.
+//  2. PKCS#8 encrypted wrapper: BEGIN ENCRYPTED PRIVATE KEY.
+//  3. OpenSSH private key with a cipher other than "none".
+//
+// Returns a *model.Finding ready to emit, or nil if the file is not a
+// recognisably-encrypted private key (falls through to normal parsing).
+func (m *KeyModule) detectEncryptedKeyFinding(data []byte, _, path string) *model.Finding {
+	block, _ := pem.Decode(data)
+
+	// ── 1. RFC 1423 legacy encrypted PEM (Proc-Type / DEK-Info headers) ──
+	if block != nil && block.Headers != nil {
+		if block.Headers["Proc-Type"] == "4,ENCRYPTED" {
+			cipher := ""
+			if dekInfo, ok := block.Headers["DEK-Info"]; ok {
+				if idx := strings.Index(dekInfo, ","); idx != -1 {
+					cipher = dekInfo[:idx]
+				} else {
+					cipher = dekInfo
+				}
+			}
+			// Determine algorithm from PEM block type.
+			algo := "Unknown"
+			switch block.Type {
+			case "RSA PRIVATE KEY":
+				algo = "RSA"
+			case "EC PRIVATE KEY":
+				algo = "ECDSA"
+			case "DSA PRIVATE KEY":
+				algo = "DSA"
+			}
+			purpose := "encrypted private key"
+			if cipher != "" {
+				purpose = fmt.Sprintf("encrypted private key (%s)", cipher)
+			}
+			asset := &model.CryptoAsset{
+				ID:        uuid.Must(uuid.NewV7()).String(),
+				Function:  "encrypted-private",
+				Algorithm: algo,
+				KeySize:   0,
+				Purpose:   purpose,
+			}
+			crypto.ClassifyCryptoAsset(asset)
+			return &model.Finding{
+				ID:          uuid.Must(uuid.NewV7()).String(),
+				Category:    5,
+				Source:      model.FindingSource{Type: "file", Path: path},
+				CryptoAsset: asset,
+				Confidence:  0.85,
+				Module:      "keys",
+				Timestamp:   time.Now(),
+			}
+		}
+	}
+
+	// ── 2. PKCS#8 encrypted wrapper ──
+	if block != nil && block.Type == "ENCRYPTED PRIVATE KEY" {
+		asset := &model.CryptoAsset{
+			ID:        uuid.Must(uuid.NewV7()).String(),
+			Function:  "encrypted-private (PKCS#8)",
+			Algorithm: "Unknown",
+			KeySize:   0,
+			Purpose:   "encrypted private key (PKCS#8)",
+		}
+		crypto.ClassifyCryptoAsset(asset)
+		return &model.Finding{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			Category:    5,
+			Source:      model.FindingSource{Type: "file", Path: path},
+			CryptoAsset: asset,
+			Confidence:  0.85,
+			Module:      "keys",
+			Timestamp:   time.Now(),
+		}
+	}
+
+	// ── 3. OpenSSH private key — check embedded cipher field ──
+	if block != nil && block.Type == "OPENSSH PRIVATE KEY" {
+		cipher := detectOpenSSHCipher(block.Bytes)
+		if cipher != "" && cipher != "none" {
+			purpose := fmt.Sprintf("encrypted private key (OpenSSH, %s)", cipher)
+			asset := &model.CryptoAsset{
+				ID:        uuid.Must(uuid.NewV7()).String(),
+				Function:  "encrypted-private",
+				Algorithm: "Unknown",
+				KeySize:   0,
+				Purpose:   purpose,
+			}
+			crypto.ClassifyCryptoAsset(asset)
+			return &model.Finding{
+				ID:          uuid.Must(uuid.NewV7()).String(),
+				Category:    5,
+				Source:      model.FindingSource{Type: "file", Path: path},
+				CryptoAsset: asset,
+				Confidence:  0.85,
+				Module:      "keys",
+				Timestamp:   time.Now(),
+			}
+		}
+	}
+
+	return nil
+}
+
+// detectOpenSSHCipher parses the raw DER bytes of an OpenSSH private key block
+// (after PEM decode) to extract the cipher name string. The format starts with
+// the 15-byte magic "openssh-key-v1\x00" followed by a length-prefixed string
+// for the cipher name. Returns "" if the blob is too short or malformed.
+func detectOpenSSHCipher(der []byte) string {
+	magic := []byte(opensshKeyMagic)
+	if len(der) < len(magic)+4 {
+		return ""
+	}
+	if !bytes.Equal(der[:len(magic)], magic) {
+		return ""
+	}
+	offset := len(magic)
+	rawLen := binary.BigEndian.Uint32(der[offset : offset+4])
+	offset += 4
+	// Guard against overflow on 32-bit platforms and unreasonably long names.
+	if rawLen > 64 || offset+int(rawLen) > len(der) {
+		return ""
+	}
+	return string(der[offset : offset+int(rawLen)])
 }

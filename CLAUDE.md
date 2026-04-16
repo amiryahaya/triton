@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Triton is an enterprise-grade Go CLI + server tool that scans systems for cryptographic assets and generates SBOM/CBOM reports for Malaysian government PQC (Post-Quantum Cryptography) compliance assessment. It has 30 scanner modules across 6 target types, REST API server with PostgreSQL storage, policy engine, web UI dashboard, and multi-format report generation.
+Triton is an enterprise-grade Go CLI + server tool that scans systems for cryptographic assets and generates SBOM/CBOM reports for Malaysian government PQC (Post-Quantum Cryptography) compliance assessment. It has 51 scanner modules across 6 target types, REST API server with PostgreSQL storage, policy engine, web UI dashboard, and multi-format report generation.
 
 ## Build & Development Commands
 
@@ -55,7 +55,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
 ### Key packages
 
 - **`cmd/`** — Cobra root command with BubbleTea progress UI
-- **`pkg/scanner/`** — Core scanning engine and 30 modules
+- **`pkg/scanner/`** — Core scanning engine and 51 modules
   - `engine.go` — Orchestrator: manages concurrent module execution using goroutines with semaphore pattern, collects findings via channels
   - `certificate.go`, `key.go` — Certificates and keys (Category 5)
   - `library.go`, `binary.go`, `kernel.go` — Libraries, binaries, kernel modules (Categories 2-4)
@@ -71,6 +71,7 @@ CLI Command → Config Loading → Scanner Engine → [Modules] → PQC Classifi
   - `ebpf_trace.go` — eBPF runtime crypto tracer: uprobes on libcrypto/gnutls/nss + kprobes on kernel crypto API, observation-window scan; Linux-only (emits skipped-finding on other OS); comprehensive profile + Pro+ tier; requires root/CAP_BPF + kernel ≥ 5.8 + BTF
   - `tpm.go` — TPM 2.0 attestation analyzer: parses /sys/class/tpm sysfs + TCG PFP measured-boot log, classifies firmware against CVE registry (Infineon ROCA, Intel PTT, STMicro ST33), reuses `crypto.ClassifyCryptoAsset` + `keyquality.Analyze` for the endorsement-key certificate; Linux-only (emits skipped-finding on other OS); comprehensive profile + Pro+ tier
   - `uefi.go` — UEFI Secure Boot key inventory: parses /sys/firmware/efi/efivars/ for PK/KEK/db certs + dbx revocation list, classifies per-cert algorithm + key quality, checks dbx for missing CVE revocations (BlackLotus CVE-2023-24932, BootHole CVE-2020-10713, Baton Drop CVE-2022-21894); Linux-only (emits skipped-finding on other OS); comprehensive profile + Pro+ tier
+  - `archive.go` — Archive extraction scanner: JAR/WAR/EAR/ZIP/TAR with 2-level nesting, zip bomb protection; delegates cert/key parsing to existing modules
 - **`pkg/crypto/`** — PQC algorithm registry and classification (SAFE/TRANSITIONAL/DEPRECATED/UNSAFE)
   - `tls_groups.go` — IANA TLS named group registry with hybrid PQC classification (composite ML-KEM + classical ECDHE groups, draft Kyber hybrids, pure PQ KEMs)
   - `java_algorithms.go` — Java crypto literal registry (~80 entries)
@@ -101,8 +102,8 @@ type Module interface {
 ### Scan profiles
 
 - **quick** — certificates, keys, packages; depth 3; 4 workers
-- **standard** — certificates, keys, packages, libraries, binaries, scripts, webapp, configs, containers, certstore, database, deps; depth 10; 8 workers
-- **comprehensive** — all 30 modules (including `asn1_oid` ASN.1 OID byte scanner and `java_bytecode` Java JAR/class scanner); unlimited depth; 16 workers
+- **standard** — certificates, keys, packages, libraries, binaries, scripts, webapp, configs, containers, certstore, database, deps, archive; depth 10; 8 workers
+- **comprehensive** — all 51 modules (including `asn1_oid` ASN.1 OID byte scanner, `java_bytecode` Java JAR/class scanner, and `archive` archive extraction scanner); unlimited depth; 16 workers
 
 Worker count is capped by CPU count.
 

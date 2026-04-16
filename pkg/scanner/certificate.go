@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	gopkcs7 "go.mozilla.org/pkcs7"
 	"software.sslmate.com/src/go-pkcs12"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
@@ -135,6 +136,11 @@ func (m *CertificateModule) parseCertificateFile(ctx context.Context, reader fsa
 		return m.parseJKS(data)
 	}
 
+	// PKCS#7 / CMS (.p7b, .p7c) — may contain certificate chains
+	if ext == ".p7b" || ext == ".p7c" {
+		return m.parsePKCS7(data)
+	}
+
 	var certs []*x509.Certificate
 
 	// Try PEM format
@@ -238,6 +244,23 @@ func (m *CertificateModule) parseJKS(data []byte) ([]*x509.Certificate, error) {
 
 func isJKSMagic(b []byte) bool {
 	return len(b) >= 4 && binary.BigEndian.Uint32(b) == 0xFEEDFEED
+}
+
+// parsePKCS7 parses a PKCS#7/CMS SignedData bundle (.p7b, .p7c) and returns
+// all embedded certificates. Accepts both PEM-wrapped and raw DER input.
+func (m *CertificateModule) parsePKCS7(data []byte) ([]*x509.Certificate, error) {
+	// Try PEM unwrap first (some .p7b files are PEM-armored)
+	if block, _ := pem.Decode(data); block != nil {
+		data = block.Bytes
+	}
+	p7, err := gopkcs7.Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	if len(p7.Certificates) == 0 {
+		return nil, fmt.Errorf("PKCS#7 contains no certificates")
+	}
+	return p7.Certificates, nil
 }
 
 func (m *CertificateModule) createFinding(path string, cert *x509.Certificate) *model.Finding {

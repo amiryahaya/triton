@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gopkcs7 "go.mozilla.org/pkcs7"
 	"software.sslmate.com/src/go-pkcs12"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
@@ -957,6 +958,93 @@ func TestParsePKCS12_FailOpen(t *testing.T) {
 	assert.Contains(t, finding.CryptoAsset.Purpose, "password-protected")
 	assert.Equal(t, 0.50, finding.Confidence)
 	assert.Equal(t, 5, finding.Category)
+}
+
+func TestParsePKCS7_MultiCertChain(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	// Generate CA key + cert (ECDSA P-256, self-signed CA)
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(caDER)
+	require.NoError(t, err)
+
+	// Generate leaf key + cert (ECDSA P-256, signed by CA)
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "test-leaf"},
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	// Build DER-encoded PKCS#7 SignedData (certs-only degenerate bundle)
+	// using go.mozilla.org/pkcs7's DegenerateCertificate builder
+	p7bData, err := buildDegenerateP7B(caDER, leafDER)
+	require.NoError(t, err)
+
+	p7bFile := filepath.Join(tmpDir, "chain.p7b")
+	err = os.WriteFile(p7bFile, p7bData, 0644)
+	require.NoError(t, err)
+
+	// Scan the temp dir
+	m := NewCertificateModule(&scannerconfig.Config{})
+	findings := make(chan *model.Finding, 10)
+	target := model.ScanTarget{Type: model.TargetFilesystem, Value: tmpDir, Depth: 1}
+
+	err = m.Scan(context.Background(), target, findings)
+	require.NoError(t, err)
+	close(findings)
+
+	var collected []*model.Finding
+	for f := range findings {
+		collected = append(collected, f)
+	}
+
+	require.Len(t, collected, 2, "PKCS#7 bundle with 2 certs should produce 2 findings")
+
+	// Verify both subjects are present
+	subjects := make(map[string]bool)
+	for _, f := range collected {
+		require.NotNil(t, f.CryptoAsset)
+		subjects[f.CryptoAsset.Subject] = true
+		assert.Equal(t, 5, f.Category)
+		assert.Equal(t, "certificates", f.Module)
+		assert.Equal(t, 0.95, f.Confidence)
+	}
+	assert.True(t, subjects["CN=test-ca"], "CA cert finding should be present")
+	assert.True(t, subjects["CN=test-leaf"], "leaf cert finding should be present")
+}
+
+// buildDegenerateP7B constructs a DER-encoded PKCS#7 SignedData (certs-only,
+// no signers) containing the given certificate DER blobs.
+// It uses go.mozilla.org/pkcs7's DegenerateCertificate which accepts a
+// concatenated DER byte slice (certificate chain).
+func buildDegenerateP7B(certDERs ...[]byte) ([]byte, error) {
+	var chain []byte
+	for _, der := range certDERs {
+		chain = append(chain, der...)
+	}
+	return gopkcs7.DegenerateCertificate(chain)
 }
 
 func TestCertificateFinding_SurfacesQualityWarnings(t *testing.T) {

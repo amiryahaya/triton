@@ -496,3 +496,45 @@ func TestGenerateHTML_QualityWarningEscaped(t *testing.T) {
 		t.Error("expected escaped form &lt;script&gt; in HTML output")
 	}
 }
+
+func TestGenerateHTML_SurfacesJA3Fingerprint(t *testing.T) {
+	tmpFile := t.TempDir() + "/ja3.html"
+	g := New("")
+	result := &model.ScanResult{
+		ID: "ja3-scan",
+		Metadata: model.ScanMetadata{
+			Timestamp:   time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC),
+			Hostname:    "host",
+			ScanProfile: "comprehensive",
+		},
+		Systems: []model.System{
+			{
+				ID:               "sys-tls",
+				Name:             "TLS Observer",
+				CriticalityLevel: "Tinggi",
+				InUse:            true,
+				CryptoAssets: []model.CryptoAsset{
+					{
+						Algorithm:      "TLS_AES_128_GCM_SHA256",
+						Function:       "TLS cipher suite",
+						KeySize:        128,
+						PQCStatus:      "SAFE",
+						JA3Fingerprint: "e7d705a3286e19ea42f587b344ee6865",
+						JA4Fingerprint: "t13d1516h2_8daaf6152771_b186095e22b6",
+					},
+				},
+				CBOMRefs: []string{"CBOM #1"},
+			},
+		},
+	}
+
+	require.NoError(t, g.GenerateHTML(result, tmpFile))
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	out := string(content)
+
+	assert.Contains(t, out, "JA3")
+	assert.Contains(t, out, "e7d705a3286e19ea42f587b344ee6865")
+	assert.Contains(t, out, "JA4")
+	assert.Contains(t, out, "t13d1516h2_8daaf6152771_b186095e22b6")
+}

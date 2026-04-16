@@ -10,6 +10,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/google/go-containerregistry v0.21.5
+	github.com/google/gopacket v1.1.19
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/johnfercher/maroto/v2 v2.3.3

@@ -169,6 +169,10 @@ var defaultModuleFactories = []func(*scannerconfig.Config) Module{
 	func(c *scannerconfig.Config) Module { return NewTPMModule(c) },
 	func(c *scannerconfig.Config) Module { return NewUEFIModule(c) },
 	func(c *scannerconfig.Config) Module { return NewArchiveModule(c) },
+	func(c *scannerconfig.Config) Module { return NewTLSObserverModule(c) },
+	func(c *scannerconfig.Config) Module { return NewFTPSModule(c) },
+	func(c *scannerconfig.Config) Module { return NewSSHCertModule(c) },
+	func(c *scannerconfig.Config) Module { return NewLDIFModule(c) },
 }
 
 // RegisterDefaultModules registers every factory in defaultModuleFactories.

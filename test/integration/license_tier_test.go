@@ -71,9 +71,9 @@ func TestLicenseTier_FreeTierFilterConfig(t *testing.T) {
 	// Free tier downgrades to quick
 	assert.Equal(t, "quick", cfg.Profile)
 
-	// Free tier allows only 3 modules
-	assert.Len(t, cfg.Modules, 3)
-	expected := map[string]bool{"certificates": true, "keys": true, "packages": true}
+	// Free tier allows only 4 modules (certificates, keys, packages, ldif)
+	assert.Len(t, cfg.Modules, 4)
+	expected := map[string]bool{"certificates": true, "keys": true, "packages": true, "ldif": true}
 	for _, m := range cfg.Modules {
 		assert.True(t, expected[m], "unexpected module for free tier: %s", m)
 	}
@@ -242,7 +242,7 @@ func TestLicenseTier_ExpiredTokenDegradesToFree(t *testing.T) {
 	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "quick", cfg.Profile)
-	assert.Len(t, cfg.Modules, 3)
+	assert.Len(t, cfg.Modules, 4)
 }
 
 // --- Test 7: Tampered token degrades to free ---
@@ -539,7 +539,7 @@ func TestLicenseTier_MachineMismatchDegradesToFreePipeline(t *testing.T) {
 	guard.FilterConfig(cfg)
 
 	assert.Equal(t, "quick", cfg.Profile, "degraded guard should force quick profile")
-	assert.Len(t, cfg.Modules, 3, "degraded guard should restrict to 3 modules")
+	assert.Len(t, cfg.Modules, 4, "degraded guard should restrict to free-tier modules (certificates, keys, packages, ldif)")
 	assert.Empty(t, cfg.DBUrl, "degraded guard should clear DBUrl")
 
 	// Enterprise features should be blocked

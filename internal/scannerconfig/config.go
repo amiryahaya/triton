@@ -24,8 +24,9 @@ type Config struct {
 	DBUrl           string
 	Incremental     bool
 	Credentials     ScanCredentials
-	K8sNamespace    string   // namespace filter for k8s_live; empty means all namespaces
-	DNSSECZones     []string // zones to query via dig for active DNSSEC probing
+	K8sNamespace      string   // namespace filter for k8s_live; empty means all namespaces
+	DNSSECZones       []string // zones to query via dig for active DNSSEC probing
+	KeystorePasswords []string // user-supplied passwords for PKCS#12/JKS/JCEKS containers
 
 	// eBPF trace settings (consumed by ebpf_trace module on Linux).
 	// Defaults populated by Load() for the comprehensive profile only.

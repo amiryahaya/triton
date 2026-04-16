@@ -11,17 +11,35 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/amiryahaya/triton/pkg/server/jobqueue"
 )
 
 // PostgresStore implements Store against a pgx connection pool.
-// The caller owns the pool's lifetime.
+// The caller owns the pool's lifetime. Queue operations (claim,
+// finish, cancel, reclaim) are delegated to the embedded
+// jobqueue.Queue; domain-specific enrichment (candidate_count,
+// full Job hydration) remains here.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	queue *jobqueue.Queue
 }
 
-// NewPostgresStore wraps a pool.
+// NewPostgresStore wraps a pool and constructs the generic job queue
+// for discovery_jobs.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
-	return &PostgresStore{pool: pool}
+	q := jobqueue.New(pool, jobqueue.Config{
+		Table:             "discovery_jobs",
+		EngineIDColumn:    "engine_id",
+		StatusColumn:      "status",
+		ClaimedAtColumn:   "claimed_at",
+		RequestedAtColumn: "requested_at",
+		CompletedAtColumn: "completed_at",
+		QueuedStatus:      "queued",
+		ClaimedStatus:     "claimed",
+		TerminalStatuses:  []string{"completed", "failed", "cancelled"},
+	})
+	return &PostgresStore{pool: pool, queue: q}
 }
 
 // jobSelectCols matches the column order expected by scanJob. Ports are
@@ -159,73 +177,32 @@ func (s *PostgresStore) MarkCandidatesPromoted(ctx context.Context, ids []uuid.U
 }
 
 func (s *PostgresStore) CancelJob(ctx context.Context, orgID, id uuid.UUID) error {
-	ct, err := s.pool.Exec(ctx,
-		`UPDATE discovery_jobs
-		 SET status = 'cancelled', completed_at = NOW()
-		 WHERE org_id = $1 AND id = $2 AND status = 'queued'`,
-		orgID, id,
-	)
-	if err != nil {
-		return fmt.Errorf("cancel discovery job: %w", err)
+	err := s.queue.Cancel(ctx, orgID, id)
+	switch {
+	case errors.Is(err, jobqueue.ErrNotFound):
+		return fmt.Errorf("%w: %s in org %s", ErrJobNotFound, id, orgID)
+	case errors.Is(err, jobqueue.ErrNotCancellable):
+		return fmt.Errorf("%w: job is past queued", ErrJobNotCancellable)
+	default:
+		return err
 	}
-	if ct.RowsAffected() == 0 {
-		// Distinguish "doesn't exist" from "exists but past queued" so
-		// callers can return 404 vs 409. One extra round trip; this
-		// path is operator-initiated and rare.
-		var status string
-		err := s.pool.QueryRow(ctx,
-			`SELECT status FROM discovery_jobs WHERE org_id = $1 AND id = $2`,
-			orgID, id,
-		).Scan(&status)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: %s in org %s", ErrJobNotFound, id, orgID)
-		}
-		if err != nil {
-			return fmt.Errorf("cancel discovery job: %w", err)
-		}
-		return fmt.Errorf("%w: job is %s", ErrJobNotCancellable, status)
-	}
-	return nil
 }
 
 func (s *PostgresStore) ClaimNext(ctx context.Context, engineID uuid.UUID) (Job, bool, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return Job{}, false, fmt.Errorf("claim next: begin tx: %w", err)
+	id, found, err := s.queue.ClaimNextID(ctx, engineID)
+	if !found || err != nil {
+		return Job{}, false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	row := tx.QueryRow(ctx,
-		`SELECT `+jobSelectCols+`
-		 FROM discovery_jobs
-		 WHERE engine_id = $1 AND status = 'queued'
-		 ORDER BY requested_at ASC
-		 FOR UPDATE SKIP LOCKED
-		 LIMIT 1`,
-		engineID,
+	// Enrich the claimed row into a full Job. The row is already
+	// claimed (status='claimed', claimed_at=NOW()) so a plain SELECT
+	// is safe — no concurrent mutation risk.
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+jobSelectCols+` FROM discovery_jobs WHERE id = $1`, id,
 	)
 	j, err := scanJob(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Job{}, false, nil
-		}
-		return Job{}, false, fmt.Errorf("claim next: select: %w", err)
+		return Job{}, false, fmt.Errorf("enrich claimed discovery job: %w", err)
 	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE discovery_jobs SET status = 'claimed', claimed_at = NOW()
-		 WHERE id = $1`,
-		j.ID,
-	); err != nil {
-		return Job{}, false, fmt.Errorf("claim next: update: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Job{}, false, fmt.Errorf("claim next: commit: %w", err)
-	}
-
-	j.Status = StatusClaimed
-	now := time.Now().UTC()
-	j.ClaimedAt = &now
 	return j, true, nil
 }
 
@@ -300,22 +277,10 @@ func (s *PostgresStore) FinishJob(ctx context.Context, jobID uuid.UUID, status J
 }
 
 // ReclaimStale resets jobs that were claimed or running but whose
-// claimed_at timestamp is older than cutoff. Jobs with NULL claimed_at
-// are left alone. Safe to call on an idle table — a WHERE with no
-// matches is a no-op.
+// claimed_at timestamp is older than cutoff. Delegates to the
+// generic jobqueue.Queue implementation.
 func (s *PostgresStore) ReclaimStale(ctx context.Context, cutoff time.Time) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE discovery_jobs
-		 SET status = 'queued', claimed_at = NULL
-		 WHERE status IN ('claimed', 'running')
-		   AND claimed_at IS NOT NULL
-		   AND claimed_at < $1`,
-		cutoff,
-	)
-	if err != nil {
-		return fmt.Errorf("reclaim stale discovery jobs: %w", err)
-	}
-	return nil
+	return s.queue.ReclaimStale(ctx, cutoff)
 }
 
 // parseINET strips the /32 or /128 CIDR suffix pgx appends when an INET

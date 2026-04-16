@@ -25,6 +25,7 @@ import (
 	discoverypkg "github.com/amiryahaya/triton/pkg/server/discovery"
 	enginepkg "github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/inventory"
+	"github.com/amiryahaya/triton/pkg/server/jobqueue"
 	scanjobspkg "github.com/amiryahaya/triton/pkg/server/scanjobs"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -321,7 +322,7 @@ func runServer(_ *cobra.Command, _ []string) error {
 	// the partial index on status='queued' makes that job invisible to
 	// ClaimNext forever. The reaper flips claims older than 15m back to
 	// queued so another engine (or a retrying engine) can pick them up.
-	go (&discoverypkg.StaleReaper{Store: discoveryStore}).Run(srv.Context())
+	go (&jobqueue.StaleReaper{Reclaimer: discoveryStore, Label: "discovery"}).Run(srv.Context())
 
 	// Credentials stale-queue reaper. Same partial-index constraint as
 	// discovery — claimed or running rows never get re-picked unless we

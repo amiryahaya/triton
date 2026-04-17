@@ -16,7 +16,8 @@
 //     signal differences (SIGTERM on unix vs GenerateConsoleCtrlEvent on
 //     windows).
 //
-//   - File locks use flock on unix and LockFileEx on windows. The lock is
-//     held by the daemon for its lifetime; observing an unheld lock is how
-//     stale-job detection works.
+//   - File locks use flock on unix and LockFileEx on windows. The lock
+//     prevents concurrent daemon instances for the same job; stale-job
+//     detection uses kill(pid, 0) (via os.Process.Signal) to check
+//     daemon liveness.
 package jobrunner

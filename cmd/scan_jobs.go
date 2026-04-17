@@ -35,51 +35,6 @@ import (
 // no progress event has arrived. 2 seconds balances freshness and I/O.
 const statusWriteInterval = 2 * time.Second
 
-// writeStatusLoop drains progressCh, updating status.json atomically on
-// every progress event (bounded to statusWriteInterval by ticker if
-// progress events are absent). Returns when progressCh closes or ctx ends.
-//
-// scanner.Progress does not carry a dedicated Module field today; the
-// Status string is the module/phase label that the engine emits (e.g.
-// "certificate", "library"), so we use it as the source for
-// Status.CurrentModule.
-func writeStatusLoop(ctx context.Context, jobDir string, progressCh <-chan scanner.Progress) {
-	ticker := time.NewTicker(statusWriteInterval)
-	defer ticker.Stop()
-
-	current, err := jobrunner.ReadStatus(jobDir)
-	if err != nil {
-		current = jobrunner.InitialStatus("unknown", 0, "", "", "")
-	}
-
-	flush := func() {
-		current.RSSMB = currentRSSMB()
-		_ = jobrunner.WriteStatusAtomic(jobDir, current)
-	}
-
-	for {
-		select {
-		case p, ok := <-progressCh:
-			if !ok {
-				flush()
-				return
-			}
-			applyProgress(current, p)
-			fmt.Printf("[%3.0f%%] %s\n", p.Percent*100, p.Status)
-			if p.Complete {
-				flush()
-				return
-			}
-			flush()
-		case <-ticker.C:
-			flush()
-		case <-ctx.Done():
-			flush()
-			return
-		}
-	}
-}
-
 // applyProgress merges a Progress event into the Status in place.
 func applyProgress(s *jobrunner.Status, p scanner.Progress) {
 	s.ProgressPct = p.Percent * 100
@@ -680,23 +635,37 @@ func writeCollectedFile(src, out string, keep bool, jobDir string) error {
 }
 
 func writeCollectedTar(reportsDir, out string, keep bool, jobDir string) error {
+	// D5: write via a tempfile and rename on success so a walk failure
+	// never leaves a corrupt/zero-byte .tar.gz on disk.
 	var w io.Writer
+	var tmpFile *os.File
+	var tmpPath string
 	if out == "" || out == "-" {
 		w = os.Stdout
 	} else {
-		f, err := os.Create(out)
+		dir := filepath.Dir(out)
+		tmp, err := os.CreateTemp(dir, "."+filepath.Base(out)+".tmp-*")
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		w = f
+		tmpFile = tmp
+		tmpPath = tmp.Name()
+		w = tmp
 	}
-	gz := gzip.NewWriter(w)
-	defer gz.Close()
-	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	defer func() {
+		// If tmpPath is non-empty here, rename did not succeed; clean up.
+		if tmpPath != "" {
+			if tmpFile != nil {
+				_ = tmpFile.Close()
+			}
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
-	err := filepath.Walk(reportsDir, func(path string, info os.FileInfo, werr error) error {
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+
+	walkErr := filepath.Walk(reportsDir, func(path string, info os.FileInfo, werr error) error {
 		if werr != nil {
 			return werr
 		}
@@ -704,7 +673,13 @@ func writeCollectedTar(reportsDir, out string, keep bool, jobDir string) error {
 			return nil
 		}
 		rel, _ := filepath.Rel(reportsDir, path)
-		hdr, _ := tar.FileInfoHeader(info, "")
+		// D6: surface tar.FileInfoHeader errors (symlinks, ownership
+		// lookup failures) instead of silently writing a zero-value
+		// header that would panic on WriteHeader.
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
 		hdr.Name = rel
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
@@ -717,8 +692,28 @@ func writeCollectedTar(reportsDir, out string, keep bool, jobDir string) error {
 		_, err = io.Copy(tw, f)
 		return err
 	})
+
+	// Close writers in reverse order so the gzip trailer lands before
+	// we commit the tempfile. Preserve the first error encountered.
+	err := walkErr
+	if cerr := tw.Close(); err == nil {
+		err = cerr
+	}
+	if cerr := gz.Close(); err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return err
+	}
+
+	if tmpPath != "" {
+		if cerr := tmpFile.Close(); cerr != nil {
+			return cerr
+		}
+		if err := os.Rename(tmpPath, out); err != nil {
+			return err
+		}
+		tmpPath = "" // prevent the deferred cleanup from removing the output
 	}
 	if !keep {
 		return os.RemoveAll(jobDir)

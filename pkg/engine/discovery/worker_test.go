@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"os/exec"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -68,6 +70,13 @@ func newSignalClient() *fakeClient {
 }
 
 func TestWorker_ScansAndSubmits(t *testing.T) {
+	if _, err := exec.LookPath("nmap"); err != nil {
+		t.Skip("nmap not installed; skipping real-scanner integration test")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("nmap SYN scan requires root; skipping real-scanner integration test")
+	}
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)

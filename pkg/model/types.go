@@ -48,10 +48,11 @@ type QualityWarning struct {
 
 // PolicyViolation holds a single policy rule violation for report rendering.
 type PolicyViolation struct {
-	RuleID   string `json:"ruleID"`
-	Severity string `json:"severity"`
-	Action   string `json:"action"`
-	Message  string `json:"message"`
+	RuleID    string `json:"ruleID"`
+	Severity  string `json:"severity"`
+	Action    string `json:"action"`
+	Message   string `json:"message"`
+	RiskLevel string `json:"riskLevel,omitempty"`
 }
 
 // PolicyThresholdViolation holds a threshold violation for report rendering.
@@ -80,6 +81,34 @@ type PolicyEvaluationResult struct {
 	RulesEvaluated      int                        `json:"rulesEvaluated"`
 	FindingsChecked     int                        `json:"findingsChecked"`
 	SystemEvaluations   []PolicySystemEvaluation   `json:"systemEvaluations,omitempty"`
+	RiskSummary         *RiskSummary               `json:"riskSummary,omitempty"`
+	ExemptionsApplied   []ExemptionApplied         `json:"exemptionsApplied,omitempty"`
+	ExemptionsExpired   []ExemptionExpired         `json:"exemptionsExpired,omitempty"`
+}
+
+// RiskSummary holds counts of violations by risk level.
+type RiskSummary struct {
+	Critical int `json:"critical"`
+	High     int `json:"high"`
+	Medium   int `json:"medium"`
+	Low      int `json:"low"`
+}
+
+// ExemptionApplied records an exemption that suppressed one or more violations.
+type ExemptionApplied struct {
+	Reason       string `json:"reason"`
+	Expires      string `json:"expires,omitempty"`
+	ApprovedBy   string `json:"approvedBy,omitempty"`
+	FindingCount int    `json:"findingCount"`
+	Algorithm    string `json:"algorithm,omitempty"`
+	Location     string `json:"location,omitempty"`
+}
+
+// ExemptionExpired records an exemption whose expiry date has passed.
+type ExemptionExpired struct {
+	Algorithm string `json:"algorithm"`
+	Location  string `json:"location,omitempty"`
+	ExpiredOn string `json:"expiredOn"`
 }
 
 // ScanResult is the top-level container for all scan output.

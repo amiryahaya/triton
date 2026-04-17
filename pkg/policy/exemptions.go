@@ -41,7 +41,7 @@ type Exemption struct {
 	Issuer       string `yaml:"issuer,omitempty"`
 
 	// Common fields
-	Reason     string `yaml:"reason"`          // required
+	Reason     string `yaml:"reason"`            // required
 	Expires    string `yaml:"expires,omitempty"` // YYYY-MM-DD; absent = never expires
 	ApprovedBy string `yaml:"approved_by,omitempty"`
 }
@@ -55,7 +55,8 @@ func ParseExemptions(data []byte) (*ExemptionList, error) {
 	if el.Version == "" {
 		return nil, fmt.Errorf("exemptions file missing required 'version' field")
 	}
-	for i, e := range el.Exemptions {
+	for i := range el.Exemptions {
+		e := &el.Exemptions[i]
 		if e.Reason == "" {
 			return nil, fmt.Errorf("exemption[%d]: missing required 'reason' field", i)
 		}
@@ -79,7 +80,7 @@ func LoadExemptionsFile(path string) (*ExemptionList, error) {
 // IsExempt reports whether finding f is covered by any active (non-expired) exemption.
 // It returns (true, index) when matched, or (false, -1) when not matched.
 // Safe to call on a nil *ExemptionList.
-func (el *ExemptionList) IsExempt(f *model.Finding, now time.Time) (bool, int) {
+func (el *ExemptionList) IsExempt(f *model.Finding, now time.Time) (exempt bool, idx int) {
 	if el == nil {
 		return false, -1
 	}
@@ -150,7 +151,8 @@ func (el *ExemptionList) ExpiredExemptions(now time.Time) []model.ExemptionExpir
 		return nil
 	}
 	var out []model.ExemptionExpired
-	for _, e := range el.Exemptions {
+	for i := range el.Exemptions {
+		e := &el.Exemptions[i]
 		if e.Expires == "" {
 			continue
 		}

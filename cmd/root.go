@@ -38,22 +38,22 @@ var ErrPolicyFail = errors.New("policy evaluation failed")
 const progressBufferSize = 16
 
 var (
-	cfgFile          string
-	outputDir        string
-	outputFile       string
-	scanProfile      string
-	modules          []string
-	format           string
-	showMetrics      bool
-	dbPath           string
-	incremental      bool
-	scanPolicyArg    string
+	cfgFile           string
+	outputDir         string
+	outputFile        string
+	scanProfile       string
+	modules           []string
+	format            string
+	showMetrics       bool
+	dbPath            string
+	incremental       bool
+	scanPolicyArg     string
 	scanExemptionsArg string
-	licenseKey       string
-	licenseFile      string // --license-file path override (Phase 5 Sprint 3)
-	licenseServerURL string
-	licenseID        string
-	guard            = license.NewGuard("") // safe default, overwritten by PersistentPreRun
+	licenseKey        string
+	licenseFile       string // --license-file path override (Phase 5 Sprint 3)
+	licenseServerURL  string
+	licenseID         string
+	guard             = license.NewGuard("") // safe default, overwritten by PersistentPreRun
 
 	// OCI / Kubernetes scan flags (Wave 0)
 	imageRefs      []string

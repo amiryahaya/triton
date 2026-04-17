@@ -112,6 +112,10 @@ type Module interface {
 
 Worker count is capped by CPU count.
 
+### Resource limits (orthogonal to profile)
+
+The `triton scan` command accepts five resource flags — `--max-memory`, `--max-cpu-percent`, `--max-duration`, `--stop-at`, `--nice` — implemented in `internal/runtime/limits/`. These are in-process limits that work on all platforms without systemd, cgroups, or elevated privileges, so the same flags apply to foreground scans, agent-supervised scans, and ssh-agentless orchestrator invocations. See `internal/runtime/limits/doc.go` for caveats (soft vs hard semantics, platform-specific nice behavior).
+
 ### Licence enforcement
 
 3-tier system (free/pro/enterprise) with Ed25519-signed tokens in `internal/license/`:

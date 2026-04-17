@@ -136,6 +136,37 @@ func TestRemoveAll_OnlyFinished(t *testing.T) {
 	}
 }
 
+func TestRemoveAll_PublicWrapper(t *testing.T) {
+	tmp := t.TempDir()
+	jobDir, _ := EnsureJobDir(tmp, "done")
+	s := InitialStatus("done", 1, "q", "v", "")
+	s.State = StateDone
+	WriteStatusAtomic(jobDir, s)
+
+	n, err := RemoveAll(tmp)
+	if err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("removed = %d, want 1", n)
+	}
+}
+
+func TestRemove_PublicWrapper_Finished(t *testing.T) {
+	tmp := t.TempDir()
+	jobDir, _ := EnsureJobDir(tmp, "done")
+	s := InitialStatus("done", 1, "q", "v", "")
+	s.State = StateDone
+	WriteStatusAtomic(jobDir, s)
+
+	if err := Remove(tmp, "done"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(jobDir); !os.IsNotExist(err) {
+		t.Error("job dir should be removed")
+	}
+}
+
 func TestIsProcessAlive_Self(t *testing.T) {
 	if !IsProcessAlive(os.Getpid()) {
 		t.Error("IsProcessAlive on self should return true")

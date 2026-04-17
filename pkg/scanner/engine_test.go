@@ -54,7 +54,7 @@ func TestRegisterDefaultModules(t *testing.T) {
 	eng := New(testConfig())
 	eng.RegisterDefaultModules()
 
-	// Should register all 55 modules:
+	// Should register all 56 modules:
 	// 19 historical + web_server + vpn + container_signatures
 	// (previous sprint) + password_hash + auth_material (Fast
 	// Wins sprint) + deps_ecosystems + service_mesh + xml_dsig
@@ -67,10 +67,11 @@ func TestRegisterDefaultModules(t *testing.T) {
 	// + enrollment (Wave 3) + fido2 (Wave 4) + blockchain (Wave 4)
 	// + helm_chart (Wave 4) + asn1_oid (comprehensive-only byte scanner)
 	// + java_bytecode (comprehensive-only .class/.jar scanner)
-	// + PCert parity wave 2: tls_observer + ftps + ssh_cert + ldif.
+	// + PCert parity wave 2: tls_observer + ftps + ssh_cert + ldif
+	// + python_ast (Python AST crypto scanner).
 	// certstore Windows/Java cacerts + codesign git verify were
 	// added as extensions, not new modules.
-	assert.Len(t, eng.modules, 55)
+	assert.Len(t, eng.modules, 56)
 
 	names := make(map[string]bool)
 	for _, m := range eng.modules {
@@ -173,6 +174,9 @@ func TestRegisterDefaultModules(t *testing.T) {
 	assert.True(t, names["ftps"])
 	assert.True(t, names["ssh_cert"])
 	assert.True(t, names["ldif"])
+
+	// Python AST scanner.
+	assert.True(t, names["python_ast"])
 }
 
 func TestScanWithNoModules(t *testing.T) {
@@ -612,6 +616,8 @@ func TestRegisterDefaultModules_AllKnownModulesPresent(t *testing.T) {
 		"ftps",
 		"ssh_cert",
 		"ldif",
+		// Python AST scanner
+		"python_ast",
 	}
 
 	for _, name := range expected {

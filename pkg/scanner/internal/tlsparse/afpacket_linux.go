@@ -8,9 +8,9 @@ import (
 	"net"
 	"os"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/afpacket"
-	"github.com/google/gopacket/layers"
+	"github.com/gopacket/gopacket"
+	"github.com/gopacket/gopacket/afpacket"
+	"github.com/gopacket/gopacket/layers"
 )
 
 // AFPacketReader captures live packets from a network interface using

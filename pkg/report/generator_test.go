@@ -538,3 +538,83 @@ func TestGenerateHTML_SurfacesJA3Fingerprint(t *testing.T) {
 	assert.Contains(t, out, "JA4")
 	assert.Contains(t, out, "t13d1516h2_8daaf6152771_b186095e22b6")
 }
+
+func TestGenerateHTML_RiskSummaryBar(t *testing.T) {
+	tmpFile := t.TempDir() + "/risk.html"
+	g := New("")
+	result := sampleScanResult()
+	result.PolicyEvaluation = &model.PolicyEvaluationResult{
+		PolicyName:      "nacsa-2030",
+		Verdict:         "FAIL",
+		RulesEvaluated:  4,
+		FindingsChecked: 10,
+		RiskSummary: &model.RiskSummary{
+			Critical: 3,
+			High:     5,
+			Medium:   2,
+			Low:      1,
+		},
+		Violations: []model.PolicyViolation{
+			{RuleID: "no-unsafe", Action: "fail", Message: "bad"},
+		},
+	}
+
+	require.NoError(t, g.GenerateHTML(result, tmpFile))
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	out := string(content)
+
+	assert.Contains(t, out, "3 Critical")
+	assert.Contains(t, out, "5 High")
+	assert.Contains(t, out, "2 Medium")
+	assert.Contains(t, out, "1 Low")
+}
+
+func TestGenerateHTML_ExemptionsSection(t *testing.T) {
+	tmpFile := t.TempDir() + "/exemptions.html"
+	g := New("")
+	result := sampleScanResult()
+	result.PolicyEvaluation = &model.PolicyEvaluationResult{
+		PolicyName:      "nacsa-2030",
+		Verdict:         "PASS",
+		RulesEvaluated:  4,
+		FindingsChecked: 5,
+		ExemptionsApplied: []model.ExemptionApplied{
+			{Reason: "Legacy HSM, migration Q4", Expires: "2027-01-01", ApprovedBy: "CISO", FindingCount: 2, Algorithm: "SHA-1"},
+		},
+		ExemptionsExpired: []model.ExemptionExpired{
+			{Algorithm: "RC4", ExpiredOn: "2024-06-01"},
+		},
+	}
+
+	require.NoError(t, g.GenerateHTML(result, tmpFile))
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	out := string(content)
+
+	assert.Contains(t, out, "Exemptions Applied")
+	assert.Contains(t, out, "Legacy HSM, migration Q4")
+	assert.Contains(t, out, "Expired Exemptions")
+}
+
+func TestGenerateHTML_RiskBadgeOnViolation(t *testing.T) {
+	tmpFile := t.TempDir() + "/riskbadge.html"
+	g := New("")
+	result := sampleScanResult()
+	result.PolicyEvaluation = &model.PolicyEvaluationResult{
+		PolicyName:      "nacsa-2030",
+		Verdict:         "FAIL",
+		RulesEvaluated:  2,
+		FindingsChecked: 3,
+		Violations: []model.PolicyViolation{
+			{RuleID: "no-unsafe", Action: "fail", Message: "DES found", RiskLevel: "critical"},
+		},
+	}
+
+	require.NoError(t, g.GenerateHTML(result, tmpFile))
+	content, err := os.ReadFile(tmpFile)
+	require.NoError(t, err)
+	out := string(content)
+
+	assert.Contains(t, out, "critical")
+}

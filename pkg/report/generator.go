@@ -370,14 +370,26 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			html.EscapeString(pe.Verdict),
 			pe.RulesEvaluated, pe.FindingsChecked, totalViolations))
 
+		// Risk summary bar
+		if pe.RiskSummary != nil {
+			b.WriteString(`	<div style="margin:10px 0;font-size:0.95em">`)
+			b.WriteString(fmt.Sprintf(`<span style="color:#b71c1c;font-weight:bold">&#9632; %d Critical</span> `, pe.RiskSummary.Critical))
+			b.WriteString(fmt.Sprintf(`<span style="color:#e65100;font-weight:bold">&#9632; %d High</span> `, pe.RiskSummary.High))
+			b.WriteString(fmt.Sprintf(`<span style="color:#f9a825;font-weight:bold">&#9632; %d Medium</span> `, pe.RiskSummary.Medium))
+			b.WriteString(fmt.Sprintf(`<span style="color:#1565c0;font-weight:bold">&#9632; %d Low</span>`, pe.RiskSummary.Low))
+			b.WriteString(`</div>
+`)
+		}
+
 		// Violations by rule table
 		if len(pe.Violations) > 0 {
-			// Aggregate violations by RuleID
+			// Aggregate violations by RuleID, preserving first-seen risk level
 			type ruleAgg struct {
-				ruleID  string
-				action  string
-				count   int
-				message string
+				ruleID    string
+				action    string
+				riskLevel string
+				count     int
+				message   string
 			}
 			aggMap := make(map[string]*ruleAgg)
 			var aggOrder []string
@@ -385,7 +397,13 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 				if a, ok := aggMap[v.RuleID]; ok {
 					a.count++
 				} else {
-					aggMap[v.RuleID] = &ruleAgg{ruleID: v.RuleID, action: v.Action, count: 1, message: v.Message}
+					aggMap[v.RuleID] = &ruleAgg{
+						ruleID:    v.RuleID,
+						action:    v.Action,
+						riskLevel: v.RiskLevel,
+						count:     1,
+						message:   v.Message,
+					}
 					aggOrder = append(aggOrder, v.RuleID)
 				}
 			}
@@ -398,6 +416,7 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 	<table>
 		<tr>
 			<th>Rule ID</th>
+			<th>Risk</th>
 			<th>Action</th>
 			<th>Count</th>
 			<th>Example Message</th>
@@ -411,11 +430,15 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 				}
 				b.WriteString(fmt.Sprintf(`		<tr>
 			<td>%s</td>
+			<td>%s</td>
 			<td class="%s">%s</td>
 			<td>%d</td>
 			<td>%s</td>
 		</tr>
-`, html.EscapeString(a.ruleID), actionClass, html.EscapeString(strings.ToUpper(a.action)), a.count, html.EscapeString(a.message)))
+`, html.EscapeString(a.ruleID),
+					html.EscapeString(a.riskLevel),
+					actionClass, html.EscapeString(strings.ToUpper(a.action)),
+					a.count, html.EscapeString(a.message)))
 			}
 			b.WriteString(`	</table>
 `)
@@ -440,6 +463,61 @@ func (g *Generator) GenerateHTML(result *model.ScanResult, filename string) erro
 			<td>%s</td>
 		</tr>
 `, html.EscapeString(tv.Name), html.EscapeString(tv.Expected), html.EscapeString(tv.Actual), html.EscapeString(tv.Message)))
+			}
+			b.WriteString(`	</table>
+`)
+		}
+
+		// Exemptions Applied table
+		if len(pe.ExemptionsApplied) > 0 {
+			b.WriteString(`	<h3>Exemptions Applied</h3>
+	<table>
+		<tr>
+			<th>Algorithm</th>
+			<th>Reason</th>
+			<th>Expires</th>
+			<th>Approved By</th>
+			<th>Findings Suppressed</th>
+		</tr>
+`)
+			for _, ea := range pe.ExemptionsApplied {
+				b.WriteString(fmt.Sprintf(`		<tr>
+			<td>%s</td>
+			<td>%s</td>
+			<td>%s</td>
+			<td>%s</td>
+			<td>%d</td>
+		</tr>
+`, html.EscapeString(ea.Algorithm),
+					html.EscapeString(ea.Reason),
+					html.EscapeString(ea.Expires),
+					html.EscapeString(ea.ApprovedBy),
+					ea.FindingCount))
+			}
+			b.WriteString(`	</table>
+`)
+		}
+
+		// Expired Exemptions table
+		if len(pe.ExemptionsExpired) > 0 {
+			b.WriteString(`	<h3>Expired Exemptions</h3>
+	<p style="color:#b71c1c">The following exemptions have expired and are no longer suppressing violations:</p>
+	<table>
+		<tr>
+			<th>Algorithm</th>
+			<th>Location</th>
+			<th>Expired On</th>
+		</tr>
+`)
+			for _, ee := range pe.ExemptionsExpired {
+				b.WriteString(fmt.Sprintf(`		<tr>
+			<td>%s</td>
+			<td>%s</td>
+			<td class="status-UNSAFE">%s</td>
+		</tr>
+`, html.EscapeString(ee.Algorithm),
+					html.EscapeString(ee.Location),
+					html.EscapeString(ee.ExpiredOn)))
 			}
 			b.WriteString(`	</table>
 `)

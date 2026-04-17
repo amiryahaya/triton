@@ -148,6 +148,16 @@ func runScanDaemon(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = lock.Release() }()
 
+	// D1: self-report our PID so the parent's initial status (PID=0) is
+	// corrected before any reader observes it. Without this, the status
+	// writer goroutine can race with the parent's post-spawn patch and
+	// leave PID=0 persisted — which Reconcile then treats as a stale
+	// daemon and marks the job failed.
+	if s, rerr := jobrunner.ReadStatus(jobDir); rerr == nil {
+		s.PID = os.Getpid()
+		_ = jobrunner.WriteStatusAtomic(jobDir, s)
+	}
+
 	cfg, err := buildScanConfigForCmd(cmd)
 	if err != nil {
 		writeTerminalFailure(jobDir, err)

@@ -107,7 +107,7 @@ func (l Limits) effectiveDuration() time.Duration {
 // Limits are not reversed by cleanup (GOMAXPROCS, GOMEMLIMIT, nice persist
 // for the process lifetime). Only the watchdog and context deadline are
 // torn down.
-func (l Limits) Apply(ctx context.Context) (context.Context, func()) {
+func (l Limits) Apply(ctx context.Context) (derivedCtx context.Context, cleanup func()) {
 	if !l.Enabled() {
 		return ctx, func() {}
 	}
@@ -124,7 +124,7 @@ func (l Limits) Apply(ctx context.Context) (context.Context, func()) {
 	stopWatchdog := StartMemoryWatchdog(ctx, l.MaxMemoryBytes)
 
 	var once sync.Once
-	cleanup := func() {
+	cleanup = func() {
 		once.Do(func() {
 			stopWatchdog()
 			cancelDeadline()

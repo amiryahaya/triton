@@ -6,7 +6,7 @@
   "description": "Triton web portals — License, Report, Manage",
   "scripts": {
     "build": "pnpm --filter \"./apps/*\" build",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write ."

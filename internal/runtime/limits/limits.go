@@ -10,8 +10,10 @@
 package limits
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -88,4 +90,45 @@ func (l Limits) effectiveDuration() time.Duration {
 	default:
 		return 0
 	}
+}
+
+// Apply installs all configured limits and returns a derived context plus a
+// cleanup function the caller must defer. The returned context carries a
+// deadline matching effectiveDuration() if positive. Calling cleanup is
+// idempotent.
+//
+// Order of operations:
+//  1. runtime/debug.SetMemoryLimit (soft cap)
+//  2. runtime.GOMAXPROCS (cpu throttle)
+//  3. syscall.Setpriority (nice, unix only)
+//  4. context.WithTimeout (deadline)
+//  5. start watchdog goroutine (hard memory cap)
+//
+// Limits are not reversed by cleanup (GOMAXPROCS, GOMEMLIMIT, nice persist
+// for the process lifetime). Only the watchdog and context deadline are
+// torn down.
+func (l Limits) Apply(ctx context.Context) (context.Context, func()) {
+	if !l.Enabled() {
+		return ctx, func() {}
+	}
+
+	ApplyMemoryLimit(l.MaxMemoryBytes)
+	ApplyCPUPercent(l.MaxCPUPercent)
+	ApplyNice(l.Nice)
+
+	var cancelDeadline context.CancelFunc = func() {}
+	if d := l.effectiveDuration(); d > 0 {
+		ctx, cancelDeadline = context.WithTimeout(ctx, d)
+	}
+
+	stopWatchdog := StartMemoryWatchdog(ctx, l.MaxMemoryBytes)
+
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			stopWatchdog()
+			cancelDeadline()
+		})
+	}
+	return ctx, cleanup
 }

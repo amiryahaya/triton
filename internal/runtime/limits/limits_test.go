@@ -1,6 +1,9 @@
 package limits
 
 import (
+	"context"
+	"runtime"
+	"runtime/debug"
 	"testing"
 	"time"
 )
@@ -60,4 +63,76 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestApplyZeroIsNoop(t *testing.T) {
+	origProcs := runtime.GOMAXPROCS(0)
+	origMem := debug.SetMemoryLimit(-1)
+	t.Cleanup(func() {
+		runtime.GOMAXPROCS(origProcs)
+		debug.SetMemoryLimit(origMem)
+	})
+
+	var l Limits
+	ctx := context.Background()
+	newCtx, cleanup := l.Apply(ctx)
+	defer cleanup()
+
+	if newCtx != ctx {
+		t.Error("Apply() with zero Limits must return input ctx unchanged")
+	}
+	if deadline, ok := newCtx.Deadline(); ok {
+		t.Errorf("Apply() with zero Limits must not set a deadline, got %v", deadline)
+	}
+	if runtime.GOMAXPROCS(0) != origProcs {
+		t.Errorf("Apply() with zero Limits changed GOMAXPROCS")
+	}
+	if debug.SetMemoryLimit(-1) != origMem {
+		t.Errorf("Apply() with zero Limits changed memory limit")
+	}
+}
+
+func TestApplySetsDeadline(t *testing.T) {
+	l := Limits{MaxDuration: 100 * time.Millisecond}
+	ctx := context.Background()
+	newCtx, cleanup := l.Apply(ctx)
+	defer cleanup()
+
+	deadline, ok := newCtx.Deadline()
+	if !ok {
+		t.Fatal("Apply() with MaxDuration must set deadline")
+	}
+	until := time.Until(deadline)
+	if until <= 0 || until > 200*time.Millisecond {
+		t.Errorf("deadline %v is not ~100ms from now (got %v)", deadline, until)
+	}
+}
+
+func TestApplyUsesTighterOfDurationAndStopAt(t *testing.T) {
+	l := Limits{
+		MaxDuration:  5 * time.Hour,
+		StopAtOffset: 30 * time.Minute, // tighter
+	}
+	ctx := context.Background()
+	newCtx, cleanup := l.Apply(ctx)
+	defer cleanup()
+
+	deadline, ok := newCtx.Deadline()
+	if !ok {
+		t.Fatal("Apply() must set deadline when either duration is set")
+	}
+	until := time.Until(deadline)
+	if until > 35*time.Minute || until < 25*time.Minute {
+		t.Errorf("deadline %v should be ~30min from now, got %v away", deadline, until)
+	}
+}
+
+func TestApplyCleanupStopsWatchdog(t *testing.T) {
+	// Can't directly observe the watchdog goroutine, but we can verify
+	// cleanup() returns promptly and doesn't panic when called twice.
+	l := Limits{MaxMemoryBytes: 1 << 30}
+	newCtx, cleanup := l.Apply(context.Background())
+	_ = newCtx
+	cleanup()
+	cleanup() // idempotent
 }

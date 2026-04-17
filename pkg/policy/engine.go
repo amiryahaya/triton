@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -94,14 +95,17 @@ func Evaluate(pol *Policy, result *model.ScanResult, exemptions *ExemptionList) 
 		FindingsChecked: len(result.Findings),
 	}
 
+	// Single timestamp for all exemption checks (avoids TOCTOU if an exemption
+	// expires between the expired-audit and per-finding checks).
+	now := time.Now()
+
 	// Build expired-exemption audit trail once (independent of individual findings).
 	if exemptions != nil {
-		eval.ExemptionsExpired = exemptions.ExpiredExemptions(time.Now())
+		eval.ExemptionsExpired = exemptions.ExpiredExemptions(now)
 	}
 
 	// exemptionHits tracks how many findings each exemption index suppressed.
 	exemptionHits := make(map[int]int)
-	now := time.Now()
 
 	// filteredFindings holds findings not covered by any active exemption.
 	// These are the only findings subject to rule, threshold, and per-system evaluation.
@@ -146,15 +150,20 @@ func Evaluate(pol *Policy, result *model.ScanResult, exemptions *ExemptionList) 
 		}
 	}
 
-	// Build ExemptionsApplied from hit counts.
+	// Build ExemptionsApplied from hit counts, sorted by index for deterministic output.
 	if exemptions != nil {
-		for idx, count := range exemptionHits {
+		sortedIdxs := make([]int, 0, len(exemptionHits))
+		for idx := range exemptionHits {
+			sortedIdxs = append(sortedIdxs, idx)
+		}
+		sort.Ints(sortedIdxs)
+		for _, idx := range sortedIdxs {
 			e := &exemptions.Exemptions[idx]
 			eval.ExemptionsApplied = append(eval.ExemptionsApplied, model.ExemptionApplied{
 				Reason:       e.Reason,
 				Expires:      e.Expires,
 				ApprovedBy:   e.ApprovedBy,
-				FindingCount: count,
+				FindingCount: exemptionHits[idx],
 				Algorithm:    e.Algorithm,
 				Location:     e.Location,
 			})

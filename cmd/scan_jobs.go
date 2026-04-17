@@ -1,13 +1,18 @@
 package cmd
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
+	"text/tabwriter"
 	"time"
 
 	"github.com/google/uuid"
@@ -421,4 +426,251 @@ func rebuildArgsWithoutDetach(args []string) []string {
 // import to localise it.
 func versionString() string {
 	return version.Version
+}
+
+// --- runJobStatus ---
+
+func runJobStatus(cmd *cobra.Command, args []string) error {
+	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	return runJobStatusCore(workDir, detachJobID, jsonOut)
+}
+
+func runJobStatusCore(workDir, jobID string, jsonOut bool) error {
+	if jobID == "" {
+		return errors.New("--job-id required")
+	}
+	jobDir := jobrunner.JobDir(workDir, jobID)
+	s, _, err := jobrunner.Reconcile(jobDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("job %s not found at %s", jobID, jobDir)
+		}
+		return err
+	}
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(s)
+	}
+	fmt.Printf("job_id:         %s\n", s.JobID)
+	fmt.Printf("state:          %s\n", s.State)
+	fmt.Printf("pid:            %d\n", s.PID)
+	fmt.Printf("started_at:     %s\n", s.StartedAt.Format(time.RFC3339))
+	fmt.Printf("updated_at:     %s\n", s.UpdatedAt.Format(time.RFC3339))
+	fmt.Printf("progress:       %.1f%%\n", s.ProgressPct)
+	fmt.Printf("current_module: %s\n", s.CurrentModule)
+	fmt.Printf("findings:       %d\n", s.FindingsCount)
+	fmt.Printf("rss_mb:         %d\n", s.RSSMB)
+	fmt.Printf("limits:         %s\n", s.Limits)
+	if s.Error != "" {
+		fmt.Printf("error:          %s\n", s.Error)
+	}
+	return nil
+}
+
+// --- runJobCollect ---
+
+func runJobCollect(cmd *cobra.Command, args []string) error {
+	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
+	out, _ := cmd.Flags().GetString("output")
+	keep, _ := cmd.Flags().GetBool("keep")
+	return runJobCollectCore(workDir, detachJobID, out, format, keep, jobrunner.IsProcessAlive)
+}
+
+func runJobCollectCore(workDir, jobID, outputPath, fmtName string, keep bool, pidAlive func(int) bool) error {
+	if jobID == "" {
+		return errors.New("--job-id required")
+	}
+	jobDir := jobrunner.JobDir(workDir, jobID)
+	s, err := jobrunner.ReadStatus(jobDir)
+	if err != nil {
+		return fmt.Errorf("read status: %w", err)
+	}
+	if !s.State.IsTerminal() && s.PID > 0 && pidAlive(s.PID) {
+		return fmt.Errorf("job %s is running (pid %d); cancel first or wait", jobID, s.PID)
+	}
+
+	switch fmtName {
+	case "json":
+		return writeCollectedFile(filepath.Join(jobDir, "result.json"), outputPath, keep, jobDir)
+	case "", "tar", "all":
+		return writeCollectedTar(filepath.Join(jobDir, "reports"), outputPath, keep, jobDir)
+	default:
+		matches, _ := filepath.Glob(filepath.Join(jobDir, "reports", "*."+fmtName))
+		if len(matches) == 0 {
+			return fmt.Errorf("no %s report found in %s/reports", fmtName, jobDir)
+		}
+		return writeCollectedFile(matches[0], outputPath, keep, jobDir)
+	}
+}
+
+func writeCollectedFile(src, out string, keep bool, jobDir string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	var w io.Writer
+	if out == "" || out == "-" {
+		w = os.Stdout
+	} else {
+		f, err := os.Create(out)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+	if _, err := io.Copy(w, in); err != nil {
+		return err
+	}
+	if !keep {
+		return os.RemoveAll(jobDir)
+	}
+	return nil
+}
+
+func writeCollectedTar(reportsDir, out string, keep bool, jobDir string) error {
+	var w io.Writer
+	if out == "" || out == "-" {
+		w = os.Stdout
+	} else {
+		f, err := os.Create(out)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+	gz := gzip.NewWriter(w)
+	defer gz.Close()
+	tw := tar.NewWriter(gz)
+	defer tw.Close()
+
+	err := filepath.Walk(reportsDir, func(path string, info os.FileInfo, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(reportsDir, path)
+		hdr, _ := tar.FileInfoHeader(info, "")
+		hdr.Name = rel
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(tw, f)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if !keep {
+		return os.RemoveAll(jobDir)
+	}
+	return nil
+}
+
+// --- runJobCancel ---
+
+func runJobCancel(cmd *cobra.Command, args []string) error {
+	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
+	wait, _ := cmd.Flags().GetBool("wait")
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+	return runJobCancelCore(workDir, detachJobID, wait, timeout)
+}
+
+func runJobCancelCore(workDir, jobID string, wait bool, timeout time.Duration) error {
+	if jobID == "" {
+		return errors.New("--job-id required")
+	}
+	jobDir := jobrunner.JobDir(workDir, jobID)
+	if _, err := os.Stat(jobDir); os.IsNotExist(err) {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	if err := jobrunner.TouchCancelFlag(jobDir); err != nil {
+		return fmt.Errorf("touch cancel.flag: %w", err)
+	}
+	fmt.Printf("cancel requested for %s\n", jobID)
+
+	if !wait {
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		s, err := jobrunner.ReadStatus(jobDir)
+		if err == nil && s.State.IsTerminal() {
+			fmt.Printf("job %s reached terminal state: %s\n", jobID, s.State)
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("job %s did not terminate within %s (cancel still pending)", jobID, timeout)
+}
+
+// --- runJobList ---
+
+func runJobList(cmd *cobra.Command, args []string) error {
+	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	return runJobListCore(workDir, jsonOut)
+}
+
+func runJobListCore(workDir string, jsonOut bool) error {
+	jobs, err := jobrunner.List(workDir)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(jobs)
+	}
+	if len(jobs) == 0 {
+		fmt.Println("no jobs found")
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "JOB ID\tSTATE\tSTARTED\tPROGRESS\tFINDINGS")
+	for _, j := range jobs {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%.1f%%\t%d\n",
+			j.JobID, j.Status.State,
+			j.Status.StartedAt.Format("2006-01-02 15:04:05"),
+			j.Status.ProgressPct, j.Status.FindingsCount)
+	}
+	return tw.Flush()
+}
+
+// --- runJobCleanup ---
+
+func runJobCleanup(cmd *cobra.Command, args []string) error {
+	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
+	all, _ := cmd.Flags().GetBool("all")
+	return runJobCleanupCore(workDir, detachJobID, all)
+}
+
+func runJobCleanupCore(workDir, jobID string, all bool) error {
+	if all {
+		n, err := jobrunner.RemoveAll(workDir)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("removed %d finished jobs\n", n)
+		return nil
+	}
+	if jobID == "" {
+		return errors.New("--job-id or --all required")
+	}
+	if err := jobrunner.Remove(workDir, jobID); err != nil {
+		return err
+	}
+	fmt.Printf("removed job %s\n", jobID)
+	return nil
 }

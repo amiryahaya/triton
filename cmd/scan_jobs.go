@@ -334,13 +334,6 @@ func saveResultAndReports(jobDir string, result *model.ScanResult, cfg *scannerc
 	return nil
 }
 
-// Temporary flag-backed vars; replaced in Task 15 by root.go declarations.
-var (
-	detachJobID   string
-	detachWorkDir string
-	detachQuiet   bool
-)
-
 // runScanDetached is the parent-side entry point for `triton scan --detach`.
 // Generates a job-id, creates the work-dir, snapshots the scan config,
 // spawns a detached child via jobrunner.Spawn, writes the initial status,

@@ -10,11 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/runtime/jobrunner"
 	"github.com/amiryahaya/triton/internal/runtime/limits"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/report"
 	"github.com/amiryahaya/triton/pkg/scanner"
@@ -325,4 +327,98 @@ func saveResultAndReports(jobDir string, result *model.ScanResult, cfg *scannerc
 		}
 	}
 	return nil
+}
+
+// Temporary flag-backed vars; replaced in Task 15 by root.go declarations.
+var (
+	detachJobID   string
+	detachWorkDir string
+	detachQuiet   bool
+)
+
+// runScanDetached is the parent-side entry point for `triton scan --detach`.
+// Generates a job-id, creates the work-dir, snapshots the scan config,
+// spawns a detached child via jobrunner.Spawn, writes the initial status,
+// and prints the job-id to stdout. Returns immediately after fork.
+func runScanDetached(cmd *cobra.Command, args []string) error {
+	jobID := detachJobID
+	if jobID == "" {
+		jobID = uuid.NewString()
+	}
+	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
+
+	existing := jobrunner.JobDir(workDir, jobID)
+	if _, err := os.Stat(existing); err == nil {
+		return fmt.Errorf("job %s already exists at %s; use --cleanup first", jobID, existing)
+	}
+
+	jobDir, err := jobrunner.EnsureJobDir(workDir, jobID)
+	if err != nil {
+		return fmt.Errorf("create job dir: %w", err)
+	}
+
+	cfg, err := buildScanConfigForCmd(cmd)
+	if err != nil {
+		_ = os.RemoveAll(jobDir)
+		return fmt.Errorf("build scan config: %w", err)
+	}
+	_ = jobrunner.WriteJSON(filepath.Join(jobDir, "config.json"), cfg)
+
+	lim, err := buildLimitsForCmd(cmd)
+	if err != nil {
+		_ = os.RemoveAll(jobDir)
+		return err
+	}
+
+	host, _ := os.Hostname()
+	initial := jobrunner.InitialStatus(jobID, 0, scanProfile, versionString(), lim.String())
+	initial.Host = host
+	_ = jobrunner.WriteStatusAtomic(jobDir, initial)
+
+	childArgs := rebuildArgsWithoutDetach(os.Args[1:])
+	pid, err := jobrunner.Spawn(jobrunner.SpawnConfig{
+		Executable: os.Args[0],
+		Args:       childArgs,
+		Env: []string{
+			"TRITON_DETACHED=1",
+			"TRITON_JOB_ID=" + jobID,
+			"TRITON_WORK_DIR=" + workDir,
+		},
+		JobDir: jobDir,
+	})
+	if err != nil {
+		_ = os.RemoveAll(jobDir)
+		return fmt.Errorf("spawn daemon: %w", err)
+	}
+
+	if s, rerr := jobrunner.ReadStatus(jobDir); rerr == nil {
+		s.PID = pid
+		_ = jobrunner.WriteStatusAtomic(jobDir, s)
+	}
+
+	if detachQuiet {
+		fmt.Println(jobID)
+	} else {
+		fmt.Printf("Detached as job %s\npid %d, work-dir %s\n", jobID, pid, jobDir)
+	}
+	return nil
+}
+
+// rebuildArgsWithoutDetach returns args with `--detach` removed so the
+// child process does not recursively detach.
+func rebuildArgsWithoutDetach(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--detach" {
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
+}
+
+// versionString returns the build-time version. Wraps the internal/version
+// import to localise it.
+func versionString() string {
+	return version.Version
 }

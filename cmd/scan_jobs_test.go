@@ -127,3 +127,14 @@ func TestCancelFlagPoller_StopsOnContextDone(t *testing.T) {
 	_ = filepath.Join
 	_ = os.Getpid
 }
+
+func TestIsDaemonMode(t *testing.T) {
+	t.Setenv("TRITON_DETACHED", "1")
+	if !isDaemonMode() {
+		t.Error("isDaemonMode should return true when TRITON_DETACHED=1")
+	}
+	t.Setenv("TRITON_DETACHED", "")
+	if isDaemonMode() {
+		t.Error("isDaemonMode should return false with empty TRITON_DETACHED")
+	}
+}

@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -15,9 +16,6 @@ const (
 	VerdictFail Verdict = "FAIL"
 	VerdictWarn Verdict = "WARN"
 )
-
-// ExemptionList holds active and expired exemptions. Real type populated in Task 3.
-type ExemptionList struct{}
 
 // RiskSummary counts violations by risk level.
 type RiskSummary struct {
@@ -64,14 +62,18 @@ type EvaluationResult struct {
 	FindingsChecked     int                  `json:"findingsChecked"`
 	SystemEvaluations   []SystemEvaluation   `json:"systemEvaluations,omitempty"`
 	RiskSummary         *RiskSummary         `json:"riskSummary,omitempty"`
+	// ExemptionsApplied records exemptions that suppressed one or more violations.
+	ExemptionsApplied []model.ExemptionApplied `json:"exemptionsApplied,omitempty"`
+	// ExemptionsExpired records exemptions whose expiry date has passed.
+	ExemptionsExpired []model.ExemptionExpired `json:"exemptionsExpired,omitempty"`
 }
 
 // riskLevelDefault is the risk level assigned when a rule omits risk_level.
 const riskLevelDefault = "medium"
 
 // Evaluate runs the policy rules and thresholds against a scan result.
-// exemptions is reserved for Task 3; pass nil until then.
-func Evaluate(pol *Policy, result *model.ScanResult, _ *ExemptionList) *EvaluationResult {
+// Pass nil for exemptions when no exemption file is loaded.
+func Evaluate(pol *Policy, result *model.ScanResult, exemptions *ExemptionList) *EvaluationResult {
 	if pol == nil || result == nil {
 		return &EvaluationResult{
 			Verdict: VerdictFail,
@@ -92,9 +94,30 @@ func Evaluate(pol *Policy, result *model.ScanResult, _ *ExemptionList) *Evaluati
 		FindingsChecked: len(result.Findings),
 	}
 
-	// Evaluate rules against findings.
+	// Build expired-exemption audit trail once (independent of individual findings).
+	if exemptions != nil {
+		eval.ExemptionsExpired = exemptions.ExpiredExemptions(time.Now())
+	}
+
+	// exemptionHits tracks how many findings each exemption index suppressed.
+	exemptionHits := make(map[int]int)
+	now := time.Now()
+
+	// filteredFindings holds findings not covered by any active exemption.
+	// These are the only findings subject to rule, threshold, and per-system evaluation.
+	filteredFindings := make([]model.Finding, 0, len(result.Findings))
 	for i := range result.Findings {
 		f := &result.Findings[i]
+		if exempt, idx := exemptions.IsExempt(f, now); exempt {
+			exemptionHits[idx]++
+		} else {
+			filteredFindings = append(filteredFindings, *f)
+		}
+	}
+
+	// Evaluate rules against non-exempt findings.
+	for i := range filteredFindings {
+		f := &filteredFindings[i]
 		for j := range pol.Rules {
 			rule := &pol.Rules[j]
 			if matchesCondition(f, &rule.Condition) {
@@ -123,11 +146,32 @@ func Evaluate(pol *Policy, result *model.ScanResult, _ *ExemptionList) *Evaluati
 		}
 	}
 
-	// Evaluate thresholds.
-	evaluateThresholds(pol, result, eval)
+	// Build ExemptionsApplied from hit counts.
+	if exemptions != nil {
+		for idx, count := range exemptionHits {
+			e := &exemptions.Exemptions[idx]
+			eval.ExemptionsApplied = append(eval.ExemptionsApplied, model.ExemptionApplied{
+				Reason:       e.Reason,
+				Expires:      e.Expires,
+				ApprovedBy:   e.ApprovedBy,
+				FindingCount: count,
+				Algorithm:    e.Algorithm,
+				Location:     e.Location,
+			})
+		}
+	}
 
-	// Per-system evaluation
-	systems := model.GroupFindingsIntoSystems(result.Findings)
+	// Build a filtered ScanResult for threshold and per-system evaluation so that
+	// exempted findings do not influence thresholds or per-system verdicts.
+	filteredResult := *result
+	filteredResult.Findings = filteredFindings
+	filteredResult.Summary = model.ComputeSummary(filteredFindings)
+
+	// Evaluate thresholds against non-exempt findings.
+	evaluateThresholds(pol, &filteredResult, eval)
+
+	// Per-system evaluation using non-exempt findings only.
+	systems := model.GroupFindingsIntoSystems(filteredFindings)
 	for i := range systems {
 		sysEval := EvaluateSystem(pol, &systems[i])
 		eval.SystemEvaluations = append(eval.SystemEvaluations, sysEval)
@@ -526,5 +570,10 @@ func (e *EvaluationResult) ToModelResult() *model.PolicyEvaluationResult {
 		}
 		r.SystemEvaluations = append(r.SystemEvaluations, mse)
 	}
+
+	// Carry exemption audit trail through.
+	r.ExemptionsApplied = append(r.ExemptionsApplied, e.ExemptionsApplied...)
+	r.ExemptionsExpired = append(r.ExemptionsExpired, e.ExemptionsExpired...)
+
 	return r
 }

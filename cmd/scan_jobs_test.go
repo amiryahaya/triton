@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/amiryahaya/triton/internal/runtime/jobrunner"
+	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner"
 )
 
@@ -136,5 +138,54 @@ func TestIsDaemonMode(t *testing.T) {
 	t.Setenv("TRITON_DETACHED", "")
 	if isDaemonMode() {
 		t.Error("isDaemonMode should return false with empty TRITON_DETACHED")
+	}
+}
+
+func TestSaveResultAndReports_WritesResultJSON(t *testing.T) {
+	tmp := t.TempDir()
+	jobDir, _ := jobrunner.EnsureJobDir(tmp, "j")
+
+	result := &model.ScanResult{
+		ID: "test-scan",
+		Metadata: model.ScanMetadata{
+			Timestamp: time.Now(),
+		},
+		Findings: []model.Finding{},
+	}
+	if err := saveResultAndReports(jobDir, result, &scannerconfig.Config{}); err != nil {
+		t.Fatalf("saveResultAndReports: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(jobDir, "result.json")); err != nil {
+		t.Errorf("result.json not written: %v", err)
+	}
+}
+
+func TestSaveResultAndReports_AllFormats(t *testing.T) {
+	tmp := t.TempDir()
+	jobDir, _ := jobrunner.EnsureJobDir(tmp, "j")
+
+	result := &model.ScanResult{
+		ID: "test-scan",
+		Metadata: model.ScanMetadata{
+			Timestamp: time.Now(),
+		},
+		Findings: []model.Finding{},
+	}
+	origFormat := format
+	format = "all"
+	defer func() { format = origFormat }()
+
+	if err := saveResultAndReports(jobDir, result, &scannerconfig.Config{}); err != nil {
+		t.Fatalf("saveResultAndReports: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(jobDir, "result.json")); err != nil {
+		t.Errorf("result.json missing: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(jobDir, "reports"))
+	if err != nil {
+		t.Fatalf("read reports dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("reports/ should contain at least one file when format=all")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/amiryahaya/triton/internal/runtime/limits"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/report"
 	"github.com/amiryahaya/triton/pkg/scanner"
 	"github.com/amiryahaya/triton/pkg/store"
 )
@@ -269,7 +270,59 @@ func buildLimitsForCmd(cmd *cobra.Command) (limits.Limits, error) {
 	return buildLimits(maxMem, maxCPU, maxDur, stopAt, niceVal)
 }
 
-// saveResultAndReports: STUB. Task 12 replaces this with real report generation.
+// saveResultAndReports writes result.json and generates configured
+// report formats into jobDir/reports/ using the existing report.Generator.
+// Honours the package-level `format` variable (set by --format flag):
+//   - "json": only result.json (no reports/)
+//   - "cdx"/"html"/"sarif"/"xlsx": only that one format
+//   - "all": all five formats
 func saveResultAndReports(jobDir string, result *model.ScanResult, cfg *scannerconfig.Config) error {
-	return jobrunner.WriteJSON(filepath.Join(jobDir, "result.json"), result)
+	if err := jobrunner.WriteJSON(filepath.Join(jobDir, "result.json"), result); err != nil {
+		return fmt.Errorf("write result.json: %w", err)
+	}
+
+	reportsDir := filepath.Join(jobDir, "reports")
+	if err := os.MkdirAll(reportsDir, 0o700); err != nil {
+		return fmt.Errorf("create reports dir: %w", err)
+	}
+
+	ts := result.Metadata.Timestamp.Format("2006-01-02T15-04-05")
+	gen := report.New(reportsDir)
+
+	writers := map[string]func() error{
+		"json": func() error {
+			return gen.GenerateTritonJSON(result, filepath.Join(reportsDir, "triton-report-"+ts+".json"))
+		},
+		"cdx": func() error {
+			return gen.GenerateCycloneDXBOM(result, filepath.Join(reportsDir, "triton-report-"+ts+".cdx.json"))
+		},
+		"html": func() error {
+			return gen.GenerateHTML(result, filepath.Join(reportsDir, "triton-report-"+ts+".html"))
+		},
+		"sarif": func() error {
+			return gen.GenerateSARIF(result, filepath.Join(reportsDir, "triton-report-"+ts+".sarif"))
+		},
+		"xlsx": func() error {
+			return gen.GenerateExcel(result, filepath.Join(reportsDir, "triton-report-"+ts+".xlsx"))
+		},
+	}
+
+	var formats []string
+	switch format {
+	case "all":
+		formats = []string{"json", "cdx", "html", "sarif", "xlsx"}
+	case "":
+		// no-op: result.json only
+	default:
+		formats = []string{format}
+	}
+
+	for _, f := range formats {
+		if w, ok := writers[f]; ok {
+			if err := w(); err != nil {
+				return fmt.Errorf("generate %s: %w", f, err)
+			}
+		}
+	}
+	return nil
 }

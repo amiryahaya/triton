@@ -649,6 +649,117 @@ func TestEvaluate_RiskSummaryNilWhenNoViolations(t *testing.T) {
 	assert.Nil(t, eval.RiskSummary)
 }
 
+// --- Task 4: Exemption wiring into Evaluate() ---
+
+func TestEvaluate_WithExemptions(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:        "no-sha1",
+				Severity:  "error",
+				Condition: Condition{Algorithm: "SHA-1"},
+				Action:    "fail",
+			},
+		},
+	}
+
+	result := &model.ScanResult{
+		ID: "test-scan",
+		Findings: []model.Finding{
+			{
+				ID:     "f1",
+				Source: model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+				Module: "certificates",
+				CryptoAsset: &model.CryptoAsset{
+					Algorithm: "SHA-1",
+					PQCStatus: "DEPRECATED",
+				},
+			},
+		},
+		Summary: model.Summary{TotalFindings: 1, Deprecated: 1},
+	}
+
+	el, err := ParseExemptions([]byte(`
+version: "1"
+exemptions:
+  - type: algorithm
+    algorithm: SHA-1
+    reason: "Legacy system, migration planned Q4"
+    expires: "2099-01-01"
+    approved_by: "security-team"
+`))
+	require.NoError(t, err)
+
+	eval := Evaluate(pol, result, el)
+	// Exemption suppresses the SHA-1 violation
+	assert.Equal(t, VerdictPass, eval.Verdict)
+	assert.Empty(t, eval.Violations)
+	// Audit trail: one exemption applied
+	mr := eval.ToModelResult()
+	require.NotNil(t, mr)
+	require.Len(t, mr.ExemptionsApplied, 1)
+	ea := mr.ExemptionsApplied[0]
+	assert.Equal(t, "Legacy system, migration planned Q4", ea.Reason)
+	assert.Equal(t, "security-team", ea.ApprovedBy)
+	assert.Equal(t, 1, ea.FindingCount)
+	assert.Equal(t, "SHA-1", ea.Algorithm)
+}
+
+func TestEvaluate_ExemptionExpired(t *testing.T) {
+	pol := &Policy{
+		Version: "1",
+		Name:    "Test",
+		Rules: []Rule{
+			{
+				ID:        "no-sha1",
+				Severity:  "error",
+				Condition: Condition{Algorithm: "SHA-1"},
+				Action:    "fail",
+			},
+		},
+	}
+
+	result := &model.ScanResult{
+		ID: "test-scan",
+		Findings: []model.Finding{
+			{
+				ID:     "f1",
+				Source: model.FindingSource{Type: "file", Path: "/etc/ssl/cert.pem"},
+				Module: "certificates",
+				CryptoAsset: &model.CryptoAsset{
+					Algorithm: "SHA-1",
+					PQCStatus: "DEPRECATED",
+				},
+			},
+		},
+		Summary: model.Summary{TotalFindings: 1, Deprecated: 1},
+	}
+
+	el, err := ParseExemptions([]byte(`
+version: "1"
+exemptions:
+  - type: algorithm
+    algorithm: SHA-1
+    reason: "Expired legacy exemption"
+    expires: "2020-01-01"
+`))
+	require.NoError(t, err)
+
+	eval := Evaluate(pol, result, el)
+	// Expired exemption → violation is NOT suppressed
+	assert.Equal(t, VerdictFail, eval.Verdict)
+	require.Len(t, eval.Violations, 1)
+	// Audit trail: one expired exemption reported
+	mr := eval.ToModelResult()
+	require.NotNil(t, mr)
+	assert.Empty(t, mr.ExemptionsApplied)
+	require.Len(t, mr.ExemptionsExpired, 1)
+	assert.Equal(t, "SHA-1", mr.ExemptionsExpired[0].Algorithm)
+	assert.Equal(t, "2020-01-01", mr.ExemptionsExpired[0].ExpiredOn)
+}
+
 func TestMatchesFamily(t *testing.T) {
 	tests := []struct {
 		algo   string

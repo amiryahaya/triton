@@ -38,21 +38,22 @@ var ErrPolicyFail = errors.New("policy evaluation failed")
 const progressBufferSize = 16
 
 var (
-	cfgFile          string
-	outputDir        string
-	outputFile       string
-	scanProfile      string
-	modules          []string
-	format           string
-	showMetrics      bool
-	dbPath           string
-	incremental      bool
-	scanPolicyArg    string
-	licenseKey       string
-	licenseFile      string // --license-file path override (Phase 5 Sprint 3)
-	licenseServerURL string
-	licenseID        string
-	guard            = license.NewGuard("") // safe default, overwritten by PersistentPreRun
+	cfgFile           string
+	outputDir         string
+	outputFile        string
+	scanProfile       string
+	modules           []string
+	format            string
+	showMetrics       bool
+	dbPath            string
+	incremental       bool
+	scanPolicyArg     string
+	scanExemptionsArg string
+	licenseKey        string
+	licenseFile       string // --license-file path override (Phase 5 Sprint 3)
+	licenseServerURL  string
+	licenseID         string
+	guard             = license.NewGuard("") // safe default, overwritten by PersistentPreRun
 
 	// OCI / Kubernetes scan flags (Wave 0)
 	imageRefs      []string
@@ -161,6 +162,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "PostgreSQL connection URL (default: postgres://triton:triton@localhost:5434/triton?sslmode=disable)")
 	rootCmd.PersistentFlags().BoolVar(&incremental, "incremental", false, "Skip unchanged files (uses hash cache)")
 	rootCmd.PersistentFlags().StringVar(&scanPolicyArg, "policy", "", "Policy file or builtin name to evaluate after scan")
+	rootCmd.PersistentFlags().StringVar(&scanExemptionsArg, "exemptions", "",
+		"Exemptions YAML file for known-accepted findings (env: TRITON_EXEMPTIONS_FILE)")
 	rootCmd.PersistentFlags().StringVar(&licenseKey, "license-key", "", "Licence key or token (literal)")
 	rootCmd.PersistentFlags().StringVar(&licenseFile, "license-file", "", "Path to a file containing the licence token (overrides the default ~/.triton/license.key)")
 	rootCmd.PersistentFlags().StringVar(&licenseServerURL, "license-server", "", "License server URL for online validation")
@@ -710,7 +713,19 @@ func evaluateScanPolicy(result *model.ScanResult) error {
 		}
 	}
 
-	eval := policy.Evaluate(pol, result)
+	var exemptions *policy.ExemptionList
+	exemptionsPath := scanExemptionsArg
+	if exemptionsPath == "" {
+		exemptionsPath = os.Getenv("TRITON_EXEMPTIONS_FILE")
+	}
+	if exemptionsPath != "" {
+		exemptions, err = policy.LoadExemptionsFile(exemptionsPath)
+		if err != nil {
+			return fmt.Errorf("loading exemptions: %w", err)
+		}
+	}
+
+	eval := policy.Evaluate(pol, result, exemptions)
 	result.PolicyEvaluation = eval.ToModelResult()
 
 	fmt.Printf("\nPolicy Evaluation: %s\n", eval.PolicyName)
@@ -728,6 +743,12 @@ func evaluateScanPolicy(result *model.ScanResult) error {
 	}
 	for _, tv := range eval.ThresholdViolations {
 		fmt.Printf("  [X] %s: %s\n", tv.Name, tv.Message)
+	}
+	if len(eval.ExemptionsApplied) > 0 {
+		fmt.Printf("Exemptions applied: %d\n", len(eval.ExemptionsApplied))
+	}
+	if len(eval.ExemptionsExpired) > 0 {
+		fmt.Printf("⚠ Expired exemptions: %d\n", len(eval.ExemptionsExpired))
 	}
 
 	result.Metadata.PolicyResult = string(eval.Verdict)

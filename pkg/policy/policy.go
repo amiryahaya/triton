@@ -19,6 +19,7 @@ type Policy struct {
 type Rule struct {
 	ID        string    `yaml:"id" json:"id"`
 	Severity  string    `yaml:"severity" json:"severity"` // error, warning, note
+	RiskLevel string    `yaml:"risk_level,omitempty" json:"risk_level,omitempty"`
 	Condition Condition `yaml:"condition" json:"condition"`
 	Action    string    `yaml:"action" json:"action"` // fail, warn
 	Message   string    `yaml:"message,omitempty" json:"message,omitempty"`

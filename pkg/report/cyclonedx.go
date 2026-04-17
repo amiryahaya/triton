@@ -108,6 +108,23 @@ func (g *Generator) GenerateCycloneDXBOM(result *model.ScanResult, filename stri
 		},
 	}
 
+	// Build a finding-ID → risk-level index from policy violations so that
+	// CycloneDX components can carry a triton:risk-level property when the
+	// corresponding finding triggered a policy violation.
+	riskByFinding := make(map[string]string)
+	if pe := result.PolicyEvaluation; pe != nil {
+		for _, v := range pe.Violations {
+			if v.FindingID != "" && v.RiskLevel != "" {
+				// Keep the highest-severity risk level seen for a given finding.
+				// Precedence: critical > high > medium > low
+				existing := riskByFinding[v.FindingID]
+				if riskPriority(v.RiskLevel) > riskPriority(existing) {
+					riskByFinding[v.FindingID] = v.RiskLevel
+				}
+			}
+		}
+	}
+
 	// Convert findings to CycloneDX components
 	bom.Components = make([]CDXComponent, 0, len(result.Findings))
 	for i := range result.Findings {
@@ -117,6 +134,12 @@ func (g *Generator) GenerateCycloneDXBOM(result *model.ScanResult, filename stri
 		}
 
 		component := findingToComponent(finding)
+		if rl := riskByFinding[finding.ID]; rl != "" {
+			component.Properties = append(component.Properties, CDXProperty{
+				Name:  "triton:risk-level",
+				Value: rl,
+			})
+		}
 		bom.Components = append(bom.Components, component)
 	}
 
@@ -413,4 +436,21 @@ func formatTimePtr(t *time.Time) string {
 		return ""
 	}
 	return t.Format(time.RFC3339)
+}
+
+// riskPriority returns a numeric priority for risk levels (higher = more severe).
+// Used to keep the most severe level when a finding is matched by multiple violations.
+func riskPriority(level string) int {
+	switch strings.ToLower(level) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
 }

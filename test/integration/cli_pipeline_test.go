@@ -140,7 +140,7 @@ func TestCLI_PolicyEvaluation(t *testing.T) {
 	pol, err := policy.LoadBuiltin("nacsa-2030")
 	require.NoError(t, err)
 
-	eval := policy.Evaluate(pol, result)
+	eval := policy.Evaluate(pol, result, nil)
 	require.NotNil(t, eval)
 	assert.NotEmpty(t, string(eval.Verdict), "verdict should be present")
 	assert.Contains(t, []policy.Verdict{policy.VerdictPass, policy.VerdictFail, policy.VerdictWarn},

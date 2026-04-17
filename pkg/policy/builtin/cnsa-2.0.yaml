@@ -3,6 +3,7 @@ name: "CNSA 2.0 Commercial National Security Algorithm Suite"
 rules:
   - id: cnsa2-no-unsafe
     severity: error
+    risk_level: critical
     condition:
       pqc_status: UNSAFE
     action: fail
@@ -10,6 +11,7 @@ rules:
 
   - id: cnsa2-no-rsa-below-3072
     severity: error
+    risk_level: critical
     condition:
       algorithm_family: RSA
       key_size_below: 3072
@@ -18,6 +20,7 @@ rules:
 
   - id: cnsa2-no-ecdsa-below-384
     severity: error
+    risk_level: high
     condition:
       algorithm_family: ECDSA
       key_size_below: 384
@@ -26,6 +29,7 @@ rules:
 
   - id: cnsa2-no-sha-below-384
     severity: warning
+    risk_level: low
     condition:
       algorithm: SHA-256
     action: warn
@@ -33,6 +37,7 @@ rules:
 
   - id: cnsa2-no-deprecated
     severity: warning
+    risk_level: medium
     condition:
       pqc_status: DEPRECATED
     action: warn

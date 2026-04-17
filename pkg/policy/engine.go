@@ -2,7 +2,9 @@ package policy
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/amiryahaya/triton/pkg/model"
 )
@@ -16,13 +18,22 @@ const (
 	VerdictWarn Verdict = "WARN"
 )
 
+// RiskSummary counts violations by risk level.
+type RiskSummary struct {
+	Critical int `json:"critical"`
+	High     int `json:"high"`
+	Medium   int `json:"medium"`
+	Low      int `json:"low"`
+}
+
 // Violation records a single policy rule that was triggered.
 type Violation struct {
-	RuleID   string         `json:"ruleID"`
-	Severity string         `json:"severity"`
-	Action   string         `json:"action"`
-	Message  string         `json:"message"`
-	Finding  *model.Finding `json:"finding,omitempty"`
+	RuleID    string         `json:"ruleID"`
+	Severity  string         `json:"severity"`
+	Action    string         `json:"action"`
+	Message   string         `json:"message"`
+	RiskLevel string         `json:"riskLevel,omitempty"`
+	Finding   *model.Finding `json:"finding,omitempty"`
 }
 
 // ThresholdViolation records a threshold that was not met.
@@ -51,18 +62,28 @@ type EvaluationResult struct {
 	RulesEvaluated      int                  `json:"rulesEvaluated"`
 	FindingsChecked     int                  `json:"findingsChecked"`
 	SystemEvaluations   []SystemEvaluation   `json:"systemEvaluations,omitempty"`
+	RiskSummary         *RiskSummary         `json:"riskSummary,omitempty"`
+	// ExemptionsApplied records exemptions that suppressed one or more violations.
+	ExemptionsApplied []model.ExemptionApplied `json:"exemptionsApplied,omitempty"`
+	// ExemptionsExpired records exemptions whose expiry date has passed.
+	ExemptionsExpired []model.ExemptionExpired `json:"exemptionsExpired,omitempty"`
 }
 
+// riskLevelDefault is the risk level assigned when a rule omits risk_level.
+const riskLevelDefault = "medium"
+
 // Evaluate runs the policy rules and thresholds against a scan result.
-func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
+// Pass nil for exemptions when no exemption file is loaded.
+func Evaluate(pol *Policy, result *model.ScanResult, exemptions *ExemptionList) *EvaluationResult {
 	if pol == nil || result == nil {
 		return &EvaluationResult{
 			Verdict: VerdictFail,
 			Violations: []Violation{{
-				RuleID:   "system",
-				Severity: "error",
-				Action:   "fail",
-				Message:  "nil policy or scan result",
+				RuleID:    "system",
+				Severity:  "error",
+				Action:    "fail",
+				Message:   "nil policy or scan result",
+				RiskLevel: riskLevelDefault,
 			}},
 		}
 	}
@@ -74,9 +95,33 @@ func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
 		FindingsChecked: len(result.Findings),
 	}
 
-	// Evaluate rules against findings.
+	// Single timestamp for all exemption checks (avoids TOCTOU if an exemption
+	// expires between the expired-audit and per-finding checks).
+	now := time.Now()
+
+	// Build expired-exemption audit trail once (independent of individual findings).
+	if exemptions != nil {
+		eval.ExemptionsExpired = exemptions.ExpiredExemptions(now)
+	}
+
+	// exemptionHits tracks how many findings each exemption index suppressed.
+	exemptionHits := make(map[int]int)
+
+	// filteredFindings holds findings not covered by any active exemption.
+	// These are the only findings subject to rule, threshold, and per-system evaluation.
+	filteredFindings := make([]model.Finding, 0, len(result.Findings))
 	for i := range result.Findings {
 		f := &result.Findings[i]
+		if exempt, idx := exemptions.IsExempt(f, now); exempt {
+			exemptionHits[idx]++
+		} else {
+			filteredFindings = append(filteredFindings, *f)
+		}
+	}
+
+	// Evaluate rules against non-exempt findings.
+	for i := range filteredFindings {
+		f := &filteredFindings[i]
 		for j := range pol.Rules {
 			rule := &pol.Rules[j]
 			if matchesCondition(f, &rule.Condition) {
@@ -84,12 +129,17 @@ func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
 				if msg == "" {
 					msg = defaultMessage(f, rule)
 				}
+				rl := rule.RiskLevel
+				if rl == "" {
+					rl = riskLevelDefault
+				}
 				eval.Violations = append(eval.Violations, Violation{
-					RuleID:   rule.ID,
-					Severity: rule.Severity,
-					Action:   rule.Action,
-					Message:  msg,
-					Finding:  f,
+					RuleID:    rule.ID,
+					Severity:  rule.Severity,
+					Action:    rule.Action,
+					Message:   msg,
+					RiskLevel: rl,
+					Finding:   f,
 				})
 				if rule.Action == "fail" {
 					eval.Verdict = VerdictFail
@@ -100,11 +150,37 @@ func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
 		}
 	}
 
-	// Evaluate thresholds.
-	evaluateThresholds(pol, result, eval)
+	// Build ExemptionsApplied from hit counts, sorted by index for deterministic output.
+	if exemptions != nil {
+		sortedIdxs := make([]int, 0, len(exemptionHits))
+		for idx := range exemptionHits {
+			sortedIdxs = append(sortedIdxs, idx)
+		}
+		sort.Ints(sortedIdxs)
+		for _, idx := range sortedIdxs {
+			e := &exemptions.Exemptions[idx]
+			eval.ExemptionsApplied = append(eval.ExemptionsApplied, model.ExemptionApplied{
+				Reason:       e.Reason,
+				Expires:      e.Expires,
+				ApprovedBy:   e.ApprovedBy,
+				FindingCount: exemptionHits[idx],
+				Algorithm:    e.Algorithm,
+				Location:     e.Location,
+			})
+		}
+	}
 
-	// Per-system evaluation
-	systems := model.GroupFindingsIntoSystems(result.Findings)
+	// Build a filtered ScanResult for threshold and per-system evaluation so that
+	// exempted findings do not influence thresholds or per-system verdicts.
+	filteredResult := *result
+	filteredResult.Findings = filteredFindings
+	filteredResult.Summary = model.ComputeSummary(filteredFindings)
+
+	// Evaluate thresholds against non-exempt findings.
+	evaluateThresholds(pol, &filteredResult, eval)
+
+	// Per-system evaluation using non-exempt findings only.
+	systems := model.GroupFindingsIntoSystems(filteredFindings)
 	for i := range systems {
 		sysEval := EvaluateSystem(pol, &systems[i])
 		eval.SystemEvaluations = append(eval.SystemEvaluations, sysEval)
@@ -114,6 +190,24 @@ func Evaluate(pol *Policy, result *model.ScanResult) *EvaluationResult {
 		} else if sysEval.Verdict == VerdictWarn && eval.Verdict == VerdictPass {
 			eval.Verdict = VerdictWarn
 		}
+	}
+
+	// Compute RiskSummary from violations (nil when no violations).
+	if len(eval.Violations) > 0 {
+		rs := &RiskSummary{}
+		for _, v := range eval.Violations {
+			switch strings.ToLower(v.RiskLevel) {
+			case "critical":
+				rs.Critical++
+			case "high":
+				rs.High++
+			case "low":
+				rs.Low++
+			default:
+				rs.Medium++
+			}
+		}
+		eval.RiskSummary = rs
 	}
 
 	return eval
@@ -147,12 +241,17 @@ func EvaluateSystem(pol *Policy, sys *model.System) SystemEvaluation {
 				if msg == "" {
 					msg = fmt.Sprintf("[%s] %s: %s in system %s", rule.ID, rule.Severity, asset.Algorithm, sys.Name)
 				}
+				rl := rule.RiskLevel
+				if rl == "" {
+					rl = riskLevelDefault
+				}
 				sysEval.Violations = append(sysEval.Violations, Violation{
-					RuleID:   rule.ID,
-					Severity: rule.Severity,
-					Action:   rule.Action,
-					Message:  msg,
-					Finding:  f,
+					RuleID:    rule.ID,
+					Severity:  rule.Severity,
+					Action:    rule.Action,
+					Message:   msg,
+					RiskLevel: rl,
+					Finding:   f,
 				})
 				if rule.Action == "fail" {
 					sysEval.Verdict = VerdictFail
@@ -431,12 +530,25 @@ func (e *EvaluationResult) ToModelResult() *model.PolicyEvaluationResult {
 		FindingsChecked: e.FindingsChecked,
 	}
 	for _, v := range e.Violations {
-		r.Violations = append(r.Violations, model.PolicyViolation{
-			RuleID:   v.RuleID,
-			Severity: v.Severity,
-			Action:   v.Action,
-			Message:  v.Message,
-		})
+		pv := model.PolicyViolation{
+			RuleID:    v.RuleID,
+			Severity:  v.Severity,
+			Action:    v.Action,
+			Message:   v.Message,
+			RiskLevel: v.RiskLevel,
+		}
+		if v.Finding != nil {
+			pv.FindingID = v.Finding.ID
+		}
+		r.Violations = append(r.Violations, pv)
+	}
+	if e.RiskSummary != nil {
+		r.RiskSummary = &model.RiskSummary{
+			Critical: e.RiskSummary.Critical,
+			High:     e.RiskSummary.High,
+			Medium:   e.RiskSummary.Medium,
+			Low:      e.RiskSummary.Low,
+		}
 	}
 	for _, tv := range e.ThresholdViolations {
 		r.ThresholdViolations = append(r.ThresholdViolations, model.PolicyThresholdViolation{
@@ -454,10 +566,11 @@ func (e *EvaluationResult) ToModelResult() *model.PolicyEvaluationResult {
 		}
 		for _, v := range se.Violations {
 			mse.Violations = append(mse.Violations, model.PolicyViolation{
-				RuleID:   v.RuleID,
-				Severity: v.Severity,
-				Action:   v.Action,
-				Message:  v.Message,
+				RuleID:    v.RuleID,
+				Severity:  v.Severity,
+				Action:    v.Action,
+				Message:   v.Message,
+				RiskLevel: v.RiskLevel,
 			})
 		}
 		for _, tv := range se.ThresholdViolations {
@@ -470,5 +583,10 @@ func (e *EvaluationResult) ToModelResult() *model.PolicyEvaluationResult {
 		}
 		r.SystemEvaluations = append(r.SystemEvaluations, mse)
 	}
+
+	// Carry exemption audit trail through.
+	r.ExemptionsApplied = append(r.ExemptionsApplied, e.ExemptionsApplied...)
+	r.ExemptionsExpired = append(r.ExemptionsExpired, e.ExemptionsExpired...)
+
 	return r
 }

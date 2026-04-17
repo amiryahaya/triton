@@ -74,7 +74,7 @@ func runPolicyCheck(_ *cobra.Command, _ []string) error {
 	}
 
 	// Evaluate policy.
-	eval := policy.Evaluate(pol, result)
+	eval := policy.Evaluate(pol, result, nil)
 
 	// Print results.
 	fmt.Printf("Policy: %s\n", eval.PolicyName)

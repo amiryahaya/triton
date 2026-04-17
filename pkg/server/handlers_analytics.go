@@ -286,7 +286,7 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 		verdict := "PASS"
 		var totalViolations, totalFindings int
 		for _, summary := range latestPerHost {
-			result := policy.Evaluate(pol, scanResults[summary.ID])
+			result := policy.Evaluate(pol, scanResults[summary.ID], nil)
 			totalViolations += len(result.Violations)
 			totalFindings += result.FindingsChecked
 			verdict = worstVerdict(verdict, string(result.Verdict))

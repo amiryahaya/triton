@@ -104,3 +104,38 @@ func TestListBuiltin(t *testing.T) {
 	assert.Contains(t, names, "nacsa-2030")
 	assert.Contains(t, names, "cnsa-2.0")
 }
+
+func TestBuiltinNACSA_RiskLevels(t *testing.T) {
+	p, err := LoadBuiltin("nacsa-2030")
+	require.NoError(t, err)
+
+	// Build map of rule-id → risk_level
+	levels := make(map[string]string, len(p.Rules))
+	for _, r := range p.Rules {
+		levels[r.ID] = r.RiskLevel
+	}
+
+	assert.Equal(t, "critical", levels["no-unsafe-algorithms"])
+	assert.Equal(t, "critical", levels["no-rsa-below-2048"])
+	assert.Equal(t, "critical", levels["no-des"])
+	assert.Equal(t, "high", levels["no-md5"])
+	assert.Equal(t, "high", levels["no-sha1"])
+	assert.Equal(t, "critical", levels["no-rc4"])
+	assert.Equal(t, "medium", levels["deprecated-warning"])
+}
+
+func TestBuiltinCNSA_RiskLevels(t *testing.T) {
+	p, err := LoadBuiltin("cnsa-2.0")
+	require.NoError(t, err)
+
+	levels := make(map[string]string, len(p.Rules))
+	for _, r := range p.Rules {
+		levels[r.ID] = r.RiskLevel
+	}
+
+	assert.Equal(t, "critical", levels["cnsa2-no-unsafe"])
+	assert.Equal(t, "critical", levels["cnsa2-no-rsa-below-3072"])
+	assert.Equal(t, "high", levels["cnsa2-no-ecdsa-below-384"])
+	assert.Equal(t, "low", levels["cnsa2-no-sha-below-384"])
+	assert.Equal(t, "medium", levels["cnsa2-no-deprecated"])
+}

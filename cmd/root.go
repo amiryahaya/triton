@@ -412,25 +412,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Triton SBOM/CBOM Scanner v%s\n", version.Version)
 	fmt.Printf("Platform: %s/%s | Licence: %s\n\n", runtime.GOOS, runtime.GOARCH, guard.Tier())
 
-	// Enforce licence gates on profile and format.
-	// If the user explicitly set a value, error on restriction.
-	// Otherwise, silently downgrade defaults for the tier.
-	if cmd.Flags().Changed("profile") {
-		if err := guard.EnforceProfile(scanProfile); err != nil {
-			return err
-		}
-	} else {
-		allowed := license.AllowedProfiles(guard.Tier())
-		if len(allowed) > 0 {
-			scanProfile = allowed[len(allowed)-1]
-		}
-	}
-	if cmd.Flags().Changed("format") {
-		if err := guard.EnforceFormat(format); err != nil {
-			return err
-		}
-	} else if err := guard.EnforceFormat(format); err != nil {
-		format = "json"
+	// Enforce licence gates on profile/format and feature flags. Shared
+	// with runScanDetached so the two paths can't drift. Profile-downgrade
+	// for defaults must happen before BuildConfig so the downgraded
+	// profile is reflected in the resulting config.
+	if err := enforceScanLicense(cmd); err != nil {
+		return err
 	}
 
 	cfg, buildErr := scannerconfig.BuildConfig(scannerconfig.BuildOptions{
@@ -503,31 +490,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		cfg.KeystorePasswords = strings.Split(envPW, ",")
 	}
 
-	// Gate optional features behind licence tier.
-	if showMetrics {
-		if err := guard.EnforceFeature(license.FeatureMetrics); err != nil {
-			return err
-		}
-	}
-	if incremental {
-		if err := guard.EnforceFeature(license.FeatureIncremental); err != nil {
-			return err
-		}
-	}
-	if dbPath != "" {
-		if err := guard.EnforceFeature(license.FeatureDB); err != nil {
-			return err
-		}
-	}
-	if scanPolicyArg != "" {
-		f := license.FeaturePolicyBuiltin
-		if _, err := policy.LoadBuiltin(scanPolicyArg); err != nil {
-			f = license.FeaturePolicyCustom
-		}
-		if err := guard.EnforceFeature(f); err != nil {
-			return err
-		}
-	}
+	// Feature-gate checks (metrics/incremental/db/policy) live in
+	// enforceScanLicense above; nothing more to do here before the engine.
 
 	if cfg.DBUrl == "" {
 		cfg.DBUrl = scannerconfig.DefaultDBUrl()

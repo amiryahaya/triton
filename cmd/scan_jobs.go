@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"text/tabwriter"
 	"time"
@@ -18,11 +19,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/runtime/jobrunner"
 	"github.com/amiryahaya/triton/internal/runtime/limits"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/model"
+	"github.com/amiryahaya/triton/pkg/policy"
 	"github.com/amiryahaya/triton/pkg/report"
 	"github.com/amiryahaya/triton/pkg/scanner"
 	"github.com/amiryahaya/triton/pkg/store"
@@ -267,13 +270,138 @@ func writeTerminalFailure(jobDir string, err error) {
 }
 
 // buildScanConfigForCmd wraps the existing scannerconfig.BuildConfig with
-// the package-level flag variables so both runScan and runScanDaemon share
-// the same config path.
+// the full set of package-level flag variables so both runScan and
+// runScanDaemon share the same config path. Any flag handled in the
+// foreground runScan in cmd/root.go must also be applied here; otherwise
+// detached scans will silently drop that configuration.
 func buildScanConfigForCmd(cmd *cobra.Command) (*scannerconfig.Config, error) {
-	return scannerconfig.BuildConfig(scannerconfig.BuildOptions{
-		Profile: scanProfile,
-		Modules: modules,
+	cfg, err := scannerconfig.BuildConfig(scannerconfig.BuildOptions{
+		Profile:       scanProfile,
+		Modules:       modules,
+		ImageRefs:     imageRefs,
+		Kubeconfig:    kubeconfigPath,
+		K8sContext:    k8sContext,
+		K8sNamespace:  k8sNamespace,
+		RegistryAuth:  registryAuth,
+		DBUrl:         dbPath,
+		Metrics:       showMetrics,
+		Incremental:   incremental,
+		OIDCEndpoints: oidcEndpoints,
+		DNSSECZones:   dnssecZones,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply eBPF trace flag overrides (same clamping as runScan).
+	if v, err := cmd.Flags().GetDuration("ebpf-window"); err == nil && v > 0 {
+		if v < time.Second {
+			v = time.Second
+		}
+		if v > 30*time.Minute {
+			v = 30 * time.Minute
+		}
+		cfg.EBPFWindow = v
+	}
+	if v, err := cmd.Flags().GetBool("ebpf-skip-uprobes"); err == nil {
+		cfg.EBPFSkipUprobes = v
+	}
+	if v, err := cmd.Flags().GetBool("ebpf-skip-kprobes"); err == nil {
+		cfg.EBPFSkipKprobes = v
+	}
+
+	// Apply pcap / TLS observer flag overrides.
+	if v, _ := cmd.Flags().GetString("pcap-file"); v != "" {
+		cfg.PcapFile = v
+		cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+			Type: model.TargetPcap, Value: v,
+		})
+	}
+	if v, _ := cmd.Flags().GetString("pcap-interface"); v != "" {
+		cfg.PcapInterface = v
+		cfg.ScanTargets = append(cfg.ScanTargets, model.ScanTarget{
+			Type: model.TargetPcap, Value: "iface:" + v,
+		})
+	}
+	if v, err := cmd.Flags().GetDuration("pcap-window"); err == nil && v > 0 {
+		if v < time.Second {
+			v = time.Second
+		}
+		if v > 5*time.Minute {
+			v = 5 * time.Minute
+		}
+		cfg.PcapWindow = v
+	}
+	if v, _ := cmd.Flags().GetString("pcap-filter"); v != "" {
+		cfg.PcapFilter = v
+	}
+
+	// Keystore passwords: CLI flag -> env var -> empty (built-in defaults only).
+	if len(keystorePasswords) > 0 {
+		cfg.KeystorePasswords = keystorePasswords
+	} else if envPW := os.Getenv("TRITON_KEYSTORE_PASSWORDS"); envPW != "" {
+		cfg.KeystorePasswords = strings.Split(envPW, ",")
+	}
+
+	if cfg.DBUrl == "" {
+		cfg.DBUrl = scannerconfig.DefaultDBUrl()
+	}
+
+	// Apply licence-based config filtering (restricts modules for free tier).
+	// Must run after all flag overrides so the filter sees the final module set.
+	guard.FilterConfig(cfg)
+	return cfg, nil
+}
+
+// enforceScanLicense applies the licence-tier restrictions used by both the
+// foreground runScan path and the detached runScanDetached path. It must
+// run before buildScanConfigForCmd so any profile downgrade is reflected
+// in the resulting config. This is the single source of truth for which
+// features require which tier; runScan should call this helper rather than
+// inline the checks to prevent the two paths from drifting.
+func enforceScanLicense(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("profile") {
+		if err := guard.EnforceProfile(scanProfile); err != nil {
+			return err
+		}
+	} else {
+		allowed := license.AllowedProfiles(guard.Tier())
+		if len(allowed) > 0 {
+			scanProfile = allowed[len(allowed)-1]
+		}
+	}
+	if cmd.Flags().Changed("format") {
+		if err := guard.EnforceFormat(format); err != nil {
+			return err
+		}
+	} else if err := guard.EnforceFormat(format); err != nil {
+		format = "json"
+	}
+	if showMetrics {
+		if err := guard.EnforceFeature(license.FeatureMetrics); err != nil {
+			return err
+		}
+	}
+	if incremental {
+		if err := guard.EnforceFeature(license.FeatureIncremental); err != nil {
+			return err
+		}
+	}
+	if dbPath != "" {
+		if err := guard.EnforceFeature(license.FeatureDB); err != nil {
+			return err
+		}
+	}
+	if scanPolicyArg != "" {
+		f := license.FeaturePolicyBuiltin
+		if _, err := policy.LoadBuiltin(scanPolicyArg); err != nil {
+			f = license.FeaturePolicyCustom
+		}
+		if err := guard.EnforceFeature(f); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // buildLimitsForCmd wraps cmd/root.go's buildLimits by reading flag values
@@ -349,6 +477,14 @@ func saveResultAndReports(jobDir string, result *model.ScanResult, cfg *scannerc
 // spawns a detached child via jobrunner.Spawn, writes the initial status,
 // and prints the job-id to stdout. Returns immediately after fork.
 func runScanDetached(cmd *cobra.Command, args []string) error {
+	// D3: enforce licence tier BEFORE dispatching to the daemon. Without
+	// this, a free-tier user could bypass profile/format/feature gating
+	// by passing --detach. enforceScanLicense also downgrades defaults,
+	// so buildScanConfigForCmd below observes the restricted profile.
+	if err := enforceScanLicense(cmd); err != nil {
+		return err
+	}
+
 	jobID := detachJobID
 	if jobID == "" {
 		jobID = uuid.NewString()
@@ -402,6 +538,15 @@ func runScanDetached(cmd *cobra.Command, args []string) error {
 	if s, rerr := jobrunner.ReadStatus(jobDir); rerr == nil {
 		s.PID = pid
 		_ = jobrunner.WriteStatusAtomic(jobDir, s)
+	}
+
+	// --output-dir has no effect in detached mode: reports land in the
+	// job's work-dir/reports/ and are retrieved via --collect. Warn the
+	// user explicitly so the silent drop doesn't surprise them.
+	if outputDir != "" && outputDir != "." {
+		fmt.Fprintf(os.Stderr,
+			"warning: --output-dir is ignored with --detach; reports will be in %s/reports. Use 'triton scan --collect --job-id %s' to retrieve.\n",
+			jobDir, jobID)
 	}
 
 	if detachQuiet {

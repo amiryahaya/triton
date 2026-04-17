@@ -710,7 +710,7 @@ func evaluateScanPolicy(result *model.ScanResult) error {
 		}
 	}
 
-	eval := policy.Evaluate(pol, result)
+	eval := policy.Evaluate(pol, result, nil)
 	result.PolicyEvaluation = eval.ToModelResult()
 
 	fmt.Printf("\nPolicy Evaluation: %s\n", eval.PolicyName)

@@ -370,7 +370,7 @@ func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eval := policy.Evaluate(pol, result)
+	eval := policy.Evaluate(pol, result, nil)
 	writeJSON(w, http.StatusOK, eval)
 }
 

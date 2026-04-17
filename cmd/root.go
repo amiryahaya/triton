@@ -20,6 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/runtime/limits"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/crypto"
@@ -203,6 +204,19 @@ func init() {
 	rootCmd.PersistentFlags().String("pcap-filter", "tcp port 443",
 		"BPF filter for tls_observer (default: tcp port 443)")
 	rootCmd.MarkFlagsMutuallyExclusive("pcap-file", "pcap-interface")
+
+	// Resource limits (applies to foreground scans, future agent-supervised
+	// scans, and future ssh-agentless orchestrator invocations).
+	rootCmd.PersistentFlags().String("max-memory", "",
+		"soft memory cap (e.g. 2GB, 512MB); hard watchdog triggers self-kill at 1.5x")
+	rootCmd.PersistentFlags().String("max-cpu-percent", "",
+		"cap GOMAXPROCS to this percentage of NumCPU (1-100; caps parallelism, not CPU time)")
+	rootCmd.PersistentFlags().Duration("max-duration", 0,
+		"wall-clock budget for the scan (e.g. 4h); scan returns partial results on timeout")
+	rootCmd.PersistentFlags().String("stop-at", "",
+		"stop the scan at this local clock time (HH:MM); if past, rolls to tomorrow")
+	rootCmd.PersistentFlags().Int("nice", 0,
+		"scheduling priority adjustment (unix only; higher = lower priority; 0 = no change)")
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -470,15 +484,34 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	maxMem, _ := cmd.Flags().GetString("max-memory")
+	maxCPU, _ := cmd.Flags().GetString("max-cpu-percent")
+	maxDur, _ := cmd.Flags().GetDuration("max-duration")
+	stopAt, _ := cmd.Flags().GetString("stop-at")
+	niceVal, _ := cmd.Flags().GetInt("nice")
+	lim, err := buildLimits(maxMem, maxCPU, maxDur, stopAt, niceVal)
+	if err != nil {
+		return err
+	}
+	if lim.Enabled() {
+		fmt.Printf("Resource %s\n", lim.String())
+	}
+
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	defer baseCancel()
+	limitedCtx, limitsCleanup := lim.Apply(baseCtx)
+	defer limitsCleanup()
+
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return runScanHeadless(eng)
+		return runScanHeadless(eng, limitedCtx)
 	}
 
 	progressCh := make(chan scanner.Progress, progressBufferSize)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Preserve `cancel` as a name — the BubbleTea scanModel captures it.
+	// Cancelling it cancels baseCtx, which propagates to limitedCtx.
+	cancel := baseCancel
 
-	go eng.Scan(ctx, progressCh)
+	go eng.Scan(limitedCtx, progressCh)
 
 	// Ensure the scan goroutine can always drain after cancel to prevent goroutine leak.
 	// The BubbleTea program stops reading on Ctrl+C, but the goroutine may still be
@@ -529,9 +562,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 	return policyErr
 }
 
-func runScanHeadless(eng *scanner.Engine) error {
+func runScanHeadless(eng *scanner.Engine, parentCtx context.Context) error {
 	progressCh := make(chan scanner.Progress, progressBufferSize)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(parentCtx, os.Interrupt)
 	defer stop()
 
 	go eng.Scan(ctx, progressCh)
@@ -556,6 +589,31 @@ func runScanHeadless(eng *scanner.Engine) error {
 		}
 	}
 	return nil
+}
+
+// buildLimits converts raw CLI flag values into a validated Limits struct.
+// Returns an error if any flag value is malformed. time.Now() is called
+// inline so --stop-at resolves against the actual clock at scan start.
+func buildLimits(maxMemory, maxCPUPercent string, maxDuration time.Duration, stopAt string, nice int) (limits.Limits, error) {
+	memBytes, err := limits.ParseSize(maxMemory)
+	if err != nil {
+		return limits.Limits{}, fmt.Errorf("--max-memory: %w", err)
+	}
+	cpuPct, err := limits.ParsePercent(maxCPUPercent)
+	if err != nil {
+		return limits.Limits{}, fmt.Errorf("--max-cpu-percent: %w", err)
+	}
+	stopOffset, err := limits.ParseStopAt(stopAt, time.Now())
+	if err != nil {
+		return limits.Limits{}, fmt.Errorf("--stop-at: %w", err)
+	}
+	return limits.Limits{
+		MaxMemoryBytes: memBytes,
+		MaxCPUPercent:  cpuPct,
+		MaxDuration:    maxDuration,
+		StopAtOffset:   stopOffset,
+		Nice:           nice,
+	}, nil
 }
 
 // saveScanResult persists a scan result using the engine's store.

@@ -144,6 +144,25 @@ triton
 Live Kubernetes scanning is an **Enterprise tier** feature. The host
 filesystem is **not** scanned when `--kubeconfig` is set.
 
+### Resource limits
+
+Cap a scan's resource footprint with any combination of:
+
+| Flag | Meaning | Example |
+|---|---|---|
+| `--max-memory` | Soft memory cap (GC pressure); watchdog self-kills at 1.5x | `--max-memory 2GB` |
+| `--max-cpu-percent` | Cap GOMAXPROCS to this % of NumCPU | `--max-cpu-percent 50` |
+| `--max-duration` | Wall-clock budget; partial results on timeout | `--max-duration 4h` |
+| `--stop-at` | Stop at clock time (local TZ, HH:MM) | `--stop-at 03:00` |
+| `--nice` | Scheduling priority (unix; higher = nicer) | `--nice 10` |
+
+Limits work identically for foreground scans, agent-supervised scans, and (future) ssh-agentless orchestrator invocations.
+
+**Caveats:**
+- `--max-memory` is a soft limit via `GOMEMLIMIT`. The GC pushes hard to stay under it. A hard watchdog self-kills at 1.5x as a safety net for runaway allocations. For kernel-enforced hard limits, wrap with `systemd-run --scope -p MemoryMax=...`.
+- `--max-cpu-percent` caps parallelism, not CPU time. A single tight loop still saturates one core.
+- `--nice` is a no-op on Windows.
+
 ## Scanning Categories
 
 Triton covers all 9 CBOM categories plus enterprise infrastructure with **31 scanner modules**:

@@ -5,7 +5,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
-	"syscall"
 	"time"
 )
 
@@ -90,9 +89,12 @@ func sampleGoRuntimeMem() uint64 {
 	return m.Sys
 }
 
-// killSelf sends SIGKILL to the current process. On breach there is no
-// point returning an error or running shutdown hooks: the runtime is
-// already unhealthy.
+// killSelf terminates the current process unceremoniously. On breach there
+// is no point returning an error or running shutdown hooks: the runtime is
+// already unhealthy. Uses os.Process.Kill which is SIGKILL on unix and
+// TerminateProcess on Windows — both uncatchable.
 func killSelf() {
-	_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+	if p, err := os.FindProcess(os.Getpid()); err == nil {
+		_ = p.Kill()
+	}
 }

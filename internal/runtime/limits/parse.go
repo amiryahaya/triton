@@ -2,6 +2,7 @@ package limits
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ func ParseSize(s string) (int64, error) {
 	if n < 0 {
 		return 0, fmt.Errorf("invalid size %q: must be non-negative", s)
 	}
+	if mult > 1 && n > math.MaxInt64/mult {
+		return 0, fmt.Errorf("invalid size %q: value overflows int64", s)
+	}
 	return n * mult, nil
 }
 
@@ -50,13 +54,14 @@ func ParsePercent(s string) (int, error) {
 	if s == "" {
 		return 0, nil
 	}
+	orig := s
 	s = strings.TrimSuffix(s, "%")
 	n, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, fmt.Errorf("invalid percent %q: %w", s, err)
+		return 0, fmt.Errorf("invalid percent %q: %w", orig, err)
 	}
 	if n < 0 || n > 100 {
-		return 0, fmt.Errorf("invalid percent %q: must be in [0,100]", s)
+		return 0, fmt.Errorf("invalid percent %q: must be in [0,100]", orig)
 	}
 	return n, nil
 }

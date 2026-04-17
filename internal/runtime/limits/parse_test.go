@@ -23,11 +23,12 @@ func TestParseSize(t *testing.T) {
 		{"1 GB", 1 << 30, false},
 		{"  2MB  ", 2 << 20, false},
 		{"1TB", 1 << 40, false},
-		{"1.5GB", 0, true},   // fractional unsupported — keep it simple
+		{"1.5GB", 0, true}, // fractional unsupported — keep it simple
 		{"GB", 0, true},
 		{"1ZB", 0, true},
 		{"-1GB", 0, true},
 		{"abc", 0, true},
+		{"9999999TB", 0, true}, // overflow
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
@@ -56,7 +57,7 @@ func TestParsePercent(t *testing.T) {
 		{"101", 0, true},
 		{"-1", 0, true},
 		{"abc", 0, true},
-		{"50%", 50, false},  // accept trailing % for human convenience
+		{"50%", 50, false}, // accept trailing % for human convenience
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
@@ -80,11 +81,11 @@ func TestParseStopAt(t *testing.T) {
 		wantErr bool
 	}{
 		{"", 0, false},
-		{"15:00", 1 * time.Hour, false},                      // later today
-		{"14:00", 24 * time.Hour, false},                     // exactly now → tomorrow
-		{"13:00", 23 * time.Hour, false},                     // earlier → tomorrow
-		{"23:59", 9*time.Hour + 59*time.Minute, false},       // late today
-		{"00:00", 10 * time.Hour, false},                     // midnight → tomorrow
+		{"15:00", 1 * time.Hour, false},                // later today
+		{"14:00", 24 * time.Hour, false},               // exactly now → tomorrow
+		{"13:00", 23 * time.Hour, false},               // earlier → tomorrow
+		{"23:59", 9*time.Hour + 59*time.Minute, false}, // late today
+		{"00:00", 10 * time.Hour, false},               // midnight → tomorrow
 		{"25:00", 0, true},
 		{"abc", 0, true},
 		{"15", 0, true},

@@ -2,9 +2,10 @@
   "name": "triton-web",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Triton web portals — License, Report, Manage",
   "scripts": {
-    "build": "pnpm -r --filter ./apps/* build",
+    "build": "pnpm --filter \"./apps/*\" build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -26,5 +27,5 @@
     "vitest": "^2.1.8",
     "vue-tsc": "^2.1.10"
   },
-  "packageManager": "pnpm@9.15.0"
+  "packageManager": "pnpm@10.29.3"
 }

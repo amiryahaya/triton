@@ -25,3 +25,9 @@ pnpm build                            # build every app into its embed target
 
 Each portal app's `vite.config.ts` emits directly into `pkg/<portal>/ui/dist/`,
 preserving Go's `//go:embed`. Run `make web` from the repo root.
+
+## Notes
+
+- **ESLint config**: flat config (`eslint.config.js`). ESLint 9 + `@vue/eslint-config-typescript` v14 only support flat format.
+- **TypeScript**: `tsconfig.base.json` enables project references (`composite`, `declaration`, `declarationMap`). Packages extend it; apps that aren't consumed as packages may set `"composite": false` locally.
+- **Package manager**: `corepack` will pick up the `packageManager` field in `web/package.json`. Run `corepack enable pnpm` once if needed.

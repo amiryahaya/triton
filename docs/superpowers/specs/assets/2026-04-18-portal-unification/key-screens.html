@@ -1,0 +1,773 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  /* Theme = slate dark (chosen default) */
+  .t-board {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 22px 20px;
+    border-radius: 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .t-title { font-family: 'Geist', 'Inter', sans-serif; font-size: 1.6rem; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 4px; }
+  .t-subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 22px; }
+
+  .screen-head {
+    display: flex; align-items: center; gap: 12px;
+    margin: 22px 0 10px;
+  }
+  .screen-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.82rem; font-weight: 700;
+  }
+  .screen-num.rep { background: #22d3ee; color: #0f172a; }
+  .screen-num.lic { background: #a78bfa; color: #0f172a; }
+  .screen-num.man { background: #a3e635; color: #0f172a; }
+  .screen-title {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 1.15rem; font-weight: 600; letter-spacing: -0.02em;
+    margin: 0; color: #f1f5f9;
+  }
+  .screen-role {
+    font-size: 0.72rem; color: #94a3b8;
+    margin-left: auto;
+  }
+  .screen-role b { color: #f1f5f9; font-weight: 500; }
+
+  /* Shared portal shell */
+  .shell {
+    background: #0f172a;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid #334155;
+    display: grid; grid-template-columns: 180px 1fr;
+    min-height: 620px;
+  }
+  .side {
+    background: #1e293b;
+    border-right: 1px solid #334155;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .side-logo {
+    padding: 14px;
+    border-bottom: 1px solid #334155;
+    display: flex; align-items: center; gap: 10px;
+    position: relative;
+  }
+  .side-logo::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  }
+  .rep .side-logo::before { background: #22d3ee; }
+  .lic .side-logo::before { background: #a78bfa; }
+  .man .side-logo::before { background: #a3e635; }
+  .logo-img {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Geist', sans-serif; font-weight: 700; font-size: 0.95rem;
+    letter-spacing: -0.04em; color: #0f172a;
+  }
+  .rep .logo-img { background: linear-gradient(135deg, #0891b2, #22d3ee); }
+  .lic .logo-img { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+  .man .logo-img { background: linear-gradient(135deg, #65a30d, #a3e635); }
+  .logo-t { font-family: 'Geist', sans-serif; font-weight: 600; font-size: 0.95rem; letter-spacing: -0.02em; color: #f1f5f9; line-height: 1.1; }
+  .logo-s { font-size: 0.56rem; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; font-weight: 500; margin-top: 1px; }
+
+  .nav { padding: 10px 0; flex: 1; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    font-size: 0.74rem; color: #94a3b8;
+    border-left: 2px solid transparent;
+    cursor: pointer;
+  }
+  .nav-item:hover { color: #e2e8f0; background: rgba(255,255,255,0.03); }
+  .nav-ico { width: 13px; height: 13px; border-radius: 2px; background: currentColor; opacity: 0.5; }
+  .nav-item.active .nav-ico { opacity: 1; }
+  .rep .nav-item.active { color: #22d3ee; background: rgba(34,211,238,0.08); border-left-color: #22d3ee; font-weight: 500; }
+  .lic .nav-item.active { color: #c4b5fd; background: rgba(167,139,250,0.1); border-left-color: #a78bfa; font-weight: 500; }
+  .man .nav-item.active { color: #bef264; background: rgba(163,230,53,0.1); border-left-color: #a3e635; font-weight: 500; }
+  .nav-sec { font-size: 0.54rem; letter-spacing: 0.18em; text-transform: uppercase; color: #64748b; font-weight: 500; padding: 10px 14px 3px; }
+
+  .side-foot {
+    padding: 10px 14px; border-top: 1px solid #334155;
+    font-size: 0.66rem; color: #94a3b8;
+  }
+  .side-foot b { display: block; color: #f1f5f9; font-size: 0.72rem; font-weight: 500; margin-bottom: 1px; }
+
+  .main { display: flex; flex-direction: column; }
+  .topbar {
+    height: 42px; padding: 0 14px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid #334155;
+    background: #1e293b;
+    font-size: 0.72rem; color: #cbd5e1;
+  }
+  .crumb b { color: #f1f5f9; font-weight: 500; }
+  .sep { color: #475569; margin: 0 4px; }
+  .chip {
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 0.62rem; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.25); color: #a5f3fc;
+  }
+  .chip .dot { width: 5px; height: 5px; border-radius: 50%; background: #22d3ee; }
+  .lic .chip { background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.25); color: #c4b5fd; }
+  .lic .chip .dot { background: #a78bfa; }
+  .man .chip { background: rgba(163,230,53,0.08); border-color: rgba(163,230,53,0.28); color: #bef264; }
+  .man .chip .dot { background: #a3e635; }
+  .tright { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .search {
+    background: #0f172a; border: 1px solid #334155;
+    padding: 4px 10px; border-radius: 5px;
+    font-size: 0.66rem; display: flex; align-items: center; gap: 6px;
+    min-width: 140px; color: #64748b;
+  }
+  .kbd {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.52rem;
+    color: #64748b; background: #1e293b;
+    padding: 0 5px; border-radius: 3px; border: 1px solid #334155;
+  }
+  .waffle {
+    width: 26px; height: 26px; border-radius: 5px;
+    background: #0f172a; border: 1px solid #334155;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; color: #94a3b8; cursor: pointer;
+  }
+  .theme-t { font-size: 0.68rem; color: #cbd5e1; background: #0f172a; border: 1px solid #334155; padding: 3px 8px; border-radius: 5px; }
+  .avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.64rem; font-weight: 700;
+    background: linear-gradient(135deg, #0e7490, #7c3aed); color: #fff;
+  }
+
+  .page { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* Page header */
+  .ph { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+  .ph-title {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 1.55rem; font-weight: 600; letter-spacing: -0.03em;
+    margin: 0; color: #f1f5f9; line-height: 1.1;
+  }
+  .ph-meta { font-size: 0.74rem; color: #64748b; margin-top: 5px; display: flex; gap: 14px; }
+  .ph-meta b { color: #cbd5e1; font-weight: 500; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; border-radius: 6px;
+    font-size: 0.74rem; font-weight: 500;
+    border: 1px solid transparent; cursor: default;
+  }
+  .btn-primary { background: #0891b2; color: #0f172a; box-shadow: 0 0 0 1px rgba(34,211,238,0.25), 0 2px 8px rgba(8,145,178,0.25); }
+  .btn-secondary { background: #0f172a; color: #e2e8f0; border-color: #475569; }
+  .btn-sm { padding: 4px 9px; font-size: 0.66rem; }
+  .btn-danger { background: rgba(248,113,113,0.14); color: #fca5a5; border-color: rgba(248,113,113,0.3); }
+
+  /* Stat cards row */
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .stat-cell {
+    padding: 12px 14px; background: #1e293b;
+    border: 1px solid #334155; border-radius: 8px;
+    position: relative;
+  }
+  .stat-cell::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    opacity: 0.8;
+  }
+  .stat-cell.pqc::before { background: #22d3ee; }
+  .stat-cell.unsafe::before { background: #f87171; }
+  .stat-cell.warn::before { background: #fbbf24; }
+  .stat-cell.safe::before { background: #34d399; }
+  .stat-cell.purple::before { background: #a78bfa; }
+  .stat-cell.lime::before { background: #a3e635; }
+  .stat-label { font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase; color: #64748b; font-weight: 500; }
+  .stat-value {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 1.85rem; font-weight: 600; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; color: #f1f5f9;
+    line-height: 1.05; margin: 2px 0 3px;
+  }
+  .stat-delta { font-size: 0.66rem; font-weight: 500; display: flex; align-items: center; gap: 3px; }
+  .stat-delta.up { color: #34d399; }
+  .stat-delta.down { color: #fbbf24; }
+
+  /* Grid of panels */
+  .panels { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
+  .panel { background: #1e293b; border: 1px solid #334155; border-radius: 8px; overflow: hidden; }
+  .panel-head {
+    padding: 12px 14px; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid #334155;
+  }
+  .panel-title { font-family: 'Geist', 'Inter', sans-serif; font-size: 0.88rem; font-weight: 600; letter-spacing: -0.01em; color: #f1f5f9; margin: 0; }
+  .panel-sub { font-size: 0.66rem; color: #64748b; margin-left: 6px; }
+  .panel-action { margin-left: auto; font-size: 0.66rem; color: #22d3ee; cursor: pointer; font-weight: 500; }
+  .panel-body { padding: 14px; }
+
+  .chart { height: 130px; display: flex; align-items: flex-end; gap: 4px; }
+  .chart span { flex: 1; border-radius: 2px 2px 0 0; background: linear-gradient(180deg, #22d3ee, #0891b2); opacity: 0.9; }
+  .chart-axis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 0.56rem; color: #64748b; }
+
+  .donut-wrap { display: flex; align-items: center; gap: 16px; padding: 4px; }
+  .donut {
+    width: 110px; height: 110px; border-radius: 50%;
+    background: conic-gradient(#34d399 0 38%, #fbbf24 38% 54%, #fb923c 54% 72%, #f87171 72% 100%);
+    position: relative; flex-shrink: 0;
+  }
+  .donut::after { content: ''; position: absolute; inset: 13px; background: #1e293b; border-radius: 50%; }
+  .donut-c {
+    position: absolute; inset: 0; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .donut-c b {
+    font-family: 'Geist', sans-serif;
+    font-size: 1.45rem; font-weight: 600; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; color: #f1f5f9;
+  }
+  .donut-c span { font-size: 0.56rem; letter-spacing: 0.14em; text-transform: uppercase; color: #94a3b8; font-weight: 500; margin-top: 2px; }
+  .donut-legend { font-size: 0.68rem; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; }
+  .donut-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .donut-legend b { color: #f1f5f9; font-weight: 500; font-variant-numeric: tabular-nums; font-family: 'Geist', sans-serif; }
+
+  /* Table */
+  .tbl-wrap {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 8px; overflow: hidden;
+  }
+  .tbl-toolbar {
+    padding: 10px 14px; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid #334155;
+    font-size: 0.7rem;
+  }
+  .tbl-toolbar .spacer { flex: 1; }
+  .pill-sel { padding: 2px 7px; border-radius: 3px; font-size: 0.6rem; font-weight: 500; background: rgba(34,211,238,0.12); color: #22d3ee; }
+  .tbl {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.72rem; color: #cbd5e1;
+    table-layout: fixed;
+  }
+  .tbl th, .tbl td { padding: 9px 14px; text-align: left; border-bottom: 1px solid #334155; vertical-align: middle; }
+  .tbl th { font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; font-weight: 500; background: rgba(255,255,255,0.02); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr.sel td { background: rgba(34,211,238,0.05); }
+  .tbl b { color: #f1f5f9; font-weight: 500; font-family: 'Geist', 'Inter', sans-serif; letter-spacing: -0.005em; }
+  .tbl .num { font-variant-numeric: tabular-nums; color: #f1f5f9; font-family: 'Geist', sans-serif; }
+  .check { width: 12px; height: 12px; border: 1px solid #475569; border-radius: 3px; display: inline-block; vertical-align: middle; }
+  .check.checked { background: #22d3ee; border-color: #22d3ee; position: relative; }
+  .check.checked::after { content: '✓'; position: absolute; top: -3px; left: 1px; color: #0f172a; font-family: 'Inter', sans-serif; font-size: 0.68rem; font-weight: 700; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 0.58rem; font-weight: 500;
+    padding: 2px 7px; border-radius: 999px;
+    border: 1px solid;
+  }
+  .pill .dot { width: 4px; height: 4px; border-radius: 50%; }
+  .pill.safe { color: #34d399; background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.25); }
+  .pill.safe .dot { background: #34d399; }
+  .pill.warn { color: #fcd34d; background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.3); }
+  .pill.warn .dot { background: #fbbf24; }
+  .pill.unsafe { color: #fca5a5; background: rgba(248,113,113,0.14); border-color: rgba(248,113,113,0.3); }
+  .pill.unsafe .dot { background: #f87171; }
+  .pill.info { color: #7dd3fc; background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.3); }
+  .pill.info .dot { background: #22d3ee; }
+  .pill.neutral { color: #94a3b8; background: rgba(148,163,184,0.1); border-color: rgba(148,163,184,0.2); }
+  .pill.neutral .dot { background: #94a3b8; }
+  .pill.enterprise { color: #c4b5fd; background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.3); }
+  .pill.enterprise .dot { background: #a78bfa; }
+
+  /* Compliance banner */
+  .verdict {
+    padding: 16px 18px; border-radius: 9px;
+    display: flex; align-items: center; gap: 16px;
+    border: 1px solid;
+  }
+  .verdict.warn { background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(251,146,60,0.05)); border-color: rgba(251,191,36,0.35); }
+  .verdict-ico {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: rgba(251,191,36,0.18); color: #fbbf24;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .verdict-body { flex: 1; }
+  .verdict-label { font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; color: #fbbf24; font-weight: 600; }
+  .verdict-title { font-family: 'Geist', 'Inter', sans-serif; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; color: #f1f5f9; margin: 2px 0 3px; }
+  .verdict-desc { font-size: 0.76rem; color: #cbd5e1; }
+
+  /* Remediation card */
+  .remed-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #334155;
+    font-size: 0.75rem;
+  }
+  .remed-item:last-child { border-bottom: none; }
+  .remed-rank {
+    font-family: 'Geist', sans-serif;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(248,113,113,0.15); color: #f87171;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .remed-item:nth-child(2) .remed-rank { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .remed-item:nth-child(3) .remed-rank { background: rgba(251,146,60,0.15); color: #fb923c; }
+  .remed-body { flex: 1; }
+  .remed-body b { color: #f1f5f9; font-weight: 500; font-family: 'Geist', sans-serif; letter-spacing: -0.005em; }
+  .remed-body .meta { color: #64748b; font-size: 0.66rem; margin-top: 1px; }
+  .remed-cta { font-size: 0.66rem; color: #22d3ee; font-weight: 500; }
+
+  /* License detail header */
+  .lic-detail-head {
+    background: linear-gradient(135deg, rgba(167,139,250,0.12), rgba(34,211,238,0.04));
+    border: 1px solid rgba(167,139,250,0.3);
+    border-radius: 10px;
+    padding: 18px 20px;
+    display: flex; align-items: flex-start; gap: 18px;
+  }
+  .lic-detail-head .key {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem; color: #f1f5f9;
+    letter-spacing: 0.02em;
+  }
+  .lic-detail-head .meta-row {
+    display: flex; gap: 18px; margin-top: 10px; font-size: 0.74rem; color: #94a3b8;
+  }
+  .lic-detail-head .meta-row b { color: #f1f5f9; font-family: 'Geist', sans-serif; font-weight: 500; }
+
+  /* Zones badge */
+  .zone-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .zone-b {
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 0.62rem; font-weight: 500;
+    background: rgba(163,230,53,0.1); color: #bef264;
+    border: 1px solid rgba(163,230,53,0.25);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .zone-b .num { font-variant-numeric: tabular-nums; color: #bef264; font-weight: 600; }
+
+  /* Upload drop */
+  .upload {
+    border: 1px dashed #475569; border-radius: 8px;
+    background: #0f172a;
+    padding: 18px; text-align: center;
+  }
+  .upload-ico { font-size: 1.6rem; color: #a3e635; margin-bottom: 4px; }
+  .upload-title { color: #f1f5f9; font-family: 'Geist', sans-serif; font-weight: 500; font-size: 0.82rem; }
+  .upload-sub { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
+
+  /* Rec card */
+  .rec {
+    margin-top: 22px;
+    background: linear-gradient(135deg, rgba(8,145,178,0.12), rgba(52,211,153,0.06));
+    border: 1px solid rgba(34,211,238,0.3);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .rec h3 { font-family: 'Geist', sans-serif; font-size: 0.98rem; letter-spacing: -0.01em; font-weight: 600; color: #22d3ee; margin: 0 0 8px; }
+  .rec p { font-size: 0.82rem; line-height: 1.55; color: #e2e8f0; margin: 0; }
+</style>
+
+<h2 style="font-family:'Geist','Inter',sans-serif; letter-spacing:-0.02em">Hero screens — one per portal</h2>
+<p class="subtitle">Slate dark default + Inter/Geist, full shell, real content. This is how each portal reads when you land on it.</p>
+
+<div class="t-board">
+
+  <!-- ═════════════════ 1 · REPORT SERVER ═════════════════ -->
+  <div class="screen-head">
+    <span class="screen-num rep">1</span>
+    <h3 class="screen-title">Report Server · Overview</h3>
+    <span class="screen-role">Audience: <b>Security Officer · ACME Corp</b></span>
+  </div>
+
+  <div class="shell rep">
+    <nav class="side">
+      <div class="side-logo">
+        <div class="logo-img">T</div>
+        <div><div class="logo-t">Triton</div><div class="logo-s">Report</div></div>
+      </div>
+      <div class="nav">
+        <div class="nav-item active"><span class="nav-ico"></span>Overview</div>
+        <div class="nav-item"><span class="nav-ico"></span>Machines</div>
+        <div class="nav-item"><span class="nav-ico"></span>Scans</div>
+        <div class="nav-sec">Compliance</div>
+        <div class="nav-item"><span class="nav-ico"></span>NACSA Arahan 9</div>
+        <div class="nav-item"><span class="nav-ico"></span>Priority</div>
+        <div class="nav-item"><span class="nav-ico"></span>Inventory</div>
+        <div class="nav-item"><span class="nav-ico"></span>Certificates</div>
+        <div class="nav-sec">Trend &amp; diff</div>
+        <div class="nav-item"><span class="nav-ico"></span>Migration trend</div>
+        <div class="nav-item"><span class="nav-ico"></span>Scan diff</div>
+      </div>
+      <div class="side-foot"><b>Jane Doe · Sec Officer</b>ACME Corp · Enterprise</div>
+    </nav>
+    <div class="main">
+      <div class="topbar">
+        <div class="crumb"><b>Overview</b></div>
+        <div class="chip"><span class="dot"></span>ACME · Production</div>
+        <div class="tright">
+          <div class="search">⌕ Search hosts, findings…<span class="kbd">⌘K</span></div>
+          <div class="waffle">⋮⋮</div>
+          <div class="theme-t">◐ Dark</div>
+          <div class="avatar">JD</div>
+        </div>
+      </div>
+      <div class="page">
+        <div class="ph">
+          <div>
+            <h1 class="ph-title">Crypto readiness</h1>
+            <div class="ph-meta">
+              <span>Last scan <b>2h ago</b></span>
+              <span>Across <b>1,042 hosts</b> · 6 zones</span>
+              <span>Policy: <b>NACSA-2030</b></span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn btn-secondary">Export CSV</button>
+            <button class="btn btn-primary">Generate NACSA report</button>
+          </div>
+        </div>
+
+        <!-- Verdict banner -->
+        <div class="verdict warn">
+          <div class="verdict-ico">!</div>
+          <div class="verdict-body">
+            <div class="verdict-label">NACSA Arahan 9 verdict</div>
+            <div class="verdict-title">Partial compliance · 3 thresholds not met</div>
+            <div class="verdict-desc">214 unsafe findings across 47 hosts · DES &amp; RSA-1024 must reach 0 before next audit cycle. 33 certificates expire within 30 days.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">View details →</button>
+        </div>
+
+        <!-- Stats -->
+        <div class="stat-row">
+          <div class="stat-cell pqc"><div class="stat-label">PQC ready</div><div class="stat-value">68%</div><div class="stat-delta up">↑ 4.2 vs last scan</div></div>
+          <div class="stat-cell unsafe"><div class="stat-label">Unsafe findings</div><div class="stat-value">214</div><div class="stat-delta up" style="color:#34d399">↓ 12 resolved</div></div>
+          <div class="stat-cell warn"><div class="stat-label">Expiring 30d</div><div class="stat-value">33</div><div class="stat-delta down">↑ 8 new</div></div>
+          <div class="stat-cell safe"><div class="stat-label">Hosts scanned</div><div class="stat-value">1,042</div><div class="stat-delta up">98% online</div></div>
+        </div>
+
+        <!-- Panels -->
+        <div class="panels">
+          <div class="panel">
+            <div class="panel-head">
+              <h4 class="panel-title">Migration trend</h4>
+              <span class="panel-sub">· PQC-ready % · 12 weeks</span>
+              <span class="panel-action">Open trend →</span>
+            </div>
+            <div class="panel-body">
+              <div class="chart">
+                <span style="height:20%"></span><span style="height:28%"></span><span style="height:32%"></span><span style="height:38%"></span>
+                <span style="height:45%"></span><span style="height:50%"></span><span style="height:58%"></span><span style="height:62%"></span>
+                <span style="height:68%"></span><span style="height:70%"></span><span style="height:78%"></span><span style="height:85%"></span>
+              </div>
+              <div class="chart-axis"><span>W1</span><span>W4</span><span>W8</span><span>W12</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h4 class="panel-title">Classification</h4>
+              <span class="panel-sub">· across findings</span>
+            </div>
+            <div class="panel-body">
+              <div class="donut-wrap">
+                <div class="donut"><div class="donut-c"><b>1,244</b><span>Findings</span></div></div>
+                <div class="donut-legend">
+                  <div><span class="sw" style="background:#34d399"></span><b>473</b> · Safe (38%)</div>
+                  <div><span class="sw" style="background:#fbbf24"></span><b>199</b> · Transitional (16%)</div>
+                  <div><span class="sw" style="background:#fb923c"></span><b>224</b> · Deprecated (18%)</div>
+                  <div><span class="sw" style="background:#f87171"></span><b>348</b> · Unsafe (28%)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top remediation -->
+        <div class="panel">
+          <div class="panel-head">
+            <h4 class="panel-title">Top migration priorities</h4>
+            <span class="panel-sub">· sorted by risk × blast radius</span>
+            <span class="panel-action">Open priority view →</span>
+          </div>
+          <div>
+            <div class="remed-item">
+              <div class="remed-rank">1</div>
+              <div class="remed-body"><b>RSA-1024 on 42 hosts in Prod zone</b><div class="meta">HTTPS certs · renewable now · blocks NACSA compliance</div></div>
+              <span class="pill unsafe"><span class="dot"></span>Unsafe</span>
+              <span class="remed-cta">Open runbook →</span>
+            </div>
+            <div class="remed-item">
+              <div class="remed-rank">2</div>
+              <div class="remed-body"><b>SHA-1 certificates on 18 hosts (DMZ)</b><div class="meta">Load balancer certs · upgrade to SHA-256 chain</div></div>
+              <span class="pill warn"><span class="dot"></span>Deprecated</span>
+              <span class="remed-cta">Open runbook →</span>
+            </div>
+            <div class="remed-item">
+              <div class="remed-rank">3</div>
+              <div class="remed-body"><b>TLS 1.0 still enabled on 6 hosts</b><div class="meta">Legacy API gateway · disable in nginx conf</div></div>
+              <span class="pill warn"><span class="dot"></span>Deprecated</span>
+              <span class="remed-cta">Open runbook →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════════════ 2 · LICENSE SERVER ═════════════════ -->
+  <div class="screen-head">
+    <span class="screen-num lic">2</span>
+    <h3 class="screen-title">License Server · Licence detail</h3>
+    <span class="screen-role">Audience: <b>Licensing Operator (vendor)</b></span>
+  </div>
+
+  <div class="shell lic">
+    <nav class="side">
+      <div class="side-logo">
+        <div class="logo-img">T</div>
+        <div><div class="logo-t">Triton</div><div class="logo-s">Licence</div></div>
+      </div>
+      <div class="nav">
+        <div class="nav-item"><span class="nav-ico"></span>Dashboard</div>
+        <div class="nav-item"><span class="nav-ico"></span>Organisations</div>
+        <div class="nav-item active"><span class="nav-ico"></span>Licences</div>
+        <div class="nav-item"><span class="nav-ico"></span>Activations</div>
+        <div class="nav-sec">Admin</div>
+        <div class="nav-item"><span class="nav-ico"></span>Audit log</div>
+        <div class="nav-item"><span class="nav-ico"></span>Binaries</div>
+        <div class="nav-item"><span class="nav-ico"></span>Superadmins</div>
+      </div>
+      <div class="side-foot"><b>ops@triton</b>Superadmin</div>
+    </nav>
+    <div class="main">
+      <div class="topbar">
+        <div class="crumb">Licences <span class="sep">›</span> <b>ACME-ENT-2026-A</b></div>
+        <div class="chip"><span class="dot"></span>Active</div>
+        <div class="tright">
+          <div class="search">⌕ Search orgs, licences…<span class="kbd">⌘K</span></div>
+          <div class="waffle">⋮⋮</div>
+          <div class="theme-t">◐ Dark</div>
+          <div class="avatar" style="background: linear-gradient(135deg, #7c3aed, #0e7490)">OP</div>
+        </div>
+      </div>
+      <div class="page">
+        <div class="lic-detail-head">
+          <div style="flex:1">
+            <div style="font-size:0.62rem; letter-spacing:0.14em; text-transform:uppercase; color:#c4b5fd; font-weight:500; margin-bottom:4px">Licence key</div>
+            <div class="key">ACME-ENT-2026-A · <span style="color:#94a3b8">3f21-88b7-…-90cd</span></div>
+            <div class="meta-row">
+              <span>Org <b>ACME Corp</b></span>
+              <span>Tier <b>Enterprise</b></span>
+              <span>Issued <b>2026-02-14</b></span>
+              <span>Expires <b>2027-02-14</b></span>
+              <span>Bound <b>Yes</b></span>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
+            <button class="btn btn-secondary btn-sm">Copy key</button>
+            <button class="btn btn-secondary btn-sm">Email to admin</button>
+            <button class="btn btn-danger btn-sm">Revoke</button>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-cell purple"><div class="stat-label">Seats used</div><div class="stat-value">42<span style="font-size:1rem; color:#64748b"> / 50</span></div><div class="stat-delta up">↑ 3 this week</div></div>
+          <div class="stat-cell pqc"><div class="stat-label">Active hosts</div><div class="stat-value">1,042</div><div class="stat-delta up">98% reporting</div></div>
+          <div class="stat-cell warn"><div class="stat-label">Days remaining</div><div class="stat-value">304</div><div class="stat-delta down">Renew at 90d</div></div>
+          <div class="stat-cell safe"><div class="stat-label">Scans · 30d</div><div class="stat-value">8,210</div><div class="stat-delta up">+12% vs prior 30d</div></div>
+        </div>
+
+        <div class="panels">
+          <div class="panel">
+            <div class="panel-head">
+              <h4 class="panel-title">Seat activations</h4>
+              <span class="panel-sub">· 42 of 50 bound</span>
+              <span class="panel-action">Export →</span>
+            </div>
+            <table class="tbl">
+              <thead><tr><th style="width:28px"></th><th>Machine fingerprint</th><th>Bound by</th><th>When</th><th style="width:90px">Status</th></tr></thead>
+              <tbody>
+                <tr><td><span class="check"></span></td><td><b>api-prod-01</b> · <span style="color:#64748b; font-family:'JetBrains Mono',monospace">9b41…ae0c</span></td><td>jane@acme</td><td class="num">2h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td></tr>
+                <tr><td><span class="check"></span></td><td><b>web-edge-01</b> · <span style="color:#64748b; font-family:'JetBrains Mono',monospace">aa22…ff10</span></td><td>arif@acme</td><td class="num">4h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td></tr>
+                <tr><td><span class="check"></span></td><td><b>db-primary-01</b> · <span style="color:#64748b; font-family:'JetBrains Mono',monospace">cd99…0a88</span></td><td>arif@acme</td><td class="num">8h ago</td><td><span class="pill unsafe"><span class="dot"></span>Offline</span></td></tr>
+                <tr><td><span class="check"></span></td><td><b>vpn-01</b> · <span style="color:#64748b; font-family:'JetBrains Mono',monospace">12ef…4457</span></td><td>jane@acme</td><td class="num">12h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h4 class="panel-title">Recent events</h4>
+              <span class="panel-sub">· audit trail</span>
+              <span class="panel-action">Open audit →</span>
+            </div>
+            <div>
+              <div class="remed-item">
+                <div class="remed-rank" style="background:rgba(52,211,153,0.15); color:#34d399">✓</div>
+                <div class="remed-body"><b>Seat bound · web-edge-02</b><div class="meta">by arif@acme · 2h ago</div></div>
+              </div>
+              <div class="remed-item">
+                <div class="remed-rank" style="background:rgba(34,211,238,0.15); color:#22d3ee">i</div>
+                <div class="remed-body"><b>Seat count increased 40→50</b><div class="meta">by ops@triton · 3d ago</div></div>
+              </div>
+              <div class="remed-item">
+                <div class="remed-rank" style="background:rgba(251,191,36,0.15); color:#fbbf24">!</div>
+                <div class="remed-body"><b>3 failed activations · wrong fingerprint</b><div class="meta">source IP 203.0.113.42 · 5d ago</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════════════ 3 · MANAGE SERVER ═════════════════ -->
+  <div class="screen-head">
+    <span class="screen-num man">3</span>
+    <h3 class="screen-title">Manage Server · Hosts</h3>
+    <span class="screen-role">Audience: <b>Network Engineer · ACME Corp</b></span>
+  </div>
+
+  <div class="shell man">
+    <nav class="side">
+      <div class="side-logo">
+        <div class="logo-img">T</div>
+        <div><div class="logo-t">Triton</div><div class="logo-s">Manage</div></div>
+      </div>
+      <div class="nav">
+        <div class="nav-item"><span class="nav-ico"></span>Dashboard</div>
+        <div class="nav-item"><span class="nav-ico"></span>Zones</div>
+        <div class="nav-item active"><span class="nav-ico"></span>Hosts</div>
+        <div class="nav-item"><span class="nav-ico"></span>Discovery</div>
+        <div class="nav-sec">Scanning</div>
+        <div class="nav-item"><span class="nav-ico"></span>Profiles</div>
+        <div class="nav-item"><span class="nav-ico"></span>SSH keys</div>
+        <div class="nav-item"><span class="nav-ico"></span>Agents</div>
+        <div class="nav-sec">Operations</div>
+        <div class="nav-item"><span class="nav-ico"></span>Jobs</div>
+        <div class="nav-item"><span class="nav-ico"></span>Bulk upload</div>
+      </div>
+      <div class="side-foot"><b>Arif · Network Eng</b>ACME Corp</div>
+    </nav>
+    <div class="main">
+      <div class="topbar">
+        <div class="crumb"><b>Hosts</b></div>
+        <div class="chip"><span class="dot"></span>Zone: Prod · OT</div>
+        <div class="tright">
+          <div class="search">⌕ Search hostname, IP…<span class="kbd">⌘K</span></div>
+          <div class="waffle">⋮⋮</div>
+          <div class="theme-t">◐ Dark</div>
+          <div class="avatar" style="background: linear-gradient(135deg, #65a30d, #0e7490)">AR</div>
+        </div>
+      </div>
+      <div class="page">
+        <div class="ph">
+          <div>
+            <h1 class="ph-title">Hosts</h1>
+            <div class="ph-meta">
+              <span><b>1,042</b> total</span>
+              <span><b>1,021</b> online</span>
+              <span>Across 6 zones</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn btn-secondary">Upload CSV</button>
+            <button class="btn btn-secondary">Run discovery</button>
+            <button class="btn btn-primary">Add host</button>
+          </div>
+        </div>
+
+        <div class="zone-badges">
+          <span class="zone-b">All <span class="num">1,042</span></span>
+          <span class="zone-b" style="background:rgba(34,211,238,0.08); border-color:rgba(34,211,238,0.25); color:#a5f3fc"><span class="num" style="color:#a5f3fc">204</span> Corp LAN</span>
+          <span class="zone-b" style="background:rgba(167,139,250,0.08); border-color:rgba(167,139,250,0.25); color:#c4b5fd"><span class="num" style="color:#c4b5fd">38</span> DMZ</span>
+          <span class="zone-b"><span class="num">800</span> Prod / OT</span>
+          <span class="zone-b" style="background:rgba(251,191,36,0.08); border-color:rgba(251,191,36,0.25); color:#fcd34d"><span class="num" style="color:#fcd34d">0</span> Quarantine</span>
+        </div>
+
+        <div class="tbl-wrap">
+          <div class="tbl-toolbar">
+            <span class="pill-sel">3 selected</span>
+            <button class="btn btn-sm btn-secondary">Assign profile</button>
+            <button class="btn btn-sm btn-secondary">Deploy agent</button>
+            <button class="btn btn-sm btn-secondary">Run scan now</button>
+            <button class="btn btn-sm btn-danger">Decommission</button>
+            <div class="spacer"></div>
+            <span style="color:#64748b">Filter:</span>
+            <span class="pill info"><span class="dot"></span>Agent v1.7.2</span>
+            <span class="pill neutral"><span class="dot"></span>Ubuntu</span>
+          </div>
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="width:32px"></th>
+                <th>Hostname</th>
+                <th>IP</th>
+                <th>Zone</th>
+                <th>OS</th>
+                <th>Agent</th>
+                <th>Last scan</th>
+                <th style="width:90px">Status</th>
+                <th style="width:30px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="sel"><td><span class="check checked"></span></td><td><b>api-prod-01</b></td><td class="num">10.42.1.11</td><td>Prod / OT</td><td>Ubuntu 22.04</td><td>v1.7.2</td><td class="num">2h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td><td style="color:#64748b">⋯</td></tr>
+              <tr class="sel"><td><span class="check checked"></span></td><td><b>api-prod-02</b></td><td class="num">10.42.1.12</td><td>Prod / OT</td><td>Ubuntu 22.04</td><td>v1.7.2</td><td class="num">2h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td><td style="color:#64748b">⋯</td></tr>
+              <tr class="sel"><td><span class="check checked"></span></td><td><b>web-edge-01</b></td><td class="num">192.0.2.5</td><td>DMZ</td><td>RHEL 9</td><td>v1.6.8</td><td class="num">4h ago</td><td><span class="pill warn"><span class="dot"></span>Degraded</span></td><td style="color:#64748b">⋯</td></tr>
+              <tr><td><span class="check"></span></td><td><b>db-primary-01</b></td><td class="num">10.42.2.14</td><td>Prod / OT</td><td>Ubuntu 24.04</td><td>v1.7.2</td><td class="num">8h ago</td><td><span class="pill unsafe"><span class="dot"></span>Offline</span></td><td style="color:#64748b">⋯</td></tr>
+              <tr><td><span class="check"></span></td><td><b>vpn-gw-01</b></td><td class="num">203.0.113.8</td><td>DMZ</td><td>Ubuntu 22.04</td><td>v1.7.2</td><td class="num">3h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td><td style="color:#64748b">⋯</td></tr>
+              <tr><td><span class="check"></span></td><td><b>corp-ad-01</b></td><td class="num">10.10.0.5</td><td>Corp LAN</td><td>Win Server 2022</td><td><span class="pill neutral"><span class="dot"></span>SSH-only</span></td><td class="num">6h ago</td><td><span class="pill safe"><span class="dot"></span>Online</span></td><td style="color:#64748b">⋯</td></tr>
+            </tbody>
+          </table>
+          <div style="display:flex; justify-content:space-between; padding: 10px 14px; border-top:1px solid #334155; font-size:0.7rem; color:#64748b">
+            <span>Showing 1–6 of <b style="color:#cbd5e1">1,042</b></span>
+            <div style="display:flex; gap:8px; align-items:center">
+              <button class="btn btn-sm" style="background:transparent; color:#64748b">‹ Prev</button>
+              <span>Page <b style="color:#cbd5e1">1</b> of 174</span>
+              <button class="btn btn-sm btn-secondary">Next ›</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="upload" style="max-width:420px">
+          <div class="upload-ico">⇪</div>
+          <div class="upload-title">Drop <code>hosts.csv</code> or click to browse</div>
+          <div class="upload-sub">hostname, ip, zone, profile · max 10k rows · <a href="#" style="color:#a3e635; text-decoration:none">download template</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <h3>What's consistent across all three</h3>
+    <p>Shell, topbar, StatCard pattern, DataTable toolbar, pills, typography, colour semantics. What's unique is <b style="color:#22d3ee">content</b> (security findings vs licence entitlements vs host fleet) and <b style="color:#22d3ee">accent</b> (cyan / purple / lime on the logo rail &amp; active-nav). You learn the grammar once — any portal reads naturally the second time.</p>
+  </div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="ship" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif;letter-spacing:-0.01em">Ship this — write the design spec</h3>
+      <p>All decisions locked. Move to spec + implementation plan.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif;letter-spacing:-0.01em">Tweak a screen</h3>
+      <p>Something on one of the three needs change — say which</p>
+    </div>
+  </div>
+  <div class="option" data-choice="more-screens" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif;letter-spacing:-0.01em">Show more screens first</h3>
+      <p>e.g. login, NACSA PDF export, host detail drawer, zone CRUD</p>
+    </div>
+  </div>
+</div>

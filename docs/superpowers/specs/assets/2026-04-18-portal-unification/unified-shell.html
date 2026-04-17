@@ -1,0 +1,564 @@
+<style>
+  :root {
+    --t-deep: #020617;
+    --t-navy: #0a1628;
+    --t-surface: #0f1d32;
+    --t-elev: #142440;
+    --t-hover: #1a2d4d;
+    --t-accent: #0891b2;
+    --t-accent-light: #22d3ee;
+    --t-text: #e2e8f0;
+    --t-muted: #94a3b8;
+    --t-border: rgba(148,163,184,0.12);
+    --t-border-light: rgba(148,163,184,0.2);
+    --t-purple: #a78bfa;
+    --t-lime: #a3e635;
+    --t-pink: #f472b6;
+    --t-safe: #34d399;
+    --t-warn: #fbbf24;
+  }
+  .t-board {
+    background: radial-gradient(ellipse at 20% 0%, rgba(8,145,178,0.08), transparent 60%), var(--t-deep);
+    color: var(--t-text);
+    padding: 24px 20px;
+    border-radius: 10px;
+    font-family: 'Inter','Outfit',system-ui,sans-serif;
+  }
+  .t-title { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.9rem; letter-spacing: 0.01em; margin: 0 0 4px; }
+  .t-subtitle { color: var(--t-muted); font-size: 0.9rem; margin-bottom: 18px; }
+
+  /* ── Anatomy ──────────────────────────────────────────────────── */
+  .t-anatomy-label {
+    font-size: 0.65rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--t-accent-light); font-weight: 500;
+    margin: 20px 0 10px;
+  }
+
+  .t-shell {
+    background: var(--t-deep);
+    border: 1px solid var(--t-border);
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    overflow: hidden;
+    margin-bottom: 14px;
+    min-height: 380px;
+  }
+
+  /* ── Sidebar ──────────────────────────────────────────────────── */
+  .t-side {
+    background: var(--t-navy);
+    border-right: 1px solid var(--t-border);
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .t-side.license { --portal-accent: var(--t-purple); }
+  .t-side.report  { --portal-accent: var(--t-accent-light); }
+  .t-side.manage  { --portal-accent: var(--t-lime); }
+  /* default for anatomy */
+  .t-side:not(.license):not(.report):not(.manage) { --portal-accent: var(--t-accent-light); }
+
+  .t-logo {
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid var(--t-border);
+    display: flex; align-items: center; gap: 9px;
+    position: relative;
+  }
+  .t-logo::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--portal-accent);
+  }
+  .t-logo-img {
+    width: 28px; height: 28px; border-radius: 5px;
+    background: radial-gradient(circle at 30% 30%, var(--portal-accent), transparent 70%), var(--t-elev);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Cormorant Garamond', serif; font-size: 0.9rem; font-weight: 700; color: var(--t-deep);
+  }
+  .t-logo-txt { display: flex; flex-direction: column; line-height: 1.15; }
+  .t-logo-title { font-family: 'Cormorant Garamond', serif; font-size: 1rem; font-weight: 600; color: var(--t-text); }
+  .t-logo-sub { font-size: 0.56rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--t-muted); font-weight: 500; }
+
+  .t-nav { padding: 8px 0; flex: 1; }
+  .t-nav-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 14px;
+    color: var(--t-muted);
+    font-size: 0.74rem; font-weight: 400;
+    border-left: 2px solid transparent;
+    cursor: pointer;
+  }
+  .t-nav-item:hover { color: var(--t-text); background: rgba(255,255,255,0.02); }
+  .t-nav-item.active {
+    color: var(--portal-accent);
+    background: color-mix(in srgb, var(--portal-accent) 8%, transparent);
+    border-left-color: var(--portal-accent);
+    font-weight: 500;
+  }
+  .t-nav-ico {
+    width: 13px; height: 13px; border-radius: 2px;
+    background: currentColor; opacity: 0.5;
+  }
+  .t-nav-item.active .t-nav-ico { opacity: 1; }
+  .t-nav-section {
+    font-size: 0.55rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--t-muted); font-weight: 500;
+    padding: 12px 14px 4px;
+  }
+
+  .t-side-foot {
+    padding: 10px 12px 14px; border-top: 1px solid var(--t-border);
+    font-size: 0.65rem; color: var(--t-muted); line-height: 1.4;
+  }
+  .t-side-foot b { color: var(--t-text); font-weight: 500; display: block; margin-bottom: 2px; }
+
+  /* ── Main area ────────────────────────────────────────────────── */
+  .t-main { display: flex; flex-direction: column; }
+
+  .t-topbar {
+    height: 44px;
+    background: var(--t-navy);
+    border-bottom: 1px solid var(--t-border);
+    display: flex; align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .t-crumb { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--t-muted); }
+  .t-crumb b { color: var(--t-text); font-weight: 500; }
+  .t-crumb .t-sep { color: var(--t-border-light); }
+
+  .t-context-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 9px;
+    background: var(--t-elev);
+    border: 1px solid var(--t-border);
+    border-radius: 5px;
+    font-size: 0.68rem; color: var(--t-text);
+  }
+  .t-context-chip .t-cdot { width: 6px; height: 6px; border-radius: 50%; }
+
+  .t-top-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .t-search {
+    background: var(--t-elev); border: 1px solid var(--t-border);
+    border-radius: 5px; height: 26px;
+    display: flex; align-items: center; gap: 6px; padding: 0 9px;
+    font-size: 0.68rem; color: var(--t-muted); min-width: 120px;
+  }
+  .t-kbd {
+    margin-left: auto;
+    font-size: 0.58rem; color: var(--t-muted);
+    background: var(--t-navy); border: 1px solid var(--t-border);
+    padding: 1px 5px; border-radius: 3px; font-family: monospace;
+  }
+
+  .t-app-switch {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 9px;
+    background: var(--t-elev); border: 1px solid var(--t-border);
+    border-radius: 5px;
+    font-size: 0.68rem; color: var(--t-text);
+    cursor: pointer;
+    position: relative;
+  }
+  .t-app-switch .t-dots {
+    display: grid; grid-template-columns: repeat(3, 3px); gap: 2px;
+  }
+  .t-app-switch .t-dot { width: 3px; height: 3px; background: var(--t-muted); border-radius: 50%; }
+
+  .t-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--t-accent), var(--t-purple));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; font-weight: 600; color: var(--t-deep);
+  }
+
+  .t-page {
+    flex: 1;
+    padding: 18px 20px;
+    background: linear-gradient(180deg, var(--t-deep) 0%, #030a18 100%);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .t-h {
+    font-family: 'Cormorant Garamond', serif; font-size: 1.1rem;
+    color: var(--t-text); font-weight: 600; margin: 0;
+  }
+  .t-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .t-card {
+    background: var(--t-surface); border: 1px solid var(--t-border);
+    border-radius: 7px; padding: 10px 12px;
+  }
+  .t-card .t-clabel {
+    font-size: 0.56rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--t-muted);
+    margin-bottom: 3px; font-weight: 500;
+  }
+  .t-card .t-cval { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; color: var(--t-text); font-weight: 600; line-height: 1.05; }
+  .t-card .t-cdelta { font-size: 0.62rem; margin-top: 2px; }
+  .t-card .t-cdelta.up { color: var(--t-safe); }
+  .t-card .t-cdelta.down { color: var(--t-warn); }
+
+  .t-table {
+    background: var(--t-surface); border: 1px solid var(--t-border);
+    border-radius: 7px; overflow: hidden;
+  }
+  .t-thead, .t-trow {
+    display: grid; grid-template-columns: 1.5fr 1fr 1fr 80px;
+    padding: 7px 12px; font-size: 0.7rem;
+    border-bottom: 1px solid var(--t-border);
+  }
+  .t-thead { color: var(--t-muted); font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.58rem; background: rgba(255,255,255,0.02); }
+  .t-trow:last-child { border-bottom: none; }
+  .t-trow .t-cell b { color: var(--t-text); font-weight: 500; }
+  .t-pill {
+    font-size: 0.6rem; padding: 2px 6px; border-radius: 3px;
+    font-weight: 500;
+  }
+  .t-pill.safe { color: var(--t-safe); background: rgba(52,211,153,0.12); }
+  .t-pill.warn { color: var(--t-warn); background: rgba(251,191,36,0.12); }
+  .t-pill.pink { color: var(--t-pink); background: rgba(244,114,182,0.12); }
+
+  /* ── Annotation pins ──────────────────────────────────────────── */
+  .t-annot { position: relative; }
+  .t-pin {
+    position: absolute; z-index: 5;
+    background: var(--t-accent-light); color: var(--t-deep);
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.68rem; font-weight: 700; font-family: 'Inter', sans-serif;
+    box-shadow: 0 0 0 3px rgba(34,211,238,0.18);
+  }
+  .t-legend {
+    margin-top: 14px;
+    background: var(--t-surface); border: 1px solid var(--t-border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .t-legend h5 { font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--t-accent-light); margin: 0 0 10px; font-weight: 500; }
+  .t-legend-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 18px; font-size: 0.78rem; color: var(--t-muted); line-height: 1.45; }
+  .t-legend-num {
+    display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--t-accent-light); color: var(--t-deep);
+    align-items: center; justify-content: center;
+    font-size: 0.62rem; font-weight: 700; margin-right: 8px;
+  }
+  .t-legend-grid b { color: var(--t-text); font-weight: 500; }
+
+  /* ── Three-up comparison ──────────────────────────────────────── */
+  .t-three-up { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+  .t-mini { min-height: 260px; grid-template-columns: 140px 1fr; }
+  .t-mini .t-logo { padding: 10px 10px 8px; }
+  .t-mini .t-logo-img { width: 22px; height: 22px; font-size: 0.7rem; }
+  .t-mini .t-logo-title { font-size: 0.82rem; }
+  .t-mini .t-logo-sub { font-size: 0.5rem; }
+  .t-mini .t-nav-item { padding: 5px 10px; font-size: 0.64rem; gap: 7px; }
+  .t-mini .t-nav-section { padding: 8px 10px 2px; font-size: 0.5rem; }
+  .t-mini .t-topbar { height: 32px; padding: 0 10px; gap: 8px; }
+  .t-mini .t-crumb { font-size: 0.6rem; gap: 4px; }
+  .t-mini .t-context-chip { padding: 2px 6px; font-size: 0.56rem; gap: 4px; }
+  .t-mini .t-app-switch { padding: 2px 6px; font-size: 0.56rem; gap: 4px; }
+  .t-mini .t-avatar { width: 20px; height: 20px; font-size: 0.55rem; }
+  .t-mini .t-search { display: none; }
+  .t-mini .t-page { padding: 12px; gap: 8px; }
+  .t-mini .t-h { font-size: 0.85rem; }
+  .t-mini .t-cards { gap: 6px; grid-template-columns: repeat(3, 1fr); }
+  .t-mini .t-card { padding: 7px 8px; }
+  .t-mini .t-card .t-clabel { font-size: 0.48rem; margin-bottom: 2px; }
+  .t-mini .t-card .t-cval { font-size: 1.05rem; }
+  .t-mini .t-card .t-cdelta { font-size: 0.5rem; }
+  .t-mini .t-thead, .t-mini .t-trow { font-size: 0.56rem; padding: 5px 8px; grid-template-columns: 1.5fr 1fr 60px; }
+  .t-mini .t-thead { font-size: 0.46rem; }
+  .t-mini .t-pill { font-size: 0.48rem; padding: 1px 4px; }
+  .t-mini .t-side-foot { font-size: 0.52rem; padding: 7px 10px; }
+
+  .t-portal-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .t-portal-header .t-swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .t-portal-header h4 { font-family: 'Cormorant Garamond', serif; font-size: 1rem; margin: 0; color: var(--t-text); font-weight: 600; }
+  .t-portal-header .t-tag { font-size: 0.6rem; color: var(--t-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-left: auto; }
+</style>
+
+<h2>Unified shell — applied to all three portals</h2>
+<p class="subtitle">Same skeleton, same grammar, subtle portal accent. One mental model the user learns once.</p>
+
+<div class="t-board">
+
+  <!-- Anatomy diagram -->
+  <div class="t-anatomy-label">① Anatomy — the shared shell</div>
+  <div class="t-annot">
+    <div class="t-shell">
+      <nav class="t-side">
+        <div class="t-logo">
+          <div class="t-logo-img">T</div>
+          <div class="t-logo-txt">
+            <span class="t-logo-title">Triton</span>
+            <span class="t-logo-sub">Portal name</span>
+          </div>
+        </div>
+        <div class="t-nav">
+          <div class="t-nav-item active"><span class="t-nav-ico"></span>Overview</div>
+          <div class="t-nav-item"><span class="t-nav-ico"></span>Item A</div>
+          <div class="t-nav-item"><span class="t-nav-ico"></span>Item B</div>
+          <div class="t-nav-section">Section label</div>
+          <div class="t-nav-item"><span class="t-nav-ico"></span>Item C</div>
+          <div class="t-nav-item"><span class="t-nav-ico"></span>Item D</div>
+        </div>
+        <div class="t-side-foot">
+          <b>Jane Doe · Admin</b>
+          ACME Corp
+        </div>
+      </nav>
+      <div class="t-main">
+        <div class="t-topbar">
+          <div class="t-crumb">
+            <b>Overview</b>
+          </div>
+          <div class="t-context-chip">
+            <span class="t-cdot" style="background:var(--t-safe)"></span>
+            Production
+          </div>
+          <div class="t-top-right">
+            <div class="t-search">
+              <span>⌕</span>
+              <span>Search…</span>
+              <span class="t-kbd">⌘K</span>
+            </div>
+            <div class="t-app-switch">
+              <div class="t-dots">
+                <span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span>
+                <span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span>
+                <span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span>
+              </div>
+              <span>Apps</span>
+            </div>
+            <div class="t-avatar">JD</div>
+          </div>
+        </div>
+        <div class="t-page">
+          <h3 class="t-h">Page content area</h3>
+          <div class="t-cards">
+            <div class="t-card"><div class="t-clabel">Stat one</div><div class="t-cval">128</div><div class="t-cdelta up">↑ 12%</div></div>
+            <div class="t-card"><div class="t-clabel">Stat two</div><div class="t-cval">4,210</div><div class="t-cdelta down">↓ 3%</div></div>
+            <div class="t-card"><div class="t-clabel">Stat three</div><div class="t-cval">97.4<span style="font-size:0.8rem">%</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pins -->
+    <div class="t-pin" style="top: 10px; left: 8px;">1</div>
+    <div class="t-pin" style="top: 10px; left: 218px;">2</div>
+    <div class="t-pin" style="top: 10px; right: 150px;">3</div>
+    <div class="t-pin" style="top: 10px; right: 60px;">4</div>
+    <div class="t-pin" style="top: 10px; right: 20px;">5</div>
+    <div class="t-pin" style="bottom: 16px; left: 8px;">6</div>
+  </div>
+
+  <div class="t-legend">
+    <h5>Anatomy legend</h5>
+    <div class="t-legend-grid">
+      <div><span class="t-legend-num">1</span><b>Logo rail with portal accent</b> — 3-pixel vertical stripe + subtle glow on logo disc. The only strong colour signal of which portal you're in.</div>
+      <div><span class="t-legend-num">2</span><b>Breadcrumb</b> — current page + parent. Links back within the portal, never cross-portal.</div>
+      <div><span class="t-legend-num">3</span><b>Context chip</b> — tenant / zone / environment. Click to switch scope within the portal.</div>
+      <div><span class="t-legend-num">4</span><b>Global search (⌘K)</b> — scoped to the current portal's data. Same keybind across all three portals.</div>
+      <div><span class="t-legend-num">5</span><b>App-switcher + user menu</b> — 9-dot waffle opens the three portals; avatar opens profile / logout.</div>
+      <div><span class="t-legend-num">6</span><b>Sidebar footer</b> — identity + scope. Always shows who you are and what org/tenant you're in.</div>
+    </div>
+  </div>
+
+  <!-- Three-up comparison -->
+  <div class="t-anatomy-label">② Same shell, three portals</div>
+
+  <div class="t-three-up">
+    <!-- License Admin -->
+    <div>
+      <div class="t-portal-header">
+        <div class="t-swatch" style="background:var(--t-purple)"></div>
+        <h4>License Server</h4>
+        <span class="t-tag">Vendor ops</span>
+      </div>
+      <div class="t-shell t-mini">
+        <nav class="t-side license">
+          <div class="t-logo">
+            <div class="t-logo-img">T</div>
+            <div class="t-logo-txt">
+              <span class="t-logo-title">Triton</span>
+              <span class="t-logo-sub">Licence</span>
+            </div>
+          </div>
+          <div class="t-nav">
+            <div class="t-nav-item active"><span class="t-nav-ico"></span>Dashboard</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Organisations</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Licences</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Activations</div>
+            <div class="t-nav-section">Admin</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Audit log</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Binaries</div>
+          </div>
+          <div class="t-side-foot"><b>ops@triton</b>Superadmin</div>
+        </nav>
+        <div class="t-main">
+          <div class="t-topbar">
+            <div class="t-crumb"><b>Dashboard</b></div>
+            <div class="t-top-right">
+              <div class="t-app-switch"><div class="t-dots"><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span></div></div>
+              <div class="t-avatar" style="background: linear-gradient(135deg, var(--t-purple), var(--t-accent))">OP</div>
+            </div>
+          </div>
+          <div class="t-page">
+            <h3 class="t-h">Fleet health</h3>
+            <div class="t-cards">
+              <div class="t-card"><div class="t-clabel">Orgs</div><div class="t-cval">47</div></div>
+              <div class="t-card"><div class="t-clabel">Seats used</div><div class="t-cval">312</div></div>
+              <div class="t-card"><div class="t-clabel">Expiring</div><div class="t-cval">6</div></div>
+            </div>
+            <div class="t-table">
+              <div class="t-thead"><div>Org</div><div>Tier</div><div>Seats</div></div>
+              <div class="t-trow"><div class="t-cell"><b>ACME Corp</b></div><div>Enterprise</div><div>42/50</div></div>
+              <div class="t-trow"><div class="t-cell"><b>Globex</b></div><div>Pro</div><div>18/20</div></div>
+              <div class="t-trow"><div class="t-cell"><b>Initech</b></div><div>Pro</div><div>9/10</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Report Server -->
+    <div>
+      <div class="t-portal-header">
+        <div class="t-swatch" style="background:var(--t-accent-light)"></div>
+        <h4>Report Server</h4>
+        <span class="t-tag">Security officer</span>
+      </div>
+      <div class="t-shell t-mini">
+        <nav class="t-side report">
+          <div class="t-logo">
+            <div class="t-logo-img">T</div>
+            <div class="t-logo-txt">
+              <span class="t-logo-title">Triton</span>
+              <span class="t-logo-sub">Report</span>
+            </div>
+          </div>
+          <div class="t-nav">
+            <div class="t-nav-item active"><span class="t-nav-ico"></span>Overview</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Machines</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Scans</div>
+            <div class="t-nav-section">Compliance</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>NACSA Arahan 9</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Priority</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Inventory</div>
+          </div>
+          <div class="t-side-foot"><b>Jane · SecOfficer</b>ACME Corp</div>
+        </nav>
+        <div class="t-main">
+          <div class="t-topbar">
+            <div class="t-crumb"><b>Overview</b></div>
+            <div class="t-context-chip"><span class="t-cdot" style="background:var(--t-accent-light)"></span>ACME</div>
+            <div class="t-top-right">
+              <div class="t-app-switch"><div class="t-dots"><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span></div></div>
+              <div class="t-avatar">JD</div>
+            </div>
+          </div>
+          <div class="t-page">
+            <h3 class="t-h">Crypto readiness</h3>
+            <div class="t-cards">
+              <div class="t-card"><div class="t-clabel">PQC-ready</div><div class="t-cval">68<span style="font-size:0.7rem">%</span></div><div class="t-cdelta up">↑ 4</div></div>
+              <div class="t-card"><div class="t-clabel">Unsafe</div><div class="t-cval">214</div><div class="t-cdelta down">↓ 12</div></div>
+              <div class="t-card"><div class="t-clabel">Expiring</div><div class="t-cval">33</div></div>
+            </div>
+            <div class="t-table">
+              <div class="t-thead"><div>Finding</div><div>Host</div><div>Status</div></div>
+              <div class="t-trow"><div class="t-cell"><b>RSA-1024</b></div><div>web-01</div><div><span class="t-pill pink">Unsafe</span></div></div>
+              <div class="t-trow"><div class="t-cell"><b>SHA-1 cert</b></div><div>api-02</div><div><span class="t-pill warn">Deprec.</span></div></div>
+              <div class="t-trow"><div class="t-cell"><b>ML-KEM</b></div><div>vpn-01</div><div><span class="t-pill safe">Safe</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Server -->
+    <div>
+      <div class="t-portal-header">
+        <div class="t-swatch" style="background:var(--t-lime)"></div>
+        <h4>Manage Server</h4>
+        <span class="t-tag">Network eng.</span>
+      </div>
+      <div class="t-shell t-mini">
+        <nav class="t-side manage">
+          <div class="t-logo">
+            <div class="t-logo-img">T</div>
+            <div class="t-logo-txt">
+              <span class="t-logo-title">Triton</span>
+              <span class="t-logo-sub">Manage</span>
+            </div>
+          </div>
+          <div class="t-nav">
+            <div class="t-nav-item active"><span class="t-nav-ico"></span>Dashboard</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Zones</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Hosts</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Discovery</div>
+            <div class="t-nav-section">Scans</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Profiles</div>
+            <div class="t-nav-item"><span class="t-nav-ico"></span>Agents</div>
+          </div>
+          <div class="t-side-foot"><b>Arif · Net Eng</b>ACME Corp</div>
+        </nav>
+        <div class="t-main">
+          <div class="t-topbar">
+            <div class="t-crumb"><b>Dashboard</b></div>
+            <div class="t-context-chip"><span class="t-cdot" style="background:var(--t-lime)"></span>Zone: Prod</div>
+            <div class="t-top-right">
+              <div class="t-app-switch"><div class="t-dots"><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span></div></div>
+              <div class="t-avatar" style="background: linear-gradient(135deg, var(--t-lime), var(--t-accent))">AR</div>
+            </div>
+          </div>
+          <div class="t-page">
+            <h3 class="t-h">Fleet control</h3>
+            <div class="t-cards">
+              <div class="t-card"><div class="t-clabel">Hosts</div><div class="t-cval">1,042</div></div>
+              <div class="t-card"><div class="t-clabel">Zones</div><div class="t-cval">6</div></div>
+              <div class="t-card"><div class="t-clabel">Agents up</div><div class="t-cval">98<span style="font-size:0.7rem">%</span></div></div>
+            </div>
+            <div class="t-table">
+              <div class="t-thead"><div>Zone</div><div>Hosts</div><div>State</div></div>
+              <div class="t-trow"><div class="t-cell"><b>Corp LAN</b></div><div>204</div><div><span class="t-pill safe">Active</span></div></div>
+              <div class="t-trow"><div class="t-cell"><b>DMZ</b></div><div>38</div><div><span class="t-pill safe">Active</span></div></div>
+              <div class="t-trow"><div class="t-cell"><b>Prod / OT</b></div><div>800</div><div><span class="t-pill warn">Queued</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="t-legend">
+    <h5>What's consistent · what's portal-specific</h5>
+    <div class="t-legend-grid">
+      <div><b style="color:var(--t-text)">Consistent across all 3 portals</b> · Shell skeleton, topbar layout, keyboard shortcuts (⌘K), avatar/app-switcher pattern, StatCard + DataTable components, colour semantics (green = safe, amber = warn, pink = unsafe), Cormorant + Outfit typography.</div>
+      <div><b style="color:var(--t-text)">Portal-specific by design</b> · Sidebar items (IA differs per audience), logo subtitle ("Licence / Report / Manage"), portal accent colour (purple / cyan / lime), context chip meaning (org / tenant / zone), sidebar sections, dashboard content.</div>
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="ship" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Ship this shell</h3>
+      <p>Move on to component library (Button, Table, StatCard, forms)</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust-shell" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Adjust something</h3>
+      <p>e.g. app-switcher position, colour stripe thickness, different context chip — say in chat</p>
+    </div>
+  </div>
+  <div class="option" data-choice="no-colour" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Drop portal accent colour</h3>
+      <p>All three portals look identical — rely on logo subtitle + app-switcher only</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,334 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  .t-board {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 22px 20px;
+    border-radius: 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .t-title { font-size: 1.6rem; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 4px; }
+  .t-subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; }
+
+  /* Typography preview card grid */
+  .type-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
+  }
+  .type-col {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .type-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid #334155;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .type-letter {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #22d3ee; color: #0f172a;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.78rem; font-weight: 700;
+  }
+  .type-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 1rem; font-weight: 600; color: #f1f5f9; margin: 0;
+  }
+  .type-stack {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 0.68rem; color: #94a3b8;
+    margin-left: auto;
+  }
+  .type-note {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem; color: #94a3b8;
+    padding: 8px 16px 0;
+    line-height: 1.45;
+  }
+
+  .type-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* Per-option font stacks */
+  .opt-a { font-family: 'Inter', system-ui, sans-serif; }
+  .opt-a .display, .opt-a .big-num {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-weight: 600; letter-spacing: 0.01em;
+  }
+
+  .opt-b { font-family: 'Inter', system-ui, sans-serif; }
+  .opt-b .display, .opt-b .big-num {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 700; letter-spacing: -0.02em;
+  }
+
+  .opt-c { font-family: 'Inter', system-ui, sans-serif; }
+  .opt-c .display {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-weight: 600; letter-spacing: -0.025em;
+  }
+  .opt-c .big-num {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-weight: 600; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .opt-d { font-family: 'IBM Plex Sans', 'Inter', system-ui, sans-serif; }
+  .opt-d .display {
+    font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
+    font-weight: 600; letter-spacing: -0.015em;
+  }
+  .opt-d .big-num {
+    font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Shared preview elements */
+  .preview-h1 { font-size: 1.5rem; line-height: 1.1; color: #f1f5f9; margin: 0; }
+  .preview-h2 { font-size: 1.05rem; line-height: 1.2; color: #f1f5f9; margin: 0; font-weight: 600; }
+  .preview-body { font-size: 0.82rem; line-height: 1.55; color: #cbd5e1; margin: 0; max-width: 28em; }
+  .preview-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #94a3b8; font-weight: 500;
+  }
+
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat-cell {
+    background: #0f172a; border: 1px solid #334155;
+    border-radius: 7px; padding: 10px 12px;
+  }
+  .stat-cell .big-num {
+    font-size: 1.7rem; line-height: 1.05; color: #f1f5f9;
+    display: block; margin: 2px 0;
+  }
+  .stat-cell .stat-delta {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.66rem; color: #34d399; font-weight: 500;
+  }
+
+  .mini-tbl {
+    border: 1px solid #334155; border-radius: 6px; overflow: hidden;
+    font-size: 0.74rem;
+  }
+  .mini-tbl .row {
+    display: grid; grid-template-columns: 1.4fr 1fr 70px;
+    padding: 6px 10px; border-bottom: 1px solid #334155;
+  }
+  .mini-tbl .row:last-child { border-bottom: none; }
+  .mini-tbl .row.head {
+    background: rgba(255,255,255,0.03);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.56rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #94a3b8; font-weight: 500;
+  }
+  .mini-tbl .row b { color: #f1f5f9; font-weight: 500; }
+  .pill {
+    font-family: 'Inter', sans-serif;
+    display: inline-block; padding: 1px 6px; border-radius: 999px;
+    font-size: 0.58rem; font-weight: 500;
+  }
+  .pill.safe { color: #34d399; background: rgba(52,211,153,0.12); }
+  .pill.unsafe { color: #f87171; background: rgba(248,113,113,0.14); }
+
+  .code-stack {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 0.64rem; color: #64748b;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 5px;
+    padding: 6px 8px;
+  }
+
+  /* Recommendation card */
+  .rec {
+    margin-top: 20px;
+    background: linear-gradient(135deg, rgba(8,145,178,0.12), rgba(52,211,153,0.06));
+    border: 1px solid rgba(34,211,238,0.3);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .rec h3 {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.95rem; margin: 0 0 8px; font-weight: 600;
+    color: #22d3ee; letter-spacing: -0.01em;
+  }
+  .rec p { font-family: 'Inter', sans-serif; color: #e2e8f0; font-size: 0.82rem; line-height: 1.55; margin: 0; }
+
+  /* Options */
+  .options { font-family: 'Inter', sans-serif; }
+</style>
+
+<h2 style="font-family: 'Inter', sans-serif">Typography options — how much serif?</h2>
+<p class="subtitle">Same content, four type stacks. Pick one. I've dropped serif entirely in two of the four.</p>
+
+<div class="t-board">
+
+  <div class="type-grid">
+
+    <!-- ── A: Current (Cormorant + Outfit) ─────────────── -->
+    <div class="type-col">
+      <div class="type-head">
+        <span class="type-letter">A</span>
+        <h3 class="type-name">Current — Cormorant + Outfit</h3>
+        <span class="type-stack">serif display · sans body</span>
+      </div>
+      <div class="type-note">Serif for every headline, every stat number, every section heading. This is what you said is "too serif".</div>
+      <div class="type-body opt-a">
+        <div>
+          <div class="preview-label">Page title</div>
+          <h1 class="display preview-h1">Crypto readiness</h1>
+        </div>
+        <div class="stat-row">
+          <div class="stat-cell"><div class="preview-label">PQC</div><span class="big-num">68%</span><span class="stat-delta">↑ 4.2%</span></div>
+          <div class="stat-cell"><div class="preview-label">Unsafe</div><span class="big-num">214</span><span class="stat-delta" style="color:#fbbf24">↓ 12</span></div>
+          <div class="stat-cell"><div class="preview-label">Expiring</div><span class="big-num">33</span><span class="stat-delta" style="color:#fbbf24">↑ 8</span></div>
+        </div>
+        <div>
+          <div class="preview-label" style="margin-bottom:4px">Section heading</div>
+          <h2 class="display preview-h2">Findings by severity</h2>
+        </div>
+        <div class="mini-tbl">
+          <div class="row head"><div>Finding</div><div>Host</div><div>Status</div></div>
+          <div class="row"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pill unsafe">Unsafe</span></div></div>
+          <div class="row"><div><b>ML-KEM-768</b></div><div>vpn-01</div><div><span class="pill safe">Safe</span></div></div>
+        </div>
+        <div class="code-stack">font-family: 'Cormorant Garamond', 'Outfit', sans</div>
+      </div>
+    </div>
+
+    <!-- ── B: All-Inter ─────────────────────────────────── -->
+    <div class="type-col">
+      <div class="type-head">
+        <span class="type-letter">B</span>
+        <h3 class="type-name">All-Inter · single family</h3>
+        <span class="type-stack">sans everywhere</span>
+      </div>
+      <div class="type-note">One font. Zero serif. Stripe / Linear / Vercel pattern — disappears into the UI, data does the talking. Safest, most neutral, best for exports.</div>
+      <div class="type-body opt-b">
+        <div>
+          <div class="preview-label">Page title</div>
+          <h1 class="display preview-h1">Crypto readiness</h1>
+        </div>
+        <div class="stat-row">
+          <div class="stat-cell"><div class="preview-label">PQC</div><span class="big-num">68%</span><span class="stat-delta">↑ 4.2%</span></div>
+          <div class="stat-cell"><div class="preview-label">Unsafe</div><span class="big-num">214</span><span class="stat-delta" style="color:#fbbf24">↓ 12</span></div>
+          <div class="stat-cell"><div class="preview-label">Expiring</div><span class="big-num">33</span><span class="stat-delta" style="color:#fbbf24">↑ 8</span></div>
+        </div>
+        <div>
+          <div class="preview-label" style="margin-bottom:4px">Section heading</div>
+          <h2 class="display preview-h2">Findings by severity</h2>
+        </div>
+        <div class="mini-tbl">
+          <div class="row head"><div>Finding</div><div>Host</div><div>Status</div></div>
+          <div class="row"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pill unsafe">Unsafe</span></div></div>
+          <div class="row"><div><b>ML-KEM-768</b></div><div>vpn-01</div><div><span class="pill safe">Safe</span></div></div>
+        </div>
+        <div class="code-stack">font-family: 'Inter', system-ui, sans</div>
+      </div>
+    </div>
+
+    <!-- ── C: Inter body + Geist display ────────────────── -->
+    <div class="type-col">
+      <div class="type-head">
+        <span class="type-letter">C</span>
+        <h3 class="type-name">Inter + Geist display</h3>
+        <span class="type-stack">two sans families</span>
+      </div>
+      <div class="type-note">Inter for body and tables, Geist (Vercel's OSS font) for headlines and big numbers. Distinctive without any serif. Tabular numerals for columns.</div>
+      <div class="type-body opt-c">
+        <div>
+          <div class="preview-label">Page title</div>
+          <h1 class="display preview-h1">Crypto readiness</h1>
+        </div>
+        <div class="stat-row">
+          <div class="stat-cell"><div class="preview-label">PQC</div><span class="big-num">68%</span><span class="stat-delta">↑ 4.2%</span></div>
+          <div class="stat-cell"><div class="preview-label">Unsafe</div><span class="big-num">214</span><span class="stat-delta" style="color:#fbbf24">↓ 12</span></div>
+          <div class="stat-cell"><div class="preview-label">Expiring</div><span class="big-num">33</span><span class="stat-delta" style="color:#fbbf24">↑ 8</span></div>
+        </div>
+        <div>
+          <div class="preview-label" style="margin-bottom:4px">Section heading</div>
+          <h2 class="display preview-h2">Findings by severity</h2>
+        </div>
+        <div class="mini-tbl">
+          <div class="row head"><div>Finding</div><div>Host</div><div>Status</div></div>
+          <div class="row"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pill unsafe">Unsafe</span></div></div>
+          <div class="row"><div><b>ML-KEM-768</b></div><div>vpn-01</div><div><span class="pill safe">Safe</span></div></div>
+        </div>
+        <div class="code-stack">font-family: 'Geist' (display), 'Inter' (body)</div>
+      </div>
+    </div>
+
+    <!-- ── D: IBM Plex + Space Grotesk ──────────────────── -->
+    <div class="type-col">
+      <div class="type-head">
+        <span class="type-letter">D</span>
+        <h3 class="type-name">IBM Plex + Space Grotesk</h3>
+        <span class="type-stack">enterprise pair</span>
+      </div>
+      <div class="type-note">IBM Plex Sans (body) + Space Grotesk (display/numbers). Technical, enterprise-credible, geometric numerals. Used by Figma, Cal.com, many OSS dashboards.</div>
+      <div class="type-body opt-d">
+        <div>
+          <div class="preview-label">Page title</div>
+          <h1 class="display preview-h1">Crypto readiness</h1>
+        </div>
+        <div class="stat-row">
+          <div class="stat-cell"><div class="preview-label">PQC</div><span class="big-num">68%</span><span class="stat-delta">↑ 4.2%</span></div>
+          <div class="stat-cell"><div class="preview-label">Unsafe</div><span class="big-num">214</span><span class="stat-delta" style="color:#fbbf24">↓ 12</span></div>
+          <div class="stat-cell"><div class="preview-label">Expiring</div><span class="big-num">33</span><span class="stat-delta" style="color:#fbbf24">↑ 8</span></div>
+        </div>
+        <div>
+          <div class="preview-label" style="margin-bottom:4px">Section heading</div>
+          <h2 class="display preview-h2">Findings by severity</h2>
+        </div>
+        <div class="mini-tbl">
+          <div class="row head"><div>Finding</div><div>Host</div><div>Status</div></div>
+          <div class="row"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pill unsafe">Unsafe</span></div></div>
+          <div class="row"><div><b>ML-KEM-768</b></div><div>vpn-01</div><div><span class="pill safe">Safe</span></div></div>
+        </div>
+        <div class="code-stack">font-family: 'Space Grotesk' (display), 'IBM Plex Sans' (body)</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="rec">
+    <h3>My recommendation · C (Inter + Geist)</h3>
+    <p>All-sans, no serif anywhere. Geist handles display + numbers (tabular, no wobble in tables), Inter handles body. Modern without being generic. Ships with self-hosted <code>.woff2</code> to stay CDN-free. If you want to collapse to a single family for simplicity, <b style="color:#22d3ee">B (all-Inter)</b> is the safest fallback.</p>
+  </div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="b-inter" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3 style="font-family:'Inter',sans-serif">All-Inter · single family</h3>
+      <p>Simplest. One font does everything.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c-geist" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif">Inter + Geist</h3>
+      <p>My recommendation. Distinctive display, neutral body.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="d-plex" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3 style="font-family:'Space Grotesk',sans-serif">IBM Plex + Space Grotesk</h3>
+      <p>Enterprise / technical pair. Government-friendly feel.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="other" onclick="toggleSelect(this)">
+    <div class="letter">?</div>
+    <div class="content">
+      <h3 style="font-family:'Inter',sans-serif">Something else</h3>
+      <p>Describe in chat — I can try other pairings (Satoshi, Manrope, Söhne-like, etc.)</p>
+    </div>
+  </div>
+</div>

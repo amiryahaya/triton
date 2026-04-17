@@ -127,6 +127,25 @@ func TestApplyUsesTighterOfDurationAndStopAt(t *testing.T) {
 	}
 }
 
+func TestApplyUsesTighterDurationWhenShorter(t *testing.T) {
+	l := Limits{
+		MaxDuration:  30 * time.Minute, // tighter
+		StopAtOffset: 5 * time.Hour,
+	}
+	ctx := context.Background()
+	newCtx, cleanup := l.Apply(ctx)
+	defer cleanup()
+
+	deadline, ok := newCtx.Deadline()
+	if !ok {
+		t.Fatal("Apply() must set deadline when either duration is set")
+	}
+	until := time.Until(deadline)
+	if until > 35*time.Minute || until < 25*time.Minute {
+		t.Errorf("deadline %v should be ~30min from now, got %v away", deadline, until)
+	}
+}
+
 func TestApplyCleanupStopsWatchdog(t *testing.T) {
 	// Can't directly observe the watchdog goroutine, but we can verify
 	// cleanup() returns promptly and doesn't panic when called twice.

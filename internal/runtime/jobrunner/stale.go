@@ -63,3 +63,9 @@ func realPIDAlive(pid int) bool {
 	}
 	return true
 }
+
+// IsProcessAlive is the exported wrapper for realPIDAlive. Returns true
+// iff a process with the given PID is reachable via signal-0. Called by
+// cmd-layer code that needs the same liveness semantics without the
+// reconciler machinery.
+func IsProcessAlive(pid int) bool { return realPIDAlive(pid) }

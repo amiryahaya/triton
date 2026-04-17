@@ -136,6 +136,24 @@ func TestRemoveAll_OnlyFinished(t *testing.T) {
 	}
 }
 
+func TestRemove_MissingStatusStillRemoves(t *testing.T) {
+	// A job-dir without status.json (corrupted or partially-written during
+	// spawn failure) should still be removable via --cleanup so operators
+	// can reclaim the slot.
+	tmp := t.TempDir()
+	jobDir := filepath.Join(tmp, "orphan")
+	if err := os.MkdirAll(jobDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removeWithLiveness(tmp, "orphan", func(int) bool { return true }); err != nil {
+		t.Fatalf("Remove on dir without status.json should succeed, got: %v", err)
+	}
+	if _, err := os.Stat(jobDir); !os.IsNotExist(err) {
+		t.Error("orphan job-dir should be removed even without status.json")
+	}
+}
+
 func TestRemoveAll_PublicWrapper(t *testing.T) {
 	tmp := t.TempDir()
 	jobDir, _ := EnsureJobDir(tmp, "done")

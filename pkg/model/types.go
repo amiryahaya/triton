@@ -53,6 +53,8 @@ type PolicyViolation struct {
 	Action    string `json:"action"`
 	Message   string `json:"message"`
 	RiskLevel string `json:"riskLevel,omitempty"`
+	// FindingID links the violation back to the originating finding ID (if any).
+	FindingID string `json:"findingID,omitempty"`
 }
 
 // PolicyThresholdViolation holds a threshold violation for report rendering.

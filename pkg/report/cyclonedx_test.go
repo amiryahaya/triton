@@ -638,6 +638,72 @@ func TestCycloneDX_SurfacesJA3Properties(t *testing.T) {
 	}
 }
 
+func TestCycloneDX_RiskLevelProperty(t *testing.T) {
+	tmp := t.TempDir()
+	out := tmp + "/risk.cdx.json"
+	g := New(tmp)
+
+	result := &model.ScanResult{
+		ID: "risk-scan",
+		Findings: []model.Finding{
+			{
+				ID:     "f-des",
+				Module: "keys",
+				Source: model.FindingSource{Type: "file", Path: "/etc/ssl/bad.key"},
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a-des",
+					Algorithm: "DES",
+					PQCStatus: "UNSAFE",
+					KeySize:   56,
+				},
+			},
+			{
+				ID:     "f-aes",
+				Module: "libraries",
+				Source: model.FindingSource{Type: "file", Path: "/usr/lib/libcrypto.so"},
+				CryptoAsset: &model.CryptoAsset{
+					ID:        "a-aes",
+					Algorithm: "AES-256-GCM",
+					PQCStatus: "SAFE",
+					KeySize:   256,
+				},
+			},
+		},
+		PolicyEvaluation: &model.PolicyEvaluationResult{
+			PolicyName:      "nacsa-2030",
+			Verdict:         "FAIL",
+			RulesEvaluated:  1,
+			FindingsChecked: 2,
+			Violations: []model.PolicyViolation{
+				{
+					RuleID:    "no-unsafe",
+					Severity:  "error",
+					Action:    "fail",
+					Message:   "UNSAFE algorithm",
+					RiskLevel: "critical",
+					FindingID: "f-des",
+				},
+			},
+		},
+	}
+
+	if err := g.GenerateCycloneDXBOM(result, out); err != nil {
+		t.Fatalf("GenerateCycloneDXBOM: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+
+	if !contains(s, "triton:risk-level") {
+		t.Error("missing triton:risk-level property")
+	}
+	if !contains(s, "critical") {
+		t.Error("missing risk level value 'critical'")
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

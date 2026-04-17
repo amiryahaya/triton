@@ -521,13 +521,17 @@ func (e *EvaluationResult) ToModelResult() *model.PolicyEvaluationResult {
 		FindingsChecked: e.FindingsChecked,
 	}
 	for _, v := range e.Violations {
-		r.Violations = append(r.Violations, model.PolicyViolation{
+		pv := model.PolicyViolation{
 			RuleID:    v.RuleID,
 			Severity:  v.Severity,
 			Action:    v.Action,
 			Message:   v.Message,
 			RiskLevel: v.RiskLevel,
-		})
+		}
+		if v.Finding != nil {
+			pv.FindingID = v.Finding.ID
+		}
+		r.Violations = append(r.Violations, pv)
 	}
 	if e.RiskSummary != nil {
 		r.RiskSummary = &model.RiskSummary{

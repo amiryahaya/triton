@@ -40,6 +40,10 @@ func ParseClientHello(data []byte) (*ClientHelloInfo, error) {
 
 	// handshake length is 3 bytes big-endian
 	msgLen := int(uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3]))
+	const maxHandshakeLen = 65535
+	if msgLen > maxHandshakeLen {
+		return nil, ErrTruncated
+	}
 	if len(data) < 4+msgLen {
 		return nil, ErrTruncated
 	}
@@ -125,6 +129,10 @@ func ParseServerHello(data []byte) (*ServerHelloInfo, error) {
 	}
 
 	msgLen := int(uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3]))
+	const maxHandshakeLenSH = 65535
+	if msgLen > maxHandshakeLenSH {
+		return nil, ErrTruncated
+	}
 	if len(data) < 4+msgLen {
 		return nil, ErrTruncated
 	}
@@ -391,7 +399,11 @@ func (r *reader) readBytes(n int) ([]byte, error) {
 }
 
 // slice reads n bytes and returns them (no copy); advances position.
+// Returns nil if there are fewer than n bytes remaining.
 func (r *reader) slice(n int) []byte {
+	if r.remaining() < n {
+		return nil
+	}
 	b := r.buf[r.pos : r.pos+n]
 	r.pos += n
 	return b

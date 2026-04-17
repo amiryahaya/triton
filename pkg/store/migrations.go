@@ -739,4 +739,10 @@ CREATE TABLE fleet_agents (
 CREATE INDEX idx_fleet_agents_engine ON fleet_agents(engine_id);
 CREATE INDEX idx_fleet_agents_status ON fleet_agents(status);
 `,
+	// Version 24: discovery candidate enrichment — MAC vendor + service info.
+	`
+ALTER TABLE discovery_candidates ADD COLUMN IF NOT EXISTS mac_address TEXT;
+ALTER TABLE discovery_candidates ADD COLUMN IF NOT EXISTS mac_vendor TEXT;
+ALTER TABLE discovery_candidates ADD COLUMN IF NOT EXISTS services TEXT[];
+`,
 }

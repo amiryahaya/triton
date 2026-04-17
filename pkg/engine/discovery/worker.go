@@ -98,9 +98,12 @@ func (w *Worker) Run(ctx context.Context) {
 					continue
 				}
 				out = append(out, srvdisc.Candidate{
-					Address:   ip,
-					Hostname:  c.Hostname,
-					OpenPorts: c.OpenPorts,
+					Address:    ip,
+					Hostname:   c.Hostname,
+					OpenPorts:  c.OpenPorts,
+					MACAddress: c.MACAddress,
+					MACVendor:  c.MACVendor,
+					Services:   c.Services,
 				})
 			}
 		}

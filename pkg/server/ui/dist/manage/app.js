@@ -82,12 +82,19 @@
     '/audit': renderAudit,
   };
 
+  function setSidebarVisible(visible) {
+    var sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.style.display = visible ? '' : 'none';
+  }
+
   function route() {
     if (!getToken()) {
+      setSidebarVisible(false);
       renderLogin();
       return;
     }
-    const rawPath = window.location.hash.replace('#', '') || '/dashboard';
+    setSidebarVisible(true);
+    const rawPath = window.location.hash.replace('#', '') || '/groups';
     // Strip query string (e.g. #/scan-jobs/new?group_id=<uuid>) before
     // matching static routes or UUID-suffixed dynamic routes.
     const path = rawPath.split('?')[0];
@@ -228,8 +235,19 @@
     `;
     try {
       const resp = await authedFetch('/api/v1/manage/groups');
-      const groups = await resp.json();
+      let groups = await resp.json();
       const list = el.querySelector('#list');
+
+      // Auto-create a default group if the tenant has none yet.
+      if ((!groups || !groups.length) && canMutate()) {
+        await authedFetch('/api/v1/manage/groups', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'Default', description: 'Auto-created default group' }),
+        });
+        const retry = await authedFetch('/api/v1/manage/groups');
+        groups = await retry.json();
+      }
+
       if (!groups || !groups.length) {
         list.innerHTML = '<p><em>No groups yet.</em></p>';
       } else {
@@ -725,7 +743,13 @@
         <label>CIDRs (one per line)
           <textarea name="cidrs" rows="4" required placeholder="10.0.0.0/24&#10;192.168.1.0/24"></textarea>
         </label>
-        <label>Ports (comma-separated, defaults to 22,80,443,3389,5985)
+        <fieldset style="border:1px solid var(--border,#ccc);padding:.75rem;border-radius:6px;margin:.5rem 0">
+          <legend style="font-weight:600;padding:0 .25rem">Probe type</legend>
+          <label style="display:block;margin-bottom:.25rem"><input type="radio" name="probe_type" value="ping" checked> Ping sweep (find all live hosts)</label>
+          <label style="display:block"><input type="radio" name="probe_type" value="tcp"> TCP port scan (find hosts + open ports, service versions, vendor info)</label>
+          <p class="muted small" style="margin-top:.25rem">Note: Ping sweep only detects if a host is alive. To identify services, OS vendor, and device type, use TCP port scan.</p>
+        </fieldset>
+        <label id="ports_label" style="display:none">Ports (comma-separated, defaults to 22,80,443,3389,5985)
           <input name="ports" placeholder="22,80,443,3389,5985">
         </label>
         <div class="button-row">
@@ -736,17 +760,28 @@
       </form>
     `;
 
+    // Toggle ports input visibility based on probe type selection.
+    const portsLabel = el.querySelector('#ports_label');
+    el.querySelectorAll('input[name="probe_type"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        portsLabel.style.display = radio.value === 'tcp' && radio.checked ? '' : 'none';
+      });
+    });
+
     const sel = el.querySelector('#engine_sel');
     try {
       const resp = await authedFetch('/api/v1/manage/engines/');
       const engines = await resp.json();
+      let firstOnline = null;
       for (const e of engines || []) {
         if (e.status === 'revoked') continue;
         const opt = document.createElement('option');
-        opt.value = e.id;
-        opt.textContent = `${e.label} (${e.status})`;
+        opt.value = e.id || e.ID;
+        opt.textContent = `${e.label || e.Label} (${e.status || e.Status})`;
+        if ((e.status || e.Status) === 'online' && !firstOnline) firstOnline = opt;
         sel.appendChild(opt);
       }
+      if (firstOnline) firstOnline.selected = true;
     } catch (e) {
       if (e.message !== 'unauthorized') console.error('engines load', e);
     }
@@ -755,14 +790,21 @@
       ev.preventDefault();
       const f = ev.target;
       const cidrs = f.cidrs.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      const portsStr = f.ports.value.trim();
-      const ports = portsStr
-        ? portsStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= 65535)
-        : [];
+      const probeType = f.probe_type.value;
+      const payload = { engine_id: f.engine_id.value, cidrs };
+      if (probeType === 'ping') {
+        payload.ports = []; // explicitly empty = ping sweep
+      } else {
+        const portsStr = f.ports.value.trim();
+        if (portsStr) {
+          payload.ports = portsStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= 65535);
+        }
+        // omit ports entirely → server applies default [22,80,443,3389,5985]
+      }
       try {
         const resp = await authedFetch('/api/v1/manage/discoveries/', {
           method: 'POST',
-          body: JSON.stringify({ engine_id: f.engine_id.value, cidrs, ports }),
+          body: JSON.stringify(payload),
         });
         if (!resp.ok) {
           const txt = await resp.text();
@@ -855,13 +897,15 @@
       <td><input type="checkbox" name="cand" value="${c.id}" ${c.promoted ? 'disabled' : ''}></td>
       <td>${escapeHTML(c.address)}${c.promoted ? ' <span class="badge badge-enrolled">promoted</span>' : ''}</td>
       <td>${escapeHTML(c.hostname || '')}</td>
+      <td>${escapeHTML(c.mac_vendor || '')}</td>
       <td>${(c.open_ports || []).join(', ')}</td>
+      <td>${(c.services || []).map(s => escapeHTML(s)).join('<br>')}</td>
       <td>${timeAgo(c.detected_at)}</td>
     </tr>`).join('');
     return `
       <form id="promoteForm">
         <table>
-          <thead><tr><th></th><th>Address</th><th>Hostname</th><th>Open ports</th><th>Detected</th></tr></thead>
+          <thead><tr><th></th><th>Address</th><th>Hostname</th><th>Vendor</th><th>Open ports</th><th>Services</th><th>Detected</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <label>Promote selected to group
@@ -1033,13 +1077,16 @@
       const engines = await engResp.json();
       const groups = await grpResp.json();
       const engSel = el.querySelector('#engine_sel');
+      let firstOnlineEng = null;
       for (const e of engines || []) {
-        if (e.status === 'revoked') continue;
+        if ((e.status || e.Status) === 'revoked') continue;
         const opt = document.createElement('option');
-        opt.value = e.id;
-        opt.textContent = `${e.label} (${e.status})`;
+        opt.value = e.id || e.ID;
+        opt.textContent = `${e.label || e.Label} (${e.status || e.Status})`;
+        if ((e.status || e.Status) === 'online' && !firstOnlineEng) firstOnlineEng = opt;
         engSel.appendChild(opt);
       }
+      if (firstOnlineEng) firstOnlineEng.selected = true;
       const grpSel = el.querySelector('#group_sel');
       for (const g of groups || []) {
         const opt = document.createElement('option');

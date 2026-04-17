@@ -20,6 +20,10 @@ import (
 	"github.com/amiryahaya/triton/pkg/scanner/fsadapter"
 )
 
+// maxLDIFFileSize is the maximum LDIF file size we will read into memory.
+// Files larger than this are skipped to avoid excessive memory allocation.
+const maxLDIFFileSize = 32 * 1024 * 1024 // 32 MiB
+
 // certAttributeNames lists LDIF attribute names that carry base64-encoded
 // DER X.509 certificates (double-colon suffix = base64 in RFC 2849).
 var certAttributeNames = []string{
@@ -84,6 +88,9 @@ func (m *LDIFModule) processLDIF(ctx context.Context, reader fsadapter.FileReade
 	if err != nil {
 		return nil // skip unreadable files
 	}
+	if int64(len(data)) > maxLDIFFileSize {
+		return nil // file too large — skip silently
+	}
 
 	certs := parseLDIFCerts(data)
 	for _, ec := range certs {
@@ -147,6 +154,7 @@ func parseLDIFCerts(data []byte) []entryCert {
 	}
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -183,6 +191,10 @@ func parseLDIFCerts(data []byte) []entryCert {
 
 	// Flush any trailing attribute.
 	flushAttr()
+
+	if err := scanner.Err(); err != nil {
+		_ = err // I/O error after partial read — return what we have
+	}
 
 	return results
 }

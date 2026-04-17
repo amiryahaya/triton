@@ -44,18 +44,18 @@ const (
 // listening on the named ports. CIDRs and ports are stored as-submitted
 // (no normalization) so operators can re-read what they asked for.
 type Job struct {
-	ID             uuid.UUID
-	OrgID          uuid.UUID
-	EngineID       uuid.UUID
-	RequestedBy    *uuid.UUID // nullable — user may have been deleted
-	CIDRs          []string
-	Ports          []int
-	Status         JobStatus
-	Error          string
-	RequestedAt    time.Time
-	ClaimedAt      *time.Time
-	CompletedAt    *time.Time
-	CandidateCount int
+	ID             uuid.UUID  `json:"id"`
+	OrgID          uuid.UUID  `json:"org_id"`
+	EngineID       uuid.UUID  `json:"engine_id"`
+	RequestedBy    *uuid.UUID `json:"requested_by,omitempty"`
+	CIDRs          []string   `json:"cidrs"`
+	Ports          []int      `json:"ports"`
+	Status         JobStatus  `json:"status"`
+	Error          string     `json:"error,omitempty"`
+	RequestedAt    time.Time  `json:"requested_at"`
+	ClaimedAt      *time.Time `json:"claimed_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	CandidateCount int        `json:"candidate_count"`
 }
 
 // Candidate is an address the engine reported back as responsive on at
@@ -63,11 +63,14 @@ type Job struct {
 // engine is expected to dedupe its own probe results, but the store
 // enforces idempotency via ON CONFLICT DO NOTHING regardless.
 type Candidate struct {
-	ID         uuid.UUID
-	JobID      uuid.UUID
-	Address    net.IP
-	Hostname   string // may be empty if rDNS failed or was skipped
-	OpenPorts  []int
-	DetectedAt time.Time
-	Promoted   bool
+	ID         uuid.UUID `json:"id"`
+	JobID      uuid.UUID `json:"job_id"`
+	Address    net.IP    `json:"address"`
+	Hostname   string    `json:"hostname,omitempty"`
+	OpenPorts  []int     `json:"open_ports"`
+	MACAddress string    `json:"mac_address,omitempty"`
+	MACVendor  string    `json:"mac_vendor,omitempty"`
+	Services   []string  `json:"services,omitempty"`
+	DetectedAt time.Time `json:"detected_at"`
+	Promoted   bool      `json:"promoted"`
 }

@@ -54,6 +54,7 @@ services:
   triton:
     image: "${TRITON_IMAGE:-ghcr.io/amiryahaya/triton:latest}"
     container_name: triton-server
+    hostname: triton-server
     profiles: [server]
     depends_on:
       postgres:
@@ -117,13 +118,16 @@ services:
       # URL the engine binary dials for gateway API calls. Baked into
       # bundle.yaml on issuance. Must be reachable from whatever host
       # runs the engine binary.
-      TRITON_PORTAL_URL: "${TRITON_PORTAL_URL:-https://triton:8443}"
+      # With network_mode: host, the engine runs on the host network.
+      # Use localhost (not the compose service name "triton") so the
+      # engine can reach the portal's mTLS listener.
+      TRITON_PORTAL_URL: "${TRITON_PORTAL_URL:-https://localhost:8443}"
     ports:
       - "8090:8080"
       - "8443:8443"
     # The server reads --db and --listen from CLI flags (no env var).
     # Inside the compose network, postgres is at postgres:5432.
-    command: ["server", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable", "--listen", ":8080"]
+    command: ["server", "--db", "postgres://triton:triton@postgres:5432/triton?sslmode=disable", "--listen", ":8080", "--license-server", "http://triton-license-server:8081", "--license-id", "${TRITON_LICENSE_ID:-019d72f8-166a-7e5c-b132-1d48d2d5d4ec}"]
 
   license-server:
     image: "${TRITON_LICENSE_SERVER_IMAGE:-ghcr.io/amiryahaya/triton-license-server:latest}"
@@ -183,8 +187,11 @@ services:
     image: triton-engine:local
     container_name: triton-engine
     profiles: [engine]
+    network_mode: host
     depends_on:
       - triton
+    cap_add:
+      - NET_RAW
     environment:
       TRITON_BUNDLE_PATH: /etc/triton/bundle.tar.gz
       # Onboarding Phase 4 — engine-local at-rest secret store.
@@ -196,9 +203,8 @@ services:
       # Onboarding Phase 6 — agent push + gateway.
       TRITON_AGENT_GATEWAY_ADDR: ":9443"
       TRITON_AGENT_BINARY_PATH: /opt/triton/triton-agent
-      TRITON_ENGINE_ADVERTISE_ADDR: "${TRITON_ENGINE_ADVERTISE_ADDR:-engine:9443}"
-    ports:
-      - "9443:9443"
+      TRITON_ENGINE_ADVERTISE_ADDR: "${TRITON_ENGINE_ADVERTISE_ADDR:-localhost:9443}"
+    # No ports mapping needed — network_mode: host exposes ports directly.
     volumes:
       # Operator mints a bundle via the portal admin UI
       # (POST /api/v1/manage/engines/), saves bytes to ./bundle.tar.gz,

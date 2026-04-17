@@ -98,6 +98,27 @@ func (m *FTPSModule) Scan(ctx context.Context, target model.ScanTarget, findings
 	return m.probeImplicit(ctx, implicitAddr, findings)
 }
 
+// readFTPReply reads an RFC 959 reply, handling multi-line responses.
+// A single-line reply ends with a line where byte[3] is a space (e.g. "220 ").
+// A multi-line reply uses a dash (e.g. "220-") for continuation lines.
+// Returns the 3-digit reply code on success.
+func readFTPReply(r *bufio.Reader) (string, error) {
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if len(line) < 4 {
+			return "", fmt.Errorf("malformed FTP reply: %q", line)
+		}
+		if line[3] == ' ' {
+			return line[:3], nil
+		}
+		// line[3] == '-' means continuation; keep reading
+	}
+}
+
 // probeExplicit attempts explicit FTPS (AUTH TLS) and returns (true, nil)
 // when it successfully negotiated TLS and emitted findings, or (false, nil)
 // when the server refused/didn't respond to AUTH TLS.
@@ -116,10 +137,17 @@ func (m *FTPSModule) probeExplicit(ctx context.Context, addr string, findings ch
 		}
 	}()
 
-	// Expect the 220 banner.
-	reader := bufio.NewReader(conn)
-	banner, err := reader.ReadString('\n')
-	if err != nil || !strings.HasPrefix(banner, "220") {
+	// Set a read/write deadline to avoid hanging indefinitely on slow servers.
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	}
+
+	// Expect the 220 banner (RFC 959 multi-line reply handling).
+	r := bufio.NewReader(conn)
+	code, err := readFTPReply(r)
+	if err != nil || code != "220" {
 		return false, nil
 	}
 
@@ -128,12 +156,12 @@ func (m *FTPSModule) probeExplicit(ctx context.Context, addr string, findings ch
 		return false, nil
 	}
 
-	// Read response.
-	resp, err := reader.ReadString('\n')
+	// Read response (RFC 959 multi-line reply handling).
+	code, err = readFTPReply(r)
 	if err != nil {
 		return false, nil
 	}
-	if !strings.HasPrefix(resp, "234") {
+	if code != "234" {
 		// Server rejected AUTH TLS (e.g. 502 Command not implemented).
 		return false, nil
 	}
@@ -143,11 +171,11 @@ func (m *FTPSModule) probeExplicit(ctx context.Context, addr string, findings ch
 		InsecureSkipVerify: true, //nolint:gosec // we audit, not validate trust
 		MinVersion:         tls.VersionTLS10,
 	})
+	connOwned = false // tlsConn owns the connection now
+	defer func() { _ = tlsConn.Close() }()
 	if err = tlsConn.Handshake(); err != nil {
 		return false, nil
 	}
-	connOwned = false // tlsConn owns the connection now
-	defer func() { _ = tlsConn.Close() }()
 
 	state := tlsConn.ConnectionState()
 	return true, m.emitChainFindings(ctx, addr, state, "explicit FTPS (AUTH TLS)", findings)
@@ -170,16 +198,23 @@ func (m *FTPSModule) probeImplicit(ctx context.Context, addr string, findings ch
 		}
 	}()
 
+	// Set a read/write deadline to avoid hanging indefinitely on slow servers.
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	}
+
 	// Wrap conn in TLS immediately (no FTP command exchange for implicit FTPS).
 	tlsConn := tls.Client(conn, &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // we audit, not validate trust
 		MinVersion:         tls.VersionTLS10,
 	})
+	connOwned = false // tlsConn owns the connection now
+	defer func() { _ = tlsConn.Close() }()
 	if err = tlsConn.Handshake(); err != nil {
 		return nil
 	}
-	connOwned = false // tlsConn owns the connection now
-	defer func() { _ = tlsConn.Close() }()
 
 	state := tlsConn.ConnectionState()
 	return m.emitChainFindings(ctx, addr, state, "implicit FTPS", findings)

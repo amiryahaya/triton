@@ -130,6 +130,7 @@ func (s *PostgresStore) ListJobs(ctx context.Context, orgID uuid.UUID) ([]Job, e
 func (s *PostgresStore) ListCandidates(ctx context.Context, jobID uuid.UUID) ([]Candidate, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, job_id, address::text, COALESCE(hostname, ''), open_ports,
+		        COALESCE(mac_address, ''), COALESCE(mac_vendor, ''), COALESCE(services, '{}'),
 		        detected_at, promoted
 		 FROM discovery_candidates
 		 WHERE job_id = $1
@@ -146,14 +147,17 @@ func (s *PostgresStore) ListCandidates(ctx context.Context, jobID uuid.UUID) ([]
 		var c Candidate
 		var addrText string
 		var ports []int32
+		var services []string
 		if err := rows.Scan(
 			&c.ID, &c.JobID, &addrText, &c.Hostname, &ports,
+			&c.MACAddress, &c.MACVendor, &services,
 			&c.DetectedAt, &c.Promoted,
 		); err != nil {
 			return nil, fmt.Errorf("scan discovery candidate: %w", err)
 		}
 		c.Address = parseINET(addrText)
 		c.OpenPorts = fromInt32Array(ports)
+		c.Services = services
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -228,10 +232,11 @@ func (s *PostgresStore) InsertCandidates(ctx context.Context, jobID uuid.UUID, c
 		}
 		batch.Queue(
 			`INSERT INTO discovery_candidates
-			   (id, job_id, address, hostname, open_ports)
-			 VALUES ($1, $2, $3::inet, $4, $5)
+			   (id, job_id, address, hostname, open_ports, mac_address, mac_vendor, services)
+			 VALUES ($1, $2, $3::inet, $4, $5, $6, $7, $8)
 			 ON CONFLICT (job_id, address) DO NOTHING`,
 			id, jobID, addr, hostname, toInt32Array(c.OpenPorts),
+			nilIfEmpty(c.MACAddress), nilIfEmpty(c.MACVendor), toStringArray(c.Services),
 		)
 	}
 	br := s.pool.SendBatch(ctx, batch)
@@ -295,6 +300,20 @@ func parseINET(s string) net.IP {
 
 // toInt32Array converts []int to []int32 for pgx INTEGER[] binding.
 // Postgres INTEGER is 32-bit; values outside int32 range will wrap.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func toStringArray(ss []string) []string {
+	if len(ss) == 0 {
+		return nil
+	}
+	return ss
+}
+
 func toInt32Array(xs []int) []int32 {
 	out := make([]int32, len(xs))
 	for i, x := range xs {

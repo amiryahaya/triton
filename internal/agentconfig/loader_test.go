@@ -373,4 +373,7 @@ func TestLoad_ScheduleFieldsDefaults(t *testing.T) {
 	if cfg.ScheduleJitter != 0 {
 		t.Errorf("ScheduleJitter default = %v, want 0", cfg.ScheduleJitter)
 	}
+	if cfg.Interval != 0 {
+		t.Errorf("Interval default = %v, want 0", cfg.Interval)
+	}
 }

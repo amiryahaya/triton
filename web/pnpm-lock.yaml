@@ -51,6 +51,15 @@ importers:
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.9.3)
 
+  packages/api-client:
+    devDependencies:
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.17)(jsdom@25.0.1)
+
   packages/auth:
     dependencies:
       '@triton/ui':

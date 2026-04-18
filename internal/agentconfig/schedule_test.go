@@ -164,3 +164,17 @@ func TestResolveSchedule_JitterIgnoredInIntervalMode(t *testing.T) {
 		t.Errorf("Jitter = %v, want 0 in interval mode", spec.Jitter)
 	}
 }
+
+func TestResolveSchedule_NegativeYAMLInterval(t *testing.T) {
+	// Negative yaml Interval is a garbage config that should fall
+	// through to the flag, not produce a negative-sleep spec. The
+	// helper cmd has no flag set, so the expected outcome is oneshot.
+	cfg := &Config{Interval: -5 * time.Minute}
+	spec, err := cfg.ResolveSchedule(newScheduleTestCmd(), nil)
+	if err != nil {
+		t.Fatalf("ResolveSchedule: %v", err)
+	}
+	if spec.Kind != ScheduleKindOneShot {
+		t.Errorf("Kind = %q, want oneshot (negative interval must not win)", spec.Kind)
+	}
+}

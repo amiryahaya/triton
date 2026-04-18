@@ -27,5 +27,5 @@ type ScheduleSpec struct {
 	Kind     ScheduleKind
 	CronExpr string        // populated when Kind == ScheduleKindCron
 	Interval time.Duration // populated when Kind == ScheduleKindInterval
-	Jitter   time.Duration // optional; 0 means no jitter
+	Jitter   time.Duration // optional; only populated in cron mode, 0 disables
 }

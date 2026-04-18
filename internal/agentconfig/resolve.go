@@ -182,22 +182,25 @@ func flagInt(cmd *cobra.Command, name string) (int, error) {
 //  4. ScheduleKindOneShot                      — run once and exit
 //
 // When both Schedule and Interval are set, Schedule wins and a warning
-// is written to warnOut (if non-nil). This matches the existing
-// "yaml-schedule overrides yaml-interval" semantics promised in the
-// design spec.
+// is written to warnOut. Pass nil to discard the warning. Negative or
+// zero values for Config.Interval are treated as "unset" and fall
+// through to the CLI flag.
 //
 // Cron expression validation is NOT performed here — that's the
 // runtime scheduler's job. We keep this package free of the cron
 // library import so callers that only need to inspect resolved config
 // don't pull it in.
 func (c *Config) ResolveSchedule(cmd *cobra.Command, warnOut io.Writer) (ScheduleSpec, error) {
+	if warnOut == nil {
+		warnOut = io.Discard
+	}
 	spec := ScheduleSpec{}
 
 	if c.Schedule != "" {
 		spec.Kind = ScheduleKindCron
 		spec.CronExpr = c.Schedule
 		spec.Jitter = c.ScheduleJitter
-		if c.Interval > 0 && warnOut != nil {
+		if c.Interval > 0 {
 			fmt.Fprintf(warnOut,
 				"warning: both schedule (%q) and interval (%s) set in agent.yaml — schedule wins\n",
 				c.Schedule, c.Interval)

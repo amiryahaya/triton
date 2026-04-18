@@ -9,7 +9,7 @@ import (
 func TestBuildLaunchCommand_NoSudo(t *testing.T) {
 	flags := ScanFlags{Profile: "standard", Format: "all"}
 	got := BuildLaunchCommand("/tmp/.triton-abc", false, flags)
-	want := `/tmp/.triton-abc scan --detach --quiet --profile standard --format all`
+	want := `/tmp/.triton-abc --detach --quiet --profile standard --format all`
 	if got != want {
 		t.Errorf("BuildLaunchCommand:\ngot:  %s\nwant: %s", got, want)
 	}

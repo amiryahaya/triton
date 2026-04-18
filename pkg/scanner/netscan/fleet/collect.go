@@ -47,7 +47,7 @@ func PollStatus(ctx context.Context, r SSHRunner, jobID, statusCmd string, pollI
 // -o -` (which is a gzip'd tar of the reports/ dir) into
 // outputDir/<deviceName>.tar.gz. Returns the local file path.
 func CollectTar(ctx context.Context, r SSHRunner, remoteBinary, jobID, outputDir, deviceName string) (string, error) {
-	cmd := fmt.Sprintf("%s scan --collect --job-id %s -o -", remoteBinary, jobID)
+	cmd := fmt.Sprintf("%s --collect --job-id %s -o -", remoteBinary, jobID)
 	stdout, err := r.Run(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("run collect cmd: %w", err)

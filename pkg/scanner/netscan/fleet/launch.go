@@ -17,7 +17,9 @@ func BuildLaunchCommand(remoteBinary string, useSudo bool, f ScanFlags) string {
 	if useSudo {
 		parts = append(parts, "sudo")
 	}
-	parts = append(parts, remoteBinary, "scan", "--detach", "--quiet")
+	// Note: triton's scan is the ROOT command (not a subcommand), so the
+	// invocation is `triton --detach ...` not `triton scan --detach ...`.
+	parts = append(parts, remoteBinary, "--detach", "--quiet")
 
 	if f.Profile != "" {
 		parts = append(parts, "--profile", f.Profile)

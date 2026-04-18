@@ -202,7 +202,7 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 	res.JobID = jobID
 
 	// 8. Poll status until terminal.
-	statusCmd := fmt.Sprintf("%s scan --status --job-id %s --json --work-dir %s",
+	statusCmd := fmt.Sprintf("%s --status --job-id %s --json --work-dir %s",
 		remotePath, jobID, workDir)
 	status, err := PollStatus(ctx, runner, jobID, statusCmd, pollInterval)
 	if err != nil {
@@ -245,7 +245,7 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 
 	// 10. Remote cleanup of job state dir. Best-effort — the deferred rm
 	// above always runs for the pushed binary.
-	_, _ = runner.Run(ctx, fmt.Sprintf("%s scan --cleanup --job-id %s --work-dir %s",
+	_, _ = runner.Run(ctx, fmt.Sprintf("%s --cleanup --job-id %s --work-dir %s",
 		remotePath, jobID, workDir))
 
 	return res

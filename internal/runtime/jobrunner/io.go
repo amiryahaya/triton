@@ -46,12 +46,12 @@ func WriteJSON(path string, v interface{}) error {
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("write tmp: %w", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("chmod tmp: %w", err)
 	}

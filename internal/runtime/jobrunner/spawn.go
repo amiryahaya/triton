@@ -89,12 +89,12 @@ func writeStringAtomic(path, s string) error {
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.WriteString(s); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return err
 	}

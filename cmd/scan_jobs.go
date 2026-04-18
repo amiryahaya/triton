@@ -92,7 +92,7 @@ func isDaemonMode() bool {
 // state.lock (fails fast if another daemon holds it), builds the scan
 // engine, and launches three goroutines: eng.Scan, runStatusAndCollect,
 // cancelFlagPoller.
-func runScanDaemon(cmd *cobra.Command, args []string) error {
+func runScanDaemon(cmd *cobra.Command, _ []string) error {
 	jobID := os.Getenv("TRITON_JOB_ID")
 	workDir := os.Getenv("TRITON_WORK_DIR")
 	if jobID == "" || workDir == "" {
@@ -376,7 +376,7 @@ func buildLimitsForCmd(cmd *cobra.Command) (limits.Limits, error) {
 //   - "json": only result.json (no reports/)
 //   - "cdx"/"html"/"sarif"/"xlsx": only that one format
 //   - "all": all five formats
-func saveResultAndReports(jobDir string, result *model.ScanResult, cfg *scannerconfig.Config) error {
+func saveResultAndReports(jobDir string, result *model.ScanResult, _ *scannerconfig.Config) error {
 	if err := jobrunner.WriteJSON(filepath.Join(jobDir, "result.json"), result); err != nil {
 		return fmt.Errorf("write result.json: %w", err)
 	}
@@ -431,7 +431,7 @@ func saveResultAndReports(jobDir string, result *model.ScanResult, cfg *scannerc
 // Generates a job-id, creates the work-dir, snapshots the scan config,
 // spawns a detached child via jobrunner.Spawn, writes the initial status,
 // and prints the job-id to stdout. Returns immediately after fork.
-func runScanDetached(cmd *cobra.Command, args []string) error {
+func runScanDetached(cmd *cobra.Command, _ []string) error {
 	// D3: enforce licence tier BEFORE dispatching to the daemon. Without
 	// this, a free-tier user could bypass profile/format/feature gating
 	// by passing --detach. enforceScanLicense also downgrades defaults,
@@ -533,7 +533,7 @@ func versionString() string {
 
 // --- runJobStatus ---
 
-func runJobStatus(cmd *cobra.Command, args []string) error {
+func runJobStatus(cmd *cobra.Command, _ []string) error {
 	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	return runJobStatusCore(workDir, detachJobID, jsonOut)
@@ -574,7 +574,7 @@ func runJobStatusCore(workDir, jobID string, jsonOut bool) error {
 
 // --- runJobCollect ---
 
-func runJobCollect(cmd *cobra.Command, args []string) error {
+func runJobCollect(cmd *cobra.Command, _ []string) error {
 	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
 	out, _ := cmd.Flags().GetString("output")
 	keep, _ := cmd.Flags().GetBool("keep")
@@ -613,7 +613,7 @@ func writeCollectedFile(src, out string, keep bool, jobDir string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	var w io.Writer
 	if out == "" || out == "-" {
 		w = os.Stdout
@@ -622,7 +622,7 @@ func writeCollectedFile(src, out string, keep bool, jobDir string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		w = f
 	}
 	if _, err := io.Copy(w, in); err != nil {
@@ -688,7 +688,7 @@ func writeCollectedTar(reportsDir, out string, keep bool, jobDir string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, err = io.Copy(tw, f)
 		return err
 	})
@@ -723,7 +723,7 @@ func writeCollectedTar(reportsDir, out string, keep bool, jobDir string) error {
 
 // --- runJobCancel ---
 
-func runJobCancel(cmd *cobra.Command, args []string) error {
+func runJobCancel(cmd *cobra.Command, _ []string) error {
 	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
 	wait, _ := cmd.Flags().GetBool("wait")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
@@ -760,7 +760,7 @@ func runJobCancelCore(workDir, jobID string, wait bool, timeout time.Duration) e
 
 // --- runJobList ---
 
-func runJobList(cmd *cobra.Command, args []string) error {
+func runJobList(cmd *cobra.Command, _ []string) error {
 	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	return runJobListCore(workDir, jsonOut)
@@ -781,9 +781,9 @@ func runJobListCore(workDir string, jsonOut bool) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB ID\tSTATE\tSTARTED\tPROGRESS\tFINDINGS")
+	_, _ = fmt.Fprintln(tw, "JOB ID\tSTATE\tSTARTED\tPROGRESS\tFINDINGS")
 	for _, j := range jobs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%.1f%%\t%d\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%.1f%%\t%d\n",
 			j.JobID, j.Status.State,
 			j.Status.StartedAt.Format("2006-01-02 15:04:05"),
 			j.Status.ProgressPct, j.Status.FindingsCount)
@@ -793,7 +793,7 @@ func runJobListCore(workDir string, jsonOut bool) error {
 
 // --- runJobCleanup ---
 
-func runJobCleanup(cmd *cobra.Command, args []string) error {
+func runJobCleanup(cmd *cobra.Command, _ []string) error {
 	workDir := jobrunner.ResolveWorkDir(detachWorkDir)
 	all, _ := cmd.Flags().GetBool("all")
 	return runJobCleanupCore(workDir, detachJobID, all)

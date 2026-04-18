@@ -37,3 +37,5 @@ export { default as TToastHost } from './composite/TToastHost.vue';
 
 export { default as TSidebar } from './shell/TSidebar.vue';
 export type { NavItem, NavSection } from './shell/TSidebar.vue';
+
+export { default as TThemeToggle } from './shell/TThemeToggle.vue';

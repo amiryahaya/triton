@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -268,4 +269,63 @@ func TestLoad_LicenseServerTrimmed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://license.example.com", cfg.LicenseServer)
 	assert.Equal(t, "some-uuid", cfg.LicenseID)
+}
+
+func TestLoad_ResourceLimits_YAMLRoundTrip(t *testing.T) {
+	yaml := []byte(`
+license_key: "test-token"
+profile: standard
+resource_limits:
+  max_memory: 2GB
+  max_cpu_percent: 50
+  max_duration: 4h
+  stop_at: "03:00"
+  nice: 10
+`)
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, DefaultFileName)
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadFile(path)
+	if err != nil {
+		t.Fatalf("loadFile: %v", err)
+	}
+	if cfg.ResourceLimits == nil {
+		t.Fatal("ResourceLimits should be non-nil when yaml block is present")
+	}
+	if cfg.ResourceLimits.MaxMemory != "2GB" {
+		t.Errorf("MaxMemory: got %q, want 2GB", cfg.ResourceLimits.MaxMemory)
+	}
+	if cfg.ResourceLimits.MaxCPUPercent != 50 {
+		t.Errorf("MaxCPUPercent: got %d, want 50", cfg.ResourceLimits.MaxCPUPercent)
+	}
+	if cfg.ResourceLimits.MaxDuration != 4*time.Hour {
+		t.Errorf("MaxDuration: got %v, want 4h", cfg.ResourceLimits.MaxDuration)
+	}
+	if cfg.ResourceLimits.StopAt != "03:00" {
+		t.Errorf("StopAt: got %q, want 03:00", cfg.ResourceLimits.StopAt)
+	}
+	if cfg.ResourceLimits.Nice != 10 {
+		t.Errorf("Nice: got %d, want 10", cfg.ResourceLimits.Nice)
+	}
+}
+
+func TestLoad_ResourceLimits_AbsentYieldsNil(t *testing.T) {
+	yaml := []byte(`
+license_key: "test-token"
+profile: standard
+`)
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, DefaultFileName)
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ResourceLimits != nil {
+		t.Errorf("ResourceLimits should be nil when block absent, got %+v", cfg.ResourceLimits)
+	}
 }

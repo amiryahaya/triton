@@ -47,6 +47,14 @@
   /* Portal accent (placeholders — apps override at their app root) */
   --portal-accent:      #22d3ee;
   --portal-accent-soft: rgba(34, 211, 238, 0.12);
+
+  /* Violet — License Server portal accent + "enterprise" pill colour.
+     Not part of the PQC-safety semantic palette, but used in enough
+     places that a shared token is worth the weight. */
+  --violet:        #7c3aed;
+  --violet-text:   #c4b5fd;
+  --violet-soft:   rgba(167, 139, 250, 0.12);
+  --violet-border: rgba(167, 139, 250, 0.35);
 }
 
 /* ─────────── Dark palette (default) ─────────── */

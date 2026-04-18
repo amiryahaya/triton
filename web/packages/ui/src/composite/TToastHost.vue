@@ -13,31 +13,33 @@ const icon = {
 </script>
 
 <template>
-  <div
-    class="t-toast-host"
-    aria-live="polite"
-  >
+  <Teleport to="body">
     <div
-      v-for="t in toasts"
-      :key="t.id"
-      class="t-toast"
-      :class="`t-toast--${t.kind}`"
+      class="t-toast-host"
+      aria-live="polite"
     >
-      <span class="t-toast-ico">{{ icon[t.kind] }}</span>
-      <div class="t-toast-body">
-        <b>{{ t.title }}</b>
-        <span v-if="t.description">{{ t.description }}</span>
-      </div>
-      <button
-        type="button"
-        class="t-toast-close"
-        aria-label="Dismiss"
-        @click="dismiss(t.id)"
+      <div
+        v-for="t in toasts"
+        :key="t.id"
+        class="t-toast"
+        :class="`t-toast--${t.kind}`"
       >
-        ×
-      </button>
+        <span class="t-toast-ico">{{ icon[t.kind] }}</span>
+        <div class="t-toast-body">
+          <b>{{ t.title }}</b>
+          <span v-if="t.description">{{ t.description }}</span>
+        </div>
+        <button
+          type="button"
+          class="t-toast-close"
+          aria-label="Dismiss"
+          @click="dismiss(t.id)"
+        >
+          ×
+        </button>
+      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>

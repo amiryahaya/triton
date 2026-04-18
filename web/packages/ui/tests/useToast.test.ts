@@ -1,17 +1,23 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { useToast, __resetToastsForTest } from '../src/composables/useToast';
 import TToastHost from '../src/composite/TToastHost.vue';
 
+// TToastHost uses <Teleport to="body">, so the DOM lands on document.body
+// rather than inside the Vue Test Utils wrapper. Query the real DOM.
+
 describe('useToast', () => {
   beforeEach(() => __resetToastsForTest());
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
 
   it('success adds a toast to the host', async () => {
     const w = mount(TToastHost, { attachTo: document.body });
     const toast = useToast();
     toast.success({ title: 'Saved' });
     await w.vm.$nextTick();
-    expect(w.text()).toContain('Saved');
+    expect(document.body.textContent).toContain('Saved');
     w.unmount();
   });
 
@@ -22,7 +28,7 @@ describe('useToast', () => {
       const toast = useToast();
       toast[kind]({ title: `t-${kind}` });
       await w.vm.$nextTick();
-      expect(w.find(`.t-toast--${kind}`).exists()).toBe(true);
+      expect(document.querySelector(`.t-toast--${kind}`)).not.toBeNull();
       w.unmount();
     }
   );
@@ -34,7 +40,7 @@ describe('useToast', () => {
     await w.vm.$nextTick();
     toast.dismiss(id);
     await w.vm.$nextTick();
-    expect(w.findAll('.t-toast')).toHaveLength(0);
+    expect(document.querySelectorAll('.t-toast')).toHaveLength(0);
     w.unmount();
   });
 });

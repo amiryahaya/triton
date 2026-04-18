@@ -111,12 +111,13 @@ func dockerAvailable(t *testing.T) bool {
 // func that removes the container.
 func buildAndStartSSHDContainer(t *testing.T, dockerfile, name string, hostPort int) func() {
 	t.Helper()
-	// Build the image. Context is test/integration so the COPY of
+	// Build the image. Context is the current working directory
+	// (test/integration when `go test` runs) so the COPY of
 	// testdata/fleet/test_ed25519.pub resolves.
 	buildCmd := exec.Command("docker", "build",
-		"-f", "test/integration/"+dockerfile,
+		"-f", dockerfile,
 		"-t", name+":test",
-		"test/integration")
+		".")
 	buildCmd.Stdout = os.Stderr
 	buildCmd.Stderr = os.Stderr
 	if err := buildCmd.Run(); err != nil {

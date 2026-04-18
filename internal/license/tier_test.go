@@ -154,3 +154,28 @@ func TestProTierCannotAccessEnterprise(t *testing.T) {
 		assert.False(t, TierAllows(TierPro, f), "pro should not allow %s", f)
 	}
 }
+
+func TestFeatureFleetScan_TierMapping(t *testing.T) {
+	cases := []struct {
+		tier    Tier
+		enabled bool
+	}{
+		{TierFree, false},
+		{TierPro, true},
+		{TierEnterprise, true},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.tier), func(t *testing.T) {
+			if got := TierAllows(tc.tier, FeatureFleetScan); got != tc.enabled {
+				t.Errorf("TierAllows(%s, fleet-scan) = %v, want %v", tc.tier, got, tc.enabled)
+			}
+		})
+	}
+}
+
+func TestFeatureDeviceScan_AliasForNetworkScan(t *testing.T) {
+	if FeatureDeviceScan != FeatureNetworkScan {
+		t.Errorf("FeatureDeviceScan should equal FeatureNetworkScan for backcompat; got %q vs %q",
+			FeatureDeviceScan, FeatureNetworkScan)
+	}
+}

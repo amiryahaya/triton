@@ -27,6 +27,17 @@ const (
 	FeatureAgentMode   Feature = "agent"
 	FeatureNetworkScan Feature = "network-scan"
 
+	// FeatureFleetScan gates `triton fleet-scan` (SSH fan-out of detached
+	// scans). Binary distribution + sudo is higher-trust than read-only
+	// network probes, so this is a separate feature from FeatureNetworkScan.
+	FeatureFleetScan Feature = "fleet-scan"
+
+	// FeatureDeviceScan is the canonical name for the SSH/NETCONF network-
+	// device scanner (formerly `triton network-scan`). Aliased to
+	// FeatureNetworkScan for backcompat — both string values map to the
+	// same tier enforcement.
+	FeatureDeviceScan Feature = FeatureNetworkScan
+
 	FeatureMetrics       Feature = "metrics"
 	FeatureIncremental   Feature = "incremental"
 	FeatureDiff          Feature = "diff"
@@ -55,6 +66,7 @@ var tierFeatures = map[Tier]map[Feature]bool{
 		FeatureTrend:                true,
 		FeatureDB:                   true,
 		FeaturePolicyBuiltin:        true,
+		FeatureFleetScan:            true,
 	},
 	TierEnterprise: {
 		FeatureProfileQuick:         true,
@@ -68,6 +80,7 @@ var tierFeatures = map[Tier]map[Feature]bool{
 		FeatureServerMode:           true,
 		FeatureAgentMode:            true,
 		FeatureNetworkScan:          true,
+		FeatureFleetScan:            true,
 		FeatureMetrics:              true,
 		FeatureIncremental:          true,
 		FeatureDiff:                 true,

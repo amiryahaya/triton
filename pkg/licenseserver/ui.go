@@ -7,7 +7,13 @@ import (
 	"net/http"
 )
 
-//go:embed ui/dist
+// `all:` prefix so Go's embed includes the .gitkeep placeholder that
+// lives in ui/dist on a cold clone before `make web` runs. Matches the
+// convention in pkg/server/ui.go. Without it, a clone without running
+// `make web` first fails with "pattern ui/dist: contains no embeddable
+// files" because Go's default embed globbing excludes dotfiles.
+//
+//go:embed all:ui/dist
 var adminUIFS embed.FS
 
 // adminUIHandler returns an http.Handler that serves the embedded admin web UI.

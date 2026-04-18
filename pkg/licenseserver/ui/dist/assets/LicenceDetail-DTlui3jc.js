@@ -1,1 +1,0 @@
-import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{j as c,o as t}from"./vendor-5oWrXQq1.js";const n={};function o(r,s){return t(),c("h1",null,"Licence Detail (stub — Task 9.3 implements)")}const l=e(n,[["render",o]]);export{l as default};

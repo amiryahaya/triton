@@ -1,1 +1,0 @@
-import{_ as e}from"./index-DOTtC0kT.js";import{a as c,o as t}from"./vendor-Bs62sa6e.js";const n={};function o(r,a){return t(),c("h1",null,"Licence Detail (stub — Task 9.3 implements)")}const l=e(n,[["render",o]]);export{l as default};

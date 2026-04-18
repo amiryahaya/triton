@@ -1,1 +1,0 @@
-import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{j as o,o as r}from"./vendor-5oWrXQq1.js";const a={};function c(s,t){return r(),o("div",null,"Dashboard (placeholder — Task 9.1 implements)")}const _=e(a,[["render",c]]);export{_ as default};

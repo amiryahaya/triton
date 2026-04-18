@@ -7,7 +7,7 @@ export default defineConfig({
   base: '/ui/',
   build: {
     outDir: path.resolve(__dirname, '../../../pkg/licenseserver/ui/dist'),
-    emptyOutDir: false,
+    emptyOutDir: true,
     assetsDir: 'assets',
     rollupOptions: {
       output: {

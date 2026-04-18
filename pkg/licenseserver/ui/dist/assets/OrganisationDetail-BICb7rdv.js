@@ -1,1 +1,0 @@
-import{_ as e}from"./index-DOTtC0kT.js";import{a as t,o as a}from"./vendor-Bs62sa6e.js";const n={};function o(r,s){return a(),t("h1",null,"Organisation Detail (stub — Task 9.2 implements)")}const l=e(n,[["render",o]]);export{l as default};

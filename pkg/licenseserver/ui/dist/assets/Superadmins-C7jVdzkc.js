@@ -1,1 +1,0 @@
-import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{j as r,o as n}from"./vendor-5oWrXQq1.js";const s={};function t(o,c){return n(),r("h1",null,"Superadmins (stub — Task 9.7 implements)")}const _=e(s,[["render",t]]);export{_ as default};

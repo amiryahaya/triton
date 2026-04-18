@@ -1,1 +1,0 @@
-import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{j as n,o as s}from"./vendor-5oWrXQq1.js";const t={};function o(r,a){return s(),n("h1",null,"Organisations (stub — Task 9.2 implements)")}const _=e(t,[["render",o]]);export{_ as default};

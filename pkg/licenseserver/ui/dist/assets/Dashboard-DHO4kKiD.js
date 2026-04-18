@@ -1,1 +1,0 @@
-import{j as n,o as a}from"./vendor-5oWrXQq1.js";const s=(e,o)=>{const t=e.__vccOpts||e;for(const[r,c]of o)t[r]=c;return t},l={};function _(e,o){return a(),n("div",null,"Dashboard (placeholder — Task 9.1 implements)")}const f=s(l,[["render",_]]);export{f as default};

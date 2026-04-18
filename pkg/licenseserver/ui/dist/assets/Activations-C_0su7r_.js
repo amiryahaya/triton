@@ -1,1 +1,0 @@
-import{_ as t}from"./index-DOTtC0kT.js";import{a as e,o}from"./vendor-Bs62sa6e.js";const c={};function n(s,r){return o(),e("h1",null,"Activations (stub — Task 9.4 implements)")}const _=t(c,[["render",n]]);export{_ as default};

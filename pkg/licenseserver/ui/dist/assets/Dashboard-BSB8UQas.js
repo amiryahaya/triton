@@ -1,1 +1,0 @@
-import{_ as e}from"./index-DOTtC0kT.js";import{a as o,o as r}from"./vendor-Bs62sa6e.js";const a={};function c(s,t){return r(),o("div",null,"Dashboard (placeholder — Task 9.1 implements)")}const _=e(a,[["render",c]]);export{_ as default};

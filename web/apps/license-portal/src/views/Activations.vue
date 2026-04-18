@@ -1,3 +1,12 @@
+<script setup lang="ts">
+import { TPanel } from '@triton/ui';
+</script>
+
 <template>
-  <h1>Activations (stub — Task 9.4 implements)</h1>
+  <TPanel
+    title="Activations"
+    subtitle="· across all licences"
+  >
+    <p>Open a licence to view its activations.</p>
+  </TPanel>
 </template>

@@ -47,3 +47,8 @@ export { default as TCrumbBar } from './shell/TCrumbBar.vue';
 export type { Crumb } from './shell/TCrumbBar.vue';
 export { default as TUserMenu } from './shell/TUserMenu.vue';
 export { default as TAppShell } from './shell/TAppShell.vue';
+
+export { readTheme } from './charts/chartTheme';
+export type { ChartTheme } from './charts/chartTheme';
+export { default as TLineChart } from './charts/TLineChart.vue';
+export { default as TBarChart } from './charts/TBarChart.vue';

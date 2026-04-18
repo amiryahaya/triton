@@ -1,4 +1,12 @@
-# Stage 1: Build static binary
+# Stage 1: Build web portal assets (Vite)
+FROM docker.io/library/node:22-alpine AS web
+WORKDIR /app
+RUN corepack enable pnpm
+COPY web/ /app/web/
+WORKDIR /app/web
+RUN pnpm install --frozen-lockfile && pnpm --filter license-portal build
+
+# Stage 2: Build static Go binary
 FROM docker.io/library/golang:1.25 AS builder
 
 ARG VERSION=dev
@@ -6,13 +14,16 @@ ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
+COPY . /src/
+
+# Copy the Vite-built portal into the Go embed target so //go:embed sees it.
+COPY --from=web /app/pkg/licenseserver/ui/dist /src/pkg/licenseserver/ui/dist
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X github.com/amiryahaya/triton/internal/version.Version=${VERSION}" \
     -o /triton-license-server cmd/licenseserver/main.go
 
-# Stage 2: Minimal production image
+# Stage 3: Minimal production image
 FROM scratch
 
 ENV HOME=/tmp

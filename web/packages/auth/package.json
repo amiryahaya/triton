@@ -1,21 +1,16 @@
 {
-  "name": "@triton/ui",
+  "name": "@triton/auth",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./tokens.css": "./src/tokens/tokens.css",
-    "./fonts.css": "./src/fonts/fonts.css"
-  },
   "scripts": {
     "test": "vitest run",
     "lint": "eslint src"
   },
   "dependencies": {
-    "chart.js": "^4.4.7",
+    "@triton/ui": "workspace:*",
     "vue": "^3.5.13"
   },
   "devDependencies": {

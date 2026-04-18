@@ -32,6 +32,24 @@ describe('TButton', () => {
     expect(w.classes()).toContain('is-disabled');
   });
 
+  it('defaults type="button" so a bare <TButton> in a form does not submit', () => {
+    const w = mount(TButton);
+    expect(w.attributes('type')).toBe('button');
+  });
+
+  it('accepts type="submit" for explicit form-submit buttons', () => {
+    const w = mount(TButton, { props: { type: 'submit' } });
+    expect(w.attributes('type')).toBe('submit');
+  });
+
+  it('renders non-string slot content (icon + label)', () => {
+    const w = mount(TButton, {
+      slots: { default: '<span class="ico">●</span><span>Save</span>' },
+    });
+    expect(w.find('.ico').exists()).toBe(true);
+    expect(w.text()).toContain('Save');
+  });
+
   it('emits click', async () => {
     const w = mount(TButton);
     await w.trigger('click');

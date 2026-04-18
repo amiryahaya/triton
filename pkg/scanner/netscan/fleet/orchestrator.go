@@ -1,11 +1,16 @@
 package fleet
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +18,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/runtime/jobrunner"
+	"github.com/amiryahaya/triton/pkg/agent"
+	"github.com/amiryahaya/triton/pkg/model"
 	"github.com/amiryahaya/triton/pkg/scanner/netscan"
 )
 
@@ -222,6 +229,18 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 		} else {
 			res.OutputPath = path
 		}
+
+		// Upload to report-server if configured. Failures here are
+		// non-fatal (recorded as res.Warning so the summary surfaces
+		// them per-host) — the local tar is already on disk.
+		if cfg.ReportServerURL != "" {
+			if jsonPath, err := extractResultJSONFromTar(path); err == nil {
+				uploadToReportServer(ctx, cfg, &res, jsonPath)
+				_ = os.Remove(jsonPath)
+			} else {
+				res.Warning = fmt.Sprintf("extract result.json for upload: %v", err)
+			}
+		}
 	}
 
 	// 10. Remote cleanup of job state dir. Best-effort — the deferred rm
@@ -230,4 +249,95 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 		remotePath, jobID, workDir))
 
 	return res
+}
+
+// uploadToReportServer POSTs a collected host's result.json to the
+// orchestrator's configured ReportServerURL using pkg/agent.Client.
+// Non-fatal: any failure is recorded in res.Warning so the summary
+// surfaces it per-host; the local tar.gz has already been written.
+func uploadToReportServer(ctx context.Context, cfg FleetConfig, res *HostResult, resultJSONPath string) {
+	if cfg.ReportServerURL == "" {
+		return
+	}
+	data, err := os.ReadFile(resultJSONPath)
+	if err != nil {
+		res.Warning = fmt.Sprintf("read result.json for upload: %v", err)
+		return
+	}
+	result, err := decodeScanResult(data)
+	if err != nil {
+		res.Warning = fmt.Sprintf("parse result.json for upload: %v", err)
+		return
+	}
+	client := agent.New(cfg.ReportServerURL)
+	if _, err := client.Submit(ctx, result); err != nil {
+		res.Warning = fmt.Sprintf("report-server upload: %v", err)
+	}
+}
+
+// decodeScanResult accepts either a raw model.ScanResult or the
+// wrapped `{generatedAt, result}` envelope produced by
+// report.Generator.GenerateTritonJSON (the format that lands inside
+// the collected tar). Returns the unwrapped ScanResult.
+func decodeScanResult(data []byte) (*model.ScanResult, error) {
+	var wrapped struct {
+		GeneratedAt string            `json:"generatedAt"`
+		Result      *model.ScanResult `json:"result"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err == nil && wrapped.Result != nil && wrapped.Result.ID != "" {
+		return wrapped.Result, nil
+	}
+	var raw model.ScanResult
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	return &raw, nil
+}
+
+// extractResultJSONFromTar reads the scan-result JSON out of a
+// collected fleet-scan tar.gz. The tar contains files from the remote
+// job-dir's reports/ directory; the canonical ScanResult is written
+// as triton-report-<ts>.json (without the .cdx. infix used by
+// CycloneDX output). Returns the path to a temp file holding the
+// extracted JSON — caller must os.Remove.
+func extractResultJSONFromTar(tarPath string) (string, error) {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		// result.json is a .json file directly (not .cdx.json,
+		// .sarif, .html, .xlsx, etc.).
+		if strings.HasSuffix(h.Name, ".json") && !strings.Contains(h.Name, ".cdx.") {
+			tmp, err := os.CreateTemp("", "triton-result-*.json")
+			if err != nil {
+				return "", err
+			}
+			if _, err := io.Copy(tmp, tr); err != nil {
+				_ = tmp.Close()
+				_ = os.Remove(tmp.Name())
+				return "", err
+			}
+			if err := tmp.Close(); err != nil {
+				_ = os.Remove(tmp.Name())
+				return "", err
+			}
+			return tmp.Name(), nil
+		}
+	}
+	return "", fmt.Errorf("no result.json found in tar")
 }

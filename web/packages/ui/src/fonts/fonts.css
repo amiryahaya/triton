@@ -1,0 +1,3 @@
+/* Placeholder — real @font-face declarations land in Task 1.3 after the
+   woff2 files are downloaded. Apps can safely import this file today;
+   it exists so @triton/ui's package.json "./fonts.css" export resolves. */

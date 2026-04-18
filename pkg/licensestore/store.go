@@ -41,6 +41,10 @@ type Store interface {
 	WriteAudit(ctx context.Context, entry *AuditEntry) error
 	ListAudit(ctx context.Context, filter AuditFilter) ([]AuditEntry, error)
 
+	// Usage
+	UpsertUsage(ctx context.Context, reports []UsageReport) error
+	UsageSummary(ctx context.Context, licenseID string) (map[string]map[string]int64, error)
+
 	// Stats
 	DashboardStats(ctx context.Context) (*DashboardStats, error)
 

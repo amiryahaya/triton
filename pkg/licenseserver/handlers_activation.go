@@ -113,13 +113,30 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		"hostname": req.Hostname, "os": req.OS, "arch": req.Arch,
 	})
 
+	features := licensestore.ResolveFeatures(lic)
+	limits := licensestore.ResolveLimits(lic)
+
+	usage, uerr := s.store.UsageSummary(r.Context(), lic.ID)
+	if uerr != nil {
+		log.Printf("activate usage summary error: %v", uerr)
+		usage = map[string]map[string]int64{}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
+		// existing fields
 		"token":        token,
 		"activationID": act.ID,
 		"tier":         lic.Tier,
 		"seats":        lic.Seats,
 		"seatsUsed":    seatsUsed,
 		"expiresAt":    lic.ExpiresAt.Format(time.RFC3339),
+		// v2 fields (additive, back-compat)
+		"features":        features,
+		"limits":          limits,
+		"soft_buffer_pct": lic.SoftBufferPct,
+		"product_scope":   lic.ProductScope,
+		"usage":           usage,
+		"grace_seconds":   7 * 24 * 3600,
 	})
 }
 
@@ -286,6 +303,8 @@ func (s *Server) handleAdminDeactivate(w http.ResponseWriter, r *http.Request) {
 }
 
 // signToken creates an Ed25519-signed license token for a machine.
+// It includes v2 claims (features, limits, soft_buffer_pct, product_scope)
+// resolved via compat so legacy licences get synthesised values.
 func (s *Server) signToken(lic *licensestore.LicenseRecord, machineID string) (string, error) {
 	l := &license.License{
 		ID:        lic.ID,
@@ -296,6 +315,11 @@ func (s *Server) signToken(lic *licensestore.LicenseRecord, machineID string) (s
 		IssuedAt:  lic.IssuedAt.Unix(),
 		ExpiresAt: lic.ExpiresAt.Unix(),
 		MachineID: machineID,
+		// v2 claims — resolved via compat so legacy licences get synthesised values.
+		Features:      licensestore.ResolveFeatures(lic),
+		Limits:        licensestore.ResolveLimits(lic),
+		SoftBufferPct: lic.SoftBufferPct,
+		ProductScope:  lic.ProductScope,
 	}
 	return license.Encode(l, s.config.SigningKey)
 }

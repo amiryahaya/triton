@@ -42,3 +42,8 @@ export { default as TThemeToggle } from './shell/TThemeToggle.vue';
 
 export { default as TAppSwitcher } from './shell/TAppSwitcher.vue';
 export type { AppEntry } from './shell/TAppSwitcher.vue';
+
+export { default as TCrumbBar } from './shell/TCrumbBar.vue';
+export type { Crumb } from './shell/TCrumbBar.vue';
+export { default as TUserMenu } from './shell/TUserMenu.vue';
+export { default as TAppShell } from './shell/TAppShell.vue';

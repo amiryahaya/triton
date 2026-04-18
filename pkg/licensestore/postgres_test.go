@@ -1120,3 +1120,98 @@ func TestMigration_SchedulePushColumns(t *testing.T) {
 	require.NoError(t, err, "schedule_jitter column should exist")
 	assert.Equal(t, "integer", jitterType, "schedule_jitter column should be INTEGER")
 }
+
+func TestLicenseCRUD_ScheduleRoundTrip(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, store.CreateOrg(ctx, org))
+
+	lic := &licensestore.LicenseRecord{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		OrgID:          org.ID,
+		Tier:           "enterprise",
+		Seats:          5,
+		IssuedAt:       time.Now().UTC().Truncate(time.Microsecond),
+		ExpiresAt:      time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt:      time.Now().UTC().Truncate(time.Microsecond),
+		Schedule:       "0 2 * * 0",
+		ScheduleJitter: 45,
+	}
+	require.NoError(t, store.CreateLicense(ctx, lic))
+
+	got, err := store.GetLicense(ctx, lic.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "0 2 * * 0", got.Schedule)
+	assert.Equal(t, 45, got.ScheduleJitter)
+
+	// Also verify the empty-schedule case: create a second license
+	// without a schedule, round-trip, assert empties.
+	lic2 := &licensestore.LicenseRecord{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:     org.ID,
+		Tier:      "pro",
+		Seats:     1,
+		IssuedAt:  time.Now().UTC().Truncate(time.Microsecond),
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	require.NoError(t, store.CreateLicense(ctx, lic2))
+
+	got2, err := store.GetLicense(ctx, lic2.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "", got2.Schedule)
+	assert.Equal(t, 0, got2.ScheduleJitter)
+}
+
+func TestUpdateLicense_ScheduleFields(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, store.CreateOrg(ctx, org))
+
+	lic := &licensestore.LicenseRecord{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:     org.ID,
+		Tier:      "pro",
+		Seats:     3,
+		IssuedAt:  time.Now().UTC().Truncate(time.Microsecond),
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC().Truncate(time.Microsecond),
+	}
+	require.NoError(t, store.CreateLicense(ctx, lic))
+
+	// Set schedule via PATCH.
+	schedule := "*/15 * * * *"
+	jitter := 15
+	require.NoError(t, store.UpdateLicense(ctx, lic.ID, licensestore.LicenseUpdate{
+		Schedule:       &schedule,
+		ScheduleJitter: &jitter,
+	}))
+	got, err := store.GetLicense(ctx, lic.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "*/15 * * * *", got.Schedule)
+	assert.Equal(t, 15, got.ScheduleJitter)
+
+	// Clear with empty string + 0.
+	emptyStr := ""
+	zero := 0
+	require.NoError(t, store.UpdateLicense(ctx, lic.ID, licensestore.LicenseUpdate{
+		Schedule:       &emptyStr,
+		ScheduleJitter: &zero,
+	}))
+	got, err = store.GetLicense(ctx, lic.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "", got.Schedule, "empty string input should clear schedule to NULL/empty")
+	assert.Equal(t, 0, got.ScheduleJitter)
+
+	// Update non-existent license returns ErrNotFound.
+	err = store.UpdateLicense(ctx, uuid.Must(uuid.NewV7()).String(), licensestore.LicenseUpdate{
+		Schedule: &schedule,
+	})
+	require.Error(t, err)
+	var nf *licensestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf)
+}

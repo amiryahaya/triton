@@ -21,6 +21,7 @@ type Store interface {
 	GetLicense(ctx context.Context, id string) (*LicenseRecord, error)
 	ListLicenses(ctx context.Context, filter LicenseFilter) ([]LicenseRecord, error)
 	RevokeLicense(ctx context.Context, id, revokedBy string) error
+	UpdateLicense(ctx context.Context, id string, upd LicenseUpdate) error
 
 	// Activations
 	Activate(ctx context.Context, act *Activation) error
@@ -202,6 +203,16 @@ type LicenseFilter struct {
 	OrgID  string
 	Tier   string
 	Status string // "active", "revoked", "expired"
+}
+
+// LicenseUpdate carries optional partial-update fields for UpdateLicense.
+// A nil pointer means "leave this column untouched." A non-nil pointer
+// writes its value — including empty string / zero, which means "clear
+// the override." This three-state convention distinguishes "don't touch"
+// from "set to zero" in a JSON PATCH body.
+type LicenseUpdate struct {
+	Schedule       *string
+	ScheduleJitter *int
 }
 
 // ActivationFilter filters activation listings.

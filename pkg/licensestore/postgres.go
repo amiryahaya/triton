@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -237,15 +238,25 @@ func (s *PostgresStore) DeleteOrg(ctx context.Context, id string) error {
 // --- Licenses ---
 
 func (s *PostgresStore) CreateLicense(ctx context.Context, lic *LicenseRecord) error {
+	var schedule any
+	if lic.Schedule != "" {
+		schedule = lic.Schedule
+	}
+	var jitter any
+	if lic.ScheduleJitter != 0 {
+		jitter = lic.ScheduleJitter
+	}
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO licenses (id, org_id, tier, seats, issued_at, expires_at, notes, created_at,
-		                       features, limits, soft_buffer_pct, product_scope)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		                       features, limits, soft_buffer_pct, product_scope,
+		                       schedule, schedule_jitter)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		lic.ID, lic.OrgID, lic.Tier, lic.Seats,
 		lic.IssuedAt, lic.ExpiresAt, lic.Notes, lic.CreatedAt,
 		lic.Features, lic.Limits,
 		softBufferPctOrDefault(lic.SoftBufferPct),
 		productScopeOrDefault(lic.ProductScope),
+		schedule, jitter,
 	)
 	if err != nil {
 		return fmt.Errorf("creating license: %w", err)
@@ -273,6 +284,7 @@ func (s *PostgresStore) GetLicense(ctx context.Context, id string) (*LicenseReco
 		`SELECT l.id, l.org_id, l.tier, l.seats, l.issued_at, l.expires_at,
 		        l.revoked, l.revoked_at, l.revoked_by, l.notes, l.created_at,
 		        l.features, l.limits, l.soft_buffer_pct, l.product_scope,
+		        COALESCE(l.schedule, ''), COALESCE(l.schedule_jitter, 0),
 		        o.name,
 		        (SELECT COUNT(*) FROM activations a WHERE a.license_id = l.id AND a.active = TRUE)
 		 FROM licenses l
@@ -282,6 +294,7 @@ func (s *PostgresStore) GetLicense(ctx context.Context, id string) (*LicenseReco
 		&lic.IssuedAt, &lic.ExpiresAt,
 		&lic.Revoked, &lic.RevokedAt, &lic.RevokedBy, &lic.Notes, &lic.CreatedAt,
 		&lic.Features, &lic.Limits, &lic.SoftBufferPct, &lic.ProductScope,
+		&lic.Schedule, &lic.ScheduleJitter,
 		&lic.OrgName, &lic.SeatsUsed,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -298,6 +311,7 @@ func (s *PostgresStore) ListLicenses(ctx context.Context, filter LicenseFilter) 
 	query := `SELECT l.id, l.org_id, l.tier, l.seats, l.issued_at, l.expires_at,
 	                 l.revoked, l.revoked_at, l.revoked_by, l.notes, l.created_at,
 	                 l.features, l.limits, l.soft_buffer_pct, l.product_scope,
+	                 COALESCE(l.schedule, ''), COALESCE(l.schedule_jitter, 0),
 	                 o.name,
 	                 (SELECT COUNT(*) FROM activations a WHERE a.license_id = l.id AND a.active = TRUE)
 	          FROM licenses l
@@ -340,6 +354,7 @@ func (s *PostgresStore) ListLicenses(ctx context.Context, filter LicenseFilter) 
 			&lic.IssuedAt, &lic.ExpiresAt,
 			&lic.Revoked, &lic.RevokedAt, &lic.RevokedBy, &lic.Notes, &lic.CreatedAt,
 			&lic.Features, &lic.Limits, &lic.SoftBufferPct, &lic.ProductScope,
+			&lic.Schedule, &lic.ScheduleJitter,
 			&lic.OrgName, &lic.SeatsUsed,
 		); err != nil {
 			return nil, fmt.Errorf("scanning license: %w", err)
@@ -385,6 +400,48 @@ func (s *PostgresStore) RevokeLicense(ctx context.Context, id, revokedBy string)
 	}
 
 	return tx.Commit(ctx)
+}
+
+// UpdateLicense applies a partial update to the licenses row. Nil
+// fields on upd are left untouched; non-nil fields are written.
+// Empty string / zero values for Schedule / ScheduleJitter clear the
+// columns (DB NULL).
+func (s *PostgresStore) UpdateLicense(ctx context.Context, id string, upd LicenseUpdate) error {
+	if upd.Schedule == nil && upd.ScheduleJitter == nil {
+		return nil
+	}
+	setParts := []string{}
+	args := []any{}
+	i := 1
+	if upd.Schedule != nil {
+		if *upd.Schedule == "" {
+			setParts = append(setParts, "schedule = NULL")
+		} else {
+			setParts = append(setParts, fmt.Sprintf("schedule = $%d", i))
+			args = append(args, *upd.Schedule)
+			i++
+		}
+	}
+	if upd.ScheduleJitter != nil {
+		if *upd.ScheduleJitter == 0 {
+			setParts = append(setParts, "schedule_jitter = NULL")
+		} else {
+			setParts = append(setParts, fmt.Sprintf("schedule_jitter = $%d", i))
+			args = append(args, *upd.ScheduleJitter)
+			i++
+		}
+	}
+	args = append(args, id)
+	query := fmt.Sprintf(`UPDATE licenses SET %s WHERE id = $%d`,
+		strings.Join(setParts, ", "), i)
+	result, err := s.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("updating license: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "license", ID: id}
+	}
+	return nil
 }
 
 // --- Activations ---

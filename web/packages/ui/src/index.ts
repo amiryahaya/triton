@@ -17,3 +17,6 @@ export type { PillVariant } from './atoms/TPill.vue';
 export { default as TInput } from './atoms/TInput.vue';
 export { default as TSelect } from './atoms/TSelect.vue';
 export { default as TFormField } from './atoms/TFormField.vue';
+
+export { default as TToggle } from './atoms/TToggle.vue';
+export { default as TCheckbox } from './atoms/TCheckbox.vue';

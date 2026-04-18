@@ -231,7 +231,17 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	features := licensestore.ResolveFeatures(lic)
+	limits := licensestore.ResolveLimits(lic)
+
+	usage, uerr := s.store.UsageSummary(r.Context(), lic.ID)
+	if uerr != nil {
+		log.Printf("validate usage summary error: %v", uerr)
+		usage = map[string]map[string]int64{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
+		// existing fields
 		"valid":     true,
 		"tier":      lic.Tier,
 		"orgID":     lic.OrgID,
@@ -246,6 +256,12 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		// changing client code. 300s = 5 minutes is the initial default;
 		// it can become a config field if ops needs to dial it.
 		"cacheTTL": validateCacheTTLSeconds,
+		// v2 fields (additive, back-compat)
+		"features":        features,
+		"limits":          limits,
+		"soft_buffer_pct": lic.SoftBufferPct,
+		"product_scope":   lic.ProductScope,
+		"usage":           usage,
 	})
 }
 

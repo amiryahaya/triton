@@ -1008,7 +1008,7 @@ func (s *PostgresStore) DeleteExpiredSessions(ctx context.Context) error {
 // --- Lifecycle ---
 
 func (s *PostgresStore) TruncateAll(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, "TRUNCATE organizations, licenses, activations, audit_log, users, sessions CASCADE")
+	_, err := s.pool.Exec(ctx, "TRUNCATE organizations, licenses, activations, audit_log, users, sessions, license_usage CASCADE")
 	return err
 }
 

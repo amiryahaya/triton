@@ -998,9 +998,13 @@ func TestMigration_V5AddsV2ColumnsAndUsageTable(t *testing.T) {
 
 	// Column presence check on licenses — expect all 4 v2 columns.
 	var ncol int
+	// Scope the information_schema probe to the current schema so test
+	// isolation holds — otherwise a stale 'licenses' table in another
+	// schema would let this count succeed even if the migration failed.
 	err := s.QueryRowForTest(ctx, `
 		SELECT COUNT(*) FROM information_schema.columns
-		WHERE table_name='licenses'
+		WHERE table_schema = current_schema()
+		  AND table_name='licenses'
 		  AND column_name IN ('features','limits','soft_buffer_pct','product_scope')
 	`).Scan(&ncol)
 	require.NoError(t, err)
@@ -1010,7 +1014,9 @@ func TestMigration_V5AddsV2ColumnsAndUsageTable(t *testing.T) {
 	var nkey int
 	err = s.QueryRowForTest(ctx, `
 		SELECT COUNT(*) FROM information_schema.table_constraints
-		WHERE table_name='license_usage' AND constraint_type='PRIMARY KEY'
+		WHERE table_schema = current_schema()
+		  AND table_name='license_usage'
+		  AND constraint_type='PRIMARY KEY'
 	`).Scan(&nkey)
 	require.NoError(t, err)
 	assert.Equal(t, 1, nkey, "expected license_usage primary key constraint")

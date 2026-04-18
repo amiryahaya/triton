@@ -1036,3 +1036,64 @@ func TestMigration_V5AddsV2ColumnsAndUsageTable(t *testing.T) {
 	assert.Equal(t, "legacy", productScope, "default product_scope should be 'legacy'")
 	assert.Equal(t, 10, softBufPct, "default soft_buffer_pct should be 10")
 }
+
+func TestStore_CreateGetWithV2Fields(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ProductScope = "bundle"
+	lic.SoftBufferPct = 10
+	lic.Features = licensestore.Features{
+		Report:               true,
+		Manage:               true,
+		ComprehensiveProfile: true,
+		DiffTrend:            true,
+		ExportFormats:        []string{"html", "pdf", "csv", "json", "sarif"},
+	}
+	lic.Limits = licensestore.Limits{
+		{Metric: "seats", Window: "total", Cap: 100},
+		{Metric: "scans", Window: "monthly", Cap: 10000},
+		{Metric: "retention_days", Window: "total", Cap: 365},
+	}
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	got, err := s.GetLicense(ctx, lic.ID)
+	require.NoError(t, err)
+
+	assert.True(t, got.Features.Report)
+	assert.True(t, got.Features.Manage)
+	assert.True(t, got.Features.ComprehensiveProfile)
+	assert.Equal(t, 5, len(got.Features.ExportFormats))
+
+	e := got.Limits.Find("scans", "monthly")
+	require.NotNil(t, e)
+	assert.Equal(t, int64(10000), e.Cap)
+
+	assert.Equal(t, 10, got.SoftBufferPct)
+	assert.Equal(t, "bundle", got.ProductScope)
+}
+
+func TestStore_CreateWithDefaults_V2(t *testing.T) {
+	// If caller omits Features / Limits / SoftBufferPct / ProductScope,
+	// the Go defaults + helper functions kick in: features='{}', limits='[]', pct=10, scope='legacy'.
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID) // helper sets legacy fields only
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	got, err := s.GetLicense(ctx, lic.ID)
+	require.NoError(t, err)
+
+	assert.False(t, got.Features.Report, "default features should be all-false")
+	assert.Empty(t, got.Limits, "default limits should be empty")
+	assert.Equal(t, 10, got.SoftBufferPct)
+	assert.Equal(t, "legacy", got.ProductScope)
+}

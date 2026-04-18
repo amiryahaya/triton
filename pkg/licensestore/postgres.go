@@ -238,10 +238,14 @@ func (s *PostgresStore) DeleteOrg(ctx context.Context, id string) error {
 
 func (s *PostgresStore) CreateLicense(ctx context.Context, lic *LicenseRecord) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO licenses (id, org_id, tier, seats, issued_at, expires_at, notes, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		`INSERT INTO licenses (id, org_id, tier, seats, issued_at, expires_at, notes, created_at,
+		                       features, limits, soft_buffer_pct, product_scope)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		lic.ID, lic.OrgID, lic.Tier, lic.Seats,
 		lic.IssuedAt, lic.ExpiresAt, lic.Notes, lic.CreatedAt,
+		lic.Features, lic.Limits,
+		softBufferPctOrDefault(lic.SoftBufferPct),
+		productScopeOrDefault(lic.ProductScope),
 	)
 	if err != nil {
 		return fmt.Errorf("creating license: %w", err)
@@ -249,11 +253,26 @@ func (s *PostgresStore) CreateLicense(ctx context.Context, lic *LicenseRecord) e
 	return nil
 }
 
+func softBufferPctOrDefault(v int) int {
+	if v == 0 {
+		return 10
+	}
+	return v
+}
+
+func productScopeOrDefault(v string) string {
+	if v == "" {
+		return "legacy"
+	}
+	return v
+}
+
 func (s *PostgresStore) GetLicense(ctx context.Context, id string) (*LicenseRecord, error) {
 	var lic LicenseRecord
 	err := s.pool.QueryRow(ctx,
 		`SELECT l.id, l.org_id, l.tier, l.seats, l.issued_at, l.expires_at,
 		        l.revoked, l.revoked_at, l.revoked_by, l.notes, l.created_at,
+		        l.features, l.limits, l.soft_buffer_pct, l.product_scope,
 		        o.name,
 		        (SELECT COUNT(*) FROM activations a WHERE a.license_id = l.id AND a.active = TRUE)
 		 FROM licenses l
@@ -262,6 +281,7 @@ func (s *PostgresStore) GetLicense(ctx context.Context, id string) (*LicenseReco
 	).Scan(&lic.ID, &lic.OrgID, &lic.Tier, &lic.Seats,
 		&lic.IssuedAt, &lic.ExpiresAt,
 		&lic.Revoked, &lic.RevokedAt, &lic.RevokedBy, &lic.Notes, &lic.CreatedAt,
+		&lic.Features, &lic.Limits, &lic.SoftBufferPct, &lic.ProductScope,
 		&lic.OrgName, &lic.SeatsUsed,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -277,6 +297,7 @@ func (s *PostgresStore) GetLicense(ctx context.Context, id string) (*LicenseReco
 func (s *PostgresStore) ListLicenses(ctx context.Context, filter LicenseFilter) ([]LicenseRecord, error) {
 	query := `SELECT l.id, l.org_id, l.tier, l.seats, l.issued_at, l.expires_at,
 	                 l.revoked, l.revoked_at, l.revoked_by, l.notes, l.created_at,
+	                 l.features, l.limits, l.soft_buffer_pct, l.product_scope,
 	                 o.name,
 	                 (SELECT COUNT(*) FROM activations a WHERE a.license_id = l.id AND a.active = TRUE)
 	          FROM licenses l
@@ -318,6 +339,7 @@ func (s *PostgresStore) ListLicenses(ctx context.Context, filter LicenseFilter) 
 		if err := rows.Scan(&lic.ID, &lic.OrgID, &lic.Tier, &lic.Seats,
 			&lic.IssuedAt, &lic.ExpiresAt,
 			&lic.Revoked, &lic.RevokedAt, &lic.RevokedBy, &lic.Notes, &lic.CreatedAt,
+			&lic.Features, &lic.Limits, &lic.SoftBufferPct, &lic.ProductScope,
 			&lic.OrgName, &lic.SeatsUsed,
 		); err != nil {
 			return nil, fmt.Errorf("scanning license: %w", err)

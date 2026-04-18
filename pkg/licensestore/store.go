@@ -88,6 +88,12 @@ type LicenseRecord struct {
 	Notes     string     `json:"notes"`
 	CreatedAt time.Time  `json:"createdAt"`
 
+	// v2 fields (migration 5).
+	Features      Features `json:"features,omitempty"`
+	Limits        Limits   `json:"limits,omitempty"`
+	SoftBufferPct int      `json:"soft_buffer_pct"`
+	ProductScope  string   `json:"product_scope"`
+
 	// Populated by joins, not stored directly.
 	OrgName   string `json:"orgName,omitempty"`
 	SeatsUsed int    `json:"seatsUsed,omitempty"`

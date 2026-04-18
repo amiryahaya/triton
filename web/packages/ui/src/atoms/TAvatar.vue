@@ -21,6 +21,7 @@ const text = computed(() => {
 <template>
   <span
     class="t-avatar"
+    role="img"
     :style="{
       width: size + 'px',
       height: size + 'px',

@@ -50,6 +50,7 @@ defineProps<{
           :href="item.href"
           class="t-nav-item"
           :class="{ 'is-active': item.href === currentHref }"
+          :aria-current="item.href === currentHref ? 'page' : undefined"
         >
           <span
             class="t-nav-ico"

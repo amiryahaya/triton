@@ -1,6 +1,15 @@
 <script setup lang="ts" generic="T extends Record<string, unknown>">
 import { computed } from 'vue';
 
+/**
+ * Column descriptor for TDataTable. Always parameterised with your row type:
+ *
+ *   interface License { id: string; org: string; seats: number; }
+ *   const columns: Column<License>[] = [...]
+ *
+ * Use `numeric: true` for columns whose values should render with the
+ * display font's tabular numerals and right alignment in tables.
+ */
 export interface Column<R> {
   key: keyof R & string;
   label: string;

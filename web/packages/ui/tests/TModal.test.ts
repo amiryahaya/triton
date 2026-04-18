@@ -15,11 +15,12 @@ describe('TModal', () => {
   });
 
   it('does not render when open=false', () => {
-    mount(TModal, {
+    const w = mount(TModal, {
       props: { open: false, title: 'Test' },
       attachTo: document.body,
     });
     expect(document.querySelector('.t-modal')).toBeNull();
+    w.unmount(); // unmount so ESC listener doesn't leak into later tests
   });
 
   it('emits close on backdrop click', async () => {

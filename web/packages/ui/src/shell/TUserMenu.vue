@@ -11,10 +11,16 @@ const emit = defineEmits<{ 'sign-out': [] }>();
 
 const open = ref(false);
 const root = ref<HTMLElement | null>(null);
+// Separate ref for the Teleport'd popover — root.contains() returns
+// false for teleported descendants.
+const popover = ref<HTMLElement | null>(null);
 
 function toggle() { open.value = !open.value; }
 function close(ev: MouseEvent) {
-  if (!root.value?.contains(ev.target as Node)) open.value = false;
+  const t = ev.target as Node;
+  if (!root.value?.contains(t) && !popover.value?.contains(t)) {
+    open.value = false;
+  }
 }
 onMounted(() => document.addEventListener('click', close));
 onUnmounted(() => document.removeEventListener('click', close));
@@ -28,7 +34,9 @@ onUnmounted(() => document.removeEventListener('click', close));
     <button
       type="button"
       class="t-user-trigger"
-      aria-label="Account menu"
+      :aria-label="`Account menu for ${name}`"
+      :aria-expanded="open"
+      aria-haspopup="menu"
       @click="toggle"
     >
       <TAvatar :name="name" />
@@ -36,7 +44,9 @@ onUnmounted(() => document.removeEventListener('click', close));
     <Teleport to="body">
       <div
         v-if="open"
+        ref="popover"
         class="t-user-pop"
+        role="menu"
       >
         <div class="t-user-who">
           <b>{{ name }}</b>

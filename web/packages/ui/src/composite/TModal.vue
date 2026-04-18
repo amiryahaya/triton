@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, toRef, watch, onMounted, onUnmounted } from 'vue';
 import { useFocusTrap } from '../composables/useFocusTrap';
 
 const props = withDefaults(
@@ -14,7 +14,13 @@ const props = withDefaults(
 const emit = defineEmits<{ close: [] }>();
 
 const panel = ref<HTMLElement | null>(null);
-useFocusTrap(panel);
+// Stable id for aria-labelledby, safe under SSR/hydration.
+let _idSeq = 0;
+const titleId = `t-modal-title-${++_idSeq}-${Math.random().toString(36).slice(2, 8)}`;
+
+// Activate trap when the modal opens so focus lands inside — the `panel`
+// ref only materialises after v-if flips true.
+useFocusTrap(panel, toRef(props, 'open'));
 
 function onEsc(ev: KeyboardEvent) {
   if (ev.key === 'Escape' && props.open) emit('close');
@@ -43,10 +49,14 @@ watch(
         class="t-modal"
         role="dialog"
         aria-modal="true"
+        :aria-labelledby="titleId"
         :style="{ width: width ?? 'min(480px, 90vw)' }"
       >
         <header class="t-modal-head">
-          <h3 class="t-modal-title">
+          <h3
+            :id="titleId"
+            class="t-modal-title"
+          >
             {{ title }}
           </h3>
           <button

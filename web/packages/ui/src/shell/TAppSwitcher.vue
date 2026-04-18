@@ -16,10 +16,17 @@ defineProps<{
 
 const open = ref(false);
 const root = ref<HTMLElement | null>(null);
+// Separate ref for the Teleport'd popover — root.contains() returns
+// false for teleported descendants, so we need to check both.
+const popover = ref<HTMLElement | null>(null);
 
 function toggle() { open.value = !open.value; }
 function close(ev?: MouseEvent) {
-  if (!ev || !root.value?.contains(ev.target as Node)) open.value = false;
+  if (!ev) { open.value = false; return; }
+  const t = ev.target as Node;
+  if (!root.value?.contains(t) && !popover.value?.contains(t)) {
+    open.value = false;
+  }
 }
 
 onMounted(() => document.addEventListener('click', close));
@@ -115,6 +122,7 @@ onUnmounted(() => document.removeEventListener('click', close));
     <Teleport to="body">
       <div
         v-if="open"
+        ref="popover"
         class="t-app-menu"
         role="menu"
       >

@@ -15,7 +15,10 @@ withDefaults(
         v-if="subtitle"
         class="t-panel-sub"
       >{{ subtitle }}</span>
-      <span class="t-panel-action"><slot name="action" /></span>
+      <span
+        v-if="$slots.action"
+        class="t-panel-action"
+      ><slot name="action" /></span>
     </header>
     <div class="t-panel-body">
       <slot />

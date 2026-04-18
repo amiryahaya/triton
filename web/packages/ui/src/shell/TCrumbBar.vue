@@ -20,6 +20,7 @@ defineProps<{ crumbs: Crumb[] }>();
       <strong
         v-else
         class="t-crumb is-current"
+        aria-current="page"
       >{{ c.label }}</strong>
       <span
         v-if="i !== crumbs.length - 1"

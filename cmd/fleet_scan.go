@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -117,6 +118,12 @@ func runFleetScan(_ *cobra.Command, _ []string) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	// --report-server streaming upload currently requires --output-dir
+	// because the uploader extracts result.json from the collected tar.
+	// Pure-upload (no local tar) is a follow-up feature.
+	if cfg.ReportServerURL != "" && cfg.OutputDir == "" {
+		return fmt.Errorf("--report-server currently requires --output-dir (upload from collected tar; full streaming upload is a follow-up feature)")
+	}
 
 	inv, err := netscan.LoadInventory(cfg.InventoryPath)
 	if err != nil {
@@ -145,14 +152,22 @@ func runFleetScan(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	orch := fleet.NewOrchestrator(cfg)
+	// Compute the timestamped sub-directory BEFORE constructing the
+	// orchestrator so both per-host tars and summary land under the
+	// same path. The `latest` symlink tracks this directory.
 	invokedAt := time.Now()
+	outputRoot := fsOutputDir
+	var tsDir string
+	if outputRoot != "" {
+		tsDir = filepath.Join(outputRoot, invokedAt.UTC().Format("2006-01-02T15-04-05"))
+		cfg.OutputDir = tsDir
+	}
+
+	orch := fleet.NewOrchestrator(cfg)
 	results, runErr := orch.Run(ctx, devices, creds)
 	completedAt := time.Now()
 
-	// Write summary if OutputDir set.
-	if cfg.OutputDir != "" {
-		tsDir := fmt.Sprintf("%s/%s", cfg.OutputDir, invokedAt.UTC().Format("2006-01-02T15-04-05"))
+	if tsDir != "" {
 		if err := fleet.WriteSummary(tsDir, fleet.SummaryInput{
 			InvokedAt:     invokedAt,
 			CompletedAt:   completedAt,
@@ -167,8 +182,8 @@ func runFleetScan(_ *cobra.Command, _ []string) error {
 			fmt.Fprintf(os.Stderr, "warning: write summary: %v\n", err)
 		}
 		// Refresh `latest` symlink (best effort).
-		_ = os.RemoveAll(cfg.OutputDir + "/latest")
-		_ = os.Symlink(tsDir, cfg.OutputDir+"/latest")
+		_ = os.RemoveAll(filepath.Join(outputRoot, "latest"))
+		_ = os.Symlink(tsDir, filepath.Join(outputRoot, "latest"))
 	}
 
 	// Print one-line summary per host to stdout.

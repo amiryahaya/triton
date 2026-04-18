@@ -25,3 +25,4 @@ export { default as TAvatar } from './atoms/TAvatar.vue';
 export { default as TKbd } from './atoms/TKbd.vue';
 
 export { default as TStatCard } from './composite/TStatCard.vue';
+export { default as TPanel } from './composite/TPanel.vue';

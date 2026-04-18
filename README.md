@@ -616,6 +616,8 @@ license_id: "550e8400-e29b-41d4-a716-446655440000"
 license_key: "eyJ..."  # still needed for report server auth
 ```
 
+**Agent resource limits:** `agent.yaml` supports a `resource_limits:` block that caps each scan iteration's memory, CPU, duration, and scheduling priority. Fields map 1:1 to the `--max-memory`/`--max-cpu-percent`/`--max-duration`/`--stop-at`/`--nice` CLI flags. See `docs/examples/agent.yaml.example` for the layout and `docs/DEPLOYMENT_GUIDE.md` for kernel-enforced (systemd cgroup) limits.
+
 #### Agent installation — bundle and one-liner
 
 The license server admin UI (`/ui/#/licenses/<id>`) supports two zero-touch agent installation flows for distributing the binary + config to end-users:

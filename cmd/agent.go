@@ -16,6 +16,7 @@ import (
 
 	"github.com/amiryahaya/triton/internal/agentconfig"
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/internal/runtime/limits"
 	"github.com/amiryahaya/triton/internal/scannerconfig"
 	"github.com/amiryahaya/triton/internal/version"
 	"github.com/amiryahaya/triton/pkg/agent"
@@ -135,6 +136,11 @@ type resolvedAgentConfig struct {
 	alsoLocal          bool                // tee mode: write locally AND submit to server
 	licenseServer      string              // license server URL for seat management
 	licenseID          string              // license UUID to activate against
+	// Limits captures per-iteration resource caps (memory, CPU, duration,
+	// nice) resolved from agent.yaml + CLI flags via
+	// agentconfig.Config.ResolveLimits. Zero-value when no limits are
+	// configured (Enabled() returns false).
+	Limits limits.Limits
 }
 
 // seatState tracks whether the agent successfully registered with
@@ -227,6 +233,11 @@ func resolveAgentConfig(cmd *cobra.Command) (*resolvedAgentConfig, error) {
 	licenseServer := strings.TrimRight(fileCfg.LicenseServer, "/")
 	licenseID := fileCfg.LicenseID
 
+	lim, err := fileCfg.ResolveLimits(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("resolving resource limits: %w", err)
+	}
+
 	return &resolvedAgentConfig{
 		source:           fileCfg,
 		licenseToken:     fileCfg.LicenseKey,
@@ -238,6 +249,7 @@ func resolveAgentConfig(cmd *cobra.Command) (*resolvedAgentConfig, error) {
 		alsoLocal:        alsoLocal,
 		licenseServer:    licenseServer,
 		licenseID:        licenseID,
+		Limits:           lim,
 	}, nil
 }
 
@@ -709,6 +721,30 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 // (Sprint 3 full-review SF4).
 func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig, client *agent.Client) error {
 	fmt.Printf("Starting scan (profile: %s)...\n", r.effectiveProfile)
+
+	// Re-compute StopAtOffset from the raw yaml string at iteration start
+	// (time-sensitive); memory/cpu/duration/nice are already resolved
+	// correctly from CLI-flag-or-yaml merge in resolveAgentConfig. Without
+	// this, iteration 2+ (e.g. 24h after startup) would see a negative
+	// offset and context.WithTimeout would fire immediately, cancelling
+	// the scan before any work.
+	lim := r.Limits
+	if r.source != nil && r.source.ResourceLimits != nil && r.source.ResourceLimits.StopAt != "" {
+		offset, err := limits.ParseStopAt(r.source.ResourceLimits.StopAt, time.Now())
+		if err != nil {
+			return fmt.Errorf("resource_limits.stop_at: %w", err)
+		}
+		lim.StopAtOffset = offset
+	}
+	// Apply resource limits per-iteration. Each scan gets a fresh
+	// context with (possibly) a deadline and its own watchdog; cleanup
+	// tears them down so the next iteration starts clean.
+	if lim.Enabled() {
+		fmt.Printf("  limits:      %s\n", lim.String())
+	}
+	var cleanup func()
+	ctx, cleanup = lim.Apply(ctx)
+	defer cleanup()
 
 	// Load the config from the EFFECTIVE profile (post-tier-filter)
 	// so depth / workers / module defaults match what the user's

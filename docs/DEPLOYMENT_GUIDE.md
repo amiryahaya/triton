@@ -684,6 +684,51 @@ sudo systemctl enable --now triton-agent
 sudo journalctl -u triton-agent -f
 ```
 
+### Kernel-enforced resource limits
+
+The `resource_limits:` block in agent.yaml enforces limits *inside* the
+agent process via Go runtime mechanisms (`GOMEMLIMIT` for soft memory
+pressure, `GOMAXPROCS` for parallelism, `context.WithTimeout` for
+duration). These work without any systemd configuration.
+
+For **hard, kernel-enforced** limits (OOM-kill rather than soft GC
+pressure), add cgroup directives to the systemd unit file:
+
+```ini
+[Service]
+Type=simple
+User=triton-agent
+ExecStart=/usr/local/bin/triton agent
+
+# Kernel-enforced memory cap. Set this ABOVE the yaml max_memory so
+# the in-process soft limit trips first (GC pressure, watchdog) and
+# the systemd hard limit is the safety net for a truly runaway
+# process.
+MemoryMax=4G
+
+# Kernel-enforced CPU quota. 50000 / 100000 = 50% of one core.
+# A multi-core cap looks like 200% for 2 full cores.
+CPUQuota=50%
+
+# Optional: other resource envelopes.
+# LimitNOFILE=65536
+# TasksMax=512
+
+Restart=on-failure
+RestartSec=300s
+```
+
+**When to use which:**
+
+| Mechanism | Enforcement | Granularity | Use case |
+|---|---|---|---|
+| `resource_limits:` yaml | Soft (GC pressure, parallelism, context cancel) | Per-scan | Default; portable across platforms |
+| systemd `MemoryMax=`/`CPUQuota=` | Hard (OOM-kill, kernel-enforced) | Per-process | Production agents on Linux with systemd |
+
+Use both together: yaml limits give predictable per-scan behaviour
+with partial-results-on-timeout semantics; systemd limits are the
+safety net that protects the host from the agent process runaway.
+
 ### 7d. Activating against the license server
 
 If you deployed a license server, each agent must first activate to exchange a license UUID for a signed token:

@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -98,10 +99,30 @@ type Config struct {
 	// when LicenseServer is set; ignored otherwise.
 	LicenseID string `yaml:"license_id"`
 
+	// ResourceLimits caps memory, CPU, duration, nice on each scan
+	// iteration. Nil means "no limits" (backward compatible). When
+	// set, the agent builds a limits.Limits via ResolveLimits and
+	// calls lim.Apply(ctx) before eng.Scan.
+	ResourceLimits *ResourceLimitsConfig `yaml:"resource_limits,omitempty"`
+
 	// loadedFrom records the absolute path the Config was read from.
 	// Empty when the loader returned the zero-value default (no
 	// file found).
 	loadedFrom string
+}
+
+// ResourceLimitsConfig is the agent.yaml `resource_limits:` block.
+// Every field is optional; zero/empty values mean "no limit" for that
+// dimension. Applied per-iteration by cmd/agent.go::runAgentScan via
+// internal/runtime/limits.Limits.Apply. See
+// docs/plans/2026-04-19-agent-resource-limits-design.md for the full
+// model.
+type ResourceLimitsConfig struct {
+	MaxMemory     string        `yaml:"max_memory,omitempty"`
+	MaxCPUPercent int           `yaml:"max_cpu_percent,omitempty"`
+	MaxDuration   time.Duration `yaml:"max_duration,omitempty"`
+	StopAt        string        `yaml:"stop_at,omitempty"`
+	Nice          int           `yaml:"nice,omitempty"`
 }
 
 // LoadedFrom returns the absolute path of the file that provided

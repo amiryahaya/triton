@@ -1,0 +1,24 @@
+# Example agent.yaml — copy to ~/.triton-agent.yaml or the exe dir.
+# Every field is optional; an empty file is valid and uses defaults.
+
+# license_key: "eyJ..."         # Ed25519-signed licence token
+# report_server: "https://..."  # when set, results POST'd to the server
+# profile: standard              # quick | standard | comprehensive
+# interval: 24h                  # continuous mode; 0 or absent = one-shot
+# output_dir: ./reports          # local report destination
+# formats: [json, html, sarif]   # which formats to write locally
+
+# Per-iteration resource caps (applied via internal/runtime/limits;
+# same semantics as `triton --max-memory` etc. CLI flags). Each scan
+# iteration gets a fresh budget; unused caps (zero/empty) are no-ops.
+#
+# For KERNEL-ENFORCED limits (OOM-kill, hard cgroup caps), configure
+# the systemd unit file's CPUQuota= / MemoryMax= directives — these
+# yaml limits are soft in-process caps (GC pressure + watchdog).
+#
+# resource_limits:
+#   max_memory: 2GB
+#   max_cpu_percent: 50
+#   max_duration: 4h
+#   stop_at: "03:00"
+#   nice: 10

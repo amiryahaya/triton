@@ -237,6 +237,12 @@ func TestFleetScan_EndToEnd_SingleHost(t *testing.T) {
 		"--credentials", creds,
 		"--output-dir", outDir,
 		"--profile", "quick",
+		// Use --format json (free-tier permitted) so the remote scan doesn't
+		// depend on cross-host license-tier enforcement. The parent still
+		// needs Pro (FeatureFleetScan gate) but the remote triton runs with
+		// whatever tier the forwarded license resolves to — which may be
+		// free if pubkey embedding differs between CI runner and container.
+		"--format", "json",
 		"--device-timeout", "3m",
 		"--insecure-host-key",
 		"--binary", fx.binPath,

@@ -1097,3 +1097,26 @@ func TestStore_CreateWithDefaults_V2(t *testing.T) {
 	assert.Equal(t, 10, got.SoftBufferPct)
 	assert.Equal(t, "legacy", got.ProductScope)
 }
+
+func TestMigration_SchedulePushColumns(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	var scheduleType string
+	err := store.QueryRowForTest(ctx, `
+		SELECT data_type FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = $1 AND column_name = $2`,
+		"licenses", "schedule").Scan(&scheduleType)
+	require.NoError(t, err, "schedule column should exist")
+	assert.Equal(t, "text", scheduleType, "schedule column should be TEXT")
+
+	var jitterType string
+	err = store.QueryRowForTest(ctx, `
+		SELECT data_type FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = $1 AND column_name = $2`,
+		"licenses", "schedule_jitter").Scan(&jitterType)
+	require.NoError(t, err, "schedule_jitter column should exist")
+	assert.Equal(t, "integer", jitterType, "schedule_jitter column should be INTEGER")
+}

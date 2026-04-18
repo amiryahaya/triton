@@ -105,6 +105,24 @@ type Config struct {
 	// calls lim.Apply(ctx) before eng.Scan.
 	ResourceLimits *ResourceLimitsConfig `yaml:"resource_limits,omitempty"`
 
+	// Schedule is a standard 5-field cron expression evaluated in the
+	// agent host's local timezone. When non-empty, this wins over
+	// Interval and --interval. See docs/plans/2026-04-19-agent-cron-schedule-design.md.
+	Schedule string `yaml:"schedule,omitempty"`
+
+	// ScheduleJitter adds uniform random jitter in [0, ScheduleJitter)
+	// to each cron-scheduled fire time. Defaults to 0 (disabled) —
+	// unlike Interval mode which always jitters ±10%, cron's whole
+	// point is "fire at X o'clock", so jitter is opt-in for fleet-wide
+	// staggering. Written as a Go duration string ("30s", "5m").
+	ScheduleJitter time.Duration `yaml:"schedule_jitter,omitempty"`
+
+	// Interval is the existing repeat interval (24h, 1h, etc.). When
+	// Schedule is non-empty this is ignored. Kept as a yaml-level
+	// field so tests can round-trip it; the CLI --interval flag
+	// remains authoritative in the absence of a yaml value.
+	Interval time.Duration `yaml:"interval,omitempty"`
+
 	// loadedFrom records the absolute path the Config was read from.
 	// Empty when the loader returned the zero-value default (no
 	// file found).

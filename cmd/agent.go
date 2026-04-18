@@ -722,14 +722,28 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig, client *agent.Client) error {
 	fmt.Printf("Starting scan (profile: %s)...\n", r.effectiveProfile)
 
+	// Re-compute StopAtOffset from the raw yaml string at iteration start
+	// (time-sensitive); memory/cpu/duration/nice are already resolved
+	// correctly from CLI-flag-or-yaml merge in resolveAgentConfig. Without
+	// this, iteration 2+ (e.g. 24h after startup) would see a negative
+	// offset and context.WithTimeout would fire immediately, cancelling
+	// the scan before any work.
+	lim := r.Limits
+	if r.source != nil && r.source.ResourceLimits != nil && r.source.ResourceLimits.StopAt != "" {
+		offset, err := limits.ParseStopAt(r.source.ResourceLimits.StopAt, time.Now())
+		if err != nil {
+			return fmt.Errorf("resource_limits.stop_at: %w", err)
+		}
+		lim.StopAtOffset = offset
+	}
 	// Apply resource limits per-iteration. Each scan gets a fresh
 	// context with (possibly) a deadline and its own watchdog; cleanup
 	// tears them down so the next iteration starts clean.
-	if r.Limits.Enabled() {
-		fmt.Printf("Resource %s\n", r.Limits.String())
+	if lim.Enabled() {
+		fmt.Printf("  limits:      %s\n", lim.String())
 	}
 	var cleanup func()
-	ctx, cleanup = r.Limits.Apply(ctx)
+	ctx, cleanup = lim.Apply(ctx)
 	defer cleanup()
 
 	// Load the config from the EFFECTIVE profile (post-tier-filter)

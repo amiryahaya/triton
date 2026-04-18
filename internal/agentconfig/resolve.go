@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/amiryahaya/triton/internal/runtime/limits"
 	"github.com/spf13/cobra"
+
+	"github.com/amiryahaya/triton/internal/runtime/limits"
 )
 
 // This file holds the runtime-apply helpers — functions that
@@ -71,29 +72,39 @@ func (c *Config) ResolveLimits(cmd *cobra.Command) (limits.Limits, error) {
 		// sides. In production cmd/agent.go usage, Execute has already
 		// merged them, so Flags().Changed sees the persistent flag.
 		if flagChanged(cmd, "max-memory") {
-			if v, err := flagString(cmd, "max-memory"); err == nil {
-				maxMem = v
+			v, err := flagString(cmd, "max-memory")
+			if err != nil {
+				return limits.Limits{}, fmt.Errorf("reading --max-memory flag: %w", err)
 			}
+			maxMem = v
 		}
 		if flagChanged(cmd, "max-cpu-percent") {
-			if v, err := flagString(cmd, "max-cpu-percent"); err == nil {
-				maxCPU = v
+			v, err := flagString(cmd, "max-cpu-percent")
+			if err != nil {
+				return limits.Limits{}, fmt.Errorf("reading --max-cpu-percent flag: %w", err)
 			}
+			maxCPU = v
 		}
 		if flagChanged(cmd, "max-duration") {
-			if v, err := flagDuration(cmd, "max-duration"); err == nil {
-				maxDur = v
+			v, err := flagDuration(cmd, "max-duration")
+			if err != nil {
+				return limits.Limits{}, fmt.Errorf("reading --max-duration flag: %w", err)
 			}
+			maxDur = v
 		}
 		if flagChanged(cmd, "stop-at") {
-			if v, err := flagString(cmd, "stop-at"); err == nil {
-				stopAt = v
+			v, err := flagString(cmd, "stop-at")
+			if err != nil {
+				return limits.Limits{}, fmt.Errorf("reading --stop-at flag: %w", err)
 			}
+			stopAt = v
 		}
 		if flagChanged(cmd, "nice") {
-			if v, err := flagInt(cmd, "nice"); err == nil {
-				nice = v
+			v, err := flagInt(cmd, "nice")
+			if err != nil {
+				return limits.Limits{}, fmt.Errorf("reading --nice flag: %w", err)
 			}
+			nice = v
 		}
 	}
 

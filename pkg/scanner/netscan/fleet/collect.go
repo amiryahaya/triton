@@ -43,11 +43,28 @@ func PollStatus(ctx context.Context, r SSHRunner, jobID, statusCmd string, pollI
 	}
 }
 
-// CollectTar streams the output of `triton scan --collect --job-id <id>
-// -o -` (which is a gzip'd tar of the reports/ dir) into
+// CollectTar streams the output of `triton --collect --job-id <id> -o -`
+// (which is a gzip'd tar of the reports/ dir) into
 // outputDir/<deviceName>.tar.gz. Returns the local file path.
+//
+// Kept for backward compatibility with existing tests; new code should
+// use CollectTarWithOpts to pass sudo + workDir.
 func CollectTar(ctx context.Context, r SSHRunner, remoteBinary, jobID, outputDir, deviceName string) (string, error) {
-	cmd := fmt.Sprintf("%s --collect --job-id %s -o -", remoteBinary, jobID)
+	return CollectTarWithOpts(ctx, r, remoteBinary, jobID, outputDir, deviceName, false, "")
+}
+
+// CollectTarWithOpts is the full form. useSudo prepends `sudo `;
+// workDir is passed via `--work-dir` so the remote triton reads from
+// the same dir the daemon wrote.
+func CollectTarWithOpts(ctx context.Context, r SSHRunner, remoteBinary, jobID, outputDir, deviceName string, useSudo bool, workDir string) (string, error) {
+	sudoPrefix := ""
+	if useSudo {
+		sudoPrefix = "sudo "
+	}
+	cmd := fmt.Sprintf("%s%s --collect --job-id %s -o -", sudoPrefix, remoteBinary, jobID)
+	if workDir != "" {
+		cmd += " --work-dir " + workDir
+	}
 	stdout, err := r.Run(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("run collect cmd: %w", err)

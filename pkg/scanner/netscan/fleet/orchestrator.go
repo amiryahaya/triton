@@ -201,9 +201,14 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 	}
 	res.JobID = jobID
 
-	// 8. Poll status until terminal.
-	statusCmd := fmt.Sprintf("%s --status --job-id %s --json --work-dir %s",
-		remotePath, jobID, workDir)
+	// 8. Poll status until terminal. Use sudo if launch used sudo so we
+	// can read root-owned status.json under the work-dir.
+	sudoPrefix := ""
+	if d.Sudo {
+		sudoPrefix = "sudo "
+	}
+	statusCmd := fmt.Sprintf("%s%s --status --job-id %s --json --work-dir %s",
+		sudoPrefix, remotePath, jobID, workDir)
 	status, err := PollStatus(ctx, runner, jobID, statusCmd, pollInterval)
 	if err != nil {
 		res.Fail("poll", err)
@@ -216,10 +221,11 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 		return res
 	}
 
-	// 9. Collect tar.gz (only if OutputDir configured).
+	// 9. Collect tar.gz (only if OutputDir configured). Pass sudo + workDir
+	// so we read the root-owned reports dir.
 	if cfg.OutputDir != "" {
 		hostsDir := filepath.Join(cfg.OutputDir, "hosts")
-		path, err := CollectTar(ctx, runner, remotePath, jobID, hostsDir, d.Name)
+		path, err := CollectTarWithOpts(ctx, runner, remotePath, jobID, hostsDir, d.Name, d.Sudo, workDir)
 		if err != nil {
 			res.Fail("collect", err)
 			return res
@@ -245,8 +251,8 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 
 	// 10. Remote cleanup of job state dir. Best-effort — the deferred rm
 	// above always runs for the pushed binary.
-	_, _ = runner.Run(ctx, fmt.Sprintf("%s --cleanup --job-id %s --work-dir %s",
-		remotePath, jobID, workDir))
+	_, _ = runner.Run(ctx, fmt.Sprintf("%s%s --cleanup --job-id %s --work-dir %s",
+		sudoPrefix, remotePath, jobID, workDir))
 
 	return res
 }

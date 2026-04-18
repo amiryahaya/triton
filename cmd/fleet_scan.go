@@ -120,7 +120,10 @@ func runFleetScanImpl(_ *cobra.Command, _ []string) (int, error) {
 			MaxDuration:   fsMaxDuration,
 			StopAt:        fsStopAt,
 			Nice:          fsNice,
-			LicenseKey:    licenseKey, // forward parent's license to remote hosts
+			// Forward parent's resolved license to remote hosts.
+			// Use license.ResolveToken so TRITON_LICENSE_KEY env and
+			// --license-file are honoured, not just the --license-key flag.
+			LicenseKey: license.ResolveToken(licenseKey, licenseFile),
 		},
 		Dialer: &sshDialerImpl{},
 	}

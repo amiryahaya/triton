@@ -94,16 +94,18 @@ func TestCronScheduler_JitterWithinBound(t *testing.T) {
 }
 
 func TestCronScheduler_InvalidExpr(t *testing.T) {
-	cases := []string{
-		"bogus",        // not a cron expression
-		"0 2 * *",      // only 4 fields
-		"99 * * * *",   // minute out of range
-		"",             // empty (caller's job to guard, but verify we reject)
+	cases := []struct {
+		name, expr string
+	}{
+		{"bogus", "bogus"},
+		{"four-fields", "0 2 * *"},
+		{"minute-out-of-range", "99 * * * *"},
+		{"empty", ""},
 	}
-	for _, expr := range cases {
-		t.Run(expr, func(t *testing.T) {
-			if _, err := newCronScheduler(expr, 0); err == nil {
-				t.Errorf("newCronScheduler(%q) = nil error, want error", expr)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := newCronScheduler(tc.expr, 0); err == nil {
+				t.Errorf("newCronScheduler(%q) = nil error, want error", tc.expr)
 			}
 		})
 	}
@@ -119,3 +121,21 @@ func TestCronScheduler_Describe(t *testing.T) {
 		t.Errorf("Describe() = %q, want to include the expression", got)
 	}
 }
+
+func TestCronScheduler_NextZeroFireExhausted(t *testing.T) {
+	// Defensive: if the underlying cron Schedule ever returns a
+	// zero-value time (shouldn't happen with ParseStandard in
+	// practice), Next() must return a large backoff so the agent
+	// loop doesn't busy-spin.
+	s := cronScheduler{expr: "synthetic", schedule: zeroFireSchedule{}}
+	got := s.Next(time.Now())
+	if got < time.Hour {
+		t.Errorf("Next() = %v with zero-fire schedule, want >= 1h", got)
+	}
+}
+
+// zeroFireSchedule is a test double whose Next always returns the zero
+// time, simulating the pathological "no future occurrence" case.
+type zeroFireSchedule struct{}
+
+func (zeroFireSchedule) Next(time.Time) time.Time { return time.Time{} }

@@ -88,12 +88,22 @@ func newCronScheduler(expr string, jitter time.Duration) (cronScheduler, error) 
 	return cronScheduler{expr: expr, schedule: parsed, jitter: jitter}, nil
 }
 
+// cronExhaustedBackoff is the sleep returned when the underlying cron
+// library reports no future occurrence (zero-value time). That shouldn't
+// happen with ParseStandard expressions in practice, but defending
+// against it keeps the agent loop from busy-spinning if robfig ever
+// changes semantics or an exotic expression exhausts its 5-year search.
+const cronExhaustedBackoff = 24 * time.Hour
+
 // Next returns the duration from `now` until the next cron fire time,
 // optionally with positive uniform jitter in [0, jitter). The jitter
 // is additive (never negative) to preserve the "fire at or after the
 // scheduled time" contract that operators expect from cron.
 func (s cronScheduler) Next(now time.Time) time.Duration {
 	nextFire := s.schedule.Next(now)
+	if nextFire.IsZero() {
+		return cronExhaustedBackoff
+	}
 	delta := nextFire.Sub(now)
 	if delta < 0 {
 		delta = 0

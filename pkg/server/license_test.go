@@ -6,37 +6,12 @@ import (
 	"testing"
 
 	"github.com/amiryahaya/triton/internal/license"
-	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // okHandler is a trivial next handler for LicenceGate tests.
 var okHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 })
-
-// newGuardWithV2Features constructs a Guard directly with v2 Features set.
-// Uses struct literals only — avoids needing a real Ed25519 keypair for
-// unit tests of the middleware decision logic.
-func newGuardWithV2Features(f licensestore.Features) *license.Guard {
-	// Guard is an unexported struct; build it via NewGuardFromToken with
-	// a nil pubkey → free-tier guard, then swap in v2 features via
-	// the public test path. Since Guard is internal to the license package,
-	// we use the package-level helpers that already expose this in tests.
-	// Here we use NewGuardFromToken with an empty token (free tier) and then
-	// rely on HasFeature's behaviour: if features are not set via the token
-	// we cannot inject them from outside the package directly.
-	//
-	// Instead, test via the features_test pattern: build Guard in the license
-	// package tests (guard_test.go is package license). Here we test only what
-	// LicenceGate exposes externally via HasFeature, using a pre-issued guard.
-	//
-	// For unit testing LicenceGate in isolation (no DB), we test three cases:
-	//  1. nil guard → pass-through
-	//  2. guard without diff_trend → 403
-	//  3. guard with diff_trend (via pro/enterprise compat) → 200
-	_ = f
-	return license.NewGuardFromToken("", nil) // returns free-tier guard
-}
 
 func TestIsDiffTrendPath(t *testing.T) {
 	cases := []struct {

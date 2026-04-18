@@ -8,7 +8,6 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
-
 // UsageSource collects current counts for the licence-usage pusher.
 // Metrics that the store cannot expose are simply omitted — the pusher
 // reports what it knows, and the License Server enforces what it can.

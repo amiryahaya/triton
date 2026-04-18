@@ -8,8 +8,8 @@ import (
 
 // UsageReport is one row in POST /v1/license/usage body + the DB row.
 type UsageReport struct {
-	LicenseID  string    `json:"-"`             // set server-side from the licence key lookup
-	InstanceID string    `json:"-"`             // set server-side from the request body
+	LicenseID  string    `json:"-"` // set server-side from the licence key lookup
+	InstanceID string    `json:"-"` // set server-side from the request body
 	Metric     string    `json:"metric"`
 	Window     string    `json:"window"`
 	Value      int64     `json:"value"`
@@ -32,7 +32,8 @@ DO UPDATE SET value = EXCLUDED.value, reported_at = NOW()`
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	// Rollback is a no-op if the tx has already been committed — safe to ignore err.
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	for _, r := range reports {
 		if _, err := tx.Exec(ctx, q, r.LicenseID, r.InstanceID, r.Metric, r.Window, r.Value); err != nil {

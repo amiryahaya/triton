@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amiryahaya/triton/pkg/licensestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 func TestCacheMeta_SaveAndLoad(t *testing.T) {

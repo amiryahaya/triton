@@ -45,15 +45,15 @@ func (g *Guard) LimitCap(metric, window string) int64 {
 // SoftBufferCeiling returns cap + floor(cap * soft_buffer_pct / 100) — the
 // hard ceiling for soft-enforced metrics. Returns -1 if the metric has no cap.
 func (g *Guard) SoftBufferCeiling(metric, window string) int64 {
-	cap := g.LimitCap(metric, window)
-	if cap < 0 {
+	limitCap := g.LimitCap(metric, window)
+	if limitCap < 0 {
 		return -1
 	}
 	pct := 10 // default
 	if g != nil && g.license != nil && g.license.SoftBufferPct > 0 {
 		pct = g.license.SoftBufferPct
 	}
-	return cap + (cap*int64(pct))/100
+	return limitCap + (limitCap*int64(pct))/100
 }
 
 // AllowsFormat returns whether the given report format is permitted by the

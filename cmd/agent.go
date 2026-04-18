@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -51,28 +50,6 @@ var (
 	healthCheckBackoff    = 2 * time.Second
 	healthCheckMaxBackoff = 30 * time.Second
 )
-
-// intervalJitterFn is swappable in tests so jitter is deterministic.
-// Production uses the package-global rand source; tests inject a
-// seeded source to assert on exact outputs.
-var intervalJitterFn = defaultIntervalJitter
-
-// defaultIntervalJitter returns a value in [-0.1×base, +0.1×base],
-// i.e. ±10% of the interval. Kept as a package-level var so the
-// package init stays trivial and tests can call it directly.
-func defaultIntervalJitter(base time.Duration) time.Duration {
-	if base <= 0 {
-		return 0
-	}
-	// Range is one-fifth of base (±10%). rand.Int63n is exclusive
-	// of its upper bound, so the max is "just under +10%".
-	maxJitter := int64(base / 5)
-	if maxJitter <= 0 {
-		return 0
-	}
-	//nolint:gosec // G404: non-cryptographic jitter is intentional
-	return time.Duration(rand.Int63n(maxJitter) - maxJitter/2)
-}
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
@@ -559,12 +536,29 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Resolve the schedule (cron, interval, or one-shot) once, up-front,
+	// so an invalid cron expression fails fast before any scan runs.
+	spec, err := resolved.source.ResolveSchedule(cmd, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("resolving schedule: %w", err)
+	}
+	sched, err := newSchedulerFromSpec(spec)
+	if err != nil {
+		return fmt.Errorf("building scheduler: %w", err)
+	}
+	if sched != nil {
+		fmt.Printf("  schedule:    %s\n", sched.Describe())
+	} else {
+		fmt.Println("  schedule:    one-shot (no interval or schedule configured)")
+	}
+	fmt.Println()
+
 	for {
 		if err := runAgentScan(ctx, activeGuard, resolved, client); err != nil {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
 		}
 
-		if agentInterval == 0 {
+		if sched == nil {
 			return nil
 		}
 
@@ -574,14 +568,9 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		// avoid an unnecessary HTTP round-trip.
 		activeGuard = heartbeat(&seat, activeGuard)
 
-		// Jitter the sleep by ±10% so a fleet of agents rebooted
-		// simultaneously (e.g., after a patch window) does not
-		// dog-pile the report server at the same second every
-		// interval. Logged as the effective wait, not the raw
-		// interval, so operators can see what actually happened.
-		wait := agentInterval + intervalJitterFn(agentInterval)
+		wait := sched.Next(time.Now())
 		if wait < 0 {
-			wait = agentInterval // belt-and-braces: never sleep negative
+			wait = 0
 		}
 		fmt.Printf("Next scan in %s...\n", wait.Round(time.Second))
 		select {

@@ -118,6 +118,15 @@ The `triton scan` command accepts five resource flags — `--max-memory`, `--max
 
 Agent mode (`triton agent`) reads the same limits from a `resource_limits:` block in `agent.yaml` (CLI flag wins when set); see `internal/agentconfig/resolve.go::ResolveLimits`.
 
+### Agent scheduling
+
+The `triton agent` command supports two scheduling modes via `agent.yaml`:
+
+- **`interval: 24h`** — repeat every N duration with ±10% jitter (existing behavior).
+- **`schedule: "0 2 * * 0"`** — cron expression, local timezone. Optional `schedule_jitter: 30s` for fleet staggering (default disabled).
+
+`schedule` wins over `interval` when both are set; if only the CLI `--interval` flag is passed, that wins over neither-set yaml. Implementation: `internal/agentconfig/schedule.go` (plain-data `ScheduleSpec`), `internal/agentconfig/resolve.go::ResolveSchedule` (precedence chain), `cmd/agent_scheduler.go` (`scheduler` interface + `intervalScheduler` + `cronScheduler` via `github.com/robfig/cron/v3`). Invalid cron expressions fail fast at agent startup, including under `--check-config`.
+
 ### Job runner (detached scans)
 
 The `triton scan` command accepts six lifecycle flags — `--detach`, `--status`, `--collect`, `--cancel`, `--list-jobs`, `--cleanup` — implemented in `internal/runtime/jobrunner/`. A detached scan fork-exec's itself with `TRITON_DETACHED=1`, writes state to `~/.triton/jobs/<job-id>/`, and reuses the same `Limits.Apply()` pipeline as foreground scans. Cancellation is cooperative via `cancel.flag` for cross-platform parity. See `internal/runtime/jobrunner/doc.go` for caveats and `docs/plans/2026-04-18-job-runner-design.md` for the design spec.

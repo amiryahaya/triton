@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // gracePeriod allows a short window after licence expiry before enforcement.
@@ -24,6 +26,12 @@ type License struct {
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
 	MachineID string `json:"mid,omitempty"` // SHA-3-256 machine fingerprint
+
+	// v2 claims (optional — legacy tokens omit these).
+	Features      licensestore.Features `json:"features,omitempty"`
+	Limits        licensestore.Limits   `json:"limits,omitempty"`
+	SoftBufferPct int                   `json:"sbp,omitempty"`
+	ProductScope  string                `json:"ps,omitempty"`
 }
 
 // IsExpired reports whether the licence has passed its expiry plus grace period.

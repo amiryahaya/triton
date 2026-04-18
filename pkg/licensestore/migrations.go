@@ -111,4 +111,38 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);`,
+
+	// Version 5: License Server v2 — feature flags + per-metric limits + usage tracking.
+	// CHECK constraints are named explicitly so future inspection/migration can
+	// reference them by stable identifier rather than a PG-generated name.
+	`ALTER TABLE licenses
+		ADD COLUMN IF NOT EXISTS features          JSONB    NOT NULL DEFAULT '{}',
+		ADD COLUMN IF NOT EXISTS limits            JSONB    NOT NULL DEFAULT '[]',
+		ADD COLUMN IF NOT EXISTS soft_buffer_pct   SMALLINT NOT NULL DEFAULT 10,
+		ADD COLUMN IF NOT EXISTS product_scope     TEXT     NOT NULL DEFAULT 'legacy';
+
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'licenses_soft_buffer_pct_check') THEN
+			ALTER TABLE licenses ADD CONSTRAINT licenses_soft_buffer_pct_check
+				CHECK (soft_buffer_pct BETWEEN 0 AND 25);
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'licenses_product_scope_check') THEN
+			ALTER TABLE licenses ADD CONSTRAINT licenses_product_scope_check
+				CHECK (product_scope IN ('legacy','report','manage','bundle'));
+		END IF;
+	END $$;
+
+	CREATE TABLE IF NOT EXISTS license_usage (
+		license_id   UUID        NOT NULL REFERENCES licenses(id) ON DELETE CASCADE,
+		instance_id  UUID        NOT NULL,
+		metric       TEXT        NOT NULL,
+		"window"     TEXT        NOT NULL,
+		value        BIGINT      NOT NULL,
+		reported_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (license_id, instance_id, metric, "window")
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_license_usage_reported_at ON license_usage(reported_at);
+	CREATE INDEX IF NOT EXISTS idx_license_usage_license_metric ON license_usage(license_id, metric, "window");`,
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
+	"github.com/amiryahaya/triton/pkg/licensestore"
 	"github.com/amiryahaya/triton/pkg/model"
 )
 
@@ -585,5 +586,130 @@ func TestFilterConfig_ASN1OIDModule_ProKept(t *testing.T) {
 	}
 	if !found {
 		t.Error("asn1_oid should be retained for Pro tier")
+	}
+}
+
+// ---- Task 4.4: EnforceProfile / EnforceFormat v2 feature path ----
+
+func TestEnforceProfile_V2Path_RejectsComprehensiveWhenFeatureMissing(t *testing.T) {
+	// v2 features set but comprehensive_profile not included.
+	g := &Guard{
+		license: &License{
+			Features: licensestore.Features{Report: true}, // no ComprehensiveProfile
+		},
+		tier: TierEnterprise, // legacy would allow, but v2 takes precedence
+	}
+	err := g.EnforceProfile("comprehensive")
+	if err == nil {
+		t.Errorf("v2 path: expected error when comprehensive_profile missing, got nil")
+	}
+}
+
+func TestEnforceProfile_V2Path_AllowsComprehensiveWhenFeatureSet(t *testing.T) {
+	g := &Guard{
+		license: &License{
+			Features: licensestore.Features{ComprehensiveProfile: true},
+		},
+		tier: TierFree,
+	}
+	if err := g.EnforceProfile("comprehensive"); err != nil {
+		t.Errorf("v2 with comprehensive_profile should allow: %v", err)
+	}
+}
+
+func TestEnforceProfile_V2Path_AlwaysAllowsQuickAndStandard(t *testing.T) {
+	// v2 features set but no comprehensive — quick/standard must still pass.
+	g := &Guard{
+		license: &License{
+			Features: licensestore.Features{Report: true},
+		},
+		tier: TierFree,
+	}
+	for _, profile := range []string{"quick", "standard"} {
+		if err := g.EnforceProfile(profile); err != nil {
+			t.Errorf("v2 path: profile %q should always pass, got: %v", profile, err)
+		}
+	}
+}
+
+func TestEnforceProfile_LegacyTier_EnterpriseAllowsComprehensive(t *testing.T) {
+	// No v2 features → falls back to tier enforcement.
+	g := &Guard{
+		license: &License{Tier: TierEnterprise},
+		tier:    TierEnterprise,
+	}
+	if err := g.EnforceProfile("comprehensive"); err != nil {
+		t.Errorf("legacy enterprise should allow comprehensive: %v", err)
+	}
+}
+
+func TestEnforceFormat_V2AllowList_PermitsListedFormat(t *testing.T) {
+	g := &Guard{
+		license: &License{
+			Features: licensestore.Features{
+				ExportFormats: []string{"json", "html"},
+			},
+		},
+		tier: TierFree,
+	}
+	if err := g.EnforceFormat("json"); err != nil {
+		t.Errorf("json in allowlist should pass: %v", err)
+	}
+	if err := g.EnforceFormat("html"); err != nil {
+		t.Errorf("html in allowlist should pass: %v", err)
+	}
+}
+
+func TestEnforceFormat_V2AllowList_BlocksUnlistedFormat(t *testing.T) {
+	g := &Guard{
+		license: &License{
+			Features: licensestore.Features{
+				ExportFormats: []string{"json", "html"},
+			},
+		},
+		tier: TierFree,
+	}
+	if err := g.EnforceFormat("pdf"); err == nil {
+		t.Errorf("pdf not in allowlist should be blocked")
+	}
+}
+
+func TestEnforceFormat_All_AlwaysPasses(t *testing.T) {
+	g := &Guard{
+		license: &License{
+			Features: licensestore.Features{
+				ExportFormats: []string{"json"},
+			},
+		},
+		tier: TierFree,
+	}
+	if err := g.EnforceFormat("all"); err != nil {
+		t.Errorf("'all' should always pass: %v", err)
+	}
+}
+
+func TestEnforceFormat_LegacyTier_NoV2Features(t *testing.T) {
+	// No v2 features → uses legacy tier path. Free tier blocks sarif.
+	g := &Guard{
+		license: &License{Tier: TierFree},
+		tier:    TierFree,
+	}
+	if err := g.EnforceFormat("sarif"); err == nil {
+		t.Errorf("free tier should block sarif on legacy path")
+	}
+}
+
+func TestEnforceFormat_V2NoExportFormats_FallsBackToLegacy(t *testing.T) {
+	// v2 features set but ExportFormats empty → fall back to legacy tier map.
+	g := &Guard{
+		license: &License{
+			Tier:     TierEnterprise,
+			Features: licensestore.Features{Report: true}, // no ExportFormats
+		},
+		tier: TierEnterprise,
+	}
+	// Enterprise legacy allows sarif — should still pass via fallback.
+	if err := g.EnforceFormat("sarif"); err != nil {
+		t.Errorf("enterprise with no ExportFormats list should fall back to legacy: %v", err)
 	}
 }

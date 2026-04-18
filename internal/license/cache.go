@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // CacheMeta stores license server metadata locally for offline fallback.
@@ -17,6 +19,12 @@ type CacheMeta struct {
 	SeatsUsed     int       `json:"seatsUsed"`
 	ExpiresAt     string    `json:"expiresAt"`
 	LastValidated time.Time `json:"lastValidated"`
+
+	// v2 additions — optional; legacy caches omit them.
+	Features      licensestore.Features `json:"features,omitempty"`
+	Limits        licensestore.Limits   `json:"limits,omitempty"`
+	SoftBufferPct int                   `json:"soft_buffer_pct,omitempty"`
+	ProductScope  string                `json:"product_scope,omitempty"`
 }
 
 // GracePeriodDays is the number of days a cached token remains valid

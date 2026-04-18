@@ -41,6 +41,10 @@ type Store interface {
 	WriteAudit(ctx context.Context, entry *AuditEntry) error
 	ListAudit(ctx context.Context, filter AuditFilter) ([]AuditEntry, error)
 
+	// Usage
+	UpsertUsage(ctx context.Context, reports []UsageReport) error
+	UsageSummary(ctx context.Context, licenseID string) (map[string]map[string]int64, error)
+
 	// Stats
 	DashboardStats(ctx context.Context) (*DashboardStats, error)
 
@@ -87,6 +91,12 @@ type LicenseRecord struct {
 	RevokedBy *string    `json:"revokedBy,omitempty"`
 	Notes     string     `json:"notes"`
 	CreatedAt time.Time  `json:"createdAt"`
+
+	// v2 fields (migration 5).
+	Features      Features `json:"features,omitempty"`
+	Limits        Limits   `json:"limits,omitempty"`
+	SoftBufferPct int      `json:"soft_buffer_pct"`
+	ProductScope  string   `json:"product_scope"`
 
 	// Populated by joins, not stored directly.
 	OrgName   string `json:"orgName,omitempty"`

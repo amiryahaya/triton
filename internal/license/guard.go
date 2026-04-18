@@ -200,7 +200,21 @@ func (g *Guard) OrgName() string {
 }
 
 // EnforceProfile returns an error if the profile is not allowed.
+//
+// When the licence carries v2 features (featuresAnySet), the v2
+// comprehensive_profile flag takes precedence over the legacy tier map.
+// quick and standard always pass in the v2 path — only comprehensive is
+// gated. Pre-v2 tokens fall through to the legacy tier enforcement
+// unchanged, so existing deployments are unaffected.
 func (g *Guard) EnforceProfile(profile string) error {
+	// v2 path: consult features if any v2 flag is set.
+	if g != nil && g.license != nil && featuresAnySet(g.license.Features) {
+		if profile == "comprehensive" && !g.license.Features.ComprehensiveProfile {
+			return &ErrFeatureGated{Feature: FeatureProfileComprehensive, Tier: g.tier}
+		}
+		return nil // quick/standard always allowed; unknown profiles pass through
+	}
+	// Legacy tier path — unchanged.
 	f, ok := profileFeature[profile]
 	if !ok {
 		return nil // unknown profiles are handled elsewhere
@@ -211,10 +225,27 @@ func (g *Guard) EnforceProfile(profile string) error {
 // EnforceFormat returns an error if the output format is not allowed.
 // For "all", this always succeeds — the caller should use AllowedFormats
 // to determine which formats to generate for the tier.
+//
+// When the licence carries v2 features with a non-empty ExportFormats
+// allowlist, that list takes precedence over the legacy tier map so
+// operators can grant or restrict individual formats independently of
+// tier. Pre-v2 tokens fall through to the legacy tier enforcement.
 func (g *Guard) EnforceFormat(format string) error {
 	if format == "all" {
 		return nil // "all" means "generate all my tier allows"
 	}
+	// v2 path: use AllowsFormat which already handles the compat fallback.
+	// Only enter this branch when v2 features are set AND an explicit
+	// ExportFormats list is present, so that a v2 token with no
+	// ExportFormats doesn't silently block all formats.
+	if g != nil && g.license != nil && featuresAnySet(g.license.Features) && len(g.license.Features.ExportFormats) > 0 {
+		if !g.AllowsFormat(format) {
+			f := formatFeature[format] // may be zero-value Feature; ErrFeatureGated still meaningful
+			return &ErrFeatureGated{Feature: f, Tier: g.tier}
+		}
+		return nil
+	}
+	// Legacy tier path — unchanged.
 	f, ok := formatFeature[format]
 	if !ok {
 		return nil // unknown formats are handled elsewhere

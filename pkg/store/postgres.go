@@ -413,6 +413,19 @@ func (s *PostgresStore) TruncateAll(ctx context.Context) error {
 	return tx.Commit(ctx)
 }
 
+// PruneScansBefore deletes scans whose timestamp is strictly before
+// cutoff. Returns the number of rows deleted. Used by RetentionPruner
+// in pkg/server to enforce per-deployment data-retention limits.
+// Not on the Store interface because pruning is a Report-Server
+// operational concern, not a core store abstraction.
+func (s *PostgresStore) PruneScansBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM scans WHERE timestamp < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("pruning scans: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Close releases the connection pool.
 func (s *PostgresStore) Close() error {
 	s.pool.Close()

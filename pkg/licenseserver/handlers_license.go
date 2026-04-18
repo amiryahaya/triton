@@ -25,6 +25,11 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		Days      int    `json:"days"`
 		ExpiresAt string `json:"expiresAt"` // RFC3339, alternative to days
 		Notes     string `json:"notes"`
+		// v2 fields (optional — legacy licences omit these).
+		Features      licensestore.Features `json:"features"`
+		Limits        licensestore.Limits   `json:"limits"`
+		SoftBufferPct int                   `json:"soft_buffer_pct"`
+		ProductScope  string                `json:"product_scope"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -92,14 +97,18 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lic := &licensestore.LicenseRecord{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:     req.OrgID,
-		Tier:      req.Tier,
-		Seats:     req.Seats,
-		IssuedAt:  now,
-		ExpiresAt: expiresAt,
-		Notes:     req.Notes,
-		CreatedAt: now,
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		OrgID:         req.OrgID,
+		Tier:          req.Tier,
+		Seats:         req.Seats,
+		IssuedAt:      now,
+		ExpiresAt:     expiresAt,
+		Notes:         req.Notes,
+		CreatedAt:     now,
+		Features:      req.Features,
+		Limits:        req.Limits,
+		SoftBufferPct: req.SoftBufferPct,
+		ProductScope:  req.ProductScope,
 	}
 
 	if err := s.store.CreateLicense(r.Context(), lic); err != nil {

@@ -98,6 +98,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/activate", srv.handleActivate)
 		r.Post("/deactivate", srv.handleDeactivate)
 		r.Post("/validate", srv.handleValidate)
+		r.Post("/usage", srv.handleUsage) // near-real-time usage push
 		r.Get("/download/latest-version", srv.handleLatestVersion)
 		r.With(middleware.Timeout(300*time.Second)).Get("/download/{version}/{os}/{arch}", srv.handleDownloadBinary)
 	})

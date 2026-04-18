@@ -722,6 +722,16 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 func runAgentScan(ctx context.Context, g *license.Guard, r *resolvedAgentConfig, client *agent.Client) error {
 	fmt.Printf("Starting scan (profile: %s)...\n", r.effectiveProfile)
 
+	// Apply resource limits per-iteration. Each scan gets a fresh
+	// context with (possibly) a deadline and its own watchdog; cleanup
+	// tears them down so the next iteration starts clean.
+	if r.Limits.Enabled() {
+		fmt.Printf("Resource %s\n", r.Limits.String())
+	}
+	var cleanup func()
+	ctx, cleanup = r.Limits.Apply(ctx)
+	defer cleanup()
+
 	// Load the config from the EFFECTIVE profile (post-tier-filter)
 	// so depth / workers / module defaults match what the user's
 	// tier permits. Otherwise a free-tier user who asked for

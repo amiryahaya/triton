@@ -116,6 +116,10 @@ Worker count is capped by CPU count.
 
 The `triton scan` command accepts five resource flags — `--max-memory`, `--max-cpu-percent`, `--max-duration`, `--stop-at`, `--nice` — implemented in `internal/runtime/limits/`. These are in-process limits that work on all platforms without systemd, cgroups, or elevated privileges, so the same flags apply to foreground scans, agent-supervised scans, and ssh-agentless orchestrator invocations. See `internal/runtime/limits/doc.go` for caveats (soft vs hard semantics, platform-specific nice behavior).
 
+### Job runner (detached scans)
+
+The `triton scan` command accepts six lifecycle flags — `--detach`, `--status`, `--collect`, `--cancel`, `--list-jobs`, `--cleanup` — implemented in `internal/runtime/jobrunner/`. A detached scan fork-exec's itself with `TRITON_DETACHED=1`, writes state to `~/.triton/jobs/<job-id>/`, and reuses the same `Limits.Apply()` pipeline as foreground scans. Cancellation is cooperative via `cancel.flag` for cross-platform parity. See `internal/runtime/jobrunner/doc.go` for caveats and `docs/plans/2026-04-18-job-runner-design.md` for the design spec.
+
 ### Licence enforcement
 
 3-tier system (free/pro/enterprise) with Ed25519-signed tokens in `internal/license/`:

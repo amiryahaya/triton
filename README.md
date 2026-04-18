@@ -163,6 +163,48 @@ Limits work identically for foreground scans, agent-supervised scans, and (futur
 - `--max-cpu-percent` caps parallelism, not CPU time. A single tight loop still saturates one core.
 - `--nice` is a no-op on Windows.
 
+### Detached scans
+
+Run a scan in the background so you can disconnect the SSH session, check progress later, and retrieve reports when done:
+
+```bash
+# Start a detached scan; returns a job-id immediately
+JOB=$(triton scan --detach --profile standard --max-duration 4h --quiet)
+
+# Disconnect SSH. Come back any time.
+
+# Check progress
+triton scan --status --job-id $JOB --json | jq .progress_pct
+
+# Cancel (optional; waits up to 30s for graceful shutdown)
+triton scan --cancel --job-id $JOB --wait
+
+# Retrieve reports (streams a tar.gz; auto-cleans unless --keep)
+triton scan --collect --job-id $JOB -o scan.tar.gz
+
+# List all jobs
+triton scan --list-jobs
+
+# Manual cleanup (also happens automatically on --collect)
+triton scan --cleanup --job-id $JOB
+triton scan --cleanup --all        # all finished jobs
+```
+
+**Work-dir layout:** `~/.triton/jobs/<job-id>/` (override with `--work-dir`). Each job-dir contains `pid`, `status.json`, `cancel.flag`, `scan.log`, `reports/`, and `result.json`.
+
+**SSH-agentless flow:**
+
+```bash
+# One-shot: copy binary, kick off detached scan, come back later
+scp triton host:/tmp/
+JOB=$(ssh host 'sudo /tmp/triton scan --detach --profile standard --max-memory 2GB --quiet')
+# ...
+ssh host "triton scan --collect --job-id $JOB -o -" > scan-$JOB.tar.gz
+ssh host "rm /tmp/triton"
+```
+
+**Compatibility:** All flags work on Linux, macOS, and Windows. Cancellation uses a file-flag (not signals) for cross-platform parity.
+
 ## Scanning Categories
 
 Triton covers all 9 CBOM categories plus enterprise infrastructure with **31 scanner modules**:

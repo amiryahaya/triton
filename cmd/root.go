@@ -72,6 +72,19 @@ var (
 	// Keystore password list (PCert parity sprint)
 	keystorePasswords []string
 
+	// Job-runner lifecycle mode flags (one-of-six; mutually exclusive).
+	detachMode   bool
+	statusMode   bool
+	collectMode  bool
+	cancelMode   bool
+	listJobsMode bool
+	cleanupMode  bool
+
+	// Job-runner shared/control flags.
+	detachJobID   string
+	detachWorkDir string
+	detachQuiet   bool
+
 	validFormats = map[string]bool{"json": true, "cdx": true, "html": true, "xlsx": true, "sarif": true, "all": true}
 
 	rootCmd = &cobra.Command{
@@ -220,6 +233,41 @@ func init() {
 
 	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
+
+	// Job-runner lifecycle flags (wired to runScan via dispatch switch).
+	rootCmd.PersistentFlags().BoolVar(&detachMode, "detach", false,
+		"run scan as a detached background job (returns job-id, survives SSH disconnect)")
+	rootCmd.PersistentFlags().BoolVar(&statusMode, "status", false,
+		"print status of a detached scan (requires --job-id)")
+	rootCmd.PersistentFlags().BoolVar(&collectMode, "collect", false,
+		"retrieve reports from a detached scan (requires --job-id)")
+	rootCmd.PersistentFlags().BoolVar(&cancelMode, "cancel", false,
+		"cancel a running detached scan (requires --job-id)")
+	rootCmd.PersistentFlags().BoolVar(&listJobsMode, "list-jobs", false,
+		"list all detached scan jobs under the work-dir")
+	rootCmd.PersistentFlags().BoolVar(&cleanupMode, "cleanup", false,
+		"remove finished job(s) from the work-dir (requires --job-id or --all)")
+
+	rootCmd.PersistentFlags().StringVar(&detachJobID, "job-id", "",
+		"explicit job id (default: auto-generated UUID for --detach)")
+	rootCmd.PersistentFlags().StringVar(&detachWorkDir, "work-dir", "",
+		"work-dir root for job state (default: ~/.triton/jobs)")
+	rootCmd.PersistentFlags().BoolVar(&detachQuiet, "quiet", false,
+		"print only the job-id on --detach (for scripting)")
+	rootCmd.PersistentFlags().Bool("wait", false,
+		"block until daemon terminates (only with --cancel)")
+	rootCmd.PersistentFlags().Duration("timeout", 30*time.Second,
+		"timeout for --cancel --wait")
+	rootCmd.PersistentFlags().Bool("keep", false,
+		"do not auto-remove the work-dir after --collect")
+	rootCmd.PersistentFlags().Bool("all", false,
+		"remove all finished jobs (only with --cleanup)")
+	rootCmd.PersistentFlags().Bool("json", false,
+		"machine-readable output for --status / --list-jobs")
+
+	rootCmd.MarkFlagsMutuallyExclusive(
+		"detach", "status", "collect", "cancel", "list-jobs", "cleanup",
+	)
 }
 
 func initConfig() {
@@ -341,28 +389,35 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid format %q: must be one of json, cdx, html, xlsx, sarif, all", format)
 	}
 
+	// Daemon mode: started by a parent via TRITON_DETACHED=1.
+	if isDaemonMode() {
+		return runScanDaemon(cmd, args)
+	}
+	// Lifecycle modes: mutually exclusive, dispatched to scan_jobs.go.
+	switch {
+	case detachMode:
+		return runScanDetached(cmd, args)
+	case statusMode:
+		return runJobStatus(cmd, args)
+	case collectMode:
+		return runJobCollect(cmd, args)
+	case cancelMode:
+		return runJobCancel(cmd, args)
+	case listJobsMode:
+		return runJobList(cmd, args)
+	case cleanupMode:
+		return runJobCleanup(cmd, args)
+	}
+
 	fmt.Printf("Triton SBOM/CBOM Scanner v%s\n", version.Version)
 	fmt.Printf("Platform: %s/%s | Licence: %s\n\n", runtime.GOOS, runtime.GOARCH, guard.Tier())
 
-	// Enforce licence gates on profile and format.
-	// If the user explicitly set a value, error on restriction.
-	// Otherwise, silently downgrade defaults for the tier.
-	if cmd.Flags().Changed("profile") {
-		if err := guard.EnforceProfile(scanProfile); err != nil {
-			return err
-		}
-	} else {
-		allowed := license.AllowedProfiles(guard.Tier())
-		if len(allowed) > 0 {
-			scanProfile = allowed[len(allowed)-1]
-		}
-	}
-	if cmd.Flags().Changed("format") {
-		if err := guard.EnforceFormat(format); err != nil {
-			return err
-		}
-	} else if err := guard.EnforceFormat(format); err != nil {
-		format = "json"
+	// Enforce licence gates on profile/format and feature flags. Shared
+	// with runScanDetached so the two paths can't drift. Profile-downgrade
+	// for defaults must happen before BuildConfig so the downgraded
+	// profile is reflected in the resulting config.
+	if err := enforceScanLicense(cmd); err != nil {
+		return err
 	}
 
 	cfg, buildErr := scannerconfig.BuildConfig(scannerconfig.BuildOptions{
@@ -435,31 +490,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		cfg.KeystorePasswords = strings.Split(envPW, ",")
 	}
 
-	// Gate optional features behind licence tier.
-	if showMetrics {
-		if err := guard.EnforceFeature(license.FeatureMetrics); err != nil {
-			return err
-		}
-	}
-	if incremental {
-		if err := guard.EnforceFeature(license.FeatureIncremental); err != nil {
-			return err
-		}
-	}
-	if dbPath != "" {
-		if err := guard.EnforceFeature(license.FeatureDB); err != nil {
-			return err
-		}
-	}
-	if scanPolicyArg != "" {
-		f := license.FeaturePolicyBuiltin
-		if _, err := policy.LoadBuiltin(scanPolicyArg); err != nil {
-			f = license.FeaturePolicyCustom
-		}
-		if err := guard.EnforceFeature(f); err != nil {
-			return err
-		}
-	}
+	// Feature-gate checks (metrics/incremental/db/policy) live in
+	// enforceScanLicense above; nothing more to do here before the engine.
 
 	if cfg.DBUrl == "" {
 		cfg.DBUrl = scannerconfig.DefaultDBUrl()

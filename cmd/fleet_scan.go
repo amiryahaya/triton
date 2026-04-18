@@ -120,6 +120,7 @@ func runFleetScanImpl(_ *cobra.Command, _ []string) (int, error) {
 			MaxDuration:   fsMaxDuration,
 			StopAt:        fsStopAt,
 			Nice:          fsNice,
+			LicenseKey:    licenseKey, // forward parent's license to remote hosts
 		},
 		Dialer: &sshDialerImpl{},
 	}

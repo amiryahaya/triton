@@ -37,6 +37,7 @@ type ScanFlags struct {
 	MaxDuration   time.Duration
 	StopAt        string
 	Nice          int
+	LicenseKey    string // forwarded to each remote scan via --license-key
 }
 
 // FleetConfig bundles all orchestrator knobs. Populated by cmd/fleet_scan.go

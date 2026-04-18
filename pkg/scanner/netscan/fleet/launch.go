@@ -43,6 +43,16 @@ func BuildLaunchCommand(remoteBinary string, useSudo bool, f ScanFlags) string {
 	if f.Nice != 0 {
 		parts = append(parts, "--nice", fmt.Sprintf("%d", f.Nice))
 	}
+	if f.LicenseKey != "" {
+		// Pass license via a shell-safe quoted form. The launch command
+		// is executed via SSH which goes through a shell, so spaces and
+		// shell metacharacters in the token (there shouldn't be any in
+		// a real Ed25519-signed JSON license, but defense in depth)
+		// would otherwise break argv splitting. Ed25519 tokens are
+		// base64url + "." so they contain only [A-Za-z0-9._-]; single-
+		// quoting is sufficient.
+		parts = append(parts, "--license-key", "'"+f.LicenseKey+"'")
+	}
 
 	return strings.Join(parts, " ")
 }

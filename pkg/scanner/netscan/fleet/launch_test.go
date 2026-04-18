@@ -33,6 +33,7 @@ func TestBuildLaunchCommand_AllFlagsForwarded(t *testing.T) {
 		MaxDuration:   4 * time.Hour,
 		StopAt:        "03:00",
 		Nice:          10,
+		LicenseKey:    "test-token-abc",
 	}
 	got := BuildLaunchCommand("/remote/triton", true, flags)
 	for _, want := range []string{
@@ -46,6 +47,7 @@ func TestBuildLaunchCommand_AllFlagsForwarded(t *testing.T) {
 		"--max-duration 4h0m0s",
 		"--stop-at 03:00",
 		"--nice 10",
+		"--license-key 'test-token-abc'",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in command, got: %s", want, got)
@@ -63,6 +65,9 @@ func TestBuildLaunchCommand_OmitsEmpty(t *testing.T) {
 	}
 	if strings.Contains(got, "--nice ") {
 		t.Errorf("zero nice should be omitted: %s", got)
+	}
+	if strings.Contains(got, "--license-key ") {
+		t.Errorf("empty LicenseKey should be omitted: %s", got)
 	}
 	if !strings.Contains(got, "--detach") {
 		t.Errorf("--detach missing: %s", got)

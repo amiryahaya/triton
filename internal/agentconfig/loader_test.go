@@ -329,3 +329,51 @@ profile: standard
 		t.Errorf("ResourceLimits should be nil when block absent, got %+v", cfg.ResourceLimits)
 	}
 }
+
+func TestLoad_ScheduleFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yaml")
+	content := []byte(`
+schedule: "0 2 * * 0"
+schedule_jitter: 30s
+interval: 24h
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Schedule != "0 2 * * 0" {
+		t.Errorf("Schedule = %q, want %q", cfg.Schedule, "0 2 * * 0")
+	}
+	if cfg.ScheduleJitter != 30*time.Second {
+		t.Errorf("ScheduleJitter = %v, want 30s", cfg.ScheduleJitter)
+	}
+	if cfg.Interval != 24*time.Hour {
+		t.Errorf("Interval = %v, want 24h (preserved alongside schedule)", cfg.Interval)
+	}
+}
+
+func TestLoad_ScheduleFieldsDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yaml")
+	if err := os.WriteFile(path, []byte("profile: quick\n"), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Schedule != "" {
+		t.Errorf("Schedule default = %q, want empty", cfg.Schedule)
+	}
+	if cfg.ScheduleJitter != 0 {
+		t.Errorf("ScheduleJitter default = %v, want 0", cfg.ScheduleJitter)
+	}
+	if cfg.Interval != 0 {
+		t.Errorf("Interval default = %v, want 0", cfg.Interval)
+	}
+}

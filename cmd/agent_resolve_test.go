@@ -184,27 +184,9 @@ func TestLicenseExpiryWarning(t *testing.T) {
 	}
 }
 
-// TestDefaultIntervalJitter_StaysWithinBounds asserts the ±10%
-// envelope over many draws. Uses a bounded loop rather than a
-// property-based library to keep the test fast and dependency-free.
-func TestDefaultIntervalJitter_StaysWithinBounds(t *testing.T) {
-	const base = 10 * time.Minute
-	maxAbs := base / 10 // ±10%
-	for i := 0; i < 200; i++ {
-		got := defaultIntervalJitter(base)
-		assert.GreaterOrEqual(t, got, -maxAbs,
-			"jitter %v below lower bound", got)
-		assert.LessOrEqual(t, got, maxAbs,
-			"jitter %v above upper bound", got)
-	}
-}
-
-// TestDefaultIntervalJitter_ZeroBase returns zero for zero input
-// so a one-shot agent (no --interval) never computes a jitter.
-func TestDefaultIntervalJitter_ZeroBase(t *testing.T) {
-	assert.Equal(t, time.Duration(0), defaultIntervalJitter(0))
-	assert.Equal(t, time.Duration(0), defaultIntervalJitter(-1*time.Second))
-}
+// Jitter coverage moved to TestIntervalScheduler_NextWithJitter in
+// agent_scheduler_test.go — the new intervalScheduler.Next owns the
+// ±10% envelope that defaultIntervalJitter used to compute.
 
 // TestWaitForServerReady_SucceedsOnFirstAttempt is the happy path.
 func TestWaitForServerReady_SucceedsOnFirstAttempt(t *testing.T) {

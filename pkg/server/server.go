@@ -86,6 +86,16 @@ type Config struct {
 	// revocation latency bounded. Ignored when SessionCacheSize
 	// is zero.
 	SessionCacheTTL time.Duration
+
+	// LicenseServer is the base URL of the License Server for usage
+	// reporting (e.g. "https://license.example.com"). When empty, the
+	// usage pusher is not started even if a licence token is present.
+	LicenseServer string
+
+	// InstanceID is a stable identifier for this Report Server instance,
+	// included in usage-push payloads for multi-instance deployments.
+	// If empty, the server generates a UUID at startup (see New()).
+	InstanceID string
 }
 
 // Server is the Triton REST API server.
@@ -138,6 +148,11 @@ type Server struct {
 	// Started after the findings backfill completes, stopped in Shutdown.
 	// Analytics Phase 4A.
 	pipeline *store.Pipeline
+
+	// licencePusher reports usage metrics to the License Server on a
+	// regular interval. Nil when no LicenseServer URL is configured or
+	// when no licence token is present (free-tier / no-token mode).
+	licencePusher *license.UsagePusher
 }
 
 // BackfillInProgress exposes the atomic flag so cmd/server.go can flip
@@ -280,6 +295,29 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		sessionCache:   sessCache,
 	}
 	srv.pipeline = store.NewPipeline(s)
+
+	// Start licence usage pusher when a LicenseServer URL and a real
+	// licence token are both present. Free-tier / no-token deployments
+	// skip this entirely — they have nothing to report and no server to
+	// push to. The pusher runs as a goroutine tied to srv.ctx so it stops
+	// deterministically when Shutdown is called. Phase 4A.
+	if cfg.LicenseServer != "" && cfg.Guard != nil && cfg.Guard.License() != nil {
+		instanceID := cfg.InstanceID
+		if instanceID == "" {
+			instanceID = cfg.Guard.License().ID // stable per-deployment anchor
+		}
+		src := NewUsageSource(s)
+		pusher := license.NewUsagePusher(license.UsagePusherConfig{
+			LicenseServer: cfg.LicenseServer,
+			LicenseID:     cfg.Guard.License().ID,
+			InstanceID:    instanceID,
+			Source:        src.Collect,
+			Interval:      60 * time.Second,
+		})
+		srv.licencePusher = pusher
+		go pusher.Run(ctx)
+	}
+
 	// Phase 5.1 D1 fix — periodically reclaim stale rate-limit entries
 	// so a dictionary-style attack against unknown emails cannot leak
 	// memory over time. Phase 5 Sprint 2 (N1) replaced the previous

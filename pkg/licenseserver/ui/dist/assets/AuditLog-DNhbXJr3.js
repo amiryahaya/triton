@@ -1,0 +1,1 @@
+import{_ as e}from"./index-DOTtC0kT.js";import{a as t,o}from"./vendor-Bs62sa6e.js";const r={};function c(n,s){return o(),t("h1",null,"Audit log (stub — Task 9.5 implements)")}const l=e(r,[["render",c]]);export{l as default};

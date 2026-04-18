@@ -1,0 +1,1 @@
+import{_ as e}from"./index-DOTtC0kT.js";import{a as r,o as n}from"./vendor-Bs62sa6e.js";const s={};function t(o,a){return n(),r("h1",null,"Binaries (stub — Task 9.6 implements)")}const _=e(s,[["render",t]]);export{_ as default};

@@ -1,0 +1,1 @@
+import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{j as t,o}from"./vendor-5oWrXQq1.js";const r={};function c(n,s){return o(),t("h1",null,"Audit log (stub — Task 9.5 implements)")}const l=e(r,[["render",c]]);export{l as default};

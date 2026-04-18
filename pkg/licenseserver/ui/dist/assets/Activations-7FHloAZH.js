@@ -1,0 +1,1 @@
+import{_ as t}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{j as e,o}from"./vendor-5oWrXQq1.js";const c={};function n(s,r){return o(),e("h1",null,"Activations (stub — Task 9.4 implements)")}const _=t(c,[["render",n]]);export{_ as default};

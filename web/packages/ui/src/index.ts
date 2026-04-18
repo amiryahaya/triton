@@ -28,3 +28,6 @@ export { default as TStatCard } from './composite/TStatCard.vue';
 export { default as TPanel } from './composite/TPanel.vue';
 export { default as TDataTable } from './composite/TDataTable.vue';
 export type { Column } from './composite/TDataTable.vue';
+export { default as TModal } from './composite/TModal.vue';
+export { default as TConfirmDialog } from './composite/TConfirmDialog.vue';
+export { useFocusTrap } from './composables/useFocusTrap';

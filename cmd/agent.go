@@ -493,6 +493,25 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	// gate then refuses them.
 	printStartupBanner(activeGuard, resolved)
 
+	// Resolve the schedule (cron, interval, or one-shot) once, up-front
+	// — BEFORE feature gating, network I/O, or --check-config — so an
+	// invalid cron expression surfaces immediately. --check-config
+	// deliberately runs AFTER this block so it can report schedule
+	// validity as part of its smoke-test contract.
+	spec, err := resolved.source.ResolveSchedule(cmd, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("resolving schedule: %w", err)
+	}
+	sched, err := newSchedulerFromSpec(spec)
+	if err != nil {
+		return fmt.Errorf("building scheduler: %w", err)
+	}
+	if sched != nil {
+		fmt.Printf("  schedule:    %s\n\n", sched.Describe())
+	} else {
+		fmt.Printf("  schedule:    one-shot (no interval or schedule configured)\n\n")
+	}
+
 	// Feature gating. Server submission is enterprise-only; local
 	// report mode is allowed on every tier — it's just running the
 	// scanner and writing files, no coordination cost.
@@ -511,14 +530,14 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	if resolved.reportServer != "" {
 		client = agent.New(resolved.reportServer)
 		client.LicenseToken = resolved.licenseToken
-		// In continuous (--interval) mode, retry the initial
-		// healthcheck with backoff instead of exiting: a brief
-		// server restart during the systemd timer firing is the
-		// common case and deserves to be absorbed silently. In
-		// one-shot mode we fall back to a single attempt so CI
-		// pipelines fail fast on misconfiguration.
+		// In continuous mode (scheduler configured), retry the initial
+		// healthcheck with backoff instead of exiting: a brief server
+		// restart during the timer firing is the common case and
+		// deserves to be absorbed silently. In one-shot mode we fall
+		// back to a single attempt so CI pipelines fail fast on
+		// misconfiguration.
 		attempts := healthCheckMaxAttempts
-		if agentInterval == 0 {
+		if sched == nil {
 			attempts = 1
 		}
 		if err := waitForServerReady(ctx, client, attempts); err != nil {
@@ -535,23 +554,6 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		fmt.Println("Config check passed — agent would run successfully with the settings above.")
 		return nil
 	}
-
-	// Resolve the schedule (cron, interval, or one-shot) once, up-front,
-	// so an invalid cron expression fails fast before any scan runs.
-	spec, err := resolved.source.ResolveSchedule(cmd, os.Stderr)
-	if err != nil {
-		return fmt.Errorf("resolving schedule: %w", err)
-	}
-	sched, err := newSchedulerFromSpec(spec)
-	if err != nil {
-		return fmt.Errorf("building scheduler: %w", err)
-	}
-	if sched != nil {
-		fmt.Printf("  schedule:    %s\n", sched.Describe())
-	} else {
-		fmt.Println("  schedule:    one-shot (no interval or schedule configured)")
-	}
-	fmt.Println()
 
 	for {
 		if err := runAgentScan(ctx, activeGuard, resolved, client); err != nil {
@@ -697,8 +699,6 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 				strings.Join(r.formatsFilteredOut, ", "))
 		}
 	}
-
-	fmt.Println()
 }
 
 // runAgentScan executes one scan iteration. When client is non-nil

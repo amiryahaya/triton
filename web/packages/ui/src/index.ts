@@ -31,3 +31,6 @@ export type { Column } from './composite/TDataTable.vue';
 export { default as TModal } from './composite/TModal.vue';
 export { default as TConfirmDialog } from './composite/TConfirmDialog.vue';
 export { useFocusTrap } from './composables/useFocusTrap';
+export { useToast } from './composables/useToast';
+export type { ToastKind, ToastInput } from './composables/useToast';
+export { default as TToastHost } from './composite/TToastHost.vue';

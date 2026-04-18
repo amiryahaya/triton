@@ -205,6 +205,44 @@ ssh host "rm /tmp/triton"
 
 **Compatibility:** All flags work on Linux, macOS, and Windows. Cancellation uses a file-flag (not signals) for cross-platform parity.
 
+### Fleet scan
+
+Fan out `triton scan` across a host inventory via SSH. For each unix host, fleet-scan pushes the triton binary, runs `triton scan --detach`, polls until terminal, collects reports, and cleans up. Reuses the same inventory + credentials format as `device-scan`.
+
+```bash
+# Basic fleet scan, local output
+triton fleet-scan --inventory /etc/triton/devices.yaml \
+                  --credentials /etc/triton/credentials.yaml \
+                  --output-dir ./scans/ --profile standard
+
+# Production: upload to central server, cap failures at 5
+triton fleet-scan --inventory /etc/triton/devices.yaml \
+                  --credentials /etc/triton/credentials.yaml \
+                  --report-server https://triton.corp.internal \
+                  --concurrency 50 --max-failures 5 \
+                  --profile standard --max-memory 2GB
+
+# Dry-run: verify inventory + SSH connectivity without scanning
+triton fleet-scan --inventory /etc/triton/devices.yaml \
+                  --credentials /etc/triton/credentials.yaml \
+                  --dry-run
+
+# Continuous mode (daily)
+triton fleet-scan --inventory /etc/triton/devices.yaml \
+                  --credentials /etc/triton/credentials.yaml \
+                  --report-server https://triton.corp.internal \
+                  --interval 24h
+```
+
+**Requirements on target hosts:**
+- SSH access with key-based auth
+- NOPASSWD sudo configured if `sudo: true` in inventory
+- Local binary arch must match the target arch (override per-device with `device.binary`)
+
+**Exit codes:** `0` all succeeded, `2` some failed, `3` max-failures threshold exceeded.
+
+**Output layout:** `<output-dir>/<YYYY-MM-DDTHH-MM-SS>/summary.{json,txt}` + `hosts/<name>.tar.gz` per successful host.
+
 ## Scanning Categories
 
 Triton covers all 9 CBOM categories plus enterprise infrastructure with **31 scanner modules**:

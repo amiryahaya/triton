@@ -39,6 +39,16 @@ devices:
     port: 830
     credential: juniper-netconf
 
+  # Fleet-scan example: per-device binary override + skip flags
+  - name: aix-special-1
+    type: unix
+    address: 10.0.2.5
+    credential: aix-ssh
+    binary: /opt/triton-binaries/triton-aix-ppc64  # used by fleet-scan; device-scan ignores
+    work_dir: /var/tmp                              # fleet-scan will drop binary here
+    # skip_fleet: false                             # default: include in fleet-scan
+    # skip_device: false                            # default: include in device-scan
+
 groups:
   - name: production
     members: [web-srv1, edge-router-1, core-srx-1]

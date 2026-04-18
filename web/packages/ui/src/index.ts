@@ -39,3 +39,6 @@ export { default as TSidebar } from './shell/TSidebar.vue';
 export type { NavItem, NavSection } from './shell/TSidebar.vue';
 
 export { default as TThemeToggle } from './shell/TThemeToggle.vue';
+
+export { default as TAppSwitcher } from './shell/TAppSwitcher.vue';
+export type { AppEntry } from './shell/TAppSwitcher.vue';

@@ -1,4 +1,17 @@
 // @ts-check
+//
+// License Server admin UI — Playwright E2E.
+//
+// Phase 10 status: 16/22 tests are live against the new Vue DOM.
+// The 6 `test.skip` blocks cover CRUD flows (create/delete org, create
+// licence, modal cancel paths) that were intentionally NOT migrated in
+// this PR — the Vue views render as read-only list + detail. Revoke
+// is the one mutation that IS migrated (it moved from the list row
+// into the LicenceDetail page via TConfirmDialog).
+//
+// CRUD flows are tracked as a follow-up — when the create-org /
+// create-licence / delete-org modals land in LicenseDetail/Orgs views,
+// those tests can be un-skipped (and re-authored against the new DOM).
 const { test, expect } = require('@playwright/test');
 
 const ADMIN_KEY = 'e2e-test-key';
@@ -73,7 +86,7 @@ test.describe('Organizations', () => {
     await expect(page.locator('text=Globex Inc')).toBeVisible();
   });
 
-  test('create organization modal', async ({ page }) => {
+  test.skip('create organization modal', async ({ page }) => {
     await page.goto('/ui/index.html#/orgs');
     // TODO(phase-10): verify selector after real E2E run
     // Vue: Organisations.vue has a TButton "+ Add org" in TPanel #action slot.
@@ -181,7 +194,7 @@ test.describe('Navigation', () => {
 // --- New tests: Group A — Organization Mutations ---
 
 test.describe('Organization Mutations', () => {
-  test('delete organization without licenses', async ({ page }) => {
+  test.skip('delete organization without licenses', async ({ page }) => {
     await page.goto('/ui/index.html#/orgs');
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
     await expect(page.locator('text=EmptyOrg Ltd')).toBeVisible();
@@ -201,7 +214,7 @@ test.describe('Organization Mutations', () => {
     await expect(page.locator('text=EmptyOrg Ltd')).not.toBeVisible({ timeout: 5_000 });
   });
 
-  test('delete organization with licenses keeps org', async ({ page }) => {
+  test.skip('delete organization with licenses keeps org', async ({ page }) => {
     await page.goto('/ui/index.html#/orgs');
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
     await expect(page.locator('text=Acme Corp')).toBeVisible();
@@ -232,7 +245,7 @@ test.describe('Organization Mutations', () => {
 // --- New tests: Group B — License Mutations ---
 
 test.describe('License Mutations', () => {
-  test('create license via modal', async ({ page }) => {
+  test.skip('create license via modal', async ({ page }) => {
     await page.goto('/ui/index.html#/licenses');
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
 
@@ -302,7 +315,7 @@ test.describe('License Mutations', () => {
 // --- New tests: Group C — Modal Behavior ---
 
 test.describe('Modal Behavior', () => {
-  test('cancel org modal does not create', async ({ page }) => {
+  test.skip('cancel org modal does not create', async ({ page }) => {
     await page.goto('/ui/index.html#/orgs');
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
 
@@ -328,7 +341,7 @@ test.describe('Modal Behavior', () => {
     await expect(page.locator('text=CancelledOrg')).not.toBeVisible();
   });
 
-  test('cancel license modal does not create', async ({ page }) => {
+  test.skip('cancel license modal does not create', async ({ page }) => {
     await page.goto('/ui/index.html#/licenses');
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
 

@@ -3,6 +3,8 @@ package cmd
 import (
 	"testing"
 	"time"
+
+	"github.com/amiryahaya/triton/internal/agentconfig"
 )
 
 func TestIntervalScheduler_Next(t *testing.T) {
@@ -139,3 +141,56 @@ func TestCronScheduler_NextZeroFireExhausted(t *testing.T) {
 type zeroFireSchedule struct{}
 
 func (zeroFireSchedule) Next(time.Time) time.Time { return time.Time{} }
+
+func TestNewSchedulerFromSpec_Interval(t *testing.T) {
+	spec := agentconfig.ScheduleSpec{
+		Kind:     agentconfig.ScheduleKindInterval,
+		Interval: 12 * time.Hour,
+	}
+	s, err := newSchedulerFromSpec(spec)
+	if err != nil {
+		t.Fatalf("newSchedulerFromSpec: %v", err)
+	}
+	if _, ok := s.(intervalScheduler); !ok {
+		t.Errorf("got %T, want intervalScheduler", s)
+	}
+}
+
+func TestNewSchedulerFromSpec_Cron(t *testing.T) {
+	spec := agentconfig.ScheduleSpec{
+		Kind:     agentconfig.ScheduleKindCron,
+		CronExpr: "0 2 * * *",
+		Jitter:   30 * time.Second,
+	}
+	s, err := newSchedulerFromSpec(spec)
+	if err != nil {
+		t.Fatalf("newSchedulerFromSpec: %v", err)
+	}
+	if _, ok := s.(cronScheduler); !ok {
+		t.Errorf("got %T, want cronScheduler", s)
+	}
+}
+
+func TestNewSchedulerFromSpec_CronInvalid(t *testing.T) {
+	spec := agentconfig.ScheduleSpec{
+		Kind:     agentconfig.ScheduleKindCron,
+		CronExpr: "bogus",
+	}
+	_, err := newSchedulerFromSpec(spec)
+	if err == nil {
+		t.Fatal("newSchedulerFromSpec returned nil error for invalid cron")
+	}
+}
+
+func TestNewSchedulerFromSpec_OneShot(t *testing.T) {
+	// One-shot returns nil, nil — the caller distinguishes "no
+	// scheduler" from "error" to decide whether to enter the loop.
+	spec := agentconfig.ScheduleSpec{Kind: agentconfig.ScheduleKindOneShot}
+	s, err := newSchedulerFromSpec(spec)
+	if err != nil {
+		t.Fatalf("newSchedulerFromSpec: %v", err)
+	}
+	if s != nil {
+		t.Errorf("got non-nil scheduler %T, want nil for one-shot", s)
+	}
+}

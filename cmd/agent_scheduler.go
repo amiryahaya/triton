@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+
+	"github.com/amiryahaya/triton/internal/agentconfig"
 )
 
 // scheduler computes when the next agent scan should fire. It is
@@ -130,3 +132,28 @@ var (
 	_ scheduler = intervalScheduler{}
 	_ scheduler = cronScheduler{}
 )
+
+// intervalJitterPct is the ±jitter fraction applied in interval mode.
+// Extracted as a constant so the scheduler and startup banner can
+// quote the same number.
+const intervalJitterPct = 0.10
+
+// newSchedulerFromSpec builds the runtime scheduler from a resolved
+// ScheduleSpec. Returns (nil, nil) for one-shot mode so the agent
+// loop can short-circuit. Returns an error only when the spec is
+// syntactically unusable (currently: invalid cron expression).
+func newSchedulerFromSpec(spec agentconfig.ScheduleSpec) (scheduler, error) {
+	switch spec.Kind {
+	case agentconfig.ScheduleKindCron:
+		return newCronScheduler(spec.CronExpr, spec.Jitter)
+	case agentconfig.ScheduleKindInterval:
+		return intervalScheduler{
+			interval:  spec.Interval,
+			jitterPct: intervalJitterPct,
+		}, nil
+	case agentconfig.ScheduleKindOneShot:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown schedule kind %q", spec.Kind)
+	}
+}

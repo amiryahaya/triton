@@ -98,6 +98,18 @@ type LicenseRecord struct {
 	SoftBufferPct int      `json:"soft_buffer_pct"`
 	ProductScope  string   `json:"product_scope"`
 
+	// Portal-pushed schedule fields (migration 6).
+	// Schedule is an optional cron expression pushed to the agent on
+	// /validate. Empty string (DB NULL) means "no override; agent uses
+	// its local agent.yaml schedule/interval." See
+	// docs/plans/2026-04-19-portal-pushed-schedule-design.md.
+	Schedule string `json:"schedule"`
+
+	// ScheduleJitter is the optional jitter bound in seconds applied on
+	// top of the cron fire time. 0 disables. Only meaningful when
+	// Schedule is non-empty.
+	ScheduleJitter int `json:"scheduleJitterSeconds"`
+
 	// Populated by joins, not stored directly.
 	OrgName   string `json:"orgName,omitempty"`
 	SeatsUsed int    `json:"seatsUsed,omitempty"`

@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -137,6 +140,55 @@ func (s *SSHClient) Run(ctx context.Context, command string) (string, error) {
 		_ = session.Signal(ssh.SIGKILL)
 		return stdout.String(), fmt.Errorf("command %q: %w", command, cmdCtx.Err())
 	}
+}
+
+// Upload copies localPath to the remote host at remotePath with the given
+// file mode via the SFTP subsystem. Creates remote parent directory via
+// MkdirAll if needed. Fails fast if localPath does not exist.
+func (s *SSHClient) Upload(ctx context.Context, localPath, remotePath string, mode os.FileMode) error {
+	local, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("open local file %s: %w", localPath, err)
+	}
+	defer func() { _ = local.Close() }()
+
+	client, err := sftp.NewClient(s.client)
+	if err != nil {
+		return fmt.Errorf("open sftp subsystem: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	remoteDir := remoteDirOf(remotePath)
+	if remoteDir != "" && remoteDir != "/" {
+		if err := client.MkdirAll(remoteDir); err != nil {
+			return fmt.Errorf("mkdir remote dir %s: %w", remoteDir, err)
+		}
+	}
+
+	remote, err := client.Create(remotePath)
+	if err != nil {
+		return fmt.Errorf("create remote file %s: %w", remotePath, err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	if _, err := io.Copy(remote, local); err != nil {
+		return fmt.Errorf("copy to remote: %w", err)
+	}
+	if err := client.Chmod(remotePath, mode); err != nil {
+		return fmt.Errorf("chmod remote file: %w", err)
+	}
+	_ = ctx
+	return nil
+}
+
+// remoteDirOf returns the directory portion of a POSIX path.
+func remoteDirOf(p string) string {
+	for i := len(p) - 1; i >= 0; i-- {
+		if p[i] == '/' {
+			return p[:i]
+		}
+	}
+	return ""
 }
 
 // Close releases the SSH connection.

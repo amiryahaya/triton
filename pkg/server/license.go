@@ -26,7 +26,9 @@ func LicenceGate(guard *license.Guard) func(http.Handler) http.Handler {
 			path := r.URL.Path
 			if isDiffTrendPath(path) {
 				if !guard.HasFeature("diff_trend") {
-					writeError(w, http.StatusForbidden, "licence does not grant diff/trend access")
+					// Phrasing preserves the pre-v2 "higher licence tier" token
+				// so existing clients parsing this error keep working.
+				writeError(w, http.StatusForbidden, "licence does not grant diff/trend — requires a higher licence tier")
 					return
 				}
 			}

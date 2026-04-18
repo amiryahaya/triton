@@ -188,7 +188,7 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 	}()
 
 	// 7. Launch detached scan.
-	launchCmd := BuildLaunchCommand(remotePath, d.Sudo, cfg.ScanFlags)
+	launchCmd := BuildLaunchCommand(remotePath, d.Sudo, workDir, cfg.ScanFlags)
 	launchOut, err := runner.Run(ctx, launchCmd)
 	if err != nil {
 		res.Fail("launch", fmt.Errorf("%w (output: %s)", err, launchOut))

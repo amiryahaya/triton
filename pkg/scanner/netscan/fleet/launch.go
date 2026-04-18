@@ -9,10 +9,12 @@ import (
 // uuidPattern matches a canonical UUIDv4 string.
 var uuidPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 
-// BuildLaunchCommand assembles the remote `triton scan --detach --quiet
+// BuildLaunchCommand assembles the remote `triton --detach --quiet
 // [forwarded flags]` command string. Prepends `sudo ` if useSudo is true.
-// Omits empty/zero ScanFlags fields.
-func BuildLaunchCommand(remoteBinary string, useSudo bool, f ScanFlags) string {
+// workDir, if non-empty, is passed as `--work-dir` so status/collect
+// can find the job later regardless of HOME differences between sudo
+// and non-sudo SSH sessions. Omits empty/zero ScanFlags fields.
+func BuildLaunchCommand(remoteBinary string, useSudo bool, workDir string, f ScanFlags) string {
 	parts := []string{}
 	if useSudo {
 		parts = append(parts, "sudo")
@@ -20,6 +22,9 @@ func BuildLaunchCommand(remoteBinary string, useSudo bool, f ScanFlags) string {
 	// Note: triton's scan is the ROOT command (not a subcommand), so the
 	// invocation is `triton --detach ...` not `triton scan --detach ...`.
 	parts = append(parts, remoteBinary, "--detach", "--quiet")
+	if workDir != "" {
+		parts = append(parts, "--work-dir", workDir)
+	}
 
 	if f.Profile != "" {
 		parts = append(parts, "--profile", f.Profile)

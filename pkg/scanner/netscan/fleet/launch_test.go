@@ -8,7 +8,7 @@ import (
 
 func TestBuildLaunchCommand_NoSudo(t *testing.T) {
 	flags := ScanFlags{Profile: "standard", Format: "all"}
-	got := BuildLaunchCommand("/tmp/.triton-abc", false, flags)
+	got := BuildLaunchCommand("/tmp/.triton-abc", false, "", flags)
 	want := `/tmp/.triton-abc --detach --quiet --profile standard --format all`
 	if got != want {
 		t.Errorf("BuildLaunchCommand:\ngot:  %s\nwant: %s", got, want)
@@ -17,9 +17,16 @@ func TestBuildLaunchCommand_NoSudo(t *testing.T) {
 
 func TestBuildLaunchCommand_WithSudo(t *testing.T) {
 	flags := ScanFlags{Profile: "quick"}
-	got := BuildLaunchCommand("/tmp/.triton-abc", true, flags)
+	got := BuildLaunchCommand("/tmp/.triton-abc", true, "", flags)
 	if !strings.HasPrefix(got, "sudo ") {
 		t.Errorf("sudo prefix missing: %s", got)
+	}
+}
+
+func TestBuildLaunchCommand_WorkDirForwarded(t *testing.T) {
+	got := BuildLaunchCommand("/tmp/.triton-abc", false, "/var/tmp/triton-jobs", ScanFlags{})
+	if !strings.Contains(got, "--work-dir /var/tmp/triton-jobs") {
+		t.Errorf("--work-dir not forwarded: %s", got)
 	}
 }
 
@@ -35,7 +42,7 @@ func TestBuildLaunchCommand_AllFlagsForwarded(t *testing.T) {
 		Nice:          10,
 		LicenseKey:    "test-token-abc",
 	}
-	got := BuildLaunchCommand("/remote/triton", true, flags)
+	got := BuildLaunchCommand("/remote/triton", true, "", flags)
 	for _, want := range []string{
 		"sudo",
 		"--detach", "--quiet",
@@ -56,7 +63,7 @@ func TestBuildLaunchCommand_AllFlagsForwarded(t *testing.T) {
 }
 
 func TestBuildLaunchCommand_OmitsEmpty(t *testing.T) {
-	got := BuildLaunchCommand("/tmp/t", false, ScanFlags{})
+	got := BuildLaunchCommand("/tmp/t", false, "", ScanFlags{})
 	if strings.Contains(got, "--profile ") {
 		t.Errorf("empty profile should be omitted: %s", got)
 	}

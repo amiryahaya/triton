@@ -692,6 +692,14 @@ func (s *PostgresStore) ExecForTest(ctx context.Context, sql string, args ...any
 	return s.pool.Exec(ctx, sql, args...)
 }
 
+// QueryRowForTest exposes pool.QueryRow for integration tests that need
+// to inspect schema state (e.g., verifying migration side-effects).
+// Not part of the Store interface — only available on the concrete
+// PostgresStore.
+func (s *PostgresStore) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.Row {
+	return s.pool.QueryRow(ctx, sql, args...)
+}
+
 // --- Audit ---
 
 func (s *PostgresStore) WriteAudit(ctx context.Context, entry *AuditEntry) error {

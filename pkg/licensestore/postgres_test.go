@@ -986,3 +986,47 @@ func TestActivate_NoReapWhenThresholdZero(t *testing.T) {
 	var sf *licensestore.ErrSeatsFull
 	assert.ErrorAs(t, err, &sf, "should return ErrSeatsFull when threshold is zero even if stale seats exist")
 }
+
+// --- Migration v5 Tests ---
+
+// TestMigration_V5AddsV2ColumnsAndUsageTable verifies that the v5 migration
+// correctly adds the four new columns to licenses and creates the
+// license_usage table with its composite primary key.
+func TestMigration_V5AddsV2ColumnsAndUsageTable(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	// Column presence check on licenses — expect all 4 v2 columns.
+	var ncol int
+	err := s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_name='licenses'
+		  AND column_name IN ('features','limits','soft_buffer_pct','product_scope')
+	`).Scan(&ncol)
+	require.NoError(t, err)
+	assert.Equal(t, 4, ncol, "expected 4 v2 columns on licenses table")
+
+	// license_usage table must exist with a primary key constraint.
+	var nkey int
+	err = s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM information_schema.table_constraints
+		WHERE table_name='license_usage' AND constraint_type='PRIMARY KEY'
+	`).Scan(&nkey)
+	require.NoError(t, err)
+	assert.Equal(t, 1, nkey, "expected license_usage primary key constraint")
+
+	// Default values: insert a license and verify new column defaults.
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	lic := makeLicense(t, org.ID)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	var productScope string
+	var softBufPct int
+	err = s.QueryRowForTest(ctx,
+		`SELECT product_scope, soft_buffer_pct FROM licenses WHERE id = $1`, lic.ID,
+	).Scan(&productScope, &softBufPct)
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", productScope, "default product_scope should be 'legacy'")
+	assert.Equal(t, 10, softBufPct, "default soft_buffer_pct should be 10")
+}

@@ -111,4 +111,25 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);`,
+
+	// Version 5: License Server v2 — feature flags + per-metric limits + usage tracking.
+	`ALTER TABLE licenses
+		ADD COLUMN IF NOT EXISTS features          JSONB    NOT NULL DEFAULT '{}',
+		ADD COLUMN IF NOT EXISTS limits            JSONB    NOT NULL DEFAULT '[]',
+		ADD COLUMN IF NOT EXISTS soft_buffer_pct   SMALLINT NOT NULL DEFAULT 10 CHECK (soft_buffer_pct BETWEEN 0 AND 25),
+		ADD COLUMN IF NOT EXISTS product_scope     TEXT     NOT NULL DEFAULT 'legacy'
+			CHECK (product_scope IN ('legacy','report','manage','bundle'));
+
+	CREATE TABLE IF NOT EXISTS license_usage (
+		license_id   UUID        NOT NULL REFERENCES licenses(id) ON DELETE CASCADE,
+		instance_id  UUID        NOT NULL,
+		metric       TEXT        NOT NULL,
+		"window"     TEXT        NOT NULL,
+		value        BIGINT      NOT NULL,
+		reported_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (license_id, instance_id, metric, "window")
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_license_usage_reported_at ON license_usage(reported_at);
+	CREATE INDEX IF NOT EXISTS idx_license_usage_license_metric ON license_usage(license_id, metric, "window");`,
 }

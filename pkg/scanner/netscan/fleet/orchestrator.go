@@ -50,8 +50,8 @@ func (o *Orchestrator) Run(ctx context.Context, devices []netscan.Device, creds 
 	defer cancelRun()
 
 	queue := make(chan netscan.Device, len(devices))
-	for _, d := range devices {
-		queue <- d
+	for i := range devices {
+		queue <- devices[i]
 	}
 	close(queue)
 
@@ -122,7 +122,7 @@ func scanHost(ctx context.Context, d *netscan.Device, creds *netscan.CredentialS
 	}
 
 	// 2. Compose address with port (default 22).
-	addr := d.Address
+	var addr string
 	if d.Port > 0 {
 		addr = fmt.Sprintf("%s:%d", d.Address, d.Port)
 	} else {

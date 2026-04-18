@@ -155,9 +155,10 @@ func (inv *Inventory) DevicesByGroup(groupName string) ([]Device, error) {
 // pushes a unix binary.
 func (i *Inventory) DevicesForFleet() []Device {
 	out := make([]Device, 0, len(i.Devices))
-	for _, d := range i.Devices {
+	for j := range i.Devices {
+		d := &i.Devices[j]
 		if d.Type == "unix" && !d.SkipFleet {
-			out = append(out, d)
+			out = append(out, *d)
 		}
 	}
 	return out
@@ -167,9 +168,10 @@ func (i *Inventory) DevicesForFleet() []Device {
 // (i.e. not SkipDevice). Type filtering is left to the caller.
 func (i *Inventory) DevicesForDeviceScan() []Device {
 	out := make([]Device, 0, len(i.Devices))
-	for _, d := range i.Devices {
+	for j := range i.Devices {
+		d := &i.Devices[j]
 		if !d.SkipDevice {
-			out = append(out, d)
+			out = append(out, *d)
 		}
 	}
 	return out

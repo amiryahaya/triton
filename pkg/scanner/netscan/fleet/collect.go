@@ -52,7 +52,7 @@ func CollectTar(ctx context.Context, r SSHRunner, remoteBinary, jobID, outputDir
 	if err != nil {
 		return "", fmt.Errorf("run collect cmd: %w", err)
 	}
-	if len(stdout) == 0 {
+	if stdout == "" {
 		return "", fmt.Errorf("collect returned empty stream for job %s", jobID)
 	}
 

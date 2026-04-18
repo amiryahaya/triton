@@ -84,7 +84,7 @@ func (c *FleetConfig) Validate() error {
 		return errors.New("CredentialsPath is required")
 	}
 	if c.Concurrency <= 0 {
-		return errors.New("Concurrency must be > 0")
+		return errors.New("concurrency must be > 0")
 	}
 	if c.DeviceTimeout <= 0 {
 		return errors.New("DeviceTimeout must be > 0")

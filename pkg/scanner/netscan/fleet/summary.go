@@ -44,7 +44,8 @@ type summaryJSON struct {
 func WriteSummary(outputDir string, in SummaryInput) error {
 	succeeded, failed := 0, 0
 	hosts := make([]hostLine, len(in.Results))
-	for i, r := range in.Results {
+	for i := range in.Results {
+		r := &in.Results[i]
 		hl := hostLine{
 			Device:     r.Device,
 			Duration:   r.Duration.Round(time.Second).String(),
@@ -112,7 +113,8 @@ func formatSummaryText(sj summaryJSON, results []HostResult) string {
 	fmt.Fprintf(&b, " └─ Failed:       %d\n\n", sj.Counts["failed"])
 
 	totalFindings := 0
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if r.IsSuccess() && r.Status != nil {
 			totalFindings += r.Status.FindingsCount
 		}
@@ -121,7 +123,8 @@ func formatSummaryText(sj summaryJSON, results []HostResult) string {
 
 	if sj.Counts["succeeded"] > 0 {
 		fmt.Fprintln(&b, "Succeeded hosts:")
-		for _, r := range results {
+		for i := range results {
+			r := &results[i]
 			if r.IsSuccess() {
 				n := 0
 				if r.Status != nil {
@@ -136,7 +139,8 @@ func formatSummaryText(sj summaryJSON, results []HostResult) string {
 
 	if sj.Counts["failed"] > 0 {
 		fmt.Fprintln(&b, "Failed hosts:")
-		for _, r := range results {
+		for i := range results {
+			r := &results[i]
 			if !r.IsSuccess() {
 				errStr := ""
 				if r.Err != nil {
@@ -157,8 +161,8 @@ func formatSummaryText(sj summaryJSON, results []HostResult) string {
 // failOnAny elevates any failure to exit 1 for strict CI gates.
 func ExitCodeFor(results []HostResult, failOnAny bool) int {
 	failed := 0
-	for _, r := range results {
-		if !r.IsSuccess() {
+	for i := range results {
+		if !results[i].IsSuccess() {
 			failed++
 		}
 	}

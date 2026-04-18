@@ -84,7 +84,18 @@ func init() {
 	rootCmd.AddCommand(fleetScanCmd)
 }
 
-func runFleetScan(_ *cobra.Command, _ []string) error {
+func runFleetScan(cmd *cobra.Command, args []string) error {
+	code, err := runFleetScanImpl(cmd, args)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		os.Exit(code)
+	}
+	return nil
+}
+
+func runFleetScanImpl(_ *cobra.Command, _ []string) (int, error) {
 	cfg := fleet.FleetConfig{
 		InventoryPath:   fsInventory,
 		CredentialsPath: fsCredentials,
@@ -116,36 +127,36 @@ func runFleetScan(_ *cobra.Command, _ []string) error {
 		cfg.BinaryOverride = os.Args[0]
 	}
 	if err := cfg.Validate(); err != nil {
-		return err
+		return 0, err
 	}
 	// --report-server streaming upload currently requires --output-dir
 	// because the uploader extracts result.json from the collected tar.
 	// Pure-upload (no local tar) is a follow-up feature.
 	if cfg.ReportServerURL != "" && cfg.OutputDir == "" {
-		return fmt.Errorf("--report-server currently requires --output-dir (upload from collected tar; full streaming upload is a follow-up feature)")
+		return 0, fmt.Errorf("--report-server currently requires --output-dir (upload from collected tar; full streaming upload is a follow-up feature)")
 	}
 
 	inv, err := netscan.LoadInventory(cfg.InventoryPath)
 	if err != nil {
-		return fmt.Errorf("load inventory: %w", err)
+		return 0, fmt.Errorf("load inventory: %w", err)
 	}
 	creds, err := netscan.LoadCredentials(cfg.CredentialsPath)
 	if err != nil {
-		return fmt.Errorf("load credentials: %w", err)
+		return 0, fmt.Errorf("load credentials: %w", err)
 	}
 
 	devices := inv.DevicesForFleet()
 	if cfg.Group != "" {
 		byGroup, err := inv.DevicesByGroup(cfg.Group)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		devices = filterFleetIntersection(devices, byGroup)
 	}
 	if cfg.DeviceName != "" {
 		devices = filterFleetByName(devices, cfg.DeviceName)
 		if len(devices) == 0 {
-			return fmt.Errorf("device not found in inventory: %s", cfg.DeviceName)
+			return 0, fmt.Errorf("device not found in inventory: %s", cfg.DeviceName)
 		}
 	}
 
@@ -187,20 +198,20 @@ func runFleetScan(_ *cobra.Command, _ []string) error {
 	}
 
 	// Print one-line summary per host to stdout.
-	for _, r := range results {
-		fmt.Println(r)
+	for i := range results {
+		fmt.Println(results[i])
 	}
 
 	// Exit code.
 	if runErr != nil {
 		// MaxFailures circuit-breaker → exit 3.
 		fmt.Fprintln(os.Stderr, "error:", runErr)
-		os.Exit(3)
+		return 3, nil
 	}
 	if code := fleet.ExitCodeFor(results, false); code != 0 {
-		os.Exit(code)
+		return code, nil
 	}
-	return nil
+	return 0, nil
 }
 
 // sshDialerImpl satisfies fleet.SSHDialer using transport.SSHClient.
@@ -222,13 +233,13 @@ func (*sshDialerImpl) Dial(ctx context.Context, addr, user string, key []byte, p
 // filterFleetIntersection returns devices present in both a and b.
 func filterFleetIntersection(a, b []netscan.Device) []netscan.Device {
 	names := make(map[string]bool, len(b))
-	for _, d := range b {
-		names[d.Name] = true
+	for i := range b {
+		names[b[i].Name] = true
 	}
 	out := make([]netscan.Device, 0, len(a))
-	for _, d := range a {
-		if names[d.Name] {
-			out = append(out, d)
+	for i := range a {
+		if names[a[i].Name] {
+			out = append(out, a[i])
 		}
 	}
 	return out
@@ -236,9 +247,9 @@ func filterFleetIntersection(a, b []netscan.Device) []netscan.Device {
 
 // filterFleetByName returns the subset of devices whose Name equals name.
 func filterFleetByName(devs []netscan.Device, name string) []netscan.Device {
-	for _, d := range devs {
-		if d.Name == name {
-			return []netscan.Device{d}
+	for i := range devs {
+		if devs[i].Name == name {
+			return []netscan.Device{devs[i]}
 		}
 	}
 	return nil

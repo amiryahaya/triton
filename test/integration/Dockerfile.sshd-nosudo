@@ -1,0 +1,14 @@
+FROM debian:stable-slim
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssh-server sudo ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+RUN useradd -m -s /bin/bash triton-test
+# NOTE: no NOPASSWD entry — sudo -n true will fail.
+RUN mkdir -p /run/sshd /home/triton-test/.ssh && chmod 700 /home/triton-test/.ssh
+COPY testdata/fleet/test_ed25519.pub /home/triton-test/.ssh/authorized_keys
+RUN chown -R triton-test:triton-test /home/triton-test/.ssh && \
+    chmod 600 /home/triton-test/.ssh/authorized_keys
+RUN sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

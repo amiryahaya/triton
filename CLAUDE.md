@@ -120,6 +120,10 @@ The `triton scan` command accepts five resource flags — `--max-memory`, `--max
 
 The `triton scan` command accepts six lifecycle flags — `--detach`, `--status`, `--collect`, `--cancel`, `--list-jobs`, `--cleanup` — implemented in `internal/runtime/jobrunner/`. A detached scan fork-exec's itself with `TRITON_DETACHED=1`, writes state to `~/.triton/jobs/<job-id>/`, and reuses the same `Limits.Apply()` pipeline as foreground scans. Cancellation is cooperative via `cancel.flag` for cross-platform parity. See `internal/runtime/jobrunner/doc.go` for caveats and `docs/plans/2026-04-18-job-runner-design.md` for the design spec.
 
+### Fleet scan
+
+The `triton fleet-scan` command (new in PR #74) orchestrates SSH fan-out of `triton scan --detach` across a host inventory. Implemented in `pkg/scanner/netscan/fleet/`. Reuses the existing netscan inventory + credentials formats (devices.yaml with `type: unix` entries), the `--detach` lifecycle from PR #72, and the resource limit flags from PR #71. Output: `<output-dir>/<timestamp>/summary.{json,txt}` + `hosts/<name>.tar.gz`. Also renamed `network-scan` → `device-scan` with deprecation alias. See `docs/plans/2026-04-18-fleet-scan-design.md` for the design spec.
+
 ### Licence enforcement
 
 3-tier system (free/pro/enterprise) with Ed25519-signed tokens in `internal/license/`:

@@ -84,6 +84,23 @@ func (s *CredentialStore) All() []Credential {
 	return out
 }
 
+// NewInMemoryStore builds a CredentialStore from a slice of credentials
+// without going through the encrypted on-disk path. Intended for tests
+// and in-process orchestration that constructs credentials
+// programmatically.
+//
+// Duplicate Name entries are rejected; the last-wins behavior used by
+// LoadCredentials is intentionally NOT mirrored here so callers get an
+// explicit panic rather than silent data loss in tests.
+func NewInMemoryStore(creds []Credential) *CredentialStore {
+	s := &CredentialStore{creds: make(map[string]*Credential, len(creds))}
+	for i := range creds {
+		c := creds[i]
+		s.creds[c.Name] = &c
+	}
+	return s
+}
+
 // SaveCredentials encrypts and writes the credential store to path.
 func SaveCredentials(path string, creds []Credential) error {
 	key, err := loadKey()

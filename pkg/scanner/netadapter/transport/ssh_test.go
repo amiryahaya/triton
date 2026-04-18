@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,4 +49,17 @@ func TestBuildAuth_PasswordOnly(t *testing.T) {
 	methods, err := buildAuth(SSHConfig{Username: "u", Password: "p"})
 	require.NoError(t, err)
 	assert.Len(t, methods, 1)
+}
+
+func TestSSHClient_Upload_LocalFileValidation(t *testing.T) {
+	// Upload must reject nonexistent local file with a clear error,
+	// without requiring a real SSH connection (short-circuits on stat).
+	c := &SSHClient{cmdTimeout: 5 * time.Second}
+	err := c.Upload(context.Background(), "/nonexistent/file/triton", "/tmp/out", 0o755)
+	if err == nil {
+		t.Fatal("Upload should fail on nonexistent local file")
+	}
+	if !strings.Contains(err.Error(), "open local file") {
+		t.Errorf("error should mention 'open local file', got %v", err)
+	}
 }

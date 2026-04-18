@@ -36,6 +36,12 @@ type Device struct {
 	ScanPaths        []string `yaml:"scan_paths"`        // unix only
 	Sudo             bool     `yaml:"sudo"`
 	OSHint           string   `yaml:"os_hint"` // linux | macos | aix
+
+	// Fleet-scan extensions:
+	Binary     string `yaml:"binary,omitempty"`
+	WorkDir    string `yaml:"work_dir,omitempty"`
+	SkipFleet  bool   `yaml:"skip_fleet,omitempty"`
+	SkipDevice bool   `yaml:"skip_device,omitempty"`
 }
 
 // Group bundles devices for selective scans.
@@ -142,4 +148,31 @@ func (inv *Inventory) DevicesByGroup(groupName string) ([]Device, error) {
 		return out, nil
 	}
 	return nil, fmt.Errorf("group not found: %s", groupName)
+}
+
+// DevicesForFleet returns all unix-type devices that opt in to fleet-scan
+// (i.e. not SkipFleet). Non-unix devices are excluded because fleet-scan
+// pushes a unix binary.
+func (i *Inventory) DevicesForFleet() []Device {
+	out := make([]Device, 0, len(i.Devices))
+	for j := range i.Devices {
+		d := &i.Devices[j]
+		if d.Type == "unix" && !d.SkipFleet {
+			out = append(out, *d)
+		}
+	}
+	return out
+}
+
+// DevicesForDeviceScan returns all devices that opt in to device-scan
+// (i.e. not SkipDevice). Type filtering is left to the caller.
+func (i *Inventory) DevicesForDeviceScan() []Device {
+	out := make([]Device, 0, len(i.Devices))
+	for j := range i.Devices {
+		d := &i.Devices[j]
+		if !d.SkipDevice {
+			out = append(out, *d)
+		}
+	}
+	return out
 }

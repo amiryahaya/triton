@@ -151,7 +151,11 @@ func newSchedulerFromSpec(spec agentconfig.ScheduleSpec) (scheduler, error) {
 			interval:  spec.Interval,
 			jitterPct: intervalJitterPct,
 		}, nil
-	case agentconfig.ScheduleKindOneShot:
+	case agentconfig.ScheduleKindOneShot, "":
+		// Empty kind is treated as oneshot so a zero-value
+		// ScheduleSpec is safe to pass in without panicking —
+		// ResolveSchedule always sets a kind, but direct callers
+		// (tests, programmatic construction) shouldn't have to.
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown schedule kind %q", spec.Kind)

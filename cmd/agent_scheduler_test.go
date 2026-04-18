@@ -50,14 +50,14 @@ func containsFold(hay, needle string) bool {
 }
 
 func TestCronScheduler_NextDeterministic(t *testing.T) {
-	// "Every day at 02:00 local time". At 01:55 on 2026-04-19 the
-	// next fire is 5 minutes away.
+	// "Every day at 02:00". At 01:55 on 2026-04-19 the next fire is
+	// 5 minutes away. Pinned to UTC so DST transitions in the
+	// developer's local zone don't break the expected delta.
 	s, err := newCronScheduler("0 2 * * *", 0)
 	if err != nil {
 		t.Fatalf("newCronScheduler: %v", err)
 	}
-	loc, _ := time.LoadLocation("Local")
-	now := time.Date(2026, 4, 19, 1, 55, 0, 0, loc)
+	now := time.Date(2026, 4, 19, 1, 55, 0, 0, time.UTC)
 	got := s.Next(now)
 	if got != 5*time.Minute {
 		t.Errorf("Next() = %v, want 5m", got)
@@ -70,8 +70,7 @@ func TestCronScheduler_NextSteppedRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newCronScheduler: %v", err)
 	}
-	loc, _ := time.LoadLocation("Local")
-	now := time.Date(2026, 4, 19, 12, 7, 0, 0, loc)
+	now := time.Date(2026, 4, 19, 12, 7, 0, 0, time.UTC)
 	got := s.Next(now)
 	if got != 8*time.Minute {
 		t.Errorf("Next() = %v, want 8m", got)
@@ -84,8 +83,7 @@ func TestCronScheduler_JitterWithinBound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newCronScheduler: %v", err)
 	}
-	loc, _ := time.LoadLocation("Local")
-	now := time.Date(2026, 4, 19, 1, 55, 0, 0, loc)
+	now := time.Date(2026, 4, 19, 1, 55, 0, 0, time.UTC)
 	base := 5 * time.Minute
 	for i := 0; i < 50; i++ {
 		got := s.Next(now)

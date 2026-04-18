@@ -78,7 +78,7 @@ func init() {
 		panic(fmt.Sprintf("agent cmd: MarkDeprecated(server): %v", err))
 	}
 	agentCmd.Flags().StringVar(&agentProfile, "profile", "", "Scan profile: quick | standard | comprehensive. Overrides agent.yaml.")
-	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h). If unset, runs once.")
+	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h) with ±10% jitter. If unset, runs once. For wall-clock scheduling set `schedule:` in agent.yaml.")
 	agentCmd.Flags().BoolVar(&agentCheckConfig, "check-config", false, "Validate agent.yaml, probe the report server, print the effective config, then exit without scanning.")
 	agentCmd.Flags().BoolVar(&agentAlsoLocal, "also-local", false, "Tee mode: when --report-server is set, also write the scan to OutputDir locally. Overrides also_local in agent.yaml.")
 	rootCmd.AddCommand(agentCmd)
@@ -479,7 +479,7 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Deactivate on shutdown — covers both SIGINT/SIGTERM (loop exit
-	// via ctx.Done()) and one-shot completion (agentInterval == 0).
+	// via ctx.Done()) and one-shot completion (sched == nil).
 	defer deactivateOnShutdown(&seat)
 
 	// Now that activeGuard reflects the final tier, tier-filter

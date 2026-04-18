@@ -148,13 +148,13 @@ func (s *SSHClient) Run(ctx context.Context, command string) (string, error) {
 	}
 }
 
-// truncateErr returns s trimmed to max bytes plus an ellipsis if longer.
-func truncateErr(s string, max int) string {
+// truncateErr returns s trimmed to maxLen bytes plus an ellipsis if longer.
+func truncateErr(s string, maxLen int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= max {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max] + "…(truncated)"
+	return s[:maxLen] + "…(truncated)"
 }
 
 // Upload copies localPath to the remote host at remotePath with the given

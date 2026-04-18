@@ -20,3 +20,6 @@ export { default as TFormField } from './atoms/TFormField.vue';
 
 export { default as TToggle } from './atoms/TToggle.vue';
 export { default as TCheckbox } from './atoms/TCheckbox.vue';
+
+export { default as TAvatar } from './atoms/TAvatar.vue';
+export { default as TKbd } from './atoms/TKbd.vue';

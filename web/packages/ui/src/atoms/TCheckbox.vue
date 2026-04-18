@@ -41,6 +41,11 @@ function onClick() {
   cursor: pointer;
   padding: 0;
   font-family: var(--font-body);
+  border-radius: var(--radius-sm);
+}
+.t-check:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }
 .t-check-box {
   width: 14px; height: 14px;

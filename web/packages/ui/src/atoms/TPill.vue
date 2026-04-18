@@ -40,5 +40,5 @@ withDefaults(
 .t-pill--unsafe     { color: var(--unsafe);     background: var(--unsafe-muted);     border-color: var(--unsafe); }
 .t-pill--info       { color: var(--accent-strong); background: var(--accent-muted);  border-color: var(--accent-strong); }
 .t-pill--neutral    { color: var(--text-muted); background: var(--bg-elevated);      border-color: var(--border); }
-.t-pill--enterprise { color: #c4b5fd;           background: rgba(167,139,250,0.12);  border-color: rgba(167,139,250,0.35); }
+.t-pill--enterprise { color: var(--violet-text); background: var(--violet-soft);      border-color: var(--violet-border); }
 </style>

@@ -36,8 +36,11 @@ const text = computed(() => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #7c3aed);
-  color: var(--text-primary);
+  /* Gradient background is always coloured in both themes, so white text
+     is correct regardless of data-theme. Using --text-primary fails WCAG
+     AA in light mode (dark text on teal→violet gradient). */
+  background: linear-gradient(135deg, var(--accent), var(--violet));
+  color: #ffffff;
   font-family: var(--font-display);
   font-weight: 700;
   letter-spacing: -0.02em;

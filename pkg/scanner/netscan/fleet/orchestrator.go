@@ -2,9 +2,12 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +15,70 @@ import (
 	"github.com/amiryahaya/triton/internal/runtime/jobrunner"
 	"github.com/amiryahaya/triton/pkg/scanner/netscan"
 )
+
+// ErrMaxFailuresBreached is returned by Orchestrator.Run when
+// --max-failures N is exceeded.
+var ErrMaxFailuresBreached = errors.New("max-failures threshold exceeded")
+
+// Orchestrator runs scanHost across a slice of devices with a worker
+// pool bounded by FleetConfig.Concurrency.
+type Orchestrator struct {
+	cfg FleetConfig
+}
+
+// NewOrchestrator constructs an Orchestrator.
+func NewOrchestrator(cfg FleetConfig) *Orchestrator {
+	return &Orchestrator{cfg: cfg}
+}
+
+// Run scans each device in devices using a worker pool. Returns the
+// per-host results and any runtime error (ErrMaxFailuresBreached for
+// circuit-breaker trip).
+func (o *Orchestrator) Run(ctx context.Context, devices []netscan.Device, creds *netscan.CredentialStore) ([]HostResult, error) {
+	results := make([]HostResult, 0, len(devices))
+	var mu sync.Mutex
+	var failures atomic.Int32
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	queue := make(chan netscan.Device, len(devices))
+	for _, d := range devices {
+		queue <- d
+	}
+	close(queue)
+
+	var wg sync.WaitGroup
+	for i := 0; i < o.cfg.Concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for d := range queue {
+				select {
+				case <-runCtx.Done():
+					return
+				default:
+				}
+				res := scanHost(runCtx, &d, creds, o.cfg)
+				mu.Lock()
+				results = append(results, res)
+				mu.Unlock()
+				if !res.IsSuccess() {
+					n := failures.Add(1)
+					if o.cfg.MaxFailures > 0 && int(n) >= o.cfg.MaxFailures {
+						cancelRun()
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if o.cfg.MaxFailures > 0 && int(failures.Load()) >= o.cfg.MaxFailures {
+		return results, ErrMaxFailuresBreached
+	}
+	return results, nil
+}
 
 // pollInterval is the default interval for polling remote scan status.
 // Exposed as a package var so tests (once added) can shorten it; callers

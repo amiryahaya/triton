@@ -78,6 +78,13 @@ func getLicenseFixture(t *testing.T) *licenseFixture {
 		ldflags := fmt.Sprintf("-X github.com/amiryahaya/triton/internal/license.publicKeyHex=%s", pubHex)
 		cmd := exec.Command("go", "build", "-ldflags", ldflags,
 			"-o", bin, "github.com/amiryahaya/triton")
+		// CGO_ENABLED=0 produces a fully static binary that runs in
+		// scratch/alpine/stripped-down containers. Without this, the
+		// CI-built binary dynamically links ubuntu-runner glibc and fails
+		// silently on debian:stable-slim (different glibc version) with
+		// "no such file" or ABI mismatch errors that don't surface via
+		// SSH's CombinedOutput capture.
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

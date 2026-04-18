@@ -56,7 +56,12 @@ func getLicenseFixture(t *testing.T) *licenseFixture {
 			return
 		}
 		pubHex := hex.EncodeToString(pub)
-		token, err := license.IssueToken(priv, license.TierPro, "fleet-test-org", 10, 365)
+		// Issue an UNBOUND token (bind=false): the same token must validate
+		// on both the CI runner (where fleet-scan parent runs) and the
+		// Docker sshd container (where the remote triton runs). A bound
+		// token would fail machine-fingerprint check on the container and
+		// degrade to free tier, rejecting --format all.
+		token, err := license.IssueTokenWithOptions(priv, license.TierPro, "fleet-test-org", 10, 365, false)
 		if err != nil {
 			licenseInitErr = fmt.Errorf("issue token: %w", err)
 			return

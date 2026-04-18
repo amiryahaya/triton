@@ -1,0 +1,398 @@
+<style>
+  /* Outer page */
+  .t-board {
+    background: #020617;
+    color: #e2e8f0;
+    padding: 22px 20px;
+    border-radius: 10px;
+    font-family: 'Inter','Outfit',system-ui,sans-serif;
+  }
+  .t-title { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.85rem; margin: 0 0 4px; letter-spacing: 0.01em; }
+  .t-subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 22px; }
+
+  /* ── Three themed preview cards ──────────────────────────────── */
+  .theme-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .theme-col {
+    display: flex; flex-direction: column;
+  }
+  .theme-head {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;
+  }
+  .theme-head h3 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.1rem; margin: 0; font-weight: 600; color: #e2e8f0;
+  }
+  .theme-head .letter {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #22d3ee; color: #020617;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
+  }
+  .theme-sub { font-size: 0.72rem; color: #94a3b8; margin-bottom: 10px; line-height: 1.45; min-height: 2.6em; }
+
+  .theme-preview {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(148,163,184,0.15);
+    min-height: 480px;
+    display: flex; flex-direction: column;
+  }
+
+  /* Shared preview structure ─ scoped per variant via prefix */
+  .pv { display: flex; flex-direction: column; height: 100%; font-size: 0.72rem; }
+  .pv-topbar {
+    height: 34px; display: flex; align-items: center; padding: 0 12px; gap: 10px;
+    font-size: 0.66rem;
+  }
+  .pv-ch { display: flex; align-items: center; gap: 4px; }
+  .pv-ch b { font-weight: 500; }
+  .pv-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .pv-chip {
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 0.6rem; font-weight: 500;
+  }
+  .pv-avatar {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.56rem; font-weight: 700;
+  }
+  .pv-toggle {
+    font-size: 0.58rem; padding: 2px 6px; border-radius: 4px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+
+  .pv-body { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .pv-h {
+    font-family: 'Cormorant Garamond', serif; font-size: 0.95rem;
+    font-weight: 600; margin: 0;
+  }
+  .pv-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pv-card { padding: 8px 10px; border-radius: 6px; }
+  .pv-ca-label {
+    font-size: 0.5rem; letter-spacing: 0.14em; text-transform: uppercase;
+    font-weight: 500; margin-bottom: 3px;
+  }
+  .pv-ca-value { font-family: 'Cormorant Garamond', serif; font-size: 1.05rem; font-weight: 600; line-height: 1; }
+  .pv-ca-delta { font-size: 0.54rem; margin-top: 2px; }
+
+  .pv-tbl { display: flex; flex-direction: column; border-radius: 6px; overflow: hidden; font-size: 0.64rem; }
+  .pv-tr { display: grid; grid-template-columns: 1.4fr 1fr 60px; padding: 6px 10px; }
+  .pv-th { font-size: 0.52rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500; }
+  .pv-pill {
+    display: inline-block; padding: 1px 5px; border-radius: 999px;
+    font-size: 0.52rem; font-weight: 500;
+  }
+  .pv-btn-row { display: flex; gap: 5px; }
+  .pv-btn { padding: 4px 9px; border-radius: 5px; font-size: 0.6rem; font-weight: 500; border: 1px solid transparent; cursor: default; }
+
+  /* ─────────────────────────── A · current (pitch dark) ──── */
+  .a .theme-preview { background: #020617; }
+  .a .pv-topbar { background: #0a1628; border-bottom: 1px solid rgba(148,163,184,0.12); color: #94a3b8; }
+  .a .pv-ch b { color: #e2e8f0; }
+  .a .pv-chip { background: #142440; border: 1px solid rgba(148,163,184,0.12); color: #e2e8f0; }
+  .a .pv-avatar { background: linear-gradient(135deg,#0891b2,#a78bfa); color: #020617; }
+  .a .pv-toggle { color: #94a3b8; background: #0f1d32; border: 1px solid rgba(148,163,184,0.12); }
+  .a .pv-body { background: linear-gradient(180deg, #020617 0%, #030a18 100%); color: #e2e8f0; }
+  .a .pv-h { color: #e2e8f0; }
+  .a .pv-card { background: #0f1d32; border: 1px solid rgba(148,163,184,0.1); }
+  .a .pv-ca-label { color: #94a3b8; }
+  .a .pv-ca-value { color: #e2e8f0; }
+  .a .pv-ca-delta.up { color: #34d399; }
+  .a .pv-ca-delta.down { color: #fbbf24; }
+  .a .pv-tbl { background: #0f1d32; border: 1px solid rgba(148,163,184,0.1); }
+  .a .pv-th { background: rgba(255,255,255,0.02); color: #94a3b8; border-bottom: 1px solid rgba(148,163,184,0.08); }
+  .a .pv-tr:not(.pv-th) { border-bottom: 1px solid rgba(148,163,184,0.06); color: #e2e8f0; }
+  .a .pv-tr b { color: #e2e8f0; font-weight: 500; }
+  .a .pv-pill.safe { color: #34d399; background: rgba(52,211,153,0.12); }
+  .a .pv-pill.unsafe { color: #f87171; background: rgba(248,113,113,0.12); }
+  .a .pv-pill.warn { color: #fbbf24; background: rgba(251,191,36,0.12); }
+  .a .pv-btn.primary { background: #0891b2; color: #020617; }
+  .a .pv-btn.secondary { background: #142440; color: #e2e8f0; border: 1px solid rgba(148,163,184,0.22); }
+
+  /* ─────────────────────────── B · softer dark (slate) ──── */
+  .b .theme-preview { background: #0f172a; }
+  .b .pv-topbar { background: #1e293b; border-bottom: 1px solid #334155; color: #cbd5e1; }
+  .b .pv-ch b { color: #f1f5f9; }
+  .b .pv-chip { background: #334155; border: 1px solid #475569; color: #f1f5f9; }
+  .b .pv-avatar { background: linear-gradient(135deg,#06b6d4,#a78bfa); color: #0f172a; }
+  .b .pv-toggle { color: #cbd5e1; background: #1e293b; border: 1px solid #334155; }
+  .b .pv-body { background: #0f172a; color: #e2e8f0; }
+  .b .pv-h { color: #f1f5f9; }
+  .b .pv-card { background: #1e293b; border: 1px solid #334155; }
+  .b .pv-ca-label { color: #94a3b8; }
+  .b .pv-ca-value { color: #f1f5f9; }
+  .b .pv-ca-delta.up { color: #34d399; }
+  .b .pv-ca-delta.down { color: #fbbf24; }
+  .b .pv-tbl { background: #1e293b; border: 1px solid #334155; }
+  .b .pv-th { background: rgba(255,255,255,0.03); color: #94a3b8; border-bottom: 1px solid #334155; }
+  .b .pv-tr:not(.pv-th) { border-bottom: 1px solid #334155; color: #e2e8f0; }
+  .b .pv-tr b { color: #f1f5f9; font-weight: 500; }
+  .b .pv-pill.safe { color: #34d399; background: rgba(52,211,153,0.14); }
+  .b .pv-pill.unsafe { color: #fca5a5; background: rgba(248,113,113,0.18); }
+  .b .pv-pill.warn { color: #fcd34d; background: rgba(251,191,36,0.18); }
+  .b .pv-btn.primary { background: #06b6d4; color: #0f172a; }
+  .b .pv-btn.secondary { background: #334155; color: #f1f5f9; border: 1px solid #475569; }
+
+  /* ─────────────────────────── C · light theme ──────────── */
+  .c .theme-preview { background: #f8fafc; }
+  .c .pv-topbar { background: #ffffff; border-bottom: 1px solid #e2e8f0; color: #64748b; }
+  .c .pv-ch b { color: #0f172a; }
+  .c .pv-chip { background: #f1f5f9; border: 1px solid #e2e8f0; color: #0f172a; }
+  .c .pv-avatar { background: linear-gradient(135deg,#0e7490,#7c3aed); color: #ffffff; }
+  .c .pv-toggle { color: #64748b; background: #ffffff; border: 1px solid #e2e8f0; }
+  .c .pv-body { background: #f8fafc; color: #0f172a; }
+  .c .pv-h { color: #0f172a; }
+  .c .pv-card { background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+  .c .pv-ca-label { color: #64748b; }
+  .c .pv-ca-value { color: #0f172a; }
+  .c .pv-ca-delta.up { color: #059669; }
+  .c .pv-ca-delta.down { color: #d97706; }
+  .c .pv-tbl { background: #ffffff; border: 1px solid #e2e8f0; }
+  .c .pv-th { background: #f8fafc; color: #64748b; border-bottom: 1px solid #e2e8f0; }
+  .c .pv-tr:not(.pv-th) { border-bottom: 1px solid #f1f5f9; color: #0f172a; }
+  .c .pv-tr b { color: #0f172a; font-weight: 500; }
+  .c .pv-pill.safe { color: #047857; background: #d1fae5; }
+  .c .pv-pill.unsafe { color: #b91c1c; background: #fee2e2; }
+  .c .pv-pill.warn { color: #b45309; background: #fef3c7; }
+  .c .pv-btn.primary { background: #0e7490; color: #ffffff; }
+  .c .pv-btn.secondary { background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; }
+
+  /* ── Tradeoff table ───────────────────────────────────── */
+  .tradeoffs {
+    background: #0f1d32;
+    border: 1px solid rgba(148,163,184,0.12);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-top: 20px;
+  }
+  .tradeoffs h3 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.15rem; margin: 0 0 12px; font-weight: 600;
+    color: #e2e8f0;
+  }
+  .tt { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .tt th, .tt td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,0.1); color: #e2e8f0; vertical-align: top; }
+  .tt th { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: #94a3b8; font-weight: 500; }
+  .tt td:first-child { font-weight: 500; color: #22d3ee; width: 90px; }
+
+  /* ── Recommendation ──────────────────────────────────── */
+  .rec {
+    margin-top: 18px;
+    background: linear-gradient(135deg, rgba(8,145,178,0.12), rgba(52,211,153,0.06));
+    border: 1px solid rgba(34,211,238,0.3);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .rec h3 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.15rem; margin: 0 0 8px; font-weight: 600;
+    color: #22d3ee;
+  }
+  .rec p { color: #e2e8f0; font-size: 0.85rem; line-height: 1.55; margin: 0 0 8px; }
+  .rec ul { margin: 6px 0 0; padding-left: 20px; color: #e2e8f0; font-size: 0.82rem; line-height: 1.6; }
+</style>
+
+<h2>Which shade of "lighter"?</h2>
+<p class="subtitle">Three directions, same content. Pick one — or pick "both" and I'll design the system to support a theme toggle.</p>
+
+<div class="t-board">
+
+  <div class="theme-grid">
+
+    <!-- ── A: Current (pitch dark) ───────────────────────── -->
+    <div class="theme-col a">
+      <div class="theme-head">
+        <span class="letter">A</span>
+        <h3>Pitch dark · current</h3>
+      </div>
+      <p class="theme-sub">Near-black (<code>#020617</code>) + deep navy surfaces. Dramatic but heavy for long reading sessions.</p>
+      <div class="theme-preview">
+        <div class="pv">
+          <div class="pv-topbar">
+            <div class="pv-ch"><b>Overview</b></div>
+            <div class="pv-right">
+              <span class="pv-toggle">◑ Dark</span>
+              <div class="pv-avatar">JD</div>
+            </div>
+          </div>
+          <div class="pv-body">
+            <h4 class="pv-h">Crypto readiness</h4>
+            <div class="pv-cards">
+              <div class="pv-card"><div class="pv-ca-label">PQC ready</div><div class="pv-ca-value">68%</div><div class="pv-ca-delta up">↑ 4%</div></div>
+              <div class="pv-card"><div class="pv-ca-label">Unsafe</div><div class="pv-ca-value">214</div><div class="pv-ca-delta down">↓ 12</div></div>
+              <div class="pv-card"><div class="pv-ca-label">Expiring</div><div class="pv-ca-value">33</div></div>
+            </div>
+            <div class="pv-tbl">
+              <div class="pv-tr pv-th"><div>Finding</div><div>Host</div><div>Status</div></div>
+              <div class="pv-tr"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pv-pill unsafe">Unsafe</span></div></div>
+              <div class="pv-tr"><div><b>SHA-1 cert</b></div><div>api-02</div><div><span class="pv-pill warn">Depr.</span></div></div>
+              <div class="pv-tr"><div><b>ML-KEM</b></div><div>vpn-01</div><div><span class="pv-pill safe">Safe</span></div></div>
+            </div>
+            <div class="pv-btn-row">
+              <button class="pv-btn primary">Export NACSA</button>
+              <button class="pv-btn secondary">Filter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── B: Softer dark (slate) ────────────────────────── -->
+    <div class="theme-col b">
+      <div class="theme-head">
+        <span class="letter">B</span>
+        <h3>Softer dark · slate</h3>
+      </div>
+      <p class="theme-sub">Slate-900 (<code>#0f172a</code>) base with elevated slate-800 surfaces. Easier on the eye, keeps the SOC feel.</p>
+      <div class="theme-preview">
+        <div class="pv">
+          <div class="pv-topbar">
+            <div class="pv-ch"><b>Overview</b></div>
+            <div class="pv-right">
+              <span class="pv-toggle">◑ Dark</span>
+              <div class="pv-avatar">JD</div>
+            </div>
+          </div>
+          <div class="pv-body">
+            <h4 class="pv-h">Crypto readiness</h4>
+            <div class="pv-cards">
+              <div class="pv-card"><div class="pv-ca-label">PQC ready</div><div class="pv-ca-value">68%</div><div class="pv-ca-delta up">↑ 4%</div></div>
+              <div class="pv-card"><div class="pv-ca-label">Unsafe</div><div class="pv-ca-value">214</div><div class="pv-ca-delta down">↓ 12</div></div>
+              <div class="pv-card"><div class="pv-ca-label">Expiring</div><div class="pv-ca-value">33</div></div>
+            </div>
+            <div class="pv-tbl">
+              <div class="pv-tr pv-th"><div>Finding</div><div>Host</div><div>Status</div></div>
+              <div class="pv-tr"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pv-pill unsafe">Unsafe</span></div></div>
+              <div class="pv-tr"><div><b>SHA-1 cert</b></div><div>api-02</div><div><span class="pv-pill warn">Depr.</span></div></div>
+              <div class="pv-tr"><div><b>ML-KEM</b></div><div>vpn-01</div><div><span class="pv-pill safe">Safe</span></div></div>
+            </div>
+            <div class="pv-btn-row">
+              <button class="pv-btn primary">Export NACSA</button>
+              <button class="pv-btn secondary">Filter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── C: Light theme ────────────────────────────────── -->
+    <div class="theme-col c">
+      <div class="theme-head">
+        <span class="letter">C</span>
+        <h3>Light · enterprise</h3>
+      </div>
+      <p class="theme-sub">Slate-50 base + white surfaces. Best for print-friendly NACSA reports &amp; executive review. Feels professional, not flashy.</p>
+      <div class="theme-preview">
+        <div class="pv">
+          <div class="pv-topbar">
+            <div class="pv-ch"><b>Overview</b></div>
+            <div class="pv-right">
+              <span class="pv-toggle">☀ Light</span>
+              <div class="pv-avatar">JD</div>
+            </div>
+          </div>
+          <div class="pv-body">
+            <h4 class="pv-h">Crypto readiness</h4>
+            <div class="pv-cards">
+              <div class="pv-card"><div class="pv-ca-label">PQC ready</div><div class="pv-ca-value">68%</div><div class="pv-ca-delta up">↑ 4%</div></div>
+              <div class="pv-card"><div class="pv-ca-label">Unsafe</div><div class="pv-ca-value">214</div><div class="pv-ca-delta down">↓ 12</div></div>
+              <div class="pv-card"><div class="pv-ca-label">Expiring</div><div class="pv-ca-value">33</div></div>
+            </div>
+            <div class="pv-tbl">
+              <div class="pv-tr pv-th"><div>Finding</div><div>Host</div><div>Status</div></div>
+              <div class="pv-tr"><div><b>RSA-1024</b></div><div>web-01</div><div><span class="pv-pill unsafe">Unsafe</span></div></div>
+              <div class="pv-tr"><div><b>SHA-1 cert</b></div><div>api-02</div><div><span class="pv-pill warn">Depr.</span></div></div>
+              <div class="pv-tr"><div><b>ML-KEM</b></div><div>vpn-01</div><div><span class="pv-pill safe">Safe</span></div></div>
+            </div>
+            <div class="pv-btn-row">
+              <button class="pv-btn primary">Export NACSA</button>
+              <button class="pv-btn secondary">Filter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tradeoffs -->
+  <div class="tradeoffs">
+    <h3>Tradeoffs</h3>
+    <table class="tt">
+      <thead>
+        <tr>
+          <th>Theme</th>
+          <th>Strengths</th>
+          <th>Weaknesses</th>
+          <th>Best for</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A · Pitch</td>
+          <td>Dramatic, "command centre" feel, dense data reads well</td>
+          <td>Eye fatigue on long sessions, poor for print/export, can look "gamer"</td>
+          <td>24/7 SOC wall displays, always-on dashboards</td>
+        </tr>
+        <tr>
+          <td>B · Slate</td>
+          <td>Professional dark without the heaviness, keeps contrast for pills &amp; charts, matches Stripe/Linear/Vercel dashboards</td>
+          <td>Still dark — not ideal for executive or print</td>
+          <td>Daily operator use, Manage + License portals</td>
+        </tr>
+        <tr>
+          <td>C · Light</td>
+          <td>Professional, enterprise-standard, ready for NACSA PDF export, accessible, familiar to officials</td>
+          <td>Loses the "monitoring tool" vibe, high-contrast pills need careful colour tuning</td>
+          <td>Report portal for security officers, printable compliance reports</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Recommendation -->
+  <div class="rec">
+    <h3>My recommendation · dual-theme system with user toggle</h3>
+    <p>Build <b style="color:#22d3ee">B (slate dark) as the default</b> and <b style="color:#22d3ee">C (light)</b> as a first-class alternative. Single token system, two values per token, <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">html[data-theme]</code> switch. Drop pitch-dark A — it doesn't serve daily users well.</p>
+    <ul>
+      <li><b style="color:#22d3ee">Theme toggle</b> in topbar (sun/moon/system). Persists per-user, synced to <code>localStorage</code> &amp; optional user profile setting.</li>
+      <li><b style="color:#22d3ee">Per-portal default</b> if you want: Report → Light (officer/exec audience), License &amp; Manage → Slate dark (operator/engineer audience).</li>
+      <li><b style="color:#22d3ee">Respect <code>prefers-color-scheme</code></b> on first visit before any override.</li>
+      <li><b style="color:#22d3ee">Exported PDFs/HTML reports</b> always render in light theme — that's always what officials expect.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="slate-default" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>Do dual theme · slate dark default</h3>
+      <p>Ship B as default, C as toggle. My recommendation.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="light-default" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>Do dual theme · light default</h3>
+      <p>Ship C as default, B as toggle. Best if officer/exec is the primary audience.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="slate-only" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>Slate dark only · no light theme</h3>
+      <p>Just lighten the base. Simpler to ship.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="light-only" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Light only · flip entirely</h3>
+      <p>Go full-light, drop dark.</p>
+    </div>
+  </div>
+</div>

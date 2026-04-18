@@ -196,3 +196,10 @@ test/e2e/playwright-report/
 
 # Git worktrees — isolated workspaces for parallel feature development
 .worktrees/
+
+# Node / pnpm for web/
+web/node_modules/
+web/**/node_modules/
+web/**/.vite/
+web/**/coverage/
+web/**/*.tsbuildinfo

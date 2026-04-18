@@ -1,4 +1,4 @@
-.PHONY: build build-all build-agent build-engine build-licenseserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-engine container-run-engine container-stop-engine container-build-agent
+.PHONY: build build-all build-agent build-engine build-licenseserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-test web-clean
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -181,3 +181,21 @@ ebpf-compile:
 	# Intentionally NOT stripping: BTF + debug info aids kernel verifier error messages
 	# and supports future CI drift-verification jobs.
 	@echo "Rebuilt pkg/scanner/internal/ebpftrace/bpf/crypto.o for $(BPF_ARCH)"
+
+# ──── Web portal build ───────────────────────────────────────────────
+# Requires pnpm (install via `corepack enable pnpm` once).
+# `make web` builds every app and writes output into its embed target
+# under pkg/<portal>/ui/dist/.
+
+web-install:
+	cd web && pnpm install --frozen-lockfile
+
+web: web-install
+	cd web && pnpm build
+
+web-test: web-install
+	cd web && pnpm test
+
+web-clean:
+	rm -rf web/node_modules
+	find web/apps web/packages -maxdepth 2 \( -name node_modules -o -name dist -o -name coverage \) -type d -exec rm -rf {} + 2>/dev/null || true

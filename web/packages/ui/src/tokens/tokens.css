@@ -1,0 +1,147 @@
+/* ============================================================
+   @triton/ui — design tokens
+   Two themes, one token set. Flip via html[data-theme="dark|light"].
+   ============================================================ */
+
+:root {
+  /* Structural tokens (theme-independent) */
+  --radius-sm:   5px;
+  --radius:      8px;
+  --radius-lg:  12px;
+  --radius-pill: 999px;
+
+  --sidebar-w: 256px;
+  --topbar-h:   44px;
+
+  --ease:     cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  --motion-hover:  150ms;
+  --motion-enter:  250ms;
+  --motion-modal:  300ms;
+
+  --z-sidebar: 40;
+  --z-topbar:  50;
+  --z-drawer:  70;
+  --z-modal:   80;
+  --z-toast:   90;
+
+  /* Spacing scale — rem-based, 4px step. Components use these instead
+     of hard-coded pixel padding/margin to keep spatial rhythm consistent. */
+  --space-0:  0;
+  --space-1:  0.25rem;  /*  4px */
+  --space-2:  0.5rem;   /*  8px */
+  --space-3:  0.75rem;  /* 12px */
+  --space-4:  1rem;     /* 16px */
+  --space-5:  1.25rem;  /* 20px */
+  --space-6:  1.5rem;   /* 24px */
+  --space-8:  2rem;     /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+
+  /* Font family tokens are declared in fonts.css, not here — see note
+     on the html/body block below. Components reference --font-body /
+     --font-display / --font-mono with a sensible fallback so tokens.css
+     stays useful even if fonts.css isn't imported. */
+
+  /* Portal accent (placeholders — apps override at their app root) */
+  --portal-accent:      #22d3ee;
+  --portal-accent-soft: rgba(34, 211, 238, 0.12);
+}
+
+/* ─────────── Dark palette (default) ─────────── */
+html[data-theme='dark'] {
+  --bg-base:      #0f172a;
+  --bg-surface:   #1e293b;
+  --bg-elevated:  #334155;
+  --bg-hover:     #475569;
+
+  --text-primary:    #f1f5f9;
+  --text-secondary:  #cbd5e1;
+  --text-muted:      #94a3b8;
+  --text-subtle:     #64748b;
+
+  --border:          #334155;
+  --border-strong:   #475569;
+
+  --accent:          #0891b2;
+  --accent-strong:   #22d3ee;
+  --accent-muted:    rgba(34, 211, 238, 0.12);
+
+  --safe:            #34d399;
+  --safe-muted:      rgba(52, 211, 153, 0.12);
+  --warn:            #fbbf24;
+  --warn-muted:      rgba(251, 191, 36, 0.12);
+  --deprecated:      #fb923c;
+  --deprecated-muted:rgba(251, 146, 60, 0.12);
+  --unsafe:          #f87171;
+  --unsafe-muted:    rgba(248, 113, 113, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow:    0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+/* ─────────── Light palette ─────────── */
+html[data-theme='light'] {
+  --bg-base:      #f8fafc;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #f1f5f9;
+  --bg-hover:     #e2e8f0;
+
+  --text-primary:    #0f172a;
+  --text-secondary:  #475569;
+  --text-muted:      #64748b;
+  --text-subtle:     #94a3b8;
+
+  --border:          #e2e8f0;
+  --border-strong:   #cbd5e1;
+
+  --accent:          #0e7490;
+  --accent-strong:   #0891b2;
+  --accent-muted:    rgba(14, 116, 144, 0.08);
+
+  --safe:            #059669;
+  --safe-muted:      #d1fae5;
+  --warn:            #d97706;
+  --warn-muted:      #fef3c7;
+  --deprecated:      #ea580c;
+  --deprecated-muted:#ffedd5;
+  --unsafe:          #dc2626;
+  --unsafe-muted:    #fee2e2;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow:    0 4px 12px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.15);
+
+  color-scheme: light;
+}
+
+/* ─────────── Base element defaults ─────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body, 'Inter', system-ui, sans-serif);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

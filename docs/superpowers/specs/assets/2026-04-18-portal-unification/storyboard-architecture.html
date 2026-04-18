@@ -1,0 +1,247 @@
+<style>
+  :root {
+    --t-deep: #020617;
+    --t-navy: #0a1628;
+    --t-surface: #0f1d32;
+    --t-elev: #142440;
+    --t-accent: #0891b2;
+    --t-accent-light: #22d3ee;
+    --t-text: #e2e8f0;
+    --t-muted: #94a3b8;
+    --t-border: rgba(148,163,184,0.12);
+    --t-safe: #34d399;
+    --t-warn: #fbbf24;
+    --t-danger: #f87171;
+    --t-purple: #a78bfa;
+    --t-pink: #f472b6;
+    --t-lime: #a3e635;
+  }
+  .t-board {
+    background: radial-gradient(ellipse at 20% 0%, rgba(8,145,178,0.08), transparent 60%), var(--t-deep);
+    color: var(--t-text);
+    padding: 26px 22px;
+    border-radius: 10px;
+    font-family: 'Inter','Outfit',system-ui,sans-serif;
+  }
+  .t-title { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 1.9rem; letter-spacing: 0.01em; margin: 0 0 4px; }
+  .t-subtitle { color: var(--t-muted); font-size: 0.92rem; margin-bottom: 24px; }
+
+  /* ── Architecture row ─────────────────────────────────────────── */
+  .t-arch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 26px; }
+  .t-comp {
+    background: linear-gradient(180deg, var(--t-surface), var(--t-navy));
+    border: 1px solid var(--t-border);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .t-comp::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  }
+  .t-comp.license::before { background: var(--t-purple); }
+  .t-comp.report::before  { background: var(--t-accent-light); }
+  .t-comp.manage::before  { background: var(--t-lime); }
+  .t-comp.agent::before   { background: var(--t-pink); }
+
+  .t-comp h4 {
+    font-family: 'Cormorant Garamond', serif; font-size: 1.25rem; font-weight: 600;
+    margin: 0 0 4px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .t-badge {
+    font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase;
+    background: rgba(148,163,184,0.12); color: var(--t-muted);
+    padding: 2px 7px; border-radius: 4px; font-weight: 500; font-family: 'Inter',system-ui,sans-serif;
+  }
+  .t-badge.opt { color: var(--t-lime); background: rgba(163,230,53,0.12); }
+  .t-badge.req { color: var(--t-accent-light); background: rgba(34,211,238,0.12); }
+  .t-comp .t-role { font-size: 0.7rem; color: var(--t-accent-light); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; font-weight: 500; }
+  .t-comp.license .t-role { color: var(--t-purple); }
+  .t-comp.manage .t-role { color: var(--t-lime); }
+  .t-comp.agent .t-role { color: var(--t-pink); }
+  .t-comp p { color: var(--t-muted); font-size: 0.8rem; line-height: 1.5; margin: 0 0 8px; }
+  .t-comp .t-ui { font-size: 0.7rem; color: var(--t-text); border-top: 1px solid var(--t-border); padding-top: 8px; margin-top: 6px; }
+  .t-comp .t-ui b { color: var(--t-accent-light); font-weight: 500; }
+
+  /* ── Flow diagram ─────────────────────────────────────────────── */
+  .t-flow-wrap {
+    background: var(--t-surface);
+    border: 1px solid var(--t-border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin-bottom: 22px;
+  }
+  .t-flow-title { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; margin: 0 0 4px; font-weight: 600; }
+  .t-flow-sub { color: var(--t-muted); font-size: 0.78rem; margin-bottom: 16px; }
+  .t-scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .t-scenario {
+    background: var(--t-navy);
+    border: 1px solid var(--t-border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .t-scenario h5 {
+    font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--t-accent-light); margin: 0 0 10px; font-weight: 500;
+  }
+  .t-chain { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .t-chip {
+    font-size: 0.72rem; padding: 6px 9px; border-radius: 6px;
+    border: 1px solid var(--t-border); background: var(--t-elev);
+    white-space: nowrap;
+  }
+  .t-chip.license { border-color: rgba(167,139,250,0.35); color: #ddd6fe; background: rgba(167,139,250,0.08); }
+  .t-chip.report  { border-color: rgba(34,211,238,0.35); color: #a5f3fc; background: rgba(34,211,238,0.08); }
+  .t-chip.manage  { border-color: rgba(163,230,53,0.35); color: #d9f99d; background: rgba(163,230,53,0.08); }
+  .t-chip.agent   { border-color: rgba(244,114,182,0.35); color: #fbcfe8; background: rgba(244,114,182,0.08); }
+  .t-arrow { color: var(--t-muted); font-size: 0.95rem; }
+
+  /* ── UX principles ────────────────────────────────────────────── */
+  .t-principles {
+    background: var(--t-surface);
+    border: 1px solid var(--t-border);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+  .t-principles h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; margin: 0 0 14px; font-weight: 600; }
+  .t-ptable { display: grid; grid-template-columns: 44px 1fr; gap: 10px 14px; }
+  .t-pnum {
+    font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; color: var(--t-accent-light); line-height: 1;
+    text-align: center; padding-top: 2px;
+  }
+  .t-prow { padding-bottom: 12px; border-bottom: 1px solid var(--t-border); }
+  .t-prow:last-child { border-bottom: none; padding-bottom: 0; }
+  .t-prow h5 { margin: 0 0 4px; font-size: 0.92rem; color: var(--t-text); font-weight: 600; }
+  .t-prow p { margin: 0; color: var(--t-muted); font-size: 0.82rem; line-height: 1.55; }
+</style>
+
+<h2>Triton — revised architecture &amp; UX flow</h2>
+<p class="subtitle">Four components, three web portals, and the agent. Tell me if the flow or the UX principles are off.</p>
+
+<div class="t-board">
+
+  <!-- Architecture row -->
+  <div class="t-arch">
+    <div class="t-comp license">
+      <h4>License Server <span class="t-badge req">standalone</span></h4>
+      <div class="t-role">Vendor · operator</div>
+      <p>Issues &amp; revokes licences. Two kinds: <b style="color:var(--t-text)">Report-server</b> (tenant-count) &amp; <b style="color:var(--t-text)">Agent</b> (agent.yaml).</p>
+      <div class="t-ui"><b>Portal A</b> · :8081 · admin-key auth</div>
+    </div>
+    <div class="t-comp report">
+      <h4>Report Server <span class="t-badge req">required</span></h4>
+      <div class="t-role">Security officer · analyst · tenant admin</div>
+      <p>Multi-tenant. Collects scans, runs analytics, generates NACSA Arahan 9 reports. Own user mgmt.</p>
+      <div class="t-ui"><b>Portal B</b> · :8080 · JWT auth · Podman</div>
+    </div>
+    <div class="t-comp manage">
+      <h4>Manage Server <span class="t-badge opt">optional</span></h4>
+      <div class="t-role">Network engineer · IT admin</div>
+      <p>Host onboarding (discovery / form / CSV), port scans, SSH scans, agent deployment, scan profiles.</p>
+      <div class="t-ui"><b>Portal C</b> · skippable for small fleets</div>
+    </div>
+    <div class="t-comp agent">
+      <h4>Agent <span class="t-badge req">required</span></h4>
+      <div class="t-role">Per-host · headless</div>
+      <p>Licensed via <code style="color:var(--t-text)">agent.yaml</code>. Runs scan profile (cpu/mem/allow/denylist). Submits results direct to Report Server.</p>
+      <div class="t-ui">No UI · CLI + config file</div>
+    </div>
+  </div>
+
+  <!-- Deployment flows -->
+  <div class="t-flow-wrap">
+    <div class="t-flow-title">Deployment scenarios</div>
+    <div class="t-flow-sub">Same story, two scales — Manage Server is the only moving part</div>
+
+    <div class="t-scenarios">
+      <div class="t-scenario">
+        <h5>Small fleet · no Manage Server</h5>
+        <div class="t-chain">
+          <span class="t-chip license">License: issue tenant + agent licences</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip report">Deploy Report Server (Podman)</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip report">Tenant admin signs in, activates</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip agent">Drop agent.yaml on hosts manually</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip report">Analyst sees results in dashboards</span>
+        </div>
+      </div>
+
+      <div class="t-scenario">
+        <h5>Large fleet · with Manage Server</h5>
+        <div class="t-chain">
+          <span class="t-chip license">License: issue tenant + agent licences</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip report">Deploy Report + Manage Server</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip manage">Network eng. onboards hosts (discovery / CSV)</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip manage">Configures scan profiles</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip manage">Deploys agents / runs SSH scans</span>
+          <span class="t-arrow">→</span>
+          <span class="t-chip report">Results flow to Report Server dashboards</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UX principles -->
+  <div class="t-principles">
+    <h3>Recommended UX principles for unification</h3>
+    <div class="t-ptable">
+      <div class="t-pnum">1</div>
+      <div class="t-prow">
+        <h5>One chrome, three apps — not one giant app</h5>
+        <p>Each portal stays a separate deployable (they run on different hosts and serve different audiences). They share the <b style="color:var(--t-text)">shell</b>: same sidebar grammar, same topbar, same auth prompt, same footer wave, same typography, same empty/loading/error states.</p>
+      </div>
+      <div class="t-pnum">2</div>
+      <div class="t-prow">
+        <h5>Portal colour-coding — muted but consistent</h5>
+        <p>Keep the navy/cyan base identical. Use a single 1-pixel accent per portal (purple = License, cyan = Report, lime = Manage) on the logo rail and active nav item. Users know at a glance which portal they're in without a loud theme change.</p>
+      </div>
+      <div class="t-pnum">3</div>
+      <div class="t-prow">
+        <h5>Role-appropriate density</h5>
+        <p>License operator: ops-console density (dense tables, audit-first). Security officer: exec-summary density (big numbers, low clicks to compliance verdict). Network engineer: bulk-action density (multi-select, inline edit, CSV in/out). Same components, different defaults.</p>
+      </div>
+      <div class="t-pnum">4</div>
+      <div class="t-prow">
+        <h5>Cross-portal wayfinding</h5>
+        <p>Topbar app-switcher shows the three portals; disabled ones are visible but greyed (e.g. Manage Server absent). A single "Triton" brand in the logo rail links back to the portal's own home — never cross-navigates silently.</p>
+      </div>
+      <div class="t-pnum">5</div>
+      <div class="t-prow">
+        <h5>One shared Vue component library</h5>
+        <p>Ship <code style="color:var(--t-text)">@triton/ui</code> as a private workspace package: Button, StatCard, DataTable, Sidebar, Topbar, EmptyState, Toast, Modal, FormField, Chart wrappers. Both portals import the same components; custom work only where a portal really needs it.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>This reads right — let's continue</h3>
+      <p>Move on to visual language + shell mockups</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak-principles" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>I want to tweak a principle</h3>
+      <p>e.g. skip portal colour-coding, different density model — say which</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak-arch" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Architecture is still off</h3>
+      <p>Something about the 4-component model or flow is wrong</p>
+    </div>
+  </div>
+</div>

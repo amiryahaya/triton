@@ -1,0 +1,14 @@
+import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+
+export default defineConfig({
+  plugins: [vue()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    // `css: true` lets Vite process imported CSS files during tests so
+    // jsdom sees custom-property declarations via getComputedStyle.
+    css: true,
+  },
+});

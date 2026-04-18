@@ -1,0 +1,609 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  .t-board {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 22px 20px;
+    border-radius: 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .t-title { font-size: 1.6rem; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 4px; }
+  .t-subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; }
+
+  /* Preview shell */
+  .final-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .final-col { display: flex; flex-direction: column; }
+  .final-head {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px;
+  }
+  .final-head .letter {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #22d3ee; color: #0f172a;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.78rem; font-weight: 700;
+  }
+  .final-head h3 {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 1.1rem; font-weight: 600; letter-spacing: -0.02em;
+    margin: 0; color: #f1f5f9;
+  }
+  .final-sub {
+    font-size: 0.72rem; color: #94a3b8; margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .preview {
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid rgba(148,163,184,0.15);
+    display: grid; grid-template-columns: 170px 1fr;
+    min-height: 540px;
+  }
+  .pv-side { display: flex; flex-direction: column; position: relative; border-right: 1px solid; }
+  .pv-logo {
+    padding: 14px 14px 12px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid;
+    position: relative;
+  }
+  .pv-logo::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: #22d3ee;
+  }
+  .pv-logo-img {
+    width: 28px; height: 28px; border-radius: 6px;
+    font-family: 'Geist', sans-serif; font-weight: 700; font-size: 0.95rem;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: -0.04em;
+  }
+  .pv-logo-title {
+    font-family: 'Geist', sans-serif; font-weight: 600; font-size: 0.96rem;
+    letter-spacing: -0.02em; line-height: 1.1;
+  }
+  .pv-logo-sub {
+    font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase;
+    font-weight: 500; margin-top: 1px;
+  }
+
+  .pv-nav { padding: 10px 0; flex: 1; }
+  .pv-nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    font-size: 0.72rem; font-weight: 400;
+    border-left: 2px solid transparent;
+    cursor: pointer;
+  }
+  .pv-nav-item .ico { width: 12px; height: 12px; border-radius: 2px; background: currentColor; opacity: 0.5; }
+  .pv-nav-item.active .ico { opacity: 1; }
+  .pv-nav-section {
+    font-size: 0.52rem; letter-spacing: 0.18em; text-transform: uppercase;
+    font-weight: 500; padding: 10px 14px 4px;
+  }
+
+  .pv-side-foot {
+    padding: 10px 14px;
+    border-top: 1px solid;
+    font-size: 0.64rem; line-height: 1.4;
+  }
+  .pv-side-foot b { display: block; margin-bottom: 1px; font-size: 0.7rem; }
+
+  .pv-main { display: flex; flex-direction: column; }
+  .pv-topbar {
+    height: 40px; padding: 0 14px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid;
+    font-size: 0.7rem;
+  }
+  .pv-crumb b { font-weight: 500; }
+  .pv-chip {
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 0.62rem; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .pv-chip .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .pv-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .pv-search {
+    padding: 3px 8px; border-radius: 5px;
+    font-size: 0.62rem; display: flex; align-items: center; gap: 5px;
+    width: 120px;
+  }
+  .pv-kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.52rem; padding: 0 4px; border-radius: 2px;
+    margin-left: auto;
+  }
+  .pv-theme {
+    padding: 3px 7px; border-radius: 5px;
+    font-size: 0.62rem; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 4px;
+    cursor: pointer;
+  }
+  .pv-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.6rem; font-weight: 700;
+    background: linear-gradient(135deg, #0e7490, #7c3aed);
+    color: #fff;
+  }
+
+  .pv-body { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .pv-h1 {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 1.35rem; font-weight: 600; letter-spacing: -0.025em;
+    margin: 0; line-height: 1.15;
+  }
+  .pv-meta { font-size: 0.72rem; display: flex; gap: 12px; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat-cell {
+    padding: 10px 12px; border-radius: 7px;
+    border: 1px solid;
+    position: relative;
+  }
+  .stat-cell::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    opacity: 0.7;
+  }
+  .stat-cell.pqc::before { background: #22d3ee; }
+  .stat-cell.unsafe::before { background: #f87171; }
+  .stat-cell.warn::before { background: #fbbf24; }
+  .stat-cell.hosts::before { background: #34d399; }
+  .stat-label {
+    font-size: 0.56rem; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 500;
+  }
+  .stat-value {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 1.75rem; font-weight: 600; line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    margin: 2px 0 3px;
+  }
+  .stat-delta { font-size: 0.66rem; font-weight: 500; display: flex; align-items: center; gap: 3px; }
+
+  .chart-wrap {
+    padding: 14px; border-radius: 8px; border: 1px solid;
+    display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px;
+  }
+  .chart-title {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 0.82rem; font-weight: 600; letter-spacing: -0.01em;
+    margin: 0 0 8px;
+  }
+  .chart-sub { font-size: 0.62rem; margin-bottom: 12px; }
+  .chart-canvas { height: 90px; display: flex; align-items: flex-end; gap: 3px; }
+  .chart-canvas span { flex: 1; border-radius: 2px 2px 0 0; }
+  .chart-axis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 0.55rem; }
+
+  .donut {
+    width: 100px; height: 100px; border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+    background: conic-gradient(#34d399 0 38%, #fbbf24 38% 54%, #fb923c 54% 72%, #f87171 72% 100%);
+  }
+  .donut::after {
+    content: ''; position: absolute; inset: 12px;
+    border-radius: 50%;
+  }
+  .donut-c {
+    position: absolute; inset: 0; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'Geist', 'Inter', sans-serif;
+  }
+  .donut-c b {
+    font-size: 1.3rem; font-weight: 600; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .donut-c span {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.56rem; letter-spacing: 0.12em; text-transform: uppercase;
+    margin-top: 2px; font-weight: 500;
+  }
+
+  .mini-tbl {
+    border-radius: 8px; overflow: hidden; border: 1px solid;
+    font-size: 0.72rem;
+  }
+  .mini-tbl .toolbar {
+    padding: 8px 12px; display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid;
+    font-size: 0.66rem;
+  }
+  .mini-tbl .toolbar .pill-sel {
+    padding: 2px 7px; border-radius: 3px;
+    font-size: 0.58rem; font-weight: 500;
+  }
+  .mini-tbl .toolbar .spacer { flex: 1; }
+  .mini-tbl .toolbar .act {
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 0.6rem; font-weight: 500; border: 1px solid; cursor: default;
+  }
+  .mini-tbl .row {
+    display: grid; grid-template-columns: 24px 1.4fr 0.9fr 1fr 80px;
+    padding: 8px 12px; align-items: center;
+    border-bottom: 1px solid;
+  }
+  .mini-tbl .row:last-child { border-bottom: none; }
+  .mini-tbl .row.head {
+    font-size: 0.54rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500;
+  }
+  .mini-tbl .row b {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-weight: 500; letter-spacing: -0.01em;
+  }
+  .mini-tbl .check {
+    width: 13px; height: 13px; border-radius: 3px; border: 1px solid;
+    display: inline-block;
+  }
+  .mini-tbl .check.checked { position: relative; }
+  .mini-tbl .check.checked::after {
+    content: '✓'; position: absolute; top: -3px; left: 2px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem; font-weight: 700;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 0.58rem; font-weight: 500;
+    padding: 1px 6px; border-radius: 999px;
+    border: 1px solid;
+  }
+  .pill .dot { width: 4px; height: 4px; border-radius: 50%; }
+  .mini-tbl .num {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+
+  /* ╭──────────── Slate dark palette ─────────────╮ */
+  .slate .preview { background: #0f172a; color: #e2e8f0; }
+  .slate .pv-side { background: #1e293b; border-right-color: #334155; }
+  .slate .pv-logo { border-bottom-color: #334155; }
+  .slate .pv-logo-img { background: linear-gradient(135deg, #0e7490, #22d3ee); color: #0f172a; }
+  .slate .pv-logo-title { color: #f1f5f9; }
+  .slate .pv-logo-sub { color: #94a3b8; }
+  .slate .pv-nav-item { color: #94a3b8; }
+  .slate .pv-nav-item:hover { color: #e2e8f0; background: rgba(255,255,255,0.03); }
+  .slate .pv-nav-item.active { color: #22d3ee; background: rgba(34,211,238,0.08); border-left-color: #22d3ee; font-weight: 500; }
+  .slate .pv-nav-section { color: #64748b; }
+  .slate .pv-side-foot { border-top-color: #334155; color: #94a3b8; }
+  .slate .pv-side-foot b { color: #f1f5f9; }
+  .slate .pv-topbar { background: #1e293b; border-bottom-color: #334155; color: #cbd5e1; }
+  .slate .pv-crumb b { color: #f1f5f9; }
+  .slate .pv-chip { background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.25); color: #a5f3fc; }
+  .slate .pv-search { background: #0f172a; border: 1px solid #334155; color: #64748b; }
+  .slate .pv-kbd { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+  .slate .pv-theme { background: #0f172a; border: 1px solid #334155; color: #cbd5e1; }
+  .slate .pv-body { background: #0f172a; }
+  .slate .pv-h1 { color: #f1f5f9; }
+  .slate .pv-meta { color: #64748b; }
+  .slate .pv-meta b { color: #cbd5e1; }
+  .slate .stat-cell { background: #1e293b; border-color: #334155; }
+  .slate .stat-label { color: #64748b; }
+  .slate .stat-value { color: #f1f5f9; }
+  .slate .stat-delta.up { color: #34d399; }
+  .slate .stat-delta.down { color: #fbbf24; }
+  .slate .chart-wrap { background: #1e293b; border-color: #334155; }
+  .slate .chart-title { color: #f1f5f9; }
+  .slate .chart-sub { color: #64748b; }
+  .slate .chart-canvas span { background: linear-gradient(180deg, #22d3ee, #0891b2); opacity: 0.85; }
+  .slate .chart-axis { color: #64748b; }
+  .slate .donut::after { background: #1e293b; }
+  .slate .donut-c b { color: #f1f5f9; }
+  .slate .donut-c span { color: #94a3b8; }
+  .slate .mini-tbl { background: #1e293b; border-color: #334155; }
+  .slate .mini-tbl .toolbar { background: #1e293b; border-bottom-color: #334155; color: #94a3b8; }
+  .slate .mini-tbl .toolbar .pill-sel { background: rgba(34,211,238,0.12); color: #22d3ee; }
+  .slate .mini-tbl .toolbar .act { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+  .slate .mini-tbl .row { border-bottom-color: #334155; color: #cbd5e1; }
+  .slate .mini-tbl .row.head { background: rgba(255,255,255,0.02); color: #64748b; }
+  .slate .mini-tbl .row b { color: #f1f5f9; }
+  .slate .mini-tbl .row.sel { background: rgba(34,211,238,0.06); }
+  .slate .mini-tbl .check { border-color: #475569; }
+  .slate .mini-tbl .check.checked { background: #22d3ee; border-color: #22d3ee; }
+  .slate .mini-tbl .check.checked::after { color: #0f172a; }
+  .slate .pill.safe { color: #34d399; background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.25); }
+  .slate .pill.safe .dot { background: #34d399; }
+  .slate .pill.warn { color: #fcd34d; background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.3); }
+  .slate .pill.warn .dot { background: #fbbf24; }
+  .slate .pill.unsafe { color: #fca5a5; background: rgba(248,113,113,0.14); border-color: rgba(248,113,113,0.3); }
+  .slate .pill.unsafe .dot { background: #f87171; }
+  .slate .num { color: #f1f5f9; }
+
+  /* ╭──────────── Light palette ─────────────╮ */
+  .light .preview { background: #f8fafc; color: #0f172a; }
+  .light .pv-side { background: #ffffff; border-right-color: #e2e8f0; }
+  .light .pv-logo { border-bottom-color: #e2e8f0; }
+  .light .pv-logo-img { background: linear-gradient(135deg, #0e7490, #06b6d4); color: #ffffff; }
+  .light .pv-logo-title { color: #0f172a; }
+  .light .pv-logo-sub { color: #64748b; }
+  .light .pv-nav-item { color: #64748b; }
+  .light .pv-nav-item:hover { color: #0f172a; background: #f8fafc; }
+  .light .pv-nav-item.active { color: #0e7490; background: rgba(14,116,144,0.07); border-left-color: #0e7490; font-weight: 500; }
+  .light .pv-nav-section { color: #94a3b8; }
+  .light .pv-side-foot { border-top-color: #e2e8f0; color: #64748b; }
+  .light .pv-side-foot b { color: #0f172a; }
+  .light .pv-topbar { background: #ffffff; border-bottom-color: #e2e8f0; color: #64748b; }
+  .light .pv-crumb b { color: #0f172a; }
+  .light .pv-chip { background: rgba(14,116,144,0.08); border: 1px solid rgba(14,116,144,0.25); color: #0e7490; }
+  .light .pv-search { background: #f1f5f9; border: 1px solid #e2e8f0; color: #94a3b8; }
+  .light .pv-kbd { background: #ffffff; color: #94a3b8; border: 1px solid #e2e8f0; }
+  .light .pv-theme { background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; }
+  .light .pv-body { background: #f8fafc; }
+  .light .pv-h1 { color: #0f172a; }
+  .light .pv-meta { color: #94a3b8; }
+  .light .pv-meta b { color: #475569; }
+  .light .stat-cell { background: #ffffff; border-color: #e2e8f0; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+  .light .stat-label { color: #94a3b8; }
+  .light .stat-value { color: #0f172a; }
+  .light .stat-delta.up { color: #059669; }
+  .light .stat-delta.down { color: #d97706; }
+  .light .chart-wrap { background: #ffffff; border-color: #e2e8f0; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+  .light .chart-title { color: #0f172a; }
+  .light .chart-sub { color: #94a3b8; }
+  .light .chart-canvas span { background: linear-gradient(180deg, #06b6d4, #0e7490); opacity: 0.9; }
+  .light .chart-axis { color: #94a3b8; }
+  .light .donut::after { background: #ffffff; }
+  .light .donut-c b { color: #0f172a; }
+  .light .donut-c span { color: #64748b; }
+  .light .mini-tbl { background: #ffffff; border-color: #e2e8f0; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+  .light .mini-tbl .toolbar { background: #ffffff; border-bottom-color: #e2e8f0; color: #64748b; }
+  .light .mini-tbl .toolbar .pill-sel { background: #ccfbf1; color: #0e7490; }
+  .light .mini-tbl .toolbar .act { background: #ffffff; border-color: #cbd5e1; color: #0f172a; }
+  .light .mini-tbl .row { border-bottom-color: #f1f5f9; color: #0f172a; }
+  .light .mini-tbl .row.head { background: #f8fafc; color: #64748b; }
+  .light .mini-tbl .row b { color: #0f172a; }
+  .light .mini-tbl .row.sel { background: #ecfeff; }
+  .light .mini-tbl .check { border-color: #cbd5e1; }
+  .light .mini-tbl .check.checked { background: #0e7490; border-color: #0e7490; }
+  .light .mini-tbl .check.checked::after { color: #ffffff; }
+  .light .pill.safe { color: #047857; background: #d1fae5; border-color: #a7f3d0; }
+  .light .pill.safe .dot { background: #059669; }
+  .light .pill.warn { color: #b45309; background: #fef3c7; border-color: #fde68a; }
+  .light .pill.warn .dot { background: #d97706; }
+  .light .pill.unsafe { color: #b91c1c; background: #fee2e2; border-color: #fecaca; }
+  .light .pill.unsafe .dot { background: #dc2626; }
+  .light .num { color: #0f172a; }
+
+  /* Recommendation */
+  .rec {
+    margin-top: 20px;
+    background: linear-gradient(135deg, rgba(8,145,178,0.12), rgba(52,211,153,0.06));
+    border: 1px solid rgba(34,211,238,0.3);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .rec h3 {
+    font-family: 'Geist', 'Inter', sans-serif;
+    font-size: 0.98rem; letter-spacing: -0.01em; font-weight: 600;
+    color: #22d3ee; margin: 0 0 8px;
+  }
+  .rec p { font-size: 0.85rem; line-height: 1.55; color: #e2e8f0; margin: 0; }
+</style>
+
+<h2 style="font-family:'Geist','Inter',sans-serif; letter-spacing:-0.02em">The final look — Inter + Geist, both themes</h2>
+<p class="subtitle">Same Report Server dashboard, same content, rendered in Slate dark and Light. Pick your default.</p>
+
+<div class="t-board">
+
+  <div class="final-grid">
+
+    <!-- SLATE DARK -->
+    <div class="final-col">
+      <div class="final-head">
+        <span class="letter">1</span>
+        <h3>Slate dark</h3>
+        <span class="final-sub">data-theme="dark"</span>
+      </div>
+
+      <div class="slate">
+        <div class="preview">
+          <nav class="pv-side">
+            <div class="pv-logo">
+              <div class="pv-logo-img">T</div>
+              <div>
+                <div class="pv-logo-title">Triton</div>
+                <div class="pv-logo-sub">Report</div>
+              </div>
+            </div>
+            <div class="pv-nav">
+              <div class="pv-nav-item active"><span class="ico"></span>Overview</div>
+              <div class="pv-nav-item"><span class="ico"></span>Machines</div>
+              <div class="pv-nav-item"><span class="ico"></span>Scans</div>
+              <div class="pv-nav-section">Compliance</div>
+              <div class="pv-nav-item"><span class="ico"></span>NACSA Arahan 9</div>
+              <div class="pv-nav-item"><span class="ico"></span>Priority</div>
+              <div class="pv-nav-item"><span class="ico"></span>Inventory</div>
+            </div>
+            <div class="pv-side-foot">
+              <b>Jane · Security Officer</b>ACME Corp
+            </div>
+          </nav>
+          <div class="pv-main">
+            <div class="pv-topbar">
+              <div class="pv-crumb"><b>Overview</b></div>
+              <div class="pv-chip"><span class="dot" style="background:#22d3ee"></span>ACME · Production</div>
+              <div class="pv-right">
+                <div class="pv-search">⌕ Search<span class="pv-kbd">⌘K</span></div>
+                <div class="pv-theme">◐ Dark</div>
+                <div class="pv-avatar">JD</div>
+              </div>
+            </div>
+            <div class="pv-body">
+              <h1 class="pv-h1">Crypto readiness</h1>
+              <div class="pv-meta">
+                <span>Last scan <b>2h ago</b></span>
+                <span>Across <b>1,042 hosts</b></span>
+                <span>6 zones</span>
+              </div>
+              <div class="stat-row">
+                <div class="stat-cell pqc"><div class="stat-label">PQC ready</div><div class="stat-value">68%</div><div class="stat-delta up">↑ 4.2 vs last</div></div>
+                <div class="stat-cell unsafe"><div class="stat-label">Unsafe</div><div class="stat-value">214</div><div class="stat-delta up" style="color:#34d399">↓ 12 resolved</div></div>
+                <div class="stat-cell warn"><div class="stat-label">Expiring 30d</div><div class="stat-value">33</div><div class="stat-delta down">↑ 8 new</div></div>
+                <div class="stat-cell hosts"><div class="stat-label">Hosts scanned</div><div class="stat-value">1,042</div><div class="stat-delta up">98% online</div></div>
+              </div>
+
+              <div class="chart-wrap">
+                <div>
+                  <h4 class="chart-title">Migration trend · 12 weeks</h4>
+                  <div class="chart-sub">Weekly PQC-ready %</div>
+                  <div class="chart-canvas">
+                    <span style="height:20%"></span><span style="height:28%"></span><span style="height:32%"></span><span style="height:38%"></span>
+                    <span style="height:45%"></span><span style="height:50%"></span><span style="height:58%"></span><span style="height:62%"></span>
+                    <span style="height:68%"></span><span style="height:70%"></span><span style="height:78%"></span><span style="height:85%"></span>
+                  </div>
+                  <div class="chart-axis"><span>W1</span><span>W4</span><span>W8</span><span>W12</span></div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px">
+                  <div class="donut"><div class="donut-c"><b>1,244</b><span>Findings</span></div></div>
+                  <div style="font-size:0.64rem; display:flex; flex-direction:column; gap:3px">
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#34d399;border-radius:2px"></span>Safe 38%</div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#fbbf24;border-radius:2px"></span>Trans. 16%</div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#fb923c;border-radius:2px"></span>Depr. 18%</div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#f87171;border-radius:2px"></span>Unsafe 28%</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mini-tbl">
+                <div class="toolbar">
+                  <span class="pill-sel">2 selected</span>
+                  <button class="act">Export NACSA</button>
+                  <button class="act">Assign profile</button>
+                  <div class="spacer"></div>
+                  <span>Sort: <b style="color:#f1f5f9">Readiness ↑</b></span>
+                </div>
+                <div class="row head"><div></div><div>Host</div><div>Zone</div><div>Readiness</div><div>Status</div></div>
+                <div class="row sel"><div><span class="check checked"></span></div><div><b>api-prod-01</b></div><div>Prod / OT</div><div class="num">82%</div><div><span class="pill safe"><span class="dot"></span>Safe</span></div></div>
+                <div class="row sel"><div><span class="check checked"></span></div><div><b>api-prod-02</b></div><div>Prod / OT</div><div class="num">54%</div><div><span class="pill warn"><span class="dot"></span>Trans.</span></div></div>
+                <div class="row"><div><span class="check"></span></div><div><b>web-edge-01</b></div><div>DMZ</div><div class="num">31%</div><div><span class="pill unsafe"><span class="dot"></span>Unsafe</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIGHT -->
+    <div class="final-col">
+      <div class="final-head">
+        <span class="letter">2</span>
+        <h3>Light · enterprise</h3>
+        <span class="final-sub">data-theme="light"</span>
+      </div>
+
+      <div class="light">
+        <div class="preview">
+          <nav class="pv-side">
+            <div class="pv-logo">
+              <div class="pv-logo-img">T</div>
+              <div>
+                <div class="pv-logo-title">Triton</div>
+                <div class="pv-logo-sub">Report</div>
+              </div>
+            </div>
+            <div class="pv-nav">
+              <div class="pv-nav-item active"><span class="ico"></span>Overview</div>
+              <div class="pv-nav-item"><span class="ico"></span>Machines</div>
+              <div class="pv-nav-item"><span class="ico"></span>Scans</div>
+              <div class="pv-nav-section">Compliance</div>
+              <div class="pv-nav-item"><span class="ico"></span>NACSA Arahan 9</div>
+              <div class="pv-nav-item"><span class="ico"></span>Priority</div>
+              <div class="pv-nav-item"><span class="ico"></span>Inventory</div>
+            </div>
+            <div class="pv-side-foot">
+              <b>Jane · Security Officer</b>ACME Corp
+            </div>
+          </nav>
+          <div class="pv-main">
+            <div class="pv-topbar">
+              <div class="pv-crumb"><b>Overview</b></div>
+              <div class="pv-chip"><span class="dot" style="background:#0e7490"></span>ACME · Production</div>
+              <div class="pv-right">
+                <div class="pv-search">⌕ Search<span class="pv-kbd">⌘K</span></div>
+                <div class="pv-theme">☀ Light</div>
+                <div class="pv-avatar">JD</div>
+              </div>
+            </div>
+            <div class="pv-body">
+              <h1 class="pv-h1">Crypto readiness</h1>
+              <div class="pv-meta">
+                <span>Last scan <b>2h ago</b></span>
+                <span>Across <b>1,042 hosts</b></span>
+                <span>6 zones</span>
+              </div>
+              <div class="stat-row">
+                <div class="stat-cell pqc"><div class="stat-label">PQC ready</div><div class="stat-value">68%</div><div class="stat-delta up">↑ 4.2 vs last</div></div>
+                <div class="stat-cell unsafe"><div class="stat-label">Unsafe</div><div class="stat-value">214</div><div class="stat-delta up" style="color:#059669">↓ 12 resolved</div></div>
+                <div class="stat-cell warn"><div class="stat-label">Expiring 30d</div><div class="stat-value">33</div><div class="stat-delta down">↑ 8 new</div></div>
+                <div class="stat-cell hosts"><div class="stat-label">Hosts scanned</div><div class="stat-value">1,042</div><div class="stat-delta up">98% online</div></div>
+              </div>
+
+              <div class="chart-wrap">
+                <div>
+                  <h4 class="chart-title">Migration trend · 12 weeks</h4>
+                  <div class="chart-sub">Weekly PQC-ready %</div>
+                  <div class="chart-canvas">
+                    <span style="height:20%"></span><span style="height:28%"></span><span style="height:32%"></span><span style="height:38%"></span>
+                    <span style="height:45%"></span><span style="height:50%"></span><span style="height:58%"></span><span style="height:62%"></span>
+                    <span style="height:68%"></span><span style="height:70%"></span><span style="height:78%"></span><span style="height:85%"></span>
+                  </div>
+                  <div class="chart-axis"><span>W1</span><span>W4</span><span>W8</span><span>W12</span></div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px">
+                  <div class="donut"><div class="donut-c"><b>1,244</b><span>Findings</span></div></div>
+                  <div style="font-size:0.64rem; display:flex; flex-direction:column; gap:3px">
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#059669;border-radius:2px"></span>Safe 38%</div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#d97706;border-radius:2px"></span>Trans. 16%</div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#ea580c;border-radius:2px"></span>Depr. 18%</div>
+                    <div style="display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;background:#dc2626;border-radius:2px"></span>Unsafe 28%</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mini-tbl">
+                <div class="toolbar">
+                  <span class="pill-sel">2 selected</span>
+                  <button class="act">Export NACSA</button>
+                  <button class="act">Assign profile</button>
+                  <div class="spacer"></div>
+                  <span>Sort: <b style="color:#0f172a">Readiness ↑</b></span>
+                </div>
+                <div class="row head"><div></div><div>Host</div><div>Zone</div><div>Readiness</div><div>Status</div></div>
+                <div class="row sel"><div><span class="check checked"></span></div><div><b>api-prod-01</b></div><div>Prod / OT</div><div class="num">82%</div><div><span class="pill safe"><span class="dot"></span>Safe</span></div></div>
+                <div class="row sel"><div><span class="check checked"></span></div><div><b>api-prod-02</b></div><div>Prod / OT</div><div class="num">54%</div><div><span class="pill warn"><span class="dot"></span>Trans.</span></div></div>
+                <div class="row"><div><span class="check"></span></div><div><b>web-edge-01</b></div><div>DMZ</div><div class="num">31%</div><div><span class="pill unsafe"><span class="dot"></span>Unsafe</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <h3>One token system · two themes</h3>
+    <p>Both renders use the same HTML and component set — the difference is purely <code>html[data-theme="dark|light"]</code> on the root. You ship both, pick a default per-portal, and a topbar toggle lets each user override. The exported NACSA PDF always renders light.</p>
+  </div>
+</div>
+
+<div class="options" style="margin-top:22px">
+  <div class="option" data-choice="slate-default" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif;letter-spacing:-0.01em">Ship both · Slate dark default</h3>
+      <p>Operators &amp; engineers likely use this daily. Light stays one click away.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="light-default" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif;letter-spacing:-0.01em">Ship both · Light default</h3>
+      <p>Security officers &amp; exec viewers are the primary audience. Dark stays one click away.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="per-portal" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3 style="font-family:'Geist','Inter',sans-serif;letter-spacing:-0.01em">Per-portal default</h3>
+      <p>Report → Light (officers), License &amp; Manage → Slate (operators). Best of both.</p>
+    </div>
+  </div>
+</div>

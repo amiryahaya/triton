@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -112,8 +113,10 @@ func NewSSHClient(ctx context.Context, cfg SSHConfig) (*SSHClient, error) {
 	}, nil
 }
 
-// Run executes a single command and returns its combined stdout.
-// Stderr is discarded (agentless scans expect silent success).
+// Run executes a single command and returns its stdout. On non-zero exit
+// the stderr (truncated to 1 KiB) is included in the error message so
+// fleet-scan and device-scan callers can surface remote diagnostics. On
+// success, stderr is discarded.
 func (s *SSHClient) Run(ctx context.Context, command string) (string, error) {
 	session, err := s.client.NewSession()
 	if err != nil {
@@ -121,8 +124,9 @@ func (s *SSHClient) Run(ctx context.Context, command string) (string, error) {
 	}
 	defer func() { _ = session.Close() }()
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
+	session.Stderr = &stderr
 
 	cmdCtx, cancel := context.WithTimeout(ctx, s.cmdTimeout)
 	defer cancel()
@@ -133,13 +137,24 @@ func (s *SSHClient) Run(ctx context.Context, command string) (string, error) {
 	select {
 	case err := <-done:
 		if err != nil {
-			return stdout.String(), fmt.Errorf("command %q: %w", command, err)
+			errTail := truncateErr(stderr.String(), 1024)
+			return stdout.String(), fmt.Errorf("command %q: %w (stderr: %s)", command, err, errTail)
 		}
 		return stdout.String(), nil
 	case <-cmdCtx.Done():
 		_ = session.Signal(ssh.SIGKILL)
-		return stdout.String(), fmt.Errorf("command %q: %w", command, cmdCtx.Err())
+		errTail := truncateErr(stderr.String(), 1024)
+		return stdout.String(), fmt.Errorf("command %q: %w (stderr: %s)", command, cmdCtx.Err(), errTail)
 	}
+}
+
+// truncateErr returns s trimmed to max bytes plus an ellipsis if longer.
+func truncateErr(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…(truncated)"
 }
 
 // Upload copies localPath to the remote host at remotePath with the given

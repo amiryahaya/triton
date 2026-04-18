@@ -60,10 +60,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: portal-dist
-          path: |
-            pkg/licenseserver/ui/dist/
-            pkg/server/ui/dist/
+          path: pkg/licenseserver/ui/dist/
+          if-no-files-found: error
           retention-days: 7
+          # pkg/server/ui/dist/ + pkg/manageserver/ui/dist/ get added in follow-on plans
+          # when the report + manage portals' Vite builds land.
 
   test:
     name: Unit Test

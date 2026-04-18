@@ -197,4 +197,5 @@ web-test: web-install
 	cd web && pnpm test
 
 web-clean:
-	rm -rf web/node_modules web/**/node_modules web/**/dist web/**/coverage
+	rm -rf web/node_modules
+	find web/apps web/packages -maxdepth 2 \( -name node_modules -o -name dist -o -name coverage \) -type d -exec rm -rf {} + 2>/dev/null || true

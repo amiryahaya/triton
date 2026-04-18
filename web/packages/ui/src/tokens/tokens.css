@@ -26,6 +26,24 @@
   --z-modal:   80;
   --z-toast:   90;
 
+  /* Spacing scale — rem-based, 4px step. Components use these instead
+     of hard-coded pixel padding/margin to keep spatial rhythm consistent. */
+  --space-0:  0;
+  --space-1:  0.25rem;  /*  4px */
+  --space-2:  0.5rem;   /*  8px */
+  --space-3:  0.75rem;  /* 12px */
+  --space-4:  1rem;     /* 16px */
+  --space-5:  1.25rem;  /* 20px */
+  --space-6:  1.5rem;   /* 24px */
+  --space-8:  2rem;     /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+
+  /* Font family tokens are declared in fonts.css, not here — see note
+     on the html/body block below. Components reference --font-body /
+     --font-display / --font-mono with a sensible fallback so tokens.css
+     stays useful even if fonts.css isn't imported. */
+
   /* Portal accent (placeholders — apps override at their app root) */
   --portal-accent:      #22d3ee;
   --portal-accent-soft: rgba(34, 211, 238, 0.12);

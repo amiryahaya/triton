@@ -11,16 +11,16 @@
     "./fonts.css": "./src/fonts/fonts.css"
   },
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "lint": "eslint src"
   },
   "dependencies": {
-    "chart.js": "^4.4.7",
     "vue": "^3.5.13"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/test-utils": "^2.4.6",
+    "chart.js": "^4.4.7",
     "jsdom": "^25.0.1",
     "vitest": "^2.1.8"
   }

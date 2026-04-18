@@ -56,6 +56,11 @@ jobs:
         working-directory: web
         run: pnpm build
 
+      # Phase 8 cutover hazard: the legacy vanilla-JS admin UI under
+      # pkg/licenseserver/ui/dist/ is what makes this step pass today.
+      # When Phase 8 deletes the legacy files, the same commit MUST wire
+      # the license-portal Vite build so dist/ is repopulated — otherwise
+      # `if-no-files-found: error` will break CI for that commit.
       - name: Upload built portals
         uses: actions/upload-artifact@v4
         with:

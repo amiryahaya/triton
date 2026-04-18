@@ -34,3 +34,6 @@ export { useFocusTrap } from './composables/useFocusTrap';
 export { useToast } from './composables/useToast';
 export type { ToastKind, ToastInput } from './composables/useToast';
 export { default as TToastHost } from './composite/TToastHost.vue';
+
+export { default as TSidebar } from './shell/TSidebar.vue';
+export type { NavItem, NavSection } from './shell/TSidebar.vue';

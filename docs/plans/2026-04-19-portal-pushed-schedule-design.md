@@ -86,9 +86,16 @@ func heartbeat(seat *seatState, currentGuard *license.Guard) (*license.Guard, *a
 In `runAgent`'s loop, after `heartbeat` returns:
 
 ```go
-if err != nil {
+switch {
+case err != nil:
+    // Parse error on a server-pushed value. Keep whatever sched we
+    // were using (which could be baseSched or a previously-pushed one)
+    // so the fleet doesn't silence on a transient bad value.
     fmt.Fprintf(os.Stderr, "warning: server-pushed schedule invalid (%v) — keeping previous schedule\n", err)
-} else if override != nil {
+
+case override != nil:
+    // Server pushed a non-empty schedule this iteration. Build it and
+    // adopt it for the next sleep.
     newSched, nerr := newSchedulerFromSpec(*override)
     if nerr != nil {
         fmt.Fprintf(os.Stderr, "warning: server-pushed schedule build failed (%v) — keeping previous\n", nerr)
@@ -96,13 +103,26 @@ if err != nil {
         sched = newSched
         fmt.Printf("  schedule updated from server: %s\n", sched.Describe())
     }
+
+default:
+    // Server returned an empty schedule this iteration. If we were
+    // running a previously-pushed override, revert to the yaml-derived
+    // baseline so an admin clearing the field in the portal actually
+    // restores the operator's local setting.
+    if sched != baseSched {
+        sched = baseSched
+        fmt.Printf("  schedule reverted to local default: %s\n", sched.Describe())
+    }
 }
 wait := sched.Next(time.Now())
 ```
 
 Reuses `agentconfig.ScheduleSpec` from PR #79 and `newSchedulerFromSpec` from the same commit. No parallel construction path; one source of truth for "what does a scheduler look like."
 
-The override lives for the loop's lifetime until the next validate replaces it or the agent restarts. When the server later clears the schedule (pushes empty), the agent reverts to the original yaml-derived scheduler — so we stash the yaml-derived scheduler as `baseSched` at startup and fall back to it whenever the server response contains no schedule.
+**Lifecycle invariants:**
+- At startup, `runAgent` builds `baseSched` from `resolved.source.ResolveSchedule(cmd, os.Stderr)` + `newSchedulerFromSpec`. This is the yaml-derived (or `--interval` flag-derived) scheduler. It never changes during the process lifetime.
+- `sched` starts equal to `baseSched`. On each `heartbeat` that returns a non-nil override, `sched` is replaced. On each `heartbeat` that returns no override, `sched` snaps back to `baseSched` — so "admin clears schedule in portal" reliably restores local yaml.
+- On parse-error heartbeat, `sched` is left untouched — the previous "last known good" schedule wins over a bad value.
 
 ### 4. Admin API + UI
 

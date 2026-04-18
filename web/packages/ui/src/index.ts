@@ -6,3 +6,6 @@ export {
   type ResolvedTheme,
   type UseTheme,
 } from './composables/useTheme';
+
+export { default as TButton } from './atoms/TButton.vue';
+export type { ButtonVariant, ButtonSize } from './atoms/TButton.vue';

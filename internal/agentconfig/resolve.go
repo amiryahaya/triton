@@ -201,7 +201,7 @@ func (c *Config) ResolveSchedule(cmd *cobra.Command, warnOut io.Writer) (Schedul
 		spec.CronExpr = c.Schedule
 		spec.Jitter = c.ScheduleJitter
 		if c.Interval > 0 {
-			fmt.Fprintf(warnOut,
+			_, _ = fmt.Fprintf(warnOut,
 				"warning: both schedule (%q) and interval (%s) set in agent.yaml — schedule wins\n",
 				c.Schedule, c.Interval)
 		}

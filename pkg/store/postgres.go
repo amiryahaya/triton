@@ -116,7 +116,31 @@ func (s *PostgresStore) QueryColumnTestOnly(ctx context.Context, table, column s
 	return dt, err
 }
 
-// NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
+// NewPostgresStoreFromPool constructs a PostgresStore around an existing
+// pgxpool.Pool. Introduced in B2.1 so Manage Server can share one pool
+// between pkg/store and the scan-handler subpackages (scanjobs,
+// credentials, discovery, agentpush) which take *pgxpool.Pool directly.
+//
+// **Pool ownership.** The caller owns the pool's lifecycle. Do NOT call
+// Close() on the returned store when the pool is shared with other
+// packages — PostgresStore.Close() unconditionally closes the underlying
+// pool and would pull it out from under the other consumers. Close the
+// pool yourself when the last user is done. This contrasts with
+// NewPostgresStore below, which is the sole owner of its pool and whose
+// Close() method IS the correct teardown path.
+//
+// The caller MUST have run Migrate(ctx, pool) (or gone through
+// NewPostgresStore which does this) before using the returned store, or
+// reads/writes will fail against a schema that doesn't exist.
+func NewPostgresStoreFromPool(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
+}
+
+// NewPostgresStore connects to PostgreSQL, runs any pending schema
+// migrations, and returns a fully-initialised store. Convenience wrapper
+// over pgxpool.New + Migrate + NewPostgresStoreFromPool — prefer this for
+// new code that owns the full lifecycle. Use NewPostgresStoreFromPool when
+// you need to share a pool with another package.
 func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, error) {
 	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
@@ -126,18 +150,27 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 		pool.Close()
 		return nil, fmt.Errorf("pinging postgresql: %w", err)
 	}
-
-	s := &PostgresStore{pool: pool}
-	if err := s.migrate(ctx); err != nil {
+	if err := Migrate(ctx, pool); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
-	return s, nil
+	return NewPostgresStoreFromPool(pool), nil
 }
 
-// migrate applies any unapplied schema migrations.
-func (s *PostgresStore) migrate(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_version (
+// Migrate applies any unapplied schema migrations against the given pool.
+// Safe to call from any caller that owns a pgxpool.Pool against the target
+// database. Uses an advisory lock (id 7355693421) to serialise concurrent
+// migrators on the same database; the lock is released before return.
+// The advisory lock is per-database, so separate PostgreSQL databases
+// (e.g. Manage Server's DB vs Report Server's DB) do not contend on this
+// id even when both run Migrate concurrently. Idempotent — running twice
+// against the same DB is a no-op for already-applied migrations.
+//
+// Introduced in B2.1 so Manage Server can run the same migration set against
+// its own pool without going through NewPostgresStore. Report Server's
+// NewPostgresStore now delegates here.
+func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_version (
 		version INTEGER NOT NULL UNIQUE,
 		applied_at TIMESTAMPTZ NOT NULL
 	)`)
@@ -147,7 +180,7 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 
 	// Acquire a dedicated connection for advisory lock to prevent concurrent migrations.
 	// Advisory locks are session-level — we must hold the same connection for lock + migrations.
-	conn, err := s.pool.Acquire(ctx)
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquiring connection for migration: %w", err)
 	}

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/license"
 )
@@ -78,12 +81,77 @@ func (s *Server) startLicence(ctx context.Context) error {
 	return nil
 }
 
-// collectUsage reports current usage metrics to the License Server. B1 has
-// no counted metrics yet (hosts, zones, tenants, scans all arrive in B2), so
-// it returns an empty slice. The pusher still issues a heartbeat POST every
-// Interval, which LS uses to detect live instances.
+// collectUsage reports current usage metrics to the License Server
+// AND mirrors them into the in-memory Guard so the soft-buffer scan
+// cap arithmetic (`used + expected > SoftBufferCeiling`) has a
+// non-zero `used` to work with.
+//
+// Without the RecordUsage mirror here, Guard.CurrentUsage("scans",
+// "monthly") would stay permanently 0 and the soft-buffered scan cap
+// would degrade from `used + expected > ceiling` to `expected >
+// ceiling` — meaning no matter how many small batches an operator
+// submits, the per-batch expected count never tops the ceiling and
+// incremental drift past the cap goes undetected.
+//
+// Window boundary: scans/monthly rolls over at the first moment of
+// each calendar month in UTC. Matches the License Server's own
+// month-aligned reset and avoids local-timezone ambiguity across
+// Manage Server instances in different regions. Consequence: an
+// operator in UTC+8 sees the counter roll over at 08:00 local on
+// the 1st.
+//
+// Nil Guard (licence not yet activated) → returns nil without
+// touching the DB, so the pusher's heartbeat still fires but carries
+// no metrics.
 func (s *Server) collectUsage() []license.UsageMetric {
-	return []license.UsageMetric{}
+	s.mu.RLock()
+	guard := s.licenceGuard
+	scanjobsStore := s.scanjobsStore
+	s.mu.RUnlock()
+
+	if guard == nil || scanjobsStore == nil {
+		return nil
+	}
+
+	ctx := context.Background()
+	state, err := s.store.GetSetup(ctx)
+	if err != nil {
+		log.Printf("manageserver/license: collectUsage: read setup state: %v", err)
+		return nil
+	}
+	if state.InstanceID == "" {
+		return nil
+	}
+	tenantID, err := uuid.Parse(state.InstanceID)
+	if err != nil {
+		log.Printf("manageserver/license: collectUsage: parse instance_id %q: %v",
+			state.InstanceID, err)
+		return nil
+	}
+
+	// UTC month start — fixed across regions so the monthly cap resets
+	// deterministically and matches the License Server's own alignment.
+	now := time.Now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	scanCount, err := scanjobsStore.CountCompletedSince(ctx, tenantID, monthStart)
+	if err != nil {
+		log.Printf("manageserver/license: collectUsage: count completed scans: %v", err)
+		return nil
+	}
+
+	metrics := []license.UsageMetric{
+		{Metric: "scans", Window: "monthly", Value: scanCount},
+	}
+
+	// Mirror into the Guard so CurrentUsage is accurate regardless of
+	// whether the subsequent LS push succeeds. This is what lets the
+	// soft-buffer cap enforce `used + expected > ceiling` between LS
+	// pushes — in particular, when the LS is briefly unreachable.
+	for _, m := range metrics {
+		guard.RecordUsage(m.Metric, m.Window, m.Value)
+	}
+	return metrics
 }
 
 // onUsagePushSuccess stamps manage_license_state.last_pushed_at +

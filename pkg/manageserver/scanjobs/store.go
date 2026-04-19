@@ -86,4 +86,15 @@ type Store interface {
 	// Implementation runs the same zone/host expansion query as
 	// Enqueue so numeric parity is guaranteed.
 	PlanEnqueueCount(ctx context.Context, req EnqueueReq) (int64, error)
+
+	// CountCompletedSince returns the number of scan jobs for the given
+	// tenant that transitioned to status='completed' at or after `since`.
+	// Used by the Manage Server's usage pusher to populate the scans/
+	// monthly metric the Licence Server consults for soft-buffer cap
+	// enforcement.
+	//
+	// Only rows with finished_at >= since are counted; finished_at is
+	// UTC in the DB, so callers must supply `since` in UTC (or any zone
+	// — the comparison is timestamp-absolute).
+	CountCompletedSince(ctx context.Context, tenantID uuid.UUID, since time.Time) (int64, error)
 }

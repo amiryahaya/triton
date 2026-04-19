@@ -146,6 +146,12 @@ func (f *fakeStore) PlanEnqueueCount(_ context.Context, req scanjobs.EnqueueReq)
 	// without touching postgres.
 	return int64(len(req.ZoneIDs)), nil
 }
+func (f *fakeStore) CountCompletedSince(_ context.Context, _ uuid.UUID, _ time.Time) (int64, error) {
+	// Handler-layer tests don't exercise the usage-pusher path;
+	// zero is the safe default that keeps the Store interface
+	// contract satisfied.
+	return 0, nil
+}
 
 // --- helpers ----------------------------------------------------------------
 

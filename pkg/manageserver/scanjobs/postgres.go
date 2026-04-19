@@ -349,6 +349,27 @@ func (s *PostgresStore) PlanEnqueueCount(ctx context.Context, req EnqueueReq) (i
 	return n, nil
 }
 
+// CountCompletedSince returns the number of completed scan jobs for
+// the tenant whose finished_at is at or after the supplied timestamp.
+// Used by the Manage Server's usage pusher to feed scans/monthly into
+// the License Server's soft-buffer cap arithmetic.
+//
+// The query is bounded by (tenant_id, finished_at) and the existing
+// manage_scan_jobs index on status + tenant_id keeps it cheap even on
+// a large history table.
+func (s *PostgresStore) CountCompletedSince(ctx context.Context, tenantID uuid.UUID, since time.Time) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_scan_jobs
+		 WHERE tenant_id = $1 AND status = 'completed' AND finished_at >= $2`,
+		tenantID, since,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count completed scan jobs: %w", err)
+	}
+	return n, nil
+}
+
 // ReapStale reverts running jobs whose heartbeat is older than
 // staleAfter back to queued so another worker can pick them up.
 // Returns the number of rows revived.

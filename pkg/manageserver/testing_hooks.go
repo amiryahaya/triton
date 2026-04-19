@@ -52,6 +52,14 @@ func StopLicenceForTest(s *Server) {
 	s.stopLicence()
 }
 
+// CollectUsageForTest exposes the unexported collectUsage so tests
+// can assert it (a) records scans into the in-memory Guard and (b)
+// returns the same metric set to the caller. Production code calls
+// this indirectly via the UsagePusher's tick.
+func CollectUsageForTest(s *Server) []license.UsageMetric {
+	return s.collectUsage()
+}
+
 // SetSeatCapGuardForTest swaps the seat-cap guard consulted by
 // handleCreateUser for a caller-provided fake. Intended for integration
 // tests that assert the seat-cap enforcement path without having to

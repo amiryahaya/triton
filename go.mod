@@ -16,6 +16,7 @@ require (
 	github.com/johnfercher/maroto/v2 v2.3.3
 	github.com/klauspost/compress v1.18.5
 	github.com/pkg/sftp v1.13.10
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.11.1
@@ -23,6 +24,7 @@ require (
 	github.com/xuri/excelize/v2 v2.10.1
 	go.mozilla.org/pkcs7 v0.9.0
 	golang.org/x/crypto v0.49.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.3
@@ -115,7 +117,6 @@ require (
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect

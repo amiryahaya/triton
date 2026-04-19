@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -169,4 +170,63 @@ func flagInt(cmd *cobra.Command, name string) (int, error) {
 		return cmd.Flags().GetInt(name)
 	}
 	return cmd.PersistentFlags().GetInt(name)
+}
+
+// ResolveSchedule walks the precedence chain and returns a ScheduleSpec
+// describing when the next scan should fire.
+//
+// Precedence (highest first):
+//  1. Config.Schedule (cron expression in yaml) — wins if non-empty
+//  2. Config.Interval (duration in yaml)       — wins if non-zero
+//  3. --interval flag (cmd)                    — wins if set
+//  4. ScheduleKindOneShot                      — run once and exit
+//
+// When both Schedule and Interval are set, Schedule wins and a warning
+// is written to warnOut. Pass nil to discard the warning. Negative or
+// zero values for Config.Interval are treated as "unset" and fall
+// through to the CLI flag.
+//
+// Cron expression validation is NOT performed here — that's the
+// runtime scheduler's job. We keep this package free of the cron
+// library import so callers that only need to inspect resolved config
+// don't pull it in.
+func (c *Config) ResolveSchedule(cmd *cobra.Command, warnOut io.Writer) (ScheduleSpec, error) {
+	if warnOut == nil {
+		warnOut = io.Discard
+	}
+	spec := ScheduleSpec{}
+
+	if c.Schedule != "" {
+		spec.Kind = ScheduleKindCron
+		spec.CronExpr = c.Schedule
+		spec.Jitter = c.ScheduleJitter
+		if c.Interval > 0 {
+			_, _ = fmt.Fprintf(warnOut,
+				"warning: both schedule (%q) and interval (%s) set in agent.yaml — schedule wins\n",
+				c.Schedule, c.Interval)
+		}
+		return spec, nil
+	}
+
+	if c.Interval > 0 {
+		spec.Kind = ScheduleKindInterval
+		spec.Interval = c.Interval
+		return spec, nil
+	}
+
+	// Fall through to --interval flag.
+	if cmd != nil && flagChanged(cmd, "interval") {
+		v, err := flagDuration(cmd, "interval")
+		if err != nil {
+			return ScheduleSpec{}, fmt.Errorf("reading --interval flag: %w", err)
+		}
+		if v > 0 {
+			spec.Kind = ScheduleKindInterval
+			spec.Interval = v
+			return spec, nil
+		}
+	}
+
+	spec.Kind = ScheduleKindOneShot
+	return spec, nil
 }

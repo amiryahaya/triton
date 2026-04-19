@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -52,28 +51,6 @@ var (
 	healthCheckMaxBackoff = 30 * time.Second
 )
 
-// intervalJitterFn is swappable in tests so jitter is deterministic.
-// Production uses the package-global rand source; tests inject a
-// seeded source to assert on exact outputs.
-var intervalJitterFn = defaultIntervalJitter
-
-// defaultIntervalJitter returns a value in [-0.1×base, +0.1×base],
-// i.e. ±10% of the interval. Kept as a package-level var so the
-// package init stays trivial and tests can call it directly.
-func defaultIntervalJitter(base time.Duration) time.Duration {
-	if base <= 0 {
-		return 0
-	}
-	// Range is one-fifth of base (±10%). rand.Int63n is exclusive
-	// of its upper bound, so the max is "just under +10%".
-	maxJitter := int64(base / 5)
-	if maxJitter <= 0 {
-		return 0
-	}
-	//nolint:gosec // G404: non-cryptographic jitter is intentional
-	return time.Duration(rand.Int63n(maxJitter) - maxJitter/2)
-}
-
 var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "Run a scan and either submit to a report server or write local reports",
@@ -101,7 +78,7 @@ func init() {
 		panic(fmt.Sprintf("agent cmd: MarkDeprecated(server): %v", err))
 	}
 	agentCmd.Flags().StringVar(&agentProfile, "profile", "", "Scan profile: quick | standard | comprehensive. Overrides agent.yaml.")
-	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h). If unset, runs once.")
+	agentCmd.Flags().DurationVar(&agentInterval, "interval", 0, "Repeat interval (e.g., 24h) with ±10% jitter. If unset, runs once. For wall-clock scheduling set `schedule:` in agent.yaml.")
 	agentCmd.Flags().BoolVar(&agentCheckConfig, "check-config", false, "Validate agent.yaml, probe the report server, print the effective config, then exit without scanning.")
 	agentCmd.Flags().BoolVar(&agentAlsoLocal, "also-local", false, "Tee mode: when --report-server is set, also write the scan to OutputDir locally. Overrides also_local in agent.yaml.")
 	rootCmd.AddCommand(agentCmd)
@@ -143,12 +120,20 @@ type resolvedAgentConfig struct {
 	Limits limits.Limits
 }
 
+// heartbeatClient is the minimal License Server client surface used by
+// heartbeat(). Declared as an interface so tests can inject a fake
+// without spinning up a real server.
+type heartbeatClient interface {
+	Validate(licenseID, token string) (*license.ValidateResponse, error)
+	Deactivate(licenseID string) error
+}
+
 // seatState tracks whether the agent successfully registered with
 // the license server. Used by the heartbeat and shutdown paths to
 // know whether to call validate/deactivate.
 type seatState struct {
 	activated bool
-	client    *license.ServerClient
+	client    heartbeatClient
 	licenseID string
 	token     string
 }
@@ -405,28 +390,32 @@ func activateWithLicenseServer(resolved *resolvedAgentConfig) seatState {
 	}
 }
 
-// heartbeat calls the license server's validate endpoint to update
-// last_seen_at and detect tier changes or revocations. Returns the
-// updated guard if the tier changed, or the original guard if
-// validation failed or was skipped. Mutates seat.activated to false
-// on invalid response (stops future heartbeats).
-func heartbeat(seat *seatState, currentGuard *license.Guard) *license.Guard {
+// heartbeat posts /validate to the License Server and returns:
+//   - the possibly-updated license.Guard (free tier on invalid response);
+//   - a non-nil *ScheduleSpec when the server pushed a schedule override.
+//
+// When the server returns no schedule (empty string), the override is nil
+// and the caller should revert to its baseSched if it previously adopted
+// a server-pushed value. Cron-parse failures on the returned expression
+// are surfaced later by newSchedulerFromSpec in the caller — this
+// function only assembles the spec.
+func heartbeat(seat *seatState, currentGuard *license.Guard) (*license.Guard, *agentconfig.ScheduleSpec) {
 	if !seat.activated || seat.client == nil {
-		return currentGuard
+		return currentGuard, nil
 	}
 
 	resp, err := seat.client.Validate(seat.licenseID, seat.token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server heartbeat failed: %v — continuing with current tier\n", err)
-		return currentGuard
+		return currentGuard, nil
 	}
 
 	if !resp.Valid {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server reports license invalid — degrading to free tier\n")
 		seat.activated = false
-		return license.NewGuard("") // free tier
+		return license.NewGuard(""), nil
 	}
 
 	// Tier changes (admin upgraded/downgraded) take effect on next
@@ -439,7 +428,15 @@ func heartbeat(seat *seatState, currentGuard *license.Guard) *license.Guard {
 			currentGuard.Tier(), resp.Tier)
 	}
 
-	return currentGuard
+	if resp.Schedule == "" {
+		return currentGuard, nil
+	}
+	spec := agentconfig.ScheduleSpec{
+		Kind:     agentconfig.ScheduleKindCron,
+		CronExpr: resp.Schedule,
+		Jitter:   time.Duration(resp.ScheduleJitterSeconds) * time.Second,
+	}
+	return currentGuard, &spec
 }
 
 // deactivateOnShutdown unregisters this machine from the license
@@ -502,7 +499,7 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Deactivate on shutdown — covers both SIGINT/SIGTERM (loop exit
-	// via ctx.Done()) and one-shot completion (agentInterval == 0).
+	// via ctx.Done()) and one-shot completion (sched == nil).
 	defer deactivateOnShutdown(&seat)
 
 	// Now that activeGuard reflects the final tier, tier-filter
@@ -515,6 +512,36 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	// always see what mode they're about to run in, even if the
 	// gate then refuses them.
 	printStartupBanner(activeGuard, resolved)
+
+	// Resolve the schedule (cron, interval, or one-shot) once, up-front
+	// — BEFORE feature gating, network I/O, or --check-config — so an
+	// invalid cron expression surfaces immediately. --check-config
+	// deliberately runs AFTER this block so it can report schedule
+	// validity as part of its smoke-test contract.
+	spec, err := resolved.source.ResolveSchedule(cmd, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("resolving schedule: %w", err)
+	}
+	sched, err := newSchedulerFromSpec(spec)
+	if err != nil {
+		return fmt.Errorf("building scheduler: %w", err)
+	}
+	if sched != nil {
+		fmt.Printf("  schedule:    %s\n\n", sched.Describe())
+	} else {
+		fmt.Printf("  schedule:    one-shot (no interval or schedule configured)\n\n")
+	}
+
+	// Stash the yaml-derived baseline. Server-pushed overrides flip
+	// sched at runtime; when the server clears the override we restore
+	// from baseSched so an admin's "unset schedule" action reliably
+	// returns the agent to its operator-configured local schedule.
+	// cronScheduler embeds a cron.Schedule interface, so comparing
+	// scheduler interface values with `==` can panic at runtime if the
+	// concrete cron.Schedule isn't comparable. Track override state with
+	// an explicit bool instead.
+	baseSched := sched
+	onOverride := false
 
 	// Feature gating. Server submission is enterprise-only; local
 	// report mode is allowed on every tier — it's just running the
@@ -534,14 +561,14 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 	if resolved.reportServer != "" {
 		client = agent.New(resolved.reportServer)
 		client.LicenseToken = resolved.licenseToken
-		// In continuous (--interval) mode, retry the initial
-		// healthcheck with backoff instead of exiting: a brief
-		// server restart during the systemd timer firing is the
-		// common case and deserves to be absorbed silently. In
-		// one-shot mode we fall back to a single attempt so CI
-		// pipelines fail fast on misconfiguration.
+		// In continuous mode (scheduler configured), retry the initial
+		// healthcheck with backoff instead of exiting: a brief server
+		// restart during the timer firing is the common case and
+		// deserves to be absorbed silently. In one-shot mode we fall
+		// back to a single attempt so CI pipelines fail fast on
+		// misconfiguration.
 		attempts := healthCheckMaxAttempts
-		if agentInterval == 0 {
+		if sched == nil {
 			attempts = 1
 		}
 		if err := waitForServerReady(ctx, client, attempts); err != nil {
@@ -564,24 +591,55 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
 		}
 
-		if agentInterval == 0 {
+		if sched == nil {
 			return nil
 		}
 
 		// Heartbeat between scans (continuous mode only). Updates
 		// last_seen_at on the license server and detects tier
 		// changes or revocations. Skipped on one-shot runs to
-		// avoid an unnecessary HTTP round-trip.
-		activeGuard = heartbeat(&seat, activeGuard)
+		// avoid an unnecessary HTTP round-trip. When the server
+		// pushes a schedule override, rebuild sched; when it
+		// clears the override, revert to the operator's local
+		// baseline (baseSched).
+		var override *agentconfig.ScheduleSpec
+		activeGuard, override = heartbeat(&seat, activeGuard)
+		switch {
+		case override != nil:
+			newSched, nerr := newSchedulerFromSpec(*override)
+			if nerr != nil {
+				fmt.Fprintf(os.Stderr, "warning: server-pushed schedule build failed (%v) — keeping previous\n", nerr)
+			} else {
+				sched = newSched
+				onOverride = true
+				fmt.Printf("  schedule updated from server: %s\n", sched.Describe())
+			}
+		default:
+			// Server pushed no schedule. If we had previously adopted an
+			// override, revert to the yaml-derived baseline so an admin
+			// clearing the field restores the operator's local setting.
+			if onOverride {
+				sched = baseSched
+				onOverride = false
+				if sched != nil {
+					fmt.Printf("  schedule reverted to local default: %s\n", sched.Describe())
+				} else {
+					fmt.Printf("  schedule reverted to local default: one-shot\n")
+				}
+			}
+		}
 
-		// Jitter the sleep by ±10% so a fleet of agents rebooted
-		// simultaneously (e.g., after a patch window) does not
-		// dog-pile the report server at the same second every
-		// interval. Logged as the effective wait, not the raw
-		// interval, so operators can see what actually happened.
-		wait := agentInterval + intervalJitterFn(agentInterval)
+		// Defensive: if a revert somehow produced a nil scheduler
+		// (shouldn't happen because baseSched==nil would have exited at
+		// the top-of-loop one-shot check), exit cleanly rather than
+		// nil-panic on Next().
+		if sched == nil {
+			return nil
+		}
+
+		wait := sched.Next(time.Now())
 		if wait < 0 {
-			wait = agentInterval // belt-and-braces: never sleep negative
+			wait = 0
 		}
 		fmt.Printf("Next scan in %s...\n", wait.Round(time.Second))
 		select {
@@ -708,8 +766,6 @@ func printStartupBanner(g *license.Guard, r *resolvedAgentConfig) {
 				strings.Join(r.formatsFilteredOut, ", "))
 		}
 	}
-
-	fmt.Println()
 }
 
 // runAgentScan executes one scan iteration. When client is non-nil

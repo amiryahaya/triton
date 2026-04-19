@@ -684,6 +684,81 @@ sudo systemctl enable --now triton-agent
 sudo journalctl -u triton-agent -f
 ```
 
+### 7c-bis. Scheduling (cron vs interval)
+
+The agent supports two scheduling modes:
+
+- **Interval** (existing): `interval: 24h` in agent.yaml or `--interval 24h` on the CLI — run every N hours/minutes with ±10% jitter. Good for "every 24h from whenever the agent started".
+- **Cron** (new): `schedule: "0 2 * * *"` in agent.yaml — run at specific wall-clock times. Good for "every day at 02:00 local" or "Sundays at 6am".
+
+Example `agent.yaml` with cron scheduling:
+
+```yaml
+schedule: "0 2 * * 0"    # Sundays at 02:00 local time
+schedule_jitter: 30s     # optional: add up to 30s uniform jitter (disabled by default)
+profile: standard
+report_server: https://triton.example.com
+license_key: "eyJ..."
+```
+
+Precedence (highest wins):
+
+1. `schedule:` in `agent.yaml`
+2. `interval:` in `agent.yaml`
+3. `--interval` CLI flag
+4. Fall through to one-shot (no repeat)
+
+If both `schedule:` and `interval:` are present in the yaml, `schedule:` wins and a warning is printed to stderr at startup.
+
+Notes:
+
+- Cron expressions are standard 5-field (minute hour day-of-month month day-of-week).
+- Evaluated in the agent host's **local timezone**. If you want UTC, set `TZ=UTC` in the systemd unit's `Environment=` directive.
+- Invalid expressions fail fast at agent startup with a clear error. `triton agent --check-config` surfaces the error without running a scan.
+- No catch-up: if the host was off at 02:00, the next fire is the following scheduled time — same as `cron(8)`.
+- Long-running scans that overrun the next fire do not queue up; the scan finishes, then the next future fire is computed fresh.
+- `schedule_jitter` defaults to 0 (disabled). Set it when fleet-staggering matters — every agent with the same cron will otherwise fire at exactly the same second.
+
+### 7c-ter. Server-pushed schedule override
+
+When an agent is bound to a license server (`license_server:` + `license_id:` in agent.yaml, or via `triton license activate`), the license server can push a `schedule` + `scheduleJitterSeconds` override on the existing `/validate` heartbeat. The agent adopts the override starting from the next iteration and reverts to the yaml-derived baseline when the server clears it.
+
+**Setting an override (admin side):**
+
+```bash
+curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
+     -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"schedule": "0 2 * * 0", "scheduleJitterSeconds": 60}'
+```
+
+A future PR will add these fields to the license admin UI; for now the admin API is the source of truth.
+
+**Clearing an override:**
+
+```bash
+curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
+     -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"schedule": "", "scheduleJitterSeconds": 0}'
+```
+
+**Precedence summary (license-bound agents):**
+
+1. Server-pushed `schedule` (when non-empty on the license row)
+2. Local `agent.yaml::schedule`
+3. Local `agent.yaml::interval`
+4. `--interval` CLI flag
+5. One-shot
+
+**Safeguards:**
+
+- Invalid cron expressions are rejected by the admin API at write time (HTTP 400 with the parser error).
+- A malformed value that somehow reaches the agent is logged to stderr and the agent keeps its previous schedule — the fleet is never silenced by a bad push.
+- There is no `schedule_lock` in agent.yaml. If a specific deployment must resist server pushes, use the offline-token flow (no license-server binding); the server cannot push to agents it doesn't talk to.
+
+**Lag:** the first scan after agent startup uses the yaml-derived schedule. The server-pushed value first applies when the heartbeat runs between iteration 1 and iteration 2. For 24h cadences this is invisible; for sub-minute testing cron, plan around it.
+
 ### Kernel-enforced resource limits
 
 The `resource_limits:` block in agent.yaml enforces limits *inside* the

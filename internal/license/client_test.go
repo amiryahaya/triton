@@ -253,3 +253,19 @@ func TestServerClient_Activate_V1ResponseStillWorks(t *testing.T) {
 	assert.Equal(t, 0, resp.SoftBufferPct)
 	assert.Empty(t, resp.ProductScope)
 }
+
+func TestValidateResponse_ScheduleFieldsRoundTrip(t *testing.T) {
+	body := `{"valid":true,"tier":"pro","schedule":"0 2 * * *","scheduleJitterSeconds":30}`
+	var vr ValidateResponse
+	require.NoError(t, json.Unmarshal([]byte(body), &vr))
+	assert.Equal(t, "0 2 * * *", vr.Schedule)
+	assert.Equal(t, 30, vr.ScheduleJitterSeconds)
+}
+
+func TestValidateResponse_ScheduleAbsent(t *testing.T) {
+	body := `{"valid":true,"tier":"pro"}`
+	var vr ValidateResponse
+	require.NoError(t, json.Unmarshal([]byte(body), &vr))
+	assert.Equal(t, "", vr.Schedule, "absent key should unmarshal to empty string")
+	assert.Equal(t, 0, vr.ScheduleJitterSeconds, "absent key should unmarshal to zero")
+}

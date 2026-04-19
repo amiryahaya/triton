@@ -132,6 +132,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/licenses", srv.handleCreateLicense)
 		r.Get("/licenses", srv.handleListLicenses)
 		r.Get("/licenses/{id}", srv.handleGetLicense)
+		r.Patch("/licenses/{id}", srv.handleUpdateLicense)
 		r.Post("/licenses/{id}/revoke", srv.handleRevokeLicense)
 		// agent.yaml download (closes the fool-proof loop —
 		// superadmin clicks one button and gets a ready-to-ship

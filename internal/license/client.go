@@ -64,6 +64,16 @@ type ValidateResponse struct {
 	// result as authoritative. Honored by the report server's Phase 2.1
 	// validation cache. Server-owned policy — do not override on the client.
 	CacheTTL int `json:"cacheTTL,omitempty"`
+
+	// Schedule is the server-pushed cron expression override. Empty
+	// means "no override — agent uses its local agent.yaml
+	// schedule/interval." See
+	// docs/plans/2026-04-19-portal-pushed-schedule-design.md.
+	Schedule string `json:"schedule,omitempty"`
+
+	// ScheduleJitterSeconds is the jitter bound in seconds. 0 disables.
+	// Only meaningful when Schedule is non-empty.
+	ScheduleJitterSeconds int `json:"scheduleJitterSeconds,omitempty"`
 }
 
 // Activate registers this machine with the license server.

@@ -603,11 +603,8 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		// clears the override, revert to the operator's local
 		// baseline (baseSched).
 		var override *agentconfig.ScheduleSpec
-		var hbErr error
-		activeGuard, override, hbErr = heartbeat(&seat, activeGuard)
+		activeGuard, override, _ = heartbeat(&seat, activeGuard)
 		switch {
-		case hbErr != nil:
-			fmt.Fprintf(os.Stderr, "warning: server-pushed schedule invalid (%v) — keeping previous schedule\n", hbErr)
 		case override != nil:
 			newSched, nerr := newSchedulerFromSpec(*override)
 			if nerr != nil {
@@ -630,6 +627,14 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 					fmt.Printf("  schedule reverted to local default: one-shot\n")
 				}
 			}
+		}
+
+		// Defensive: if a revert somehow produced a nil scheduler
+		// (shouldn't happen because baseSched==nil would have exited at
+		// the top-of-loop one-shot check), exit cleanly rather than
+		// nil-panic on Next().
+		if sched == nil {
+			return nil
 		}
 
 		wait := sched.Next(time.Now())

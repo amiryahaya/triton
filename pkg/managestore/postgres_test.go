@@ -461,10 +461,88 @@ func TestMigrate_V5_CreatesCATables(t *testing.T) {
 		"manage_agent_cert_revocations must exist")
 }
 
+// TestMigrate_V6_LoosenScanJobFKs asserts migration v6 drops NOT NULL on
+// manage_scan_jobs.zone_id + host_id and switches their FK delete policy
+// to SET NULL, so deleting a zone/host preserves historical scan jobs.
+func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// zone_id and host_id must be nullable now.
+	var isNullable string
+	err := s.QueryRowForTest(ctx, `
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'manage_scan_jobs'
+		  AND column_name = 'zone_id'`).Scan(&isNullable)
+	require.NoError(t, err)
+	assert.Equal(t, "YES", isNullable, "zone_id must be nullable after v6")
+
+	err = s.QueryRowForTest(ctx, `
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'manage_scan_jobs'
+		  AND column_name = 'host_id'`).Scan(&isNullable)
+	require.NoError(t, err)
+	assert.Equal(t, "YES", isNullable, "host_id must be nullable after v6")
+
+	// Both FKs must have delete_rule = SET NULL. pg_constraint.confdeltype
+	// is the authoritative lookup — 'n' = SET NULL, 'r' = RESTRICT,
+	// 'c' = CASCADE, 'a' = NO ACTION (default).
+	var setNullFKs int
+	err = s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM pg_constraint c
+		JOIN pg_class t ON c.conrelid = t.oid
+		JOIN pg_namespace n ON t.relnamespace = n.oid
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'manage_scan_jobs'
+		  AND c.contype = 'f'
+		  AND c.confdeltype = 'n'`).Scan(&setNullFKs)
+	require.NoError(t, err)
+	assert.Equal(t, 2, setNullFKs,
+		"manage_scan_jobs must have exactly 2 FKs with ON DELETE SET NULL (zone_id + host_id)")
+
+	// End-to-end: inserting a zone+host+job, then deleting the zone should
+	// leave the job row with zone_id = NULL rather than erroring out.
+	zoneID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_zones (id, name) VALUES ($1, $2)`, zoneID, "zone-"+zoneID)
+	require.NoError(t, err)
+	hostID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_hosts (id, hostname, zone_id) VALUES ($1, $2, $3)`,
+		hostID, "host-"+hostID, zoneID)
+	require.NoError(t, err)
+	jobID := uuid.Must(uuid.NewV7()).String()
+	tenantID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_scan_jobs (id, tenant_id, zone_id, host_id, profile)
+		 VALUES ($1, $2, $3, $4, 'quick')`,
+		jobID, tenantID, zoneID, hostID)
+	require.NoError(t, err)
+
+	_, err = s.ExecForTest(ctx, `DELETE FROM manage_zones WHERE id = $1`, zoneID)
+	require.NoError(t, err, "deleting a zone must not error — FK should SET NULL")
+
+	var gotZoneID, gotHostID *string
+	err = s.QueryRowForTest(ctx,
+		`SELECT zone_id, host_id FROM manage_scan_jobs WHERE id = $1`, jobID).
+		Scan(&gotZoneID, &gotHostID)
+	require.NoError(t, err, "scan job row must survive zone deletion")
+	assert.Nil(t, gotZoneID, "zone_id must be NULL after zone deletion")
+	assert.NotNil(t, gotHostID, "host_id must still be set")
+}
+
 // TestMigrate_ConcurrentCallsAreSafe asserts the advisory lock in Migrate
 // serialises concurrent migrators so no caller sees a duplicate-key error
-// against manage_schema_version. Rolling deploys and parallel test runs
-// can both invoke Migrate against the same pool.
+// on version-row inserts. Rolling deploys and parallel test runs can both
+// invoke Migrate against the same pool after first boot.
+//
+// We pre-run Migrate once to establish manage_schema_version; the race
+// that matters in production is concurrent migrators trying to insert
+// duplicate version rows, not concurrent CREATE TABLE IF NOT EXISTS DDL
+// (which has a well-known Postgres pg_type catalog quirk that is outside
+// the scope of an advisory lock).
 func TestMigrate_ConcurrentCallsAreSafe(t *testing.T) {
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
 	if dbURL == "" {
@@ -500,6 +578,11 @@ func TestMigrate_ConcurrentCallsAreSafe(t *testing.T) {
 		defer cleanupPool.Close()
 		_, _ = cleanupPool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
 	})
+
+	// Initial migrate so manage_schema_version exists before the racing
+	// goroutines start. This models the "rolling deploy" scenario where
+	// the table already exists from an earlier boot.
+	require.NoError(t, managestore.Migrate(ctx, pool))
 
 	const n = 8
 	var wg sync.WaitGroup

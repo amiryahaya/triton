@@ -65,6 +65,11 @@ var migrations = []string{
 	);`,
 
 	// Version 3: Scan jobs (Manage in-process orchestrator).
+	//
+	// NOTE: zone_id + host_id started life as NOT NULL REFERENCES without an
+	// ON DELETE clause (which defaults to RESTRICT). Migration v6 loosens
+	// this to ON DELETE SET NULL + DROP NOT NULL so deleting a zone/host
+	// preserves historical scan jobs for audit. See v6 for details.
 	`CREATE TABLE IF NOT EXISTS manage_scan_jobs (
 		id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 		tenant_id            UUID        NOT NULL,
@@ -159,4 +164,24 @@ var migrations = []string{
 		revoked_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		revoke_reason TEXT        NOT NULL DEFAULT ''
 	);`,
+
+	// Version 6: Loosen scan-job FK cascade to SET NULL so deleting a
+	// zone/host preserves historical scan jobs for audit. Triton Manage is
+	// a compliance tool; retaining scan history across zone/host churn is a
+	// feature, not a bug. Handlers querying `WHERE zone_id = $1` simply
+	// won't see orphaned rows; admin UIs can surface them via `zone_id IS
+	// NULL` as "orphaned scan jobs".
+	//
+	// Constraint names follow PostgreSQL's default pattern
+	// `<table>_<column>_fkey`, which is what the v3 CREATE TABLE statement
+	// produces when REFERENCES is used without an explicit CONSTRAINT
+	// clause.
+	`ALTER TABLE manage_scan_jobs ALTER COLUMN zone_id DROP NOT NULL;
+	ALTER TABLE manage_scan_jobs ALTER COLUMN host_id DROP NOT NULL;
+	ALTER TABLE manage_scan_jobs DROP CONSTRAINT manage_scan_jobs_zone_id_fkey;
+	ALTER TABLE manage_scan_jobs ADD CONSTRAINT manage_scan_jobs_zone_id_fkey
+		FOREIGN KEY (zone_id) REFERENCES manage_zones(id) ON DELETE SET NULL;
+	ALTER TABLE manage_scan_jobs DROP CONSTRAINT manage_scan_jobs_host_id_fkey;
+	ALTER TABLE manage_scan_jobs ADD CONSTRAINT manage_scan_jobs_host_id_fkey
+		FOREIGN KEY (host_id) REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
 }

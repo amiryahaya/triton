@@ -22,11 +22,15 @@ func ClearSeatCapGuardForTest(s *Server) {
 	s.seatCapGuardOverride = nil
 	s.hostCapGuardOverride = nil
 	s.scanCapGuardOverride = nil
+	s.agentCapGuardOverride = nil
 	if s.hostsAdmin != nil {
 		s.hostsAdmin.Guard = nil
 	}
 	if s.scanjobsAdmin != nil {
 		s.scanjobsAdmin.Guard = nil
+	}
+	if s.agentsAdmin != nil {
+		s.agentsAdmin.Guard = nil
 	}
 	s.mu.Unlock()
 }

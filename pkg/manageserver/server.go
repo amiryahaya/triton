@@ -49,9 +49,10 @@ type Server struct {
 	// code leaves these nil and handlers fall back to licenceGuard.
 	// mu-protected alongside the rest of the licence fields so a
 	// concurrent test setter doesn't race the handler read.
-	seatCapGuardOverride SeatCapGuard
-	hostCapGuardOverride hosts.HostCapGuard
-	scanCapGuardOverride scanjobs.ScanCapGuard
+	seatCapGuardOverride  SeatCapGuard
+	hostCapGuardOverride  hosts.HostCapGuard
+	scanCapGuardOverride  scanjobs.ScanCapGuard
+	agentCapGuardOverride agents.AgentCapGuard
 
 	// Admin-API handler packages (Batch C). Constructed in New() against
 	// the shared pool and mounted under /api/v1/admin/*.
@@ -121,7 +122,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	agentStore := agents.NewPostgresStore(pool)
 
 	agentsAdmin := agents.NewAdminHandlers(
-		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second,
+		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, nil,
 	)
 	agentsGateway := agents.NewGatewayHandlers(caStore, agentStore, resultsStore)
 

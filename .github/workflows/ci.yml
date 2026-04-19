@@ -56,20 +56,19 @@ jobs:
         working-directory: web
         run: pnpm build
 
-      # Phase 8 cutover hazard: the legacy vanilla-JS admin UI under
-      # pkg/licenseserver/ui/dist/ is what makes this step pass today.
-      # When Phase 8 deletes the legacy files, the same commit MUST wire
-      # the license-portal Vite build so dist/ is repopulated — otherwise
-      # `if-no-files-found: error` will break CI for that commit.
+      # Both license-portal and report-portal Vite builds now populate
+      # their respective pkg/<portal>/ui/dist/ directories. When the
+      # manage-portal Vite build lands (PR C), add pkg/manageserver/ui/dist/
+      # to the path list below.
       - name: Upload built portals
         uses: actions/upload-artifact@v4
         with:
           name: portal-dist
-          path: pkg/licenseserver/ui/dist/
+          path: |
+            pkg/licenseserver/ui/dist/
+            pkg/server/ui/dist/
           if-no-files-found: error
           retention-days: 7
-          # pkg/server/ui/dist/ + pkg/manageserver/ui/dist/ get added in follow-on plans
-          # when the report + manage portals' Vite builds land.
 
   test:
     name: Unit Test

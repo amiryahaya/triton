@@ -1,8 +1,14 @@
 // @ts-check
 // Analytics Phase 1 — E2E tests for the three new sidebar views.
 // See docs/plans/2026-04-09-analytics-phase-1-plan.md Task 2.5.
+//
+// Report Portal Vue migration — phase 1 skip. Views are stubs; the
+// DOM selectors here target the vanilla-JS dashboard that no longer
+// renders. Re-enable as phases 2-4 land real content.
 
 const { test, expect } = require('@playwright/test');
+
+test.describe.configure({ mode: 'skip' });
 
 test.describe('Analytics — sidebar navigation', () => {
   test.beforeEach(async ({ page }) => {

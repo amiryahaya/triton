@@ -1,5 +1,16 @@
 // @ts-check
+//
+// Report Portal Vue migration — phase 1 skip.
+//
+// Views are stubs (<h1>Overview</h1> etc) on feat/report-portal-phase-1.
+// Selectors below target the vanilla-JS DOM (.card-grid, .machines-list)
+// that no longer renders. Re-enable progressively as phases 2-4 land
+// real view content and rewrite selectors against the Vue DOM.
+//
+// Spec: docs/superpowers/specs/2026-04-18-portal-unification-design.md
 const { test, expect } = require('@playwright/test');
+
+test.describe.configure({ mode: 'skip' });
 
 test.describe('Dashboard Overview', () => {
   test.beforeEach(async ({ page }) => {

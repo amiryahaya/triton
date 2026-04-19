@@ -59,10 +59,10 @@ func getManageDBURL() string {
 
 // stubLicenseServerConfig drives the stub License Server's response payload.
 type stubLicenseServerConfig struct {
-	signedToken string
+	signedToken  string
 	activationID string
-	tier        string
-	features    licensestore.Features
+	tier         string
+	features     licensestore.Features
 }
 
 // newManageStubLicenseServer spins an httptest server that answers the two
@@ -80,14 +80,14 @@ func newManageStubLicenseServer(t *testing.T, cfg stubLicenseServerConfig) *http
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"token":        cfg.signedToken,
-				"activationID": cfg.activationID,
-				"tier":         cfg.tier,
-				"seats":        10,
-				"seatsUsed":    1,
-				"expiresAt":    time.Now().Add(365 * 24 * time.Hour).UTC().Format(time.RFC3339),
-				"features":     cfg.features,
-				"limits":       []any{},
+				"token":         cfg.signedToken,
+				"activationID":  cfg.activationID,
+				"tier":          cfg.tier,
+				"seats":         10,
+				"seatsUsed":     1,
+				"expiresAt":     time.Now().Add(365 * 24 * time.Hour).UTC().Format(time.RFC3339),
+				"features":      cfg.features,
+				"limits":        []any{},
 				"product_scope": "manage",
 			})
 		case "/api/v1/license/usage":
@@ -272,4 +272,3 @@ func manageReadBody(resp *http.Response) string {
 	b, _ := io.ReadAll(resp.Body)
 	return string(b)
 }
-

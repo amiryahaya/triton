@@ -132,4 +132,31 @@ var migrations = []string{
 		updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 	INSERT INTO manage_license_state (id) VALUES (1) ON CONFLICT DO NOTHING;`,
+
+	// Version 5: Manage CA + agent cert revocations.
+	`CREATE TABLE IF NOT EXISTS manage_ca (
+		id          SMALLINT    PRIMARY KEY DEFAULT 1 CHECK (id=1),
+		ca_cert_pem TEXT        NOT NULL,
+		ca_key_pem  TEXT        NOT NULL,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE TABLE IF NOT EXISTS manage_agents (
+		id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		name           TEXT        NOT NULL,
+		zone_id        UUID REFERENCES manage_zones(id) ON DELETE SET NULL,
+		cert_serial    TEXT        NOT NULL UNIQUE,
+		cert_expires_at TIMESTAMPTZ NOT NULL,
+		status         TEXT        NOT NULL DEFAULT 'pending'
+			CHECK (status IN ('pending','active','revoked')),
+		last_seen_at   TIMESTAMPTZ,
+		created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_manage_agents_cert_serial ON manage_agents (cert_serial);
+	CREATE TABLE IF NOT EXISTS manage_agent_cert_revocations (
+		cert_serial   TEXT        PRIMARY KEY,
+		agent_id      UUID        NOT NULL REFERENCES manage_agents(id) ON DELETE CASCADE,
+		revoked_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		revoke_reason TEXT        NOT NULL DEFAULT ''
+	);`,
 }

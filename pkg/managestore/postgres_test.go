@@ -444,3 +444,17 @@ func TestMigrate_V4_CreatesResultQueueTables(t *testing.T) {
 	assert.Equal(t, 1, count,
 		"migration must seed exactly one manage_license_state singleton row")
 }
+
+// TestMigrate_V5_CreatesCATables asserts migration v5 creates the Manage
+// CA singleton plus the agents + cert-revocations tables used for agent
+// mTLS enrolment.
+func TestMigrate_V5_CreatesCATables(t *testing.T) {
+	s := openTestStore(t)
+
+	assert.True(t, tableExists(t, s, "manage_ca"),
+		"manage_ca must exist")
+	assert.True(t, tableExists(t, s, "manage_agents"),
+		"manage_agents must exist")
+	assert.True(t, tableExists(t, s, "manage_agent_cert_revocations"),
+		"manage_agent_cert_revocations must exist")
+}

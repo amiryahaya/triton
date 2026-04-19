@@ -328,3 +328,39 @@ func TestMigration_CreatesSingletonRow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, "migration must insert exactly one singleton row")
 }
+
+// --- Schema versioning isolation ---
+
+// TestMigrate_UsesManageSchemaVersionTable asserts the manage schema uses
+// manage_schema_version (NOT schema_version) so it can cohabit a database
+// with the Report Server's store, which owns schema_version.
+func TestMigrate_UsesManageSchemaVersionTable(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// manage_schema_version table must exist after migrate.
+	var exists bool
+	err := s.QueryRowForTest(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = current_schema() AND table_name = 'manage_schema_version'
+		)`).Scan(&exists)
+	require.NoError(t, err)
+	assert.True(t, exists, "manage_schema_version table must exist after migrate")
+
+	// schema_version table must NOT exist in the manage schema — that
+	// name is owned by the Report Server's store.
+	err = s.QueryRowForTest(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = current_schema() AND table_name = 'schema_version'
+		)`).Scan(&exists)
+	require.NoError(t, err)
+	assert.False(t, exists, "schema_version must NOT exist in the manage schema")
+
+	// At least one migration row recorded.
+	var count int
+	err = s.QueryRowForTest(ctx, `SELECT COUNT(*) FROM manage_schema_version`).Scan(&count)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, count, 1, "at least one applied migration must be recorded")
+}

@@ -96,9 +96,19 @@ func (s *PostgresStore) Close() error {
 	return nil
 }
 
-// migrate applies any unapplied schema migrations.
-func (s *PostgresStore) migrate(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS manage_schema_version (
+// Migrate applies any unapplied Manage Server schema migrations against the
+// given pool. Safe to call from any caller that owns a pgxpool.Pool against
+// the target database. Idempotent — running twice against the same DB is a
+// no-op for already-applied migrations.
+//
+// Uses manage_schema_version (not schema_version) for version tracking, so
+// the Manage schema can cohabit a database with the Report Server's store
+// (pkg/store), which owns schema_version. This lets cmd/manageserver/main.go
+// call BOTH managestore.Migrate and store.Migrate on the same pool at boot.
+//
+// Mirrors pkg/store.Migrate from B2.1.
+func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS manage_schema_version (
 		version    INTEGER     NOT NULL UNIQUE,
 		applied_at TIMESTAMPTZ NOT NULL
 	)`)
@@ -106,13 +116,13 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		return fmt.Errorf("creating manage_schema_version: %w", err)
 	}
 	var current int
-	err = s.pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM manage_schema_version").Scan(&current)
+	err = pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM manage_schema_version").Scan(&current)
 	if err != nil {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
 	for i := current; i < len(migrations); i++ {
 		version := i + 1
-		tx, err := s.pool.Begin(ctx)
+		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin tx for migration %d: %w", version, err)
 		}
@@ -131,6 +141,13 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// migrate applies any unapplied schema migrations using the store's pool.
+// Thin wrapper over Migrate so the exported function is the single source
+// of truth.
+func (s *PostgresStore) migrate(ctx context.Context) error {
+	return Migrate(ctx, s.pool)
 }
 
 // --- Users -----------------------------------------------------------------

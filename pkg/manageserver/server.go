@@ -102,10 +102,15 @@ func (s *Server) buildRouter() chi.Router {
 	// Always available.
 	r.Get("/api/v1/health", s.handleHealth)
 
-	// Setup endpoints — status is always readable; POST endpoints gated.
+	// Setup endpoints — status is always readable; POST endpoints gated to
+	// setup mode only (SetupOnly middleware returns 409 when setup is done).
 	r.Route("/api/v1/setup", func(r chi.Router) {
 		r.Get("/status", s.handleSetupStatus)
-		// NOTE: /admin and /setup/license are wired in Task 4.x with SetupOnly middleware.
+		r.Group(func(r chi.Router) {
+			r.Use(s.SetupOnly)
+			r.Post("/admin", s.handleSetupAdmin)
+			r.Post("/license", s.handleSetupLicense)
+		})
 	})
 
 	// Auth endpoints — available only when not in setup mode.

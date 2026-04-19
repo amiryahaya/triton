@@ -719,6 +719,46 @@ Notes:
 - Long-running scans that overrun the next fire do not queue up; the scan finishes, then the next future fire is computed fresh.
 - `schedule_jitter` defaults to 0 (disabled). Set it when fleet-staggering matters — every agent with the same cron will otherwise fire at exactly the same second.
 
+### 7c-ter. Server-pushed schedule override
+
+When an agent is bound to a license server (`license_server:` + `license_id:` in agent.yaml, or via `triton license activate`), the license server can push a `schedule` + `scheduleJitterSeconds` override on the existing `/validate` heartbeat. The agent adopts the override starting from the next iteration and reverts to the yaml-derived baseline when the server clears it.
+
+**Setting an override (admin side):**
+
+```bash
+curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
+     -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"schedule": "0 2 * * 0", "scheduleJitterSeconds": 60}'
+```
+
+A future PR will add these fields to the license admin UI; for now the admin API is the source of truth.
+
+**Clearing an override:**
+
+```bash
+curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
+     -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"schedule": "", "scheduleJitterSeconds": 0}'
+```
+
+**Precedence summary (license-bound agents):**
+
+1. Server-pushed `schedule` (when non-empty on the license row)
+2. Local `agent.yaml::schedule`
+3. Local `agent.yaml::interval`
+4. `--interval` CLI flag
+5. One-shot
+
+**Safeguards:**
+
+- Invalid cron expressions are rejected by the admin API at write time (HTTP 400 with the parser error).
+- A malformed value that somehow reaches the agent is logged to stderr and the agent keeps its previous schedule — the fleet is never silenced by a bad push.
+- There is no `schedule_lock` in agent.yaml. If a specific deployment must resist server pushes, use the offline-token flow (no license-server binding); the server cannot push to agents it doesn't talk to.
+
+**Lag:** the first scan after agent startup uses the yaml-derived schedule. The server-pushed value first applies when the heartbeat runs between iteration 1 and iteration 2. For 24h cadences this is invisible; for sub-minute testing cron, plan around it.
+
 ### Kernel-enforced resource limits
 
 The `resource_limits:` block in agent.yaml enforces limits *inside* the

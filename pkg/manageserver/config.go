@@ -33,6 +33,14 @@ type Config struct {
 	// GatewayHostname + GatewayListen.
 	ManageGatewayURL string
 
-	// Reserved for B2 — unused here, but config carries them so B2 is a drop-in.
-	ReportServer string //nolint:unused // wired in B2
+	// ReportServer is the base URL Manage calls to auto-enrol via
+	// /api/v1/admin/enrol/manage during /setup/license. Empty = skip
+	// auto-enrol (best-effort; admin can re-trigger later). Batch G.
+	ReportServer string
+
+	// ReportServiceKey is the shared secret sent as the
+	// X-Triton-Service-Key header on the auto-enrol POST. Must match the
+	// ServiceKey configured on the Report server's admin API. Empty skips
+	// auto-enrol even when ReportServer is set. Batch G.
+	ReportServiceKey string
 }

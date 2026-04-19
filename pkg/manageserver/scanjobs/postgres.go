@@ -240,14 +240,16 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, workerID string) (Job, bo
 }
 
 // Heartbeat refreshes running_heartbeat_at + progress_text on a running
-// job. Returns ErrNotFound if the row no longer exists (e.g. it was
-// cancelled by RequestCancel → Cancel between our claim and this
-// heartbeat tick).
+// job. The status='running' guard makes the write a silent no-op
+// (ErrNotFound) on any terminal row — critical so that a heartbeat tick
+// firing between a Cancel write and the orchestrator noticing the
+// cancel doesn't resurrect running_heartbeat_at on the cancelled row.
+// Returns ErrNotFound when the row is missing OR is no longer running.
 func (s *PostgresStore) Heartbeat(ctx context.Context, id uuid.UUID, progress string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE manage_scan_jobs
 		    SET running_heartbeat_at = NOW(), progress_text = $1
-		  WHERE id = $2`,
+		  WHERE id = $2 AND status = 'running'`,
 		progress, id,
 	)
 	if err != nil {

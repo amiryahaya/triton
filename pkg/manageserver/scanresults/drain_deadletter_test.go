@@ -1,0 +1,147 @@
+//go:build integration
+
+package scanresults_test
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
+)
+
+// TestDrain_DeadLetterAfter400 covers the non-retryable 4xx branch:
+// a single tick lands the row straight in manage_scan_results_dead_letter
+// with the exact reason string, and the queue is empty afterwards.
+//
+// 401/403/429 are deliberately *not* part of this branch (they're
+// retryable — see handleRow); we assert 400 specifically here.
+func TestDrain_DeadLetterAfter400(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+
+	var received atomic.Int32
+	stub, store, client := setupPushStack(t, pool, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+
+	jobID, _ := seedJob(t, pool, "dl-net-01")
+	require.NoError(t, store.Enqueue(ctx, jobID, "manage", uuid.Must(uuid.NewV7()), sampleScan()))
+
+	drain := scanresults.NewDrain(scanresults.DrainConfig{
+		Store:     store,
+		ReportURL: stub.URL,
+		Client:    client,
+		Batch:     1,
+		Interval:  24 * time.Hour,
+	})
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		drain.Run(runCtx)
+		close(done)
+	}()
+
+	// Wait for the stub to receive one POST.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && received.Load() < 1 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	assert.Equal(t, int32(1), received.Load())
+
+	// Queue empty.
+	depth, err := store.QueueDepth(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), depth)
+
+	// Dead-letter has 1 row with the expected reason.
+	var dlCount int
+	var reason string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT COUNT(*), COALESCE(MAX(dead_letter_reason), '') FROM manage_scan_results_dead_letter`,
+	).Scan(&dlCount, &reason))
+	assert.Equal(t, 1, dlCount, "4xx must move the row to dead-letter")
+	assert.True(t, strings.Contains(reason, "HTTP 400"),
+		"dead-letter reason must record the HTTP status (got %q)", reason)
+
+	// License state updated.
+	st, err := store.LoadLicenseState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, st.ConsecutiveFailures)
+	assert.Contains(t, st.LastPushError, "400")
+}
+
+// TestDrain_DeadLetterAfterMaxRetries covers the retryable-exhausted
+// branch: we pre-load attempt_count=9 (one below the threshold), fire
+// a tick against a 500-returning stub, and assert the row is
+// dead-lettered instead of deferred for the 10th time.
+func TestDrain_DeadLetterAfterMaxRetries(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+
+	stub, store, client := setupPushStack(t, pool, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	jobID, _ := seedJob(t, pool, "dl-retry-01")
+	require.NoError(t, store.Enqueue(ctx, jobID, "manage", uuid.Must(uuid.NewV7()), sampleScan()))
+
+	// Fast-forward attempt_count to the cusp of the cutoff.
+	_, err := pool.Exec(ctx,
+		`UPDATE manage_scan_results_queue SET attempt_count = 9, next_attempt_at = NOW()`,
+	)
+	require.NoError(t, err)
+
+	drain := scanresults.NewDrain(scanresults.DrainConfig{
+		Store:     store,
+		ReportURL: stub.URL,
+		Client:    client,
+		Batch:     1,
+		Interval:  24 * time.Hour,
+	})
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		drain.Run(runCtx)
+		close(done)
+	}()
+
+	// Wait until row has left the queue.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		d, _ := store.QueueDepth(ctx)
+		if d == 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	// Queue empty.
+	depth, err := store.QueueDepth(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), depth)
+
+	// Dead-letter has 1 row with "max retries exceeded" reason.
+	var dlCount int
+	var reason string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT COUNT(*), COALESCE(MAX(dead_letter_reason), '') FROM manage_scan_results_dead_letter`,
+	).Scan(&dlCount, &reason))
+	assert.Equal(t, 1, dlCount)
+	assert.Contains(t, reason, "max retries")
+}

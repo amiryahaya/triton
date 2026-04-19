@@ -408,6 +408,9 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			// cache so a revoked token stops working inside the
 			// current TTL window.
 			r.Post("/sessions/flush", srv.handleFlushSessionCache)
+			// Manage Server mTLS enrolment — stub in B1, implemented in
+			// B2 (see pkg/server/handlers_enrol.go).
+			r.Post("/enrol/manage", srv.handleEnrolManage)
 		})
 	}
 

@@ -98,11 +98,17 @@ func (s *PostgresStore) Pool() *pgxpool.Pool {
 }
 
 // NewPostgresStoreFromPool constructs a PostgresStore around an existing
-// pgxpool.Pool. The caller retains ownership of the pool — Close() on the
-// resulting store closes the pool. Introduced in B2.1 so Manage Server can
-// share one pool between pkg/store and the scan-handler subpackages
-// (scanjobs, credentials, discovery, agentpush) which take *pgxpool.Pool
-// directly.
+// pgxpool.Pool. Introduced in B2.1 so Manage Server can share one pool
+// between pkg/store and the scan-handler subpackages (scanjobs,
+// credentials, discovery, agentpush) which take *pgxpool.Pool directly.
+//
+// **Pool ownership.** The caller owns the pool's lifecycle. Do NOT call
+// Close() on the returned store when the pool is shared with other
+// packages — PostgresStore.Close() unconditionally closes the underlying
+// pool and would pull it out from under the other consumers. Close the
+// pool yourself when the last user is done. This contrasts with
+// NewPostgresStore below, which is the sole owner of its pool and whose
+// Close() method IS the correct teardown path.
 //
 // The caller MUST have run Migrate(ctx, pool) (or gone through
 // NewPostgresStore which does this) before using the returned store, or
@@ -136,6 +142,10 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 // Safe to call from any caller that owns a pgxpool.Pool against the target
 // database. Uses an advisory lock (id 7355693421) to serialise concurrent
 // migrators on the same database; the lock is released before return.
+// The advisory lock is per-database, so separate PostgreSQL databases
+// (e.g. Manage Server's DB vs Report Server's DB) do not contend on this
+// id even when both run Migrate concurrently. Idempotent — running twice
+// against the same DB is a no-op for already-applied migrations.
 //
 // Introduced in B2.1 so Manage Server can run the same migration set against
 // its own pool without going through NewPostgresStore. Report Server's

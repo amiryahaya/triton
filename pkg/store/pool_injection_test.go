@@ -56,6 +56,14 @@ func TestMigrate_IsIdempotent(t *testing.T) {
 // via NewPostgresStoreFromPool(pool) + Migrate(ctx, pool) behaves identically
 // to one built via NewPostgresStore(ctx, connStr). Both should read the same
 // schema version and support basic store operations.
+//
+// Test ordering note: sA (URL path) runs migrations first, so by the time
+// sB calls Migrate(pool) it is a no-op for already-applied versions —
+// which is exactly what TestMigrate_IsIdempotent already exercises. What
+// this test proves is that the pool-constructor path produces a fully
+// functional store (non-nil pool, SchemaVersion reads, file_hashes
+// round-trip), not that it migrates from scratch. That's sufficient for
+// B2.1's "zero behaviour change" gate.
 func TestPoolInjection_EquivalentToURLConstructor(t *testing.T) {
 	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
 	if dbUrl == "" {
@@ -72,7 +80,8 @@ func TestPoolInjection_EquivalentToURLConstructor(t *testing.T) {
 	pool, err := pgxpool.New(ctx, dbUrl)
 	require.NoError(t, err)
 	require.NoError(t, pool.Ping(ctx))
-	defer pool.Close()
+	defer pool.Close() // closes the pool we own; NO defer sB.Close() —
+	// sB does not own the pool (see NewPostgresStoreFromPool godoc).
 	require.NoError(t, Migrate(ctx, pool))
 	sB := NewPostgresStoreFromPool(pool)
 

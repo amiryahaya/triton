@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"testing"
 	"time"
 
@@ -542,33 +543,45 @@ func TestUIServeIndex(t *testing.T) {
 	r := httptest.NewRequest("GET", "/ui/", nil)
 	srv.Router().ServeHTTP(w, r)
 
-	// FileServer serves index.html for directory requests
+	// FileServer serves index.html for directory requests. Post Vue
+	// migration (PR #84) the SPA shell has a <div id="app"> mount point;
+	// that replaces the legacy vanilla-JS "Triton Dashboard" marker.
 	if w.Code == http.StatusOK {
-		assert.Contains(t, w.Body.String(), "Triton Dashboard")
+		assert.Contains(t, w.Body.String(), `id="app"`,
+			"expected Vue SPA mount point in index.html")
 	} else {
 		// If served from /ui/index.html, follow redirect
 		assert.Equal(t, http.StatusMovedPermanently, w.Code)
 	}
 }
 
-func TestUIServeCSS(t *testing.T) {
+// TestUIServeHashedAssets replaces the legacy TestUIServeCSS /
+// TestUIServeJS tests (which hard-coded /ui/style.css and /ui/app.js).
+// Vite emits hash-named assets under /ui/assets/index-<hash>.{css,js};
+// the test parses index.html to discover the actual filenames, then
+// fetches each and asserts 200.
+func TestUIServeHashedAssets(t *testing.T) {
 	srv, _ := testServer(t)
+
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/style.css", nil)
+	r := httptest.NewRequest("GET", "/ui/", nil)
 	srv.Router().ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK, w.Code, "index.html must serve")
+	body := w.Body.String()
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "--bg-primary")
-}
+	cssRe := regexp.MustCompile(`href="(/ui/assets/[^"]+\.css)"`)
+	jsRe := regexp.MustCompile(`src="(/ui/assets/[^"]+\.js)"`)
+	cssMatch := cssRe.FindStringSubmatch(body)
+	jsMatch := jsRe.FindStringSubmatch(body)
+	require.Len(t, cssMatch, 2, "index.html must reference a hashed CSS asset under /ui/assets/")
+	require.Len(t, jsMatch, 2, "index.html must reference a hashed JS asset under /ui/assets/")
 
-func TestUIServeJS(t *testing.T) {
-	srv, _ := testServer(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/app.js", nil)
-	srv.Router().ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "renderOverview")
+	for _, path := range []string{cssMatch[1], jsMatch[1]} {
+		aw := httptest.NewRecorder()
+		ar := httptest.NewRequest("GET", path, nil)
+		srv.Router().ServeHTTP(aw, ar)
+		assert.Equal(t, http.StatusOK, aw.Code, "asset %s must serve", path)
+	}
 }
 
 // --- Delete Scan Not Found ---

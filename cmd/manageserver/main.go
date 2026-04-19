@@ -33,8 +33,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/amiryahaya/triton/pkg/manageserver"
 	"github.com/amiryahaya/triton/pkg/managestore"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 func main() {
@@ -83,11 +86,26 @@ func run() error {
 	}
 
 	ctx := context.Background()
-	store, err := managestore.NewPostgresStore(ctx, dbURL)
+
+	// Manage DB co-hosts BOTH the Manage-native schema (users, zones,
+	// hosts, scan_jobs, CA, …) AND the Report Server's read-model tables
+	// (scans, findings, …) that Manage consumes inline. Run both
+	// migrators against a single shared pool to avoid double-dialling.
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
-	defer func() { _ = store.Close() }()
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("pinging database: %w", err)
+	}
+	if err := managestore.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("running managestore migrations: %w", err)
+	}
+	if err := store.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("running scan store migrations: %w", err)
+	}
+	manageStore := managestore.NewPostgresStoreFromPool(pool)
 
 	cfg := &manageserver.Config{
 		Listen:        listen,
@@ -97,7 +115,7 @@ func run() error {
 		SessionTTL:    sessionTTL,
 	}
 
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, manageStore)
 	if err != nil {
 		return fmt.Errorf("constructing server: %w", err)
 	}

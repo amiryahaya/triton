@@ -38,6 +38,28 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 	return s, nil
 }
 
+// NewPostgresStoreFromPool wraps an externally-owned pgxpool.Pool as a
+// PostgresStore without touching connection or migration lifecycle.
+//
+// **Pool ownership.** The caller owns the pool's lifecycle. Do NOT call
+// Close() on the returned store when the pool is shared with other
+// packages — PostgresStore.Close() unconditionally closes the underlying
+// pool and would pull it out from under the other consumers. Close the
+// pool yourself when the last user is done. This contrasts with
+// NewPostgresStore, which is the sole owner of its pool and whose
+// Close() method IS the correct teardown path.
+//
+// The caller MUST have run Migrate(ctx, pool) (or gone through
+// NewPostgresStore which does this) before using the returned store, or
+// reads/writes will fail against a schema that doesn't exist.
+//
+// Mirrors pkg/store.NewPostgresStoreFromPool from B2.1. Intended for
+// cmd/manageserver/main.go, which runs BOTH managestore.Migrate and
+// store.Migrate against a single shared pool at boot.
+func NewPostgresStoreFromPool(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
+}
+
 // NewPostgresStoreInSchema is for integration tests — isolates tables
 // in a named schema so parallel test runs don't collide.
 func NewPostgresStoreInSchema(ctx context.Context, connStr, schema string) (*PostgresStore, error) {

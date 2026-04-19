@@ -5,7 +5,9 @@ package scanjobs_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -267,4 +269,91 @@ func TestOrchestrator_FailOnScanError(t *testing.T) {
 	<-done
 
 	assert.Equal(t, 0, fakeResults.Count(), "failed jobs must not reach ResultEnqueuer")
+}
+
+// TestOrchestrator_PanicRecovery_FailsJobAndContinues verifies that a
+// ScanFunc panic does NOT kill the worker goroutine. The first job must
+// end up failed with "internal panic" preserved, and the second job
+// must still progress to completed — evidence that the worker survived
+// and is still draining the queue.
+func TestOrchestrator_PanicRecovery_FailsJobAndContinues(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+
+	zoneID := seedZoneAndHosts(t, pool, 2)
+	store := scanjobs.NewPostgresStore(pool)
+	tenantID := uuid.Must(uuid.NewV7())
+	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
+		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+	})
+	require.NoError(t, err)
+	require.Len(t, jobs, 2)
+
+	// First call panics, every subsequent call succeeds. We key on the
+	// call count rather than the job ID because ordering between the
+	// parallel Enqueue'd rows is decided by Postgres, not us.
+	var calls atomic.Int32
+	scanFunc := func(_ context.Context, _ scanjobs.Job) (*model.ScanResult, error) {
+		if calls.Add(1) == 1 {
+			panic("simulated nil deref inside a module")
+		}
+		return &model.ScanResult{Metadata: model.ScanMetadata{Hostname: "post-panic"}}, nil
+	}
+
+	fakeResults := &fakeResultEnqueuer{}
+	o := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
+		Store:             store,
+		ResultStore:       fakeResults,
+		Parallelism:       1, // force serial execution so the ordering is deterministic
+		ScanFunc:          scanFunc,
+		HeartbeatInterval: 200 * time.Millisecond,
+		PollInterval:      50 * time.Millisecond,
+		SourceID:          uuid.Must(uuid.NewV7()),
+	})
+
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() { o.Run(runCtx); close(done) }()
+
+	// Wait until both jobs are terminal: one failed (the panicker), one
+	// completed (proving the worker survived the panic).
+	assert.Eventually(t, func() bool {
+		list, err := store.List(ctx, tenantID, 20)
+		if err != nil || len(list) != 2 {
+			return false
+		}
+		var failed, completed int
+		for _, j := range list {
+			switch j.Status {
+			case scanjobs.StatusFailed:
+				failed++
+			case scanjobs.StatusCompleted:
+				completed++
+			}
+		}
+		return failed == 1 && completed == 1
+	}, 4*time.Second, 100*time.Millisecond, "panicking job must fail, surviving job must complete")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after context cancelled")
+	}
+
+	// Assert the failed job carries the panic marker in error_message.
+	list, err := store.List(ctx, tenantID, 20)
+	require.NoError(t, err)
+	var failedMsg string
+	for _, j := range list {
+		if j.Status == scanjobs.StatusFailed {
+			failedMsg = j.ErrorMessage
+		}
+	}
+	assert.True(t, strings.Contains(failedMsg, "internal panic"),
+		"failed error_message must contain 'internal panic', got %q", failedMsg)
+	assert.Equal(t, 1, fakeResults.Count(),
+		"only the surviving job must reach ResultEnqueuer")
 }

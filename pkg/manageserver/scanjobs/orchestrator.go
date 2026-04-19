@@ -126,6 +126,13 @@ func workerID(i int) string {
 // workerLoop is the per-worker mainline: claim a job, run it, repeat
 // until the context is cancelled. Empty queue triggers a PollInterval
 // sleep; claim errors are logged and also back off via PollInterval.
+//
+// runOneJob is wrapped in an IIFE with a deferred recover() so that a
+// panic inside ScanFunc (nil deref in a scanner module, out-of-bounds,
+// etc.) does NOT kill the worker goroutine. The panicking job is marked
+// failed with "internal panic: ..." and the loop continues; otherwise
+// the pool would silently shrink and the panicking row would sit in
+// `running` until the reaper noticed it minutes later.
 func (o *Orchestrator) workerLoop(ctx context.Context, wid string) {
 	for {
 		select {
@@ -157,7 +164,21 @@ func (o *Orchestrator) workerLoop(ctx context.Context, wid string) {
 			continue
 		}
 
-		o.runOneJob(ctx, j)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("orchestrator: panic in job %s: %v", j.ID, r)
+					// Use a fresh context so we can still write
+					// the terminal state even if the parent ctx
+					// was the thing that was cancelled.
+					if ferr := o.cfg.Store.Fail(context.Background(), j.ID,
+						fmt.Sprintf("internal panic: %v", r)); ferr != nil {
+						log.Printf("orchestrator: fail-after-panic write failed: %v", ferr)
+					}
+				}
+			}()
+			o.runOneJob(ctx, j)
+		}()
 	}
 }
 

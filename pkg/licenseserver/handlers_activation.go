@@ -240,7 +240,7 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		usage = map[string]map[string]int64{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		// existing fields
 		"valid":     true,
 		"tier":      lic.Tier,
@@ -262,7 +262,16 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		"soft_buffer_pct": lic.SoftBufferPct,
 		"product_scope":   lic.ProductScope,
 		"usage":           usage,
-	})
+	}
+	// Portal-pushed schedule override (migration 6). Emitted only when
+	// set on the license so old agents see an absent key rather than
+	// an empty string. See
+	// docs/plans/2026-04-19-portal-pushed-schedule-design.md.
+	if lic.Schedule != "" {
+		resp["schedule"] = lic.Schedule
+		resp["scheduleJitterSeconds"] = lic.ScheduleJitter
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // validateCacheTTLSeconds is the maximum number of seconds that callers

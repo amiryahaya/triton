@@ -274,6 +274,60 @@ func TestResultsQueue_PushCreds_RoundTrip(t *testing.T) {
 	assert.Equal(t, "https://new.example.com", got.ReportURL)
 }
 
+// TestResultsQueue_RecordPushSuccess_MissingRowReturnsError guards
+// against regressions of the silent-no-op class: if migration v4 hasn't
+// seeded the singleton row (or an operator truncated it), UPDATE…WHERE
+// id=1 reports zero rows affected. We surface that as an error rather
+// than letting the drain lie about a "success" it never stored.
+func TestResultsQueue_RecordPushSuccess_MissingRowReturnsError(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	store := scanresults.NewPostgresStore(pool)
+
+	// Sanity: singleton row exists fresh.
+	require.NoError(t, store.RecordPushSuccess(ctx, nil))
+
+	// Simulate the misconfiguration: truncate the singleton.
+	_, err := pool.Exec(ctx, `TRUNCATE manage_license_state`)
+	require.NoError(t, err)
+
+	err = store.RecordPushSuccess(ctx, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, scanresults.ErrNotFound,
+		"missing license_state row must surface as ErrNotFound, not a silent success")
+}
+
+// TestResultsQueue_RecordPushFailure_MissingRowReturnsError is the
+// failure-path twin of the above.
+func TestResultsQueue_RecordPushFailure_MissingRowReturnsError(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	store := scanresults.NewPostgresStore(pool)
+
+	_, err := pool.Exec(ctx, `TRUNCATE manage_license_state`)
+	require.NoError(t, err)
+
+	err = store.RecordPushFailure(ctx, "boom")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, scanresults.ErrNotFound)
+}
+
+// TestResultsQueue_LoadLicenseState_MissingRow verifies LoadLicenseState
+// maps pgx.ErrNoRows to the package-level ErrNotFound, mirroring
+// LoadPushCreds so callers only need one error-type check.
+func TestResultsQueue_LoadLicenseState_MissingRow(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	store := scanresults.NewPostgresStore(pool)
+
+	_, err := pool.Exec(ctx, `TRUNCATE manage_license_state`)
+	require.NoError(t, err)
+
+	_, err = store.LoadLicenseState(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, scanresults.ErrNotFound)
+}
+
 func TestResultsQueue_LicenseState_SuccessAndFailure(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()

@@ -277,8 +277,13 @@ func (s *PostgresStore) SavePushCreds(ctx context.Context, creds PushCreds) erro
 // RecordPushSuccess stamps manage_license_state after a successful
 // push. metricsJSON may be nil if the drain has no metrics body to
 // attach (current default).
+//
+// A missing license_state row (migration v4 not applied, or the row
+// was truncated) is treated as an error rather than a silent no-op —
+// otherwise the drain would happily succeed with /push-status stuck
+// at zero, hiding the misconfiguration.
 func (s *PostgresStore) RecordPushSuccess(ctx context.Context, metricsJSON []byte) error {
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		`UPDATE manage_license_state
 		    SET last_pushed_at = NOW(),
 		        last_pushed_metrics = $1,
@@ -291,6 +296,9 @@ func (s *PostgresStore) RecordPushSuccess(ctx context.Context, metricsJSON []byt
 	if err != nil {
 		return fmt.Errorf("record push success: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("record push success: %w: license_state row id=1 missing", ErrNotFound)
+	}
 	return nil
 }
 
@@ -299,8 +307,11 @@ func (s *PostgresStore) RecordPushSuccess(ctx context.Context, metricsJSON []byt
 // (DeadLetter) push failures so the /push-status endpoint surfaces
 // sustained upstream outages even when rows are getting dead-lettered
 // straight away.
+//
+// A missing license_state row is treated as an error — see the note
+// on RecordPushSuccess for rationale.
 func (s *PostgresStore) RecordPushFailure(ctx context.Context, errMsg string) error {
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		`UPDATE manage_license_state
 		    SET last_push_error = $1,
 		        consecutive_failures = consecutive_failures + 1,
@@ -310,6 +321,9 @@ func (s *PostgresStore) RecordPushFailure(ctx context.Context, errMsg string) er
 	)
 	if err != nil {
 		return fmt.Errorf("record push failure: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("record push failure: %w: license_state row id=1 missing", ErrNotFound)
 	}
 	return nil
 }
@@ -339,6 +353,12 @@ func (s *PostgresStore) LoadLicenseState(ctx context.Context) (Status, error) {
 		`SELECT last_pushed_at, last_pushed_metrics, last_push_error, consecutive_failures
 		   FROM manage_license_state WHERE id = 1`,
 	).Scan(&lastPushed, &metricsRaw, &lastErr, &consecutive)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Mirror LoadPushCreds: callers (the /push-status handler +
+		// startScannerPipeline) use errors.Is(err, ErrNotFound) to tell
+		// "not-yet-migrated / fresh install" from real DB faults.
+		return Status{}, ErrNotFound
+	}
 	if err != nil {
 		return Status{}, fmt.Errorf("load license state: %w", err)
 	}

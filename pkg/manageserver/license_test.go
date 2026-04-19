@@ -80,7 +80,7 @@ func TestStartLicence_RunsUsagePusher(t *testing.T) {
 		PublicKey:     pub,
 		SessionTTL:    time.Hour,
 	}
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)
 	_ = srv // Server holds the pusher's cancel; we don't need the router here.
 
@@ -157,7 +157,7 @@ func TestStartLicence_MissingPubKey_IsGracefulAtBoot(t *testing.T) {
 		SessionTTL:    time.Hour,
 	}
 	// Should NOT error — startLicence logs and returns.
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)
 	require.NotNil(t, srv)
 }

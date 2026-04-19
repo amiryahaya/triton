@@ -307,7 +307,7 @@ func openSetupServer(t *testing.T) (*manageserver.Server, *managestore.PostgresS
 		JWTSigningKey: testJWTKey,
 		SessionTTL:    time.Hour,
 	}
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)
 
 	cleanup := func() {

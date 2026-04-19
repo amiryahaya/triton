@@ -116,7 +116,7 @@ func openManageServer(t *testing.T, pub []byte) (*manageserver.Server, *managest
 		PublicKey:     pub,
 		SessionTTL:    time.Hour,
 	}
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)
 
 	cleanup := func() {

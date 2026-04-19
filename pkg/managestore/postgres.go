@@ -118,6 +118,17 @@ func (s *PostgresStore) Close() error {
 	return nil
 }
 
+// Pool returns the underlying pgx connection pool. Exposed so other Manage
+// packages (zones, hosts, scanjobs) can share the single pool their store
+// already opened, instead of dialling a second time. The caller must NOT
+// Close() the returned pool — that remains the store's responsibility when
+// constructed via NewPostgresStore or NewPostgresStoreInSchema. When the
+// store was built via NewPostgresStoreFromPool, the original caller still
+// owns the pool's lifecycle.
+func (s *PostgresStore) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
 // Migrate applies any unapplied Manage Server schema migrations against the
 // given pool. Safe to call from any caller that owns a pgxpool.Pool against
 // the target database. Uses an advisory lock (id 7355693422) to serialise

@@ -11,8 +11,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
+	"github.com/amiryahaya/triton/pkg/manageserver/zones"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
@@ -32,11 +35,21 @@ type Server struct {
 	licenceGuard  *license.Guard
 	licencePusher *license.UsagePusher
 	licenceCancel context.CancelFunc // cancels the pusher goroutine
+
+	// Admin-API handler packages (Batch C). Constructed in New() against
+	// the shared pool and mounted under /api/v1/admin/*.
+	zonesAdmin *zones.AdminHandlers
+	hostsAdmin *hosts.AdminHandlers
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
 // Chi router. It does NOT start the listener — callers use Run(ctx).
-func New(cfg *Config, store managestore.Store) (*Server, error) {
+//
+// pool is the same pgxpool the caller constructed `store` against. Admin
+// handler packages (zones, hosts, …) open their own lightweight stores over
+// the shared pool rather than dial a second time. The caller owns the pool's
+// lifecycle; the server does not Close() it.
+func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil config")
 	}
@@ -49,11 +62,16 @@ func New(cfg *Config, store managestore.Store) (*Server, error) {
 	if store == nil {
 		return nil, fmt.Errorf("nil store")
 	}
+	if pool == nil {
+		return nil, fmt.Errorf("nil pool")
+	}
 
 	srv := &Server{
 		cfg:          cfg,
 		store:        store,
 		loginLimiter: newLoginRateLimiter(),
+		zonesAdmin:   zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
+		hostsAdmin:   hosts.NewAdminHandlers(hosts.NewPostgresStore(pool)),
 	}
 	if err := srv.initSetupState(context.Background()); err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
@@ -142,6 +160,21 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.requireOperational)
 		r.Use(s.jwtAuth)
 		r.Get("/me", s.handleMe)
+	})
+
+	// Admin CRUD subtree — operational, auth'd, and tenancy-scoped to the
+	// Manage instance_id via injectInstanceOrg. Role enforcement on DELETE
+	// is intentionally deferred until the handler packages grow role-
+	// awareness; see Batch C notes in the plan. Mount as a separate top-
+	// level Route (not nested under /api/v1) so chi doesn't double-compose
+	// the /me group's jwtAuth onto this subtree.
+	r.Route("/api/v1/admin", func(r chi.Router) {
+		r.Use(s.requireOperational)
+		r.Use(s.jwtAuth)
+		r.Use(s.injectInstanceOrg)
+		r.Route("/zones", func(r chi.Router) { zones.MountAdminRoutes(r, s.zonesAdmin) })
+		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
+		// scan-jobs, agents, push-status, enrol mounted in later batches.
 	})
 
 	return r

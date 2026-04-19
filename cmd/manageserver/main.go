@@ -115,7 +115,7 @@ func run() error {
 		SessionTTL:    sessionTTL,
 	}
 
-	srv, err := manageserver.New(cfg, manageStore)
+	srv, err := manageserver.New(cfg, manageStore, pool)
 	if err != nil {
 		return fmt.Errorf("constructing server: %w", err)
 	}

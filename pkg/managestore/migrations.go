@@ -63,4 +63,26 @@ var migrations = []string{
 		host_id UUID NOT NULL REFERENCES manage_hosts(id) ON DELETE CASCADE,
 		PRIMARY KEY (zone_id, host_id)
 	);`,
+
+	// Version 3: Scan jobs (Manage in-process orchestrator).
+	`CREATE TABLE IF NOT EXISTS manage_scan_jobs (
+		id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id            UUID        NOT NULL,
+		zone_id              UUID        NOT NULL REFERENCES manage_zones(id),
+		host_id              UUID        NOT NULL REFERENCES manage_hosts(id),
+		profile              TEXT        NOT NULL CHECK (profile IN ('quick','standard','comprehensive')),
+		credentials_ref      UUID,
+		status               TEXT        NOT NULL DEFAULT 'queued'
+			CHECK (status IN ('queued','running','completed','failed','cancelled')),
+		cancel_requested     BOOLEAN     NOT NULL DEFAULT FALSE,
+		worker_id            TEXT,
+		enqueued_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		started_at           TIMESTAMPTZ,
+		finished_at          TIMESTAMPTZ,
+		running_heartbeat_at TIMESTAMPTZ,
+		progress_text        TEXT        NOT NULL DEFAULT '',
+		error_message        TEXT        NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_manage_scan_jobs_pull ON manage_scan_jobs (status, enqueued_at);
+	CREATE INDEX IF NOT EXISTS idx_manage_scan_jobs_stale ON manage_scan_jobs (running_heartbeat_at) WHERE status='running';`,
 }

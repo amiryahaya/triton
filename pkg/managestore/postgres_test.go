@@ -400,3 +400,24 @@ func TestMigrate_V2_CreatesZonesAndHosts(t *testing.T) {
 	assert.True(t, tableExists(t, s, "manage_hosts"), "manage_hosts must exist")
 	assert.True(t, tableExists(t, s, "manage_zone_memberships"), "manage_zone_memberships must exist")
 }
+
+// TestMigrate_V3_CreatesScanJobs asserts migration v3 creates manage_scan_jobs
+// with the worker-pool control columns (cancel_requested, running_heartbeat_at,
+// worker_id, progress_text, error_message).
+func TestMigrate_V3_CreatesScanJobs(t *testing.T) {
+	s := openTestStore(t)
+
+	require.True(t, tableExists(t, s, "manage_scan_jobs"), "manage_scan_jobs must exist")
+
+	required := []string{
+		"cancel_requested",
+		"running_heartbeat_at",
+		"worker_id",
+		"progress_text",
+		"error_message",
+	}
+	for _, col := range required {
+		assert.True(t, columnExists(t, s, "manage_scan_jobs", col),
+			"manage_scan_jobs must have column %q", col)
+	}
+}

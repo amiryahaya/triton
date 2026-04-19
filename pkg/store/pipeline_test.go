@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -193,6 +194,39 @@ func (m *pipelineMockStore) ListFindingStatusLog(_ context.Context, _ string, _ 
 
 func (m *pipelineMockStore) Close() error {
 	return nil
+}
+
+// --- AgentStore stubs ---
+
+func (m *pipelineMockStore) UpsertAgent(_ context.Context, _ *AgentRecord) error {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) GetAgent(_ context.Context, _, _ string) (*AgentRecord, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListAgentsByTenant(_ context.Context, _ string, _ int) ([]AgentRecord, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) SetAgentPausedUntil(_ context.Context, _, _ string, _ time.Time) error {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ClearAgentPausedUntil(_ context.Context, _, _ string) error {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) EnqueueAgentCommand(_ context.Context, _ *AgentCommand) (*AgentCommand, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ClaimPendingCommandsForAgent(_ context.Context, _, _ string) ([]AgentCommand, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) SetAgentCommandResult(_ context.Context, _, _, _, _ string, _ json.RawMessage) error {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListAgentCommands(_ context.Context, _, _ string, _ int) ([]AgentCommand, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ExpireStaleAgentCommands(_ context.Context) (int, error) {
+	panic("not implemented")
 }
 
 // Compile-time assertion: pipelineMockStore must satisfy Store.

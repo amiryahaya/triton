@@ -759,6 +759,59 @@ curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
 
 **Lag:** the first scan after agent startup uses the yaml-derived schedule. The server-pushed value first applies when the heartbeat runs between iteration 1 and iteration 2. For 24h cadences this is invisible; for sub-minute testing cron, plan around it.
 
+### 7c-quater. Remote control channel (pause / cancel / force-run)
+
+When an agent is bound to a Report Server (`report_server:` in agent.yaml), it opens a long-poll to `GET /api/v1/agent/commands/poll` alongside the scan-submit path. The channel delivers:
+
+- **Persistent state** — `pausedUntil` (set by admin; agent skips scans until the deadline passes).
+- **Transient commands** — `cancel` (cancels the in-flight scan) and `force_run` (triggers an immediate scan, rejects if a scan is already running).
+
+**Setting a pause (admin):**
+
+```bash
+curl -X POST https://report.example.com/api/v1/admin/agents/<machine-id>/pause \
+     -H "Authorization: Bearer $ADMIN_JWT" \
+     -H "Content-Type: application/json" \
+     -d '{"durationSeconds": 3600}'
+```
+
+Hard cap: 90 days. The admin API returns HTTP 400 for longer.
+
+**Clearing a pause:**
+
+```bash
+curl -X DELETE https://report.example.com/api/v1/admin/agents/<machine-id>/pause \
+     -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+**Sending a cancel:**
+
+```bash
+curl -X POST https://report.example.com/api/v1/admin/agents/<machine-id>/commands \
+     -H "Authorization: Bearer $ADMIN_JWT" \
+     -H "Content-Type: application/json" \
+     -d '{"type": "cancel"}'
+```
+
+**Sending a force-run with a profile override (subject to the licence's tier):**
+
+```bash
+curl -X POST https://report.example.com/api/v1/admin/agents/<machine-id>/commands \
+     -H "Authorization: Bearer $ADMIN_JWT" \
+     -H "Content-Type: application/json" \
+     -d '{"type": "force_run", "args": {"profile": "quick"}}'
+```
+
+**Finding the machine-id:** the agent computes it as SHA3-256 of `hostname|GOOS|GOARCH` (same value as `license.MachineFingerprint()`). Use `GET /api/v1/admin/agents` to list the fleet — each row shows machineID alongside hostname/os/arch.
+
+**Force_run semantics:** if a scan is already running when force_run arrives, the agent rejects it with `"scan in progress"`. Admin sends `cancel` first if they want to interrupt. force_run does not reset the scheduler clock — the next regularly-scheduled fire still happens at its normal time.
+
+**Cancel semantics:** the running scan's context is cancelled; the scan exits early and whatever partial results it gathered are retained. On `cancel` arriving with no scan running, the agent POSTs `{status: "rejected", reason: "no scan running"}`.
+
+**Local-only agents (no `report_server:`) do not receive commands.** The channel is Report-Server-exclusive.
+
+**A future PR adds UI buttons** for these actions — primary home is Manage Portal (when deployed), fallback at Report's own admin UI. This PR ships the backend only.
+
 ### Kernel-enforced resource limits
 
 The `resource_limits:` block in agent.yaml enforces limits *inside* the

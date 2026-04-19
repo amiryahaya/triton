@@ -477,6 +477,22 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			r.Get("/", srv.handleListAudit)
 		})
 
+		// Agent control channel — admin side. Requires JWT + org_admin
+		// so humans can pause agents, enqueue cancel/force_run, and
+		// view agent/command history. Tenant isolation is enforced by
+		// the handlers reading TenantFromContext (the admin's OrgID).
+		r.Route("/api/v1/admin/agents", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
+			r.Use(BlockUntilPasswordChanged)
+			r.Use(RequireOrgAdmin)
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
+			r.Get("/", srv.handleAdminListAgents)
+			r.Get("/{machineID}", srv.handleAdminGetAgent)
+			r.Post("/{machineID}/pause", srv.handleAdminAgentPause)
+			r.Delete("/{machineID}/pause", srv.handleAdminAgentPauseClear)
+			r.Post("/{machineID}/commands", srv.handleAdminEnqueueCommand)
+		})
+
 		// Onboarding metrics — Phase 7 Task 9. Any authenticated user
 		// can view their own org's progress (no admin requirement).
 		r.Route("/api/v1/manage/onboarding-metrics", func(r chi.Router) {
@@ -591,6 +607,18 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 			r.Post("/findings/{id}/status", s.handleSetFindingStatus)
 			r.Post("/findings/{id}/revert", s.handleRevertFinding)
 		})
+	})
+
+	// Agent control channel — agent side. Reuses the enclosing
+	// RequireTenant gate (license-token auth populates the tenant via
+	// UnifiedAuth on the parent /api/v1 group) and adds RequireMachineID
+	// so every request is bound to a specific fingerprint. Agents
+	// poll long-running GETs for commands and POST their results back.
+	r.Group(func(r chi.Router) {
+		r.Use(RequireTenant)
+		r.Use(RequireMachineID)
+		r.Get("/agent/commands/poll", s.handleAgentCommandsPoll)
+		r.Post("/agent/commands/{id}/result", s.handleAgentCommandResult)
 	})
 }
 

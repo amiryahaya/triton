@@ -102,6 +102,7 @@ type Store interface {
 	UserStore
 	SessionStore
 	AuditStore
+	AgentStore
 
 	// SaveScanWithFindings atomically stores a scan and inserts its
 	// extracted crypto findings. Marks the scan as backfilled on success

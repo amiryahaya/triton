@@ -357,3 +357,65 @@ func TestOrchestrator_PanicRecovery_FailsJobAndContinues(t *testing.T) {
 	assert.Equal(t, 1, fakeResults.Count(),
 		"only the surviving job must reach ResultEnqueuer")
 }
+
+// TestNewOrchestrator_NilResultStore_FailsJobsSafely pins the
+// misconfiguration path: if the operator forgot to wire a ResultStore,
+// NewOrchestrator must not panic at construction and must not silently
+// drop scan results on the floor. Instead the downstream Enqueue call
+// errors loudly and surfaces via Store.Fail so the operator sees the
+// failure in the admin UI.
+func TestNewOrchestrator_NilResultStore_FailsJobsSafely(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+
+	zoneID := seedZoneAndHosts(t, pool, 1)
+	store := scanjobs.NewPostgresStore(pool)
+	tenantID := uuid.Must(uuid.NewV7())
+	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
+		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+	})
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+
+	scanFunc := func(_ context.Context, _ scanjobs.Job) (*model.ScanResult, error) {
+		return &model.ScanResult{Metadata: model.ScanMetadata{Hostname: "orphan-result"}}, nil
+	}
+
+	// Explicitly build the config WITHOUT ResultStore — this is the bug
+	// NewOrchestrator must defend against.
+	cfg := scanjobs.OrchestratorConfig{
+		Store: store,
+		// ResultStore is deliberately nil.
+		Parallelism:       1,
+		ScanFunc:          scanFunc,
+		HeartbeatInterval: 200 * time.Millisecond,
+		PollInterval:      50 * time.Millisecond,
+		SourceID:          uuid.Must(uuid.NewV7()),
+	}
+
+	require.NotPanics(t, func() {
+		_ = scanjobs.NewOrchestrator(cfg)
+	}, "NewOrchestrator must not panic on nil ResultStore")
+
+	o := scanjobs.NewOrchestrator(cfg)
+
+	runCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() { o.Run(runCtx); close(done) }()
+
+	assert.Eventually(t, func() bool {
+		j, err := store.Get(ctx, jobs[0].ID)
+		return err == nil && j.Status == scanjobs.StatusFailed
+	}, 2*time.Second, 50*time.Millisecond, "missing ResultStore must cause job failure")
+
+	cancel()
+	<-done
+
+	got, err := store.Get(ctx, jobs[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, scanjobs.StatusFailed, got.Status)
+	assert.True(t, strings.Contains(got.ErrorMessage, "ResultStore not configured"),
+		"error_message must name the missing collaborator, got %q", got.ErrorMessage)
+}

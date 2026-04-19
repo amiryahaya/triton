@@ -73,6 +73,13 @@ type Orchestrator struct {
 
 // NewOrchestrator applies defaults and returns an Orchestrator.
 // Parallelism is clamped to [1, 50]; negative or zero means "use 10".
+//
+// Misconfigured ResultStore is fail-loud, not fail-silent: a nil value
+// would otherwise cause the orchestrator to complete jobs with no
+// downstream persistence and the operator would have no signal. The
+// fallback enqueuer returns an explicit error which runOneJob maps to
+// Store.Fail, so the job ends up in `failed` state with a readable
+// error_message that points at the missing collaborator.
 func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	if cfg.Parallelism <= 0 {
 		cfg.Parallelism = 10
@@ -92,7 +99,23 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	if cfg.ScanFunc == nil {
 		cfg.ScanFunc = defaultScanFunc
 	}
+	if cfg.ResultStore == nil {
+		log.Printf("orchestrator: WARNING: ResultStore is nil — scan results will surface as job failures")
+		cfg.ResultStore = noopResultEnqueuer{}
+	}
 	return &Orchestrator{cfg: cfg}
+}
+
+// noopResultEnqueuer is the fallback ResultStore installed by
+// NewOrchestrator when the operator forgot to wire a real one. It
+// returns an explicit error from Enqueue so runOneJob's failure branch
+// fires and the job surfaces in the admin UI with a readable message.
+// Never fail-silent on a misconfiguration that would otherwise drop
+// scan results.
+type noopResultEnqueuer struct{}
+
+func (noopResultEnqueuer) Enqueue(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID, _ *model.ScanResult) error {
+	return errors.New("ResultStore not configured on orchestrator")
 }
 
 // Run spawns N worker goroutines + one reaper goroutine and blocks
@@ -254,7 +277,10 @@ func (o *Orchestrator) runOneJob(parent context.Context, j Job) {
 		return
 	}
 
-	if o.cfg.ResultStore != nil && scan != nil {
+	// ResultStore is never nil here — NewOrchestrator installs a
+	// noopResultEnqueuer fallback that errors loudly rather than
+	// silently dropping results on the floor.
+	if scan != nil {
 		if err := o.cfg.ResultStore.Enqueue(parent, j.ID, "manage", o.cfg.SourceID, scan); err != nil {
 			// Result enqueue failure ⇒ mark the job failed so
 			// the operator sees the error surface.

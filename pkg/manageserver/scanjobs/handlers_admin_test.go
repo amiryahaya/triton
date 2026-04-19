@@ -21,6 +21,23 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 )
 
+// --- fakeQueueDepther ------------------------------------------------------
+
+// fakeQueueDepther is a tiny stub for scanjobs.QueueDepther. Unset
+// Depth returns 0 (not saturated). QueueErr is returned verbatim if
+// non-nil.
+type fakeQueueDepther struct {
+	Depth    int64
+	QueueErr error
+}
+
+func (f *fakeQueueDepther) QueueDepth(_ context.Context) (int64, error) {
+	if f.QueueErr != nil {
+		return 0, f.QueueErr
+	}
+	return f.Depth, nil
+}
+
 // --- fakeStore --------------------------------------------------------------
 
 // fakeStore is an in-memory scanjobs.Store for handler unit tests.
@@ -130,6 +147,13 @@ func (f *fakeStore) ReapStale(_ context.Context, _ time.Duration) (int, error)  
 // a stable tenant UUID into orgctx — mirrors what the real Manage
 // server does via injectInstanceOrg.
 func newTestServer(t *testing.T, s scanjobs.Store, tenantID uuid.UUID) *httptest.Server {
+	return newTestServerWithQueueDepth(t, s, tenantID, &fakeQueueDepther{})
+}
+
+// newTestServerWithQueueDepth is the saturation-aware variant: caller
+// supplies a fakeQueueDepther with a pre-set Depth to drive the
+// handler's 503 branch.
+func newTestServerWithQueueDepth(t *testing.T, s scanjobs.Store, tenantID uuid.UUID, qd scanjobs.QueueDepther) *httptest.Server {
 	t.Helper()
 	injectTenant := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +164,7 @@ func newTestServer(t *testing.T, s scanjobs.Store, tenantID uuid.UUID) *httptest
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
 		r.Use(injectTenant)
-		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s))
+		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, qd))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
@@ -153,7 +177,7 @@ func newTestServerNoTenant(t *testing.T, s scanjobs.Store) *httptest.Server {
 	t.Helper()
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
-		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s))
+		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, &fakeQueueDepther{}))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
@@ -252,6 +276,44 @@ func TestScanJobsAdmin_Enqueue_InternalError_Returns500(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	assert.NotContains(t, string(b), "constraint")
 	assert.Contains(t, string(b), "internal server error")
+}
+
+func TestScanJobsAdmin_Create_QueueSaturated_Returns503(t *testing.T) {
+	store := newFakeStore()
+	tenantID := uuid.Must(uuid.NewV7())
+	ts := newTestServerWithQueueDepth(t, store, tenantID, &fakeQueueDepther{Depth: 10_000})
+
+	zoneID := uuid.Must(uuid.NewV7())
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
+		"zones":   []string{zoneID.String()},
+		"profile": "quick",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
+	b, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, string(b), "saturated", "body must reference the saturated state")
+	assert.Contains(t, string(b), "/api/v1/admin/push-status",
+		"body must point operators at /push-status")
+
+	// Store.Enqueue must NOT have been called when the queue is
+	// saturated — backpressure is a pre-check.
+	assert.NotContains(t, store.calls, "Enqueue")
+}
+
+func TestScanJobsAdmin_Create_QueueDepthError_Returns500(t *testing.T) {
+	store := newFakeStore()
+	tenantID := uuid.Must(uuid.NewV7())
+	qd := &fakeQueueDepther{QueueErr: errors.New("boom: pg down")}
+	ts := newTestServerWithQueueDepth(t, store, tenantID, qd)
+
+	zoneID := uuid.Must(uuid.NewV7())
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
+		"zones":   []string{zoneID.String()},
+		"profile": "quick",
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
 
 func TestScanJobsAdmin_Enqueue_MissingTenant_Returns503(t *testing.T) {

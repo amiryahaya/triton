@@ -1,6 +1,7 @@
 package scanjobs
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -13,16 +14,36 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 )
 
+// QueueDepther is the narrow interface the Enqueue handler uses to
+// consult downstream push-queue saturation before accepting new jobs.
+// It's deliberately a one-method subset of scanresults.Store so the
+// scanjobs package doesn't pull in the wider scanresults surface (and
+// so tests can fake it with a one-liner).
+type QueueDepther interface {
+	QueueDepth(ctx context.Context) (int64, error)
+}
+
+// queueSaturationThreshold is the hard cap at which POST /scan-jobs
+// responds 503. Matches the `attempt_count < 10` partial index on the
+// queue; a 10k backlog means ~10k*10 = 100k potential retries before
+// the dead-letter kicks in, which is plenty of headroom even on a
+// slow upstream.
+const queueSaturationThreshold = 10_000
+
 // AdminHandlers serves the /api/v1/admin/scan-jobs API. All handlers
 // pull the tenant ID from orgctx (populated upstream by the server's
 // injectInstanceOrg middleware); clients never supply tenant_id.
 type AdminHandlers struct {
-	Store Store
+	Store        Store
+	ResultsStore QueueDepther
 }
 
-// NewAdminHandlers wires an AdminHandlers with the given Store.
-func NewAdminHandlers(s Store) *AdminHandlers {
-	return &AdminHandlers{Store: s}
+// NewAdminHandlers wires an AdminHandlers with the given Store and
+// results-queue reader. A nil ResultsStore is acceptable for tests
+// that don't exercise backpressure; the Enqueue handler treats a nil
+// ResultsStore as "skip saturation check".
+func NewAdminHandlers(s Store, resultsStore QueueDepther) *AdminHandlers {
+	return &AdminHandlers{Store: s, ResultsStore: resultsStore}
 }
 
 // enqueueRequestBody is the accepted JSON shape for POST /. TenantID is
@@ -71,6 +92,23 @@ func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 	if err := validateEnqueue(body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// Backpressure: if the downstream push queue is saturated, reject
+	// new jobs with 503 so operators investigate the upstream outage
+	// before the outbox eats the disk. A nil ResultsStore means the
+	// caller (typically a test) opted out of backpressure.
+	if h.ResultsStore != nil {
+		depth, err := h.ResultsStore.QueueDepth(r.Context())
+		if err != nil {
+			internalErr(w, r, err, "read push queue depth")
+			return
+		}
+		if depth >= queueSaturationThreshold {
+			writeErr(w, http.StatusServiceUnavailable,
+				"scan result queue saturated; upstream Report Server unreachable — see /api/v1/admin/push-status")
+			return
+		}
 	}
 
 	req := EnqueueReq{

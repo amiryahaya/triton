@@ -188,4 +188,19 @@ var migrations = []string{
 	ALTER TABLE manage_scan_jobs DROP CONSTRAINT manage_scan_jobs_host_id_fkey;
 	ALTER TABLE manage_scan_jobs ADD CONSTRAINT manage_scan_jobs_host_id_fkey
 		FOREIGN KEY (host_id) REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
+
+	// Version 7: Allow agent-submitted scan results on the queue by
+	// making scan_job_id nullable. Agent scans arrive via the :8443
+	// gateway without an originating scan_job row (the agent owns the
+	// scan lifecycle; Manage is a pass-through). Keep the FK but
+	// relax the NOT NULL + promote the cascade to SET NULL so
+	// deleting a job doesn't ripple into dead-letter queue loss.
+	// The dead-letter table must match so DeadLetter's
+	// INSERT...SELECT copy of a nullable scan_job_id doesn't trip
+	// the NOT NULL on the target column.
+	`ALTER TABLE manage_scan_results_queue ALTER COLUMN scan_job_id DROP NOT NULL;
+	ALTER TABLE manage_scan_results_queue DROP CONSTRAINT manage_scan_results_queue_scan_job_id_fkey;
+	ALTER TABLE manage_scan_results_queue ADD CONSTRAINT manage_scan_results_queue_scan_job_id_fkey
+		FOREIGN KEY (scan_job_id) REFERENCES manage_scan_jobs(id) ON DELETE SET NULL;
+	ALTER TABLE manage_scan_results_dead_letter ALTER COLUMN scan_job_id DROP NOT NULL;`,
 }

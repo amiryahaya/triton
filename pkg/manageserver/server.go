@@ -2,6 +2,8 @@ package manageserver
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/manageserver/agents"
+	"github.com/amiryahaya/triton/pkg/manageserver/ca"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
@@ -24,10 +28,12 @@ import (
 
 // Server is the Manage Server HTTP shell. Run() blocks until ctx is cancelled.
 type Server struct {
-	cfg    *Config
-	store  managestore.Store
-	router chi.Router
-	http   *http.Server
+	cfg         *Config
+	store       managestore.Store
+	router      chi.Router
+	gatewayR    chi.Router
+	http        *http.Server
+	httpGateway *http.Server
 
 	mu           sync.RWMutex
 	setupMode    bool              // true until admin created AND license activated
@@ -52,6 +58,17 @@ type Server struct {
 	scanjobsStore   scanjobs.Store
 	resultsStore    scanresults.Store
 	hostsStore      *hosts.PostgresStore
+
+	// Batch F agent enrolment + gateway wiring. caStore owns the
+	// singleton CA + revocation cache; agentStore owns manage_agents
+	// CRUD; agentsAdmin + agentsGateway are the admin-plane and
+	// gateway-plane handler facades. The CA is bootstrapped in Run()
+	// (not New) so instance_id resolution can fail cleanly before
+	// minting a CA that would leak into tests.
+	caStore       *ca.PostgresStore
+	agentStore    agents.Store
+	agentsAdmin   *agents.AdminHandlers
+	agentsGateway *agents.GatewayHandlers
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
@@ -78,9 +95,27 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		return nil, fmt.Errorf("nil pool")
 	}
 
+	// Default gateway listen + hostname so fresh configs boot a listener
+	// without requiring the operator to set both. Tests override both
+	// via Config; production deployments typically override GatewayListen
+	// + GatewayHostname only.
+	if cfg.GatewayListen == "" {
+		cfg.GatewayListen = ":8443"
+	}
+	if cfg.GatewayHostname == "" {
+		cfg.GatewayHostname = "localhost"
+	}
+
 	hostsStore := hosts.NewPostgresStore(pool)
 	resultsStore := scanresults.NewPostgresStore(pool)
 	scanjobsStore := scanjobs.NewPostgresStore(pool)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+
+	agentsAdmin := agents.NewAdminHandlers(
+		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second,
+	)
+	agentsGateway := agents.NewGatewayHandlers(caStore, agentStore, resultsStore)
 
 	srv := &Server{
 		cfg:             cfg,
@@ -93,11 +128,16 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		scanjobsStore:   scanjobsStore,
 		resultsStore:    resultsStore,
 		hostsStore:      hostsStore,
+		caStore:         caStore,
+		agentStore:      agentStore,
+		agentsAdmin:     agentsAdmin,
+		agentsGateway:   agentsGateway,
 	}
 	if err := srv.initSetupState(context.Background()); err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
 	}
 	srv.router = srv.buildRouter()
+	srv.gatewayR = srv.buildGatewayRouter()
 
 	// If a persisted licence already exists, bring the guard + usage pusher
 	// online now. A bad token is non-fatal: we log and continue so admins can
@@ -197,7 +237,8 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
 		r.Route("/scan-jobs", func(r chi.Router) { scanjobs.MountAdminRoutes(r, s.scanjobsAdmin) })
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
-		// agents, enrol mounted in later batches.
+		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
+		r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
 	})
 
 	return r
@@ -206,12 +247,30 @@ func (s *Server) buildRouter() chi.Router {
 // Run starts the HTTP listener and blocks until ctx is cancelled.
 // On shutdown, blocks up to 10s for in-flight requests to complete
 // and waits for the orchestrator + drain goroutines to exit.
+//
+// In addition to the admin listener, Run spawns a :8443 gateway
+// listener if the CA is (or can be) bootstrapped. Gateway lifecycle
+// is coupled to ctx but independent of the admin listener — a gateway
+// failure is logged but never crashes the admin plane.
 func (s *Server) Run(ctx context.Context) error {
 	// Spawn the Batch E scanner pipeline before the HTTP listener comes
 	// up so we never serve /scan-jobs while the orchestrator is offline.
 	// startScannerPipeline derives a cancellable child context from ctx;
-	// stopScannerPipeline waits for graceful exit.
+	// stopScannerPipeline waits for graceful exit. CA bootstrap rides
+	// on the same instance_id resolution.
 	pipelineWG := s.startScannerPipeline(ctx)
+
+	// Gateway listener runs concurrently with admin. Spawn it AFTER
+	// startScannerPipeline (which bootstraps the CA) so runGateway sees
+	// a populated CA row on first-boot scenarios.
+	gatewayWG := sync.WaitGroup{}
+	gatewayWG.Add(1)
+	go func() {
+		defer gatewayWG.Done()
+		if err := s.runGateway(ctx); err != nil {
+			log.Printf("manageserver: gateway: %v", err)
+		}
+	}()
 
 	s.http = &http.Server{
 		Addr:              s.cfg.Listen,
@@ -237,10 +296,12 @@ func (s *Server) Run(ctx context.Context) error {
 		// Wait for orchestrator + drain goroutines. The parent ctx is
 		// already cancelled; they'll exit after their current poll tick.
 		pipelineWG.Wait()
+		gatewayWG.Wait()
 		return shutdownErr
 	case err := <-errCh:
 		s.stopLicence()
 		pipelineWG.Wait()
+		gatewayWG.Wait()
 		return err
 	}
 }
@@ -275,6 +336,12 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 		log.Printf("manageserver: scanner pipeline: parse instance_id %q: %v (skipping orchestrator + drain)", state.InstanceID, err)
 		return &wg
 	}
+
+	// Bootstrap the Manage CA now that instance_id is known. Idempotent —
+	// re-running on every boot is a no-op once the row exists. This is
+	// the only natural point to do it pre-gateway; Batch G's setup/
+	// license flow also calls Bootstrap when instance_id first lands.
+	s.bootstrapCA(ctx, instanceID.String())
 
 	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
 		Store:       s.scanjobsStore,
@@ -317,6 +384,109 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	}()
 
 	return &wg
+}
+
+// gatewayURLFromCfg returns the bundle-embedded URL the agent will
+// dial. Prefers an explicit ManageGatewayURL; otherwise derives one
+// from GatewayHostname + GatewayListen so operators only need to set
+// either one.
+func gatewayURLFromCfg(cfg *Config) string {
+	if cfg.ManageGatewayURL != "" {
+		return cfg.ManageGatewayURL
+	}
+	host := cfg.GatewayHostname
+	if host == "" {
+		host = "localhost"
+	}
+	port := cfg.GatewayListen
+	if port == "" {
+		port = ":8443"
+	}
+	return "https://" + host + port
+}
+
+// buildGatewayRouter wires the :8443 agent-facing chi router. Agents
+// authenticate via client certs; MTLSCNAuth enforces CN prefix +
+// revocation on every request.
+func (s *Server) buildGatewayRouter() chi.Router {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	r.Route("/api/v1/gateway", func(r chi.Router) {
+		r.Use(agents.MTLSCNAuth("agent:", s.caStore))
+		agents.MountGatewayRoutes(r, s.agentsGateway)
+	})
+	return r
+}
+
+// runGateway blocks on the :8443 TLS listener until ctx is cancelled
+// or the listener errors. Called from Run() in its own goroutine.
+// Gateway failures are logged but don't kill the admin :8082 listener —
+// a broken CA shouldn't knock the admin UI offline.
+//
+// If the CA isn't bootstrapped, runGateway logs + returns nil so
+// admin setup can complete and a subsequent restart picks up the CA.
+func (s *Server) runGateway(ctx context.Context) error {
+	caBundle, err := s.caStore.Load(ctx)
+	if err != nil {
+		if errors.Is(err, ca.ErrNotFound) {
+			log.Printf("manageserver: CA not bootstrapped; gateway listener disabled")
+			return nil
+		}
+		return fmt.Errorf("load CA for gateway: %w", err)
+	}
+
+	clientCAPool := x509.NewCertPool()
+	if !clientCAPool.AppendCertsFromPEM(caBundle.CACertPEM) {
+		return errors.New("append CA cert to pool failed")
+	}
+
+	serverCert, err := s.caStore.IssueServerCert(ctx, s.cfg.GatewayHostname)
+	if err != nil {
+		return fmt.Errorf("issue server cert: %w", err)
+	}
+
+	tlsCfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientCAPool,
+		Certificates: []tls.Certificate{serverCert},
+	}
+
+	s.httpGateway = &http.Server{
+		Addr:              s.cfg.GatewayListen,
+		Handler:           s.gatewayR,
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		if err := s.httpGateway.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return s.httpGateway.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
+	}
+}
+
+// bootstrapCA idempotently mints + persists the Manage CA using the
+// caller-supplied instanceID. Called from startScannerPipeline once
+// instance_id is known — before the gateway listener comes up — so
+// the :8443 TLS handshake has a CA to chain against.
+func (s *Server) bootstrapCA(ctx context.Context, instanceID string) {
+	if _, err := s.caStore.Bootstrap(ctx, instanceID); err != nil {
+		log.Printf("manageserver: bootstrap CA: %v (gateway will be disabled)", err)
+	}
 }
 
 // manageSecurityHeaders adds baseline security headers to every response.

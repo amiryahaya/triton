@@ -15,9 +15,13 @@ import (
 // ClaimDue read these directly; PayloadJSON is the opaque wrapper
 // Enqueue assembled — never unwrap it here, just forward the bytes to
 // the Report Server unchanged.
+//
+// ScanJobID is a pointer because agent-submitted rows (from the :8443
+// gateway) carry no originating scan_job row; migration v7 made the
+// column nullable. Manage-orchestrated rows always populate it.
 type QueueRow struct {
 	ID            uuid.UUID
-	ScanJobID     uuid.UUID
+	ScanJobID     *uuid.UUID
 	SourceType    string
 	SourceID      uuid.UUID
 	PayloadJSON   []byte

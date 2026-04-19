@@ -124,7 +124,8 @@ func TestResultsQueue_EnqueueAndDrain(t *testing.T) {
 	rows, err := store.ClaimDue(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, jobID, rows[0].ScanJobID)
+	require.NotNil(t, rows[0].ScanJobID)
+	assert.Equal(t, jobID, *rows[0].ScanJobID)
 	assert.Equal(t, "manage", rows[0].SourceType)
 	assert.Equal(t, sourceID, rows[0].SourceID)
 

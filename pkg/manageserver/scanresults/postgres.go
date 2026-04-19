@@ -65,7 +65,9 @@ type submittedBy struct {
 // surface via Store.Fail on the originating job.
 //
 // scan_job_id + enqueued_at are persisted as columns on the queue row,
-// not inside payload_json — see the envelope doc comment.
+// not inside payload_json — see the envelope doc comment. Agent-
+// submitted scans pass uuid.Nil; the column is nullable (migration v7)
+// and we translate to SQL NULL here so the FK stays intact.
 func (s *PostgresStore) Enqueue(ctx context.Context, scanJobID uuid.UUID, sourceType string, sourceID uuid.UUID, scan *model.ScanResult) error {
 	env := envelope{
 		Scan: scan,
@@ -78,11 +80,19 @@ func (s *PostgresStore) Enqueue(ctx context.Context, scanJobID uuid.UUID, source
 	if err != nil {
 		return fmt.Errorf("marshal scan envelope: %w", err)
 	}
+	// uuid.Nil → NULL so the FK (ON DELETE SET NULL) doesn't trip.
+	// Any non-zero UUID goes in verbatim.
+	var jobArg any
+	if scanJobID == uuid.Nil {
+		jobArg = nil
+	} else {
+		jobArg = scanJobID
+	}
 	_, err = s.pool.Exec(ctx,
 		`INSERT INTO manage_scan_results_queue
 		   (scan_job_id, source_type, source_id, payload_json)
 		 VALUES ($1, $2, $3, $4)`,
-		scanJobID, sourceType, sourceID, payload,
+		jobArg, sourceType, sourceID, payload,
 	)
 	if err != nil {
 		return fmt.Errorf("enqueue scan result: %w", err)

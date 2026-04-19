@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/amiryahaya/triton/internal/agentconfig"
+	"github.com/amiryahaya/triton/internal/license"
 )
 
 // TestAgentScheduler_ConstructsFromYAML verifies the end-to-end wiring
@@ -73,5 +74,78 @@ func TestAgentScheduler_IntervalFlagFallback(t *testing.T) {
 	}
 	if s == nil {
 		t.Fatal("expected non-nil scheduler when --interval flag is set")
+	}
+}
+
+// fakeServerClient lets tests drive heartbeat behaviour without HTTP.
+// Implements the heartbeatClient interface in agent.go.
+type fakeServerClient struct {
+	resp *license.ValidateResponse
+	err  error
+}
+
+func (f *fakeServerClient) Validate(_, _ string) (*license.ValidateResponse, error) {
+	return f.resp, f.err
+}
+
+func (f *fakeServerClient) Deactivate(string) error { return nil }
+
+func TestHeartbeat_ReturnsServerOverride(t *testing.T) {
+	seat := &seatState{
+		activated: true,
+		client: &fakeServerClient{resp: &license.ValidateResponse{
+			Valid:                 true,
+			Tier:                  "pro",
+			Schedule:              "0 2 * * *",
+			ScheduleJitterSeconds: 30,
+		}},
+		licenseID: "lic-1",
+		token:     "tok",
+	}
+	g := license.NewGuard("")
+	_, override, err := heartbeat(seat, g)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if override == nil {
+		t.Fatal("expected non-nil override when server pushes schedule")
+	}
+	if override.Kind != agentconfig.ScheduleKindCron {
+		t.Errorf("Kind = %q", override.Kind)
+	}
+	if override.CronExpr != "0 2 * * *" {
+		t.Errorf("CronExpr = %q", override.CronExpr)
+	}
+	if override.Jitter != 30*time.Second {
+		t.Errorf("Jitter = %v", override.Jitter)
+	}
+}
+
+func TestHeartbeat_EmptyScheduleReturnsNilOverride(t *testing.T) {
+	seat := &seatState{
+		activated: true,
+		client: &fakeServerClient{resp: &license.ValidateResponse{
+			Valid: true, Tier: "pro",
+		}},
+		licenseID: "lic-1", token: "tok",
+	}
+	g := license.NewGuard("")
+	_, override, err := heartbeat(seat, g)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if override != nil {
+		t.Errorf("expected nil override, got %+v", override)
+	}
+}
+
+func TestHeartbeat_NotActivatedReturnsNilOverride(t *testing.T) {
+	seat := &seatState{activated: false}
+	_, override, err := heartbeat(seat, license.NewGuard(""))
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if override != nil {
+		t.Errorf("expected nil override, got %+v", override)
 	}
 }

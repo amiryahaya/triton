@@ -128,13 +128,29 @@ func TestResultsQueue_EnqueueAndDrain(t *testing.T) {
 	assert.Equal(t, "manage", rows[0].SourceType)
 	assert.Equal(t, sourceID, rows[0].SourceID)
 
-	// Envelope shape — decode PayloadJSON and assert the expected keys.
+	// Envelope shape — must match the Report Server's POST /api/v1/scans
+	// contract: { scan, submitted_by: { type, id } }. Queue-row metadata
+	// (scan_job_id, enqueued_at, source_*) lives on the DB columns, not
+	// the payload, so the Report Server's audit query
+	// (result_json->'submitted_by'->>'type') sees a clean shape.
 	var env map[string]any
 	require.NoError(t, json.Unmarshal(rows[0].PayloadJSON, &env))
-	assert.Equal(t, jobID.String(), env["scan_job_id"])
-	assert.Equal(t, "manage", env["source_type"])
-	assert.Contains(t, env, "scan")
-	assert.Contains(t, env, "submitted_at")
+	assert.Contains(t, env, "scan", "envelope must carry the scan result")
+	require.Contains(t, env, "submitted_by", "envelope must carry submitted_by")
+	sb, ok := env["submitted_by"].(map[string]any)
+	require.True(t, ok, "submitted_by must be a nested object")
+	assert.Equal(t, "manage", sb["type"])
+	assert.Equal(t, sourceID.String(), sb["id"])
+
+	// Inverse: top-level queue-row metadata MUST NOT leak into payload_json.
+	assert.NotContains(t, env, "scan_job_id",
+		"scan_job_id is a queue-row column, not envelope field")
+	assert.NotContains(t, env, "source_type",
+		"source_type is a queue-row column, not envelope field")
+	assert.NotContains(t, env, "source_id",
+		"source_id is a queue-row column, not envelope field")
+	assert.NotContains(t, env, "submitted_at",
+		"submitted_at is captured by manage_scan_results_queue.enqueued_at")
 
 	require.NoError(t, store.Delete(ctx, rows[0].ID))
 

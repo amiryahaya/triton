@@ -34,31 +34,45 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 var _ Store = (*PostgresStore)(nil)
 
 // envelope is the JSON shape written into payload_json on Enqueue.
-// Matches the Report Server's expected POST /api/v1/scans body: the
-// ScanResult is inline, SubmittedBy + SourceType + ScanJobID sit
-// alongside it for auditing at the receiver.
+// Matches the Report Server's POST /api/v1/scans contract exactly:
 //
-// Field names use snake_case to match the Triton server's existing
-// /api/v1/scans payload convention and to round-trip cleanly through
-// JSONB without re-casing.
+//	{
+//	  "scan":         { ...ScanResult... },
+//	  "submitted_by": { "type": "manage", "id": "<uuid>" }
+//	}
+//
+// Rationale: the Report Server's audit query filters on
+// result_json->'submitted_by'->>'type' so the nested object layout is a
+// load-bearing contract, not cosmetic. Queue-row bookkeeping (scan_job_id,
+// enqueued_at) is captured by the `manage_scan_results_queue` columns
+// and intentionally kept OUT of the envelope — the Report Server has no
+// use for it and it would pollute result_json at the receiver.
 type envelope struct {
-	ScanJobID   uuid.UUID         `json:"scan_job_id"`
-	SourceType  string            `json:"source_type"`
-	SourceID    uuid.UUID         `json:"source_id"`
-	SubmittedAt time.Time         `json:"submitted_at"`
 	Scan        *model.ScanResult `json:"scan"`
+	SubmittedBy submittedBy       `json:"submitted_by"`
+}
+
+// submittedBy is the nested provenance block of envelope. Type is the
+// caller identity ("manage", "agent", etc.); ID is the Manage-instance
+// UUID (or agent machine UUID) that produced the scan.
+type submittedBy struct {
+	Type string    `json:"type"`
+	ID   uuid.UUID `json:"id"`
 }
 
 // Enqueue wraps the scan + provenance into an envelope and INSERTs one
 // queue row. Returns the DB error verbatim for the orchestrator to
 // surface via Store.Fail on the originating job.
+//
+// scan_job_id + enqueued_at are persisted as columns on the queue row,
+// not inside payload_json — see the envelope doc comment.
 func (s *PostgresStore) Enqueue(ctx context.Context, scanJobID uuid.UUID, sourceType string, sourceID uuid.UUID, scan *model.ScanResult) error {
 	env := envelope{
-		ScanJobID:   scanJobID,
-		SourceType:  sourceType,
-		SourceID:    sourceID,
-		SubmittedAt: time.Now().UTC(),
-		Scan:        scan,
+		Scan: scan,
+		SubmittedBy: submittedBy{
+			Type: sourceType,
+			ID:   sourceID,
+		},
 	}
 	payload, err := json.Marshal(env)
 	if err != nil {

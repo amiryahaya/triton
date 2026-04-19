@@ -27,6 +27,12 @@ type fakeStore struct {
 
 	// createErr, if set, is returned from the next Create call.
 	createErr error
+
+	// conflictOnName, if non-empty, causes the next Create or Update
+	// call with a matching (trimmed) name to return zones.ErrConflict
+	// and then clear the hook. Lets tests deterministically trigger
+	// the 409 path without relying on store-internal uniqueness.
+	conflictOnName string
 }
 
 func newFakeStore() *fakeStore {
@@ -38,6 +44,10 @@ func (f *fakeStore) Create(_ context.Context, z zones.Zone) (zones.Zone, error) 
 	defer f.mu.Unlock()
 	if f.createErr != nil {
 		return zones.Zone{}, f.createErr
+	}
+	if f.conflictOnName != "" && z.Name == f.conflictOnName {
+		f.conflictOnName = ""
+		return zones.Zone{}, zones.ErrConflict
 	}
 	z.ID = uuid.Must(uuid.NewV7())
 	f.items[z.ID] = z
@@ -69,6 +79,10 @@ func (f *fakeStore) Update(_ context.Context, z zones.Zone) (zones.Zone, error) 
 	defer f.mu.Unlock()
 	if _, ok := f.items[z.ID]; !ok {
 		return zones.Zone{}, zones.ErrNotFound
+	}
+	if f.conflictOnName != "" && z.Name == f.conflictOnName {
+		f.conflictOnName = ""
+		return zones.Zone{}, zones.ErrConflict
 	}
 	f.items[z.ID] = z
 	return z, nil
@@ -230,5 +244,45 @@ func TestZonesAdmin_Delete_MissingReturns404(t *testing.T) {
 
 	resp := doReq(t, http.MethodDelete, ts.URL+"/api/v1/admin/zones/"+uuid.Must(uuid.NewV7()).String(), nil)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestZonesAdmin_Create_DuplicateNameReturns409(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	// Arm the conflict hook so the next Create("dmz") returns ErrConflict.
+	store.conflictOnName = "dmz"
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/zones/", map[string]string{"name": "dmz"})
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestZonesAdmin_Update_DuplicateNameReturns409(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	// Seed a zone so Update has something to PATCH.
+	z, err := store.Create(context.Background(), zones.Zone{Name: "initial"})
+	require.NoError(t, err)
+
+	// Arm the conflict hook so the next Update(name: "clash") returns ErrConflict.
+	store.conflictOnName = "clash"
+	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/zones/"+z.ID.String(),
+		map[string]string{"name": "clash"})
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestZonesAdmin_Update_EmptyNameRejected(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	z, err := store.Create(context.Background(), zones.Zone{Name: "seed"})
+	require.NoError(t, err)
+
+	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/zones/"+z.ID.String(),
+		map[string]string{"name": "   ", "description": "whitespace only"})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 }

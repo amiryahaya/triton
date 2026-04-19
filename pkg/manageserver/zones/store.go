@@ -11,6 +11,11 @@ import (
 // the supplied ID. Handlers map this to HTTP 404.
 var ErrNotFound = errors.New("zones: not found")
 
+// ErrConflict is returned by Create/Update when a name collision would
+// violate the manage_zones UNIQUE(name) constraint. Handlers map this
+// to HTTP 409.
+var ErrConflict = errors.New("zones: conflict")
+
 // Store is the persistence boundary for the zones bounded context.
 // All methods operate within a single Manage Server instance — there
 // is no per-tenant scoping here because Manage is single-tenant per

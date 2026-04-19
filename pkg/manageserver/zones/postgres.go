@@ -7,8 +7,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// isUniqueViolation reports whether err wraps a Postgres unique_violation (23505).
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
 
 // PostgresStore implements Store against a pgx connection pool. The
 // pool's lifetime is owned by the caller — typically shared with the
@@ -28,6 +35,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 var _ Store = (*PostgresStore)(nil)
 
 // Create inserts a new zone. The DB generates id + timestamps.
+// Returns ErrConflict if the name collides with an existing zone.
 func (s *PostgresStore) Create(ctx context.Context, z Zone) (Zone, error) {
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO manage_zones (name, description)
@@ -36,6 +44,9 @@ func (s *PostgresStore) Create(ctx context.Context, z Zone) (Zone, error) {
 		z.Name, z.Description,
 	).Scan(&z.ID, &z.CreatedAt, &z.UpdatedAt)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return Zone{}, fmt.Errorf("%w: name %q", ErrConflict, z.Name)
+		}
 		return Zone{}, fmt.Errorf("create zone: %w", err)
 	}
 	return z, nil
@@ -81,6 +92,7 @@ func (s *PostgresStore) List(ctx context.Context) ([]Zone, error) {
 }
 
 // Update changes name + description on an existing zone.
+// Returns ErrConflict if the new name collides with another zone.
 func (s *PostgresStore) Update(ctx context.Context, z Zone) (Zone, error) {
 	err := s.pool.QueryRow(ctx,
 		`UPDATE manage_zones SET name = $1, description = $2, updated_at = NOW()
@@ -92,6 +104,9 @@ func (s *PostgresStore) Update(ctx context.Context, z Zone) (Zone, error) {
 		return Zone{}, ErrNotFound
 	}
 	if err != nil {
+		if isUniqueViolation(err) {
+			return Zone{}, fmt.Errorf("%w: name %q", ErrConflict, z.Name)
+		}
 		return Zone{}, fmt.Errorf("update zone: %w", err)
 	}
 	return z, nil

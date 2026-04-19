@@ -139,6 +139,26 @@ func TestZones_Update_MissingReturnsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, zones.ErrNotFound)
 }
 
+func TestZones_DuplicateName_ReturnsConflict(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := zones.NewPostgresStore(pool)
+
+	_, err := s.Create(ctx, zones.Zone{Name: "dmz", Description: "first"})
+	require.NoError(t, err)
+
+	// Second insert with same name must surface ErrConflict, not a raw pg error.
+	_, err = s.Create(ctx, zones.Zone{Name: "dmz", Description: "second"})
+	assert.ErrorIs(t, err, zones.ErrConflict)
+
+	// Rename path: create a second zone, then try to rename onto an existing name.
+	other, err := s.Create(ctx, zones.Zone{Name: "prod", Description: "other"})
+	require.NoError(t, err)
+	other.Name = "dmz"
+	_, err = s.Update(ctx, other)
+	assert.ErrorIs(t, err, zones.ErrConflict)
+}
+
 func TestZones_List_OrdersByName(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()

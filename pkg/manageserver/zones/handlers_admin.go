@@ -46,6 +46,10 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	z, err := h.Store.Create(r.Context(), Zone{Name: body.Name, Description: body.Description})
+	if errors.Is(err, ErrConflict) {
+		writeErr(w, http.StatusConflict, "zone name already exists")
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -87,9 +91,18 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
 	z, err := h.Store.Update(r.Context(), Zone{ID: id, Name: body.Name, Description: body.Description})
 	if errors.Is(err, ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "zone not found")
+		return
+	}
+	if errors.Is(err, ErrConflict) {
+		writeErr(w, http.StatusConflict, "zone name already exists")
 		return
 	}
 	if err != nil {

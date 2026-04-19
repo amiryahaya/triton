@@ -105,7 +105,7 @@ jobs:
   integration-test:
     name: Integration Test
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, web]
     services:
       postgres:
         image: postgres:18
@@ -126,6 +126,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      # Download the Vite-built portal assets from the web job so that
+      # //go:embed pulls real dist/ content into the integration test
+      # binary. Without this step pkg/server/ui/dist/ only contains
+      # .gitkeep + logo.png + manage/, and TestUIServeIndex /
+      # TestUIServeHashedAssets fail with 404s.
+      - name: Download built portals
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-dist
+          path: pkg/
 
       - name: Generate test fixtures
         run: go run test/fixtures/generate.go

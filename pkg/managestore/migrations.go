@@ -107,6 +107,10 @@ var migrations = []string{
 
 	CREATE TABLE IF NOT EXISTS manage_scan_results_dead_letter (
 		id                  UUID        PRIMARY KEY,
+		-- intentionally no FK to manage_scan_jobs: dead-letter rows must
+		-- outlive the source job, preserving the undeliverable payload
+		-- for operator triage even after the originating job row has been
+		-- pruned.
 		scan_job_id         UUID        NOT NULL,
 		source_type         TEXT        NOT NULL,
 		source_id           UUID        NOT NULL,

@@ -392,30 +392,30 @@ func activateWithLicenseServer(resolved *resolvedAgentConfig) seatState {
 
 // heartbeat posts /validate to the License Server and returns:
 //   - the possibly-updated license.Guard (free tier on invalid response);
-//   - a non-nil *ScheduleSpec when the server pushed a schedule override;
-//   - an error reserved for structural decode failures (currently always nil;
-//     parse failures on the returned cron expression surface at
-//     newSchedulerFromSpec in the caller).
+//   - a non-nil *ScheduleSpec when the server pushed a schedule override.
+//
 // When the server returns no schedule (empty string), the override is nil
 // and the caller should revert to its baseSched if it previously adopted
-// a server-pushed value.
-func heartbeat(seat *seatState, currentGuard *license.Guard) (*license.Guard, *agentconfig.ScheduleSpec, error) {
+// a server-pushed value. Cron-parse failures on the returned expression
+// are surfaced later by newSchedulerFromSpec in the caller — this
+// function only assembles the spec.
+func heartbeat(seat *seatState, currentGuard *license.Guard) (*license.Guard, *agentconfig.ScheduleSpec) {
 	if !seat.activated || seat.client == nil {
-		return currentGuard, nil, nil
+		return currentGuard, nil
 	}
 
 	resp, err := seat.client.Validate(seat.licenseID, seat.token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server heartbeat failed: %v — continuing with current tier\n", err)
-		return currentGuard, nil, nil
+		return currentGuard, nil
 	}
 
 	if !resp.Valid {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server reports license invalid — degrading to free tier\n")
 		seat.activated = false
-		return license.NewGuard(""), nil, nil
+		return license.NewGuard(""), nil
 	}
 
 	// Tier changes (admin upgraded/downgraded) take effect on next
@@ -429,14 +429,14 @@ func heartbeat(seat *seatState, currentGuard *license.Guard) (*license.Guard, *a
 	}
 
 	if resp.Schedule == "" {
-		return currentGuard, nil, nil
+		return currentGuard, nil
 	}
 	spec := agentconfig.ScheduleSpec{
 		Kind:     agentconfig.ScheduleKindCron,
 		CronExpr: resp.Schedule,
 		Jitter:   time.Duration(resp.ScheduleJitterSeconds) * time.Second,
 	}
-	return currentGuard, &spec, nil
+	return currentGuard, &spec
 }
 
 // deactivateOnShutdown unregisters this machine from the license
@@ -603,7 +603,7 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		// clears the override, revert to the operator's local
 		// baseline (baseSched).
 		var override *agentconfig.ScheduleSpec
-		activeGuard, override, _ = heartbeat(&seat, activeGuard)
+		activeGuard, override = heartbeat(&seat, activeGuard)
 		switch {
 		case override != nil:
 			newSched, nerr := newSchedulerFromSpec(*override)

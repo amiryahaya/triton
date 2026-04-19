@@ -103,10 +103,7 @@ func TestHeartbeat_ReturnsServerOverride(t *testing.T) {
 		token:     "tok",
 	}
 	g := license.NewGuard("")
-	_, override, err := heartbeat(seat, g)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
+	_, override := heartbeat(seat, g)
 	if override == nil {
 		t.Fatal("expected non-nil override when server pushes schedule")
 	}
@@ -130,10 +127,7 @@ func TestHeartbeat_EmptyScheduleReturnsNilOverride(t *testing.T) {
 		licenseID: "lic-1", token: "tok",
 	}
 	g := license.NewGuard("")
-	_, override, err := heartbeat(seat, g)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
+	_, override := heartbeat(seat, g)
 	if override != nil {
 		t.Errorf("expected nil override, got %+v", override)
 	}
@@ -141,10 +135,7 @@ func TestHeartbeat_EmptyScheduleReturnsNilOverride(t *testing.T) {
 
 func TestHeartbeat_NotActivatedReturnsNilOverride(t *testing.T) {
 	seat := &seatState{activated: false}
-	_, override, err := heartbeat(seat, license.NewGuard(""))
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
+	_, override := heartbeat(seat, license.NewGuard(""))
 	if override != nil {
 		t.Errorf("expected nil override, got %+v", override)
 	}

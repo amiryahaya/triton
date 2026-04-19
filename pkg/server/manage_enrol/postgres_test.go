@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -136,6 +137,10 @@ func TestStore_List_Ordering(t *testing.T) {
 	require.NoError(t, s.Create(ctx, ManageInstance{
 		ID: uuid.Must(uuid.NewV7()), LicenseKeyHash: "h1", CertSerial: "serial-1",
 	}))
+	// enrolled_at has microsecond precision; two very fast inserts can tie
+	// and render ORDER BY enrolled_at ASC non-deterministic. A ~2ms gap is
+	// cheap insurance and keeps the test readable.
+	time.Sleep(2 * time.Millisecond)
 	require.NoError(t, s.Create(ctx, ManageInstance{
 		ID: uuid.Must(uuid.NewV7()), LicenseKeyHash: "h2", CertSerial: "serial-2",
 	}))

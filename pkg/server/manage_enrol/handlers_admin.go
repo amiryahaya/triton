@@ -111,6 +111,20 @@ type enrolRequest struct {
 // PEM public key (~500 bytes) and a small cap cheaply bounds denial-of-
 // service via oversized JSON.
 func (h *EnrolHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
+	// Guard required dependencies up-front so an operator-misconfigured
+	// handler returns a clean 500 instead of panicking on a nil-pointer
+	// deref inside CA or Store calls. LicenseClient has its own check
+	// further down (kept there so the tests' "licence validator not
+	// configured" string stays stable).
+	if h.CA == nil {
+		writeErr(w, http.StatusInternalServerError, "CA provider not configured")
+		return
+	}
+	if h.ManageStore == nil {
+		writeErr(w, http.StatusInternalServerError, "manage store not configured")
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 
 	var req enrolRequest

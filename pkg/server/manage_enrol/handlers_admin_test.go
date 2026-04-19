@@ -352,6 +352,55 @@ func TestEnrol_ReturnsBadGatewayOnValidatorError(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
+// TestEnrolHandlers_NilCA_Returns500 — handler constructed with a nil CA
+// field must return 500 with a descriptive error body rather than panicking
+// on a nil-pointer deref inside LoadCACert.
+func TestEnrolHandlers_NilCA_Returns500(t *testing.T) {
+	h := &EnrolHandlers{
+		CA:              nil,
+		ManageStore:     newMemManageStore(),
+		ReportPublicURL: "https://report.test",
+		LicenseClient:   &fakeValidator{features: EnrolFeatures{Manage: true}},
+	}
+	pubPEM, _ := newPubKeyPEM(t)
+	body := fmt.Sprintf(`{
+	    "manage_instance_id": %q,
+	    "license_key": "x",
+	    "public_key_pem": %q
+	}`, uuid.Must(uuid.NewV7()).String(), pubPEM)
+	w := postEnrol(h, body)
+	assert.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Contains(t, strings.ToLower(resp["error"]), "ca provider")
+}
+
+// TestEnrolHandlers_NilManageStore_Returns500 — handler constructed with a
+// nil ManageStore must return 500 before reaching any code that would
+// dereference the store (Create).
+func TestEnrolHandlers_NilManageStore_Returns500(t *testing.T) {
+	ca := newTestCA(t)
+	h := &EnrolHandlers{
+		CA:              ca,
+		ManageStore:     nil,
+		ReportPublicURL: "https://report.test",
+		LicenseClient:   &fakeValidator{features: EnrolFeatures{Manage: true}},
+	}
+	pubPEM, _ := newPubKeyPEM(t)
+	body := fmt.Sprintf(`{
+	    "manage_instance_id": %q,
+	    "license_key": "x",
+	    "public_key_pem": %q
+	}`, uuid.Must(uuid.NewV7()).String(), pubPEM)
+	w := postEnrol(h, body)
+	assert.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Contains(t, strings.ToLower(resp["error"]), "manage store")
+}
+
 // TestEnrol_CAProviderNotBootstrapped — LoadCACert returns
 // ErrCANotBootstrapped → 409.
 func TestEnrol_CAProviderNotBootstrapped(t *testing.T) {

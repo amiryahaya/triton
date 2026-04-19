@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -268,6 +269,164 @@ func TestStartLicence_UsagePushFailure_StampsConsecutiveFailures(t *testing.T) {
 		"manage_license_state.consecutive_failures must increment after an LS 500")
 	assert.Contains(t, st.LastPushError, "500",
 		"last_push_error must surface the upstream status code")
+}
+
+// TestStartLicence_PropagatesGuardToSubHandlers is the D2 guardrail:
+// the bug it pins was that startLicence populated s.licenceGuard but
+// never pushed it into hostsAdmin.Guard / scanjobsAdmin.Guard /
+// agentsAdmin.Guard. In production only H1 (seat cap, which reads
+// s.licenceGuard directly via resolveSeatCapGuard) would have worked;
+// H2/H3/H4 per-package caps would silently skip because their Guard
+// fields stayed nil.
+//
+// This test activates a real licence against the full server
+// construction path and asserts all three sub-handler guards become
+// non-nil AND match the top-level Server.licenceGuard. Then it calls
+// stopLicence and asserts the mirror: all three revert to nil.
+func TestStartLicence_PropagatesGuardToSubHandlers(t *testing.T) {
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+
+	lic := &license.License{
+		ID:        "test-lic-propagate",
+		Tier:      license.TierPro,
+		Org:       "ACME",
+		Seats:     10,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		Features:  licensestore.Features{Manage: true, Report: true},
+	}
+	signed, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+
+	schema := fmt.Sprintf("test_msrv_propagate_%d", serverTestSeq.Add(1))
+	store, err := managestore.NewPostgresStoreInSchema(context.Background(), getTestDBURL(), schema)
+	if err != nil {
+		t.Skipf("Postgres unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DropSchema(context.Background())
+		store.Close()
+	})
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	require.NoError(t, store.SaveLicenseActivation(context.Background(),
+		"http://localhost:0", "lic-uuid-propagate", signed,
+		"00000000-0000-0000-0000-0000000000ff"))
+
+	cfg := &manageserver.Config{
+		Listen:        ":0",
+		JWTSigningKey: testJWTKey,
+		PublicKey:     pub,
+		SessionTTL:    time.Hour,
+	}
+	srv, err := manageserver.New(cfg, store, store.Pool())
+	require.NoError(t, err)
+
+	// ---- assert propagation after startLicence.
+	topGuard := manageserver.LicenceGuardForTest(srv)
+	require.NotNil(t, topGuard, "s.licenceGuard must be wired after activation")
+
+	hg, sg, ag := manageserver.SubHandlerGuardsForTest(srv)
+	assert.NotNil(t, hg, "hostsAdmin.Guard must be propagated (D2: H2 host cap)")
+	assert.NotNil(t, sg, "scanjobsAdmin.Guard must be propagated (D2: H3 scan cap)")
+	assert.NotNil(t, ag, "agentsAdmin.Guard must be propagated (D2: H4 agent cap)")
+
+	// Same pointer: the propagation must install the exact guard
+	// startLicence constructed, not a cloned or shadow guard.
+	assert.Same(t, topGuard, hg.(*license.Guard), "hosts guard must be the same pointer as s.licenceGuard")
+	assert.Same(t, topGuard, sg.(*license.Guard), "scan-jobs guard must be the same pointer as s.licenceGuard")
+	assert.Same(t, topGuard, ag.(*license.Guard), "agents guard must be the same pointer as s.licenceGuard")
+
+	// ---- stopLicence must tear down the propagation too.
+	manageserver.StopLicenceForTest(srv)
+	assert.Nil(t, manageserver.LicenceGuardForTest(srv), "s.licenceGuard must be nil after stopLicence")
+	hg2, sg2, ag2 := manageserver.SubHandlerGuardsForTest(srv)
+	assert.Nil(t, hg2, "hostsAdmin.Guard must be nil after stopLicence")
+	assert.Nil(t, sg2, "scanjobsAdmin.Guard must be nil after stopLicence")
+	assert.Nil(t, ag2, "agentsAdmin.Guard must be nil after stopLicence")
+}
+
+// TestStartLicence_PropagatedGuard_EnforcesHostCapOverHTTP is the
+// end-to-end partner of TestStartLicence_PropagatesGuardToSubHandlers:
+// rather than poking at the guard pointers directly, it exercises the
+// real HTTP path a production client would hit.
+//
+// Activation: sign a licence with `hosts/total: 0` (nominally zero-cap
+// with 10% soft buffer ⇒ ceiling 0). After New() calls startLicence
+// the propagated guard on hostsAdmin.Guard must cause POST
+// /api/v1/admin/hosts/ to reject with 403. If D2 regresses (guard
+// not propagated), the test falls through to the happy path because
+// the nil-guard check in the handler skips cap enforcement entirely.
+func TestStartLicence_PropagatedGuard_EnforcesHostCapOverHTTP(t *testing.T) {
+	pub, priv, err := license.GenerateKeypair()
+	require.NoError(t, err)
+
+	lic := &license.License{
+		ID:        "test-lic-hostcap-e2e",
+		Tier:      license.TierPro,
+		Org:       "ACME",
+		Seats:     10,
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		Features:  licensestore.Features{Manage: true, Report: true},
+		Limits: licensestore.Limits{
+			// hosts/total = 0 ⇒ any Create must be rejected.
+			{Metric: "hosts", Window: "total", Cap: 0},
+		},
+	}
+	signed, err := license.Encode(lic, priv)
+	require.NoError(t, err)
+
+	schema := fmt.Sprintf("test_msrv_hostcap_e2e_%d", serverTestSeq.Add(1))
+	store, err := managestore.NewPostgresStoreInSchema(context.Background(), getTestDBURL(), schema)
+	if err != nil {
+		t.Skipf("Postgres unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.DropSchema(context.Background())
+		store.Close()
+	})
+
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	require.NoError(t, store.SaveLicenseActivation(context.Background(),
+		"http://localhost:0", "lic-uuid-hostcap-e2e", signed,
+		"00000000-0000-0000-0000-000000000222"))
+
+	cfg := &manageserver.Config{
+		Listen:        ":0",
+		JWTSigningKey: testJWTKey,
+		PublicKey:     pub,
+		SessionTTL:    time.Hour,
+	}
+	srv, err := manageserver.New(cfg, store, store.Pool())
+	require.NoError(t, err)
+
+	// Sanity: guard must be wired. If not, the test would be vacuous.
+	require.NotNil(t, manageserver.LicenceGuardForTest(srv),
+		"precondition: guard must be wired after startLicence")
+
+	// Seed an admin so we can log in and hit /api/v1/admin/hosts/.
+	admin := seedAdminUser(t, store)
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	// POST /api/v1/admin/hosts/ with hosts/total=0 must be 403.
+	body := `{"hostname":"blocked-by-cap"}`
+	req, err := http.NewRequest(http.MethodPost,
+		ts.URL+"/api/v1/admin/hosts/", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"D2: propagated guard must enforce hosts/total=0 cap at the HTTP layer")
 }
 
 // TestStartLicence_MissingPubKey_IsGracefulAtBoot ensures that when the

@@ -55,6 +55,23 @@ func (s *Server) startLicence(ctx context.Context) error {
 	s.licenceGuard = guard
 	s.licencePusher = pusher
 	s.licenceCancel = cancel
+
+	// Propagate the guard into every sub-handler package so that hosts
+	// (H2), scan-jobs (H3) and agents (H4) cap enforcement fires in
+	// production. Without this, only H1 (seat cap) would work — the
+	// other sub-handlers read their own `Guard` field directly, which
+	// would otherwise stay nil forever. Tests that swap a fake via
+	// Set*CapGuardForTest win because their override sets the same
+	// field under the same mu critical section.
+	if s.hostsAdmin != nil {
+		s.hostsAdmin.Guard = guard
+	}
+	if s.scanjobsAdmin != nil {
+		s.scanjobsAdmin.Guard = guard
+	}
+	if s.agentsAdmin != nil {
+		s.agentsAdmin.Guard = guard
+	}
 	s.mu.Unlock()
 
 	go pusher.Run(pCtx)
@@ -110,6 +127,20 @@ func (s *Server) stopLicence() {
 	s.licenceGuard = nil
 	s.licencePusher = nil
 	s.licenceCancel = nil
+	// Mirror the propagation in startLicence so a clean shutdown
+	// doesn't leave sub-handlers holding a guard that points at a
+	// cancelled pusher. ClearSeatCapGuardForTest already clears these
+	// fields in test tear-down — the same surface just for the
+	// production Run() shutdown path.
+	if s.hostsAdmin != nil {
+		s.hostsAdmin.Guard = nil
+	}
+	if s.scanjobsAdmin != nil {
+		s.scanjobsAdmin.Guard = nil
+	}
+	if s.agentsAdmin != nil {
+		s.agentsAdmin.Guard = nil
+	}
 	s.mu.Unlock()
 	if cancel != nil {
 		cancel()

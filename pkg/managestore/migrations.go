@@ -192,12 +192,20 @@ var migrations = []string{
 	// Version 7: Allow agent-submitted scan results on the queue by
 	// making scan_job_id nullable. Agent scans arrive via the :8443
 	// gateway without an originating scan_job row (the agent owns the
-	// scan lifecycle; Manage is a pass-through). Keep the FK but
-	// relax the NOT NULL + promote the cascade to SET NULL so
-	// deleting a job doesn't ripple into dead-letter queue loss.
-	// The dead-letter table must match so DeadLetter's
-	// INSERT...SELECT copy of a nullable scan_job_id doesn't trip
-	// the NOT NULL on the target column.
+	// scan lifecycle; Manage is a pass-through).
+	//
+	// Queue table: relax NOT NULL + promote the FK cascade to SET NULL
+	// so deleting a scan_job doesn't cascade-delete queued rows on the
+	// way to Report.
+	//
+	// Dead-letter table: only relax NOT NULL. v4 intentionally omitted
+	// the FK to manage_scan_jobs so dead-letter rows outlive the source
+	// job, preserving operator-triage evidence after scan_job pruning
+	// (see v4 comment). v7 preserves that intent — DO NOT add an FK
+	// here. DeadLetter's INSERT...SELECT from queue now carries a
+	// potentially-nullable scan_job_id, which the NOT NULL drop makes
+	// legal. TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK pins
+	// both halves so a future "tidy-up" FK addition trips the test.
 	`ALTER TABLE manage_scan_results_queue ALTER COLUMN scan_job_id DROP NOT NULL;
 	ALTER TABLE manage_scan_results_queue DROP CONSTRAINT manage_scan_results_queue_scan_job_id_fkey;
 	ALTER TABLE manage_scan_results_queue ADD CONSTRAINT manage_scan_results_queue_scan_job_id_fkey

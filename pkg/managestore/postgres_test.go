@@ -533,6 +533,138 @@ func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 	assert.NotNil(t, gotHostID, "host_id must still be set")
 }
 
+// TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK asserts migration v7:
+//  1. manage_scan_results_queue.scan_job_id is nullable and its FK uses
+//     ON DELETE SET NULL (so deleting a scan_job doesn't cascade-delete
+//     queued rows on the way to Report).
+//  2. manage_scan_results_dead_letter.scan_job_id is nullable AND carries
+//     NO FK to manage_scan_jobs (intentional per v4: dead-letter rows
+//     must outlive the source job to preserve operator-triage evidence).
+//
+// This pins behaviour so a future dev adding a "tidy up" FK on
+// dead-letter's scan_job_id trips the test and has to consciously
+// re-read v4's rationale.
+func TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Both tables must have scan_job_id as nullable after v7.
+	var queueNullable, deadLetterNullable string
+	err := s.QueryRowForTest(ctx, `
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'manage_scan_results_queue'
+		  AND column_name = 'scan_job_id'`).Scan(&queueNullable)
+	require.NoError(t, err)
+	assert.Equal(t, "YES", queueNullable,
+		"manage_scan_results_queue.scan_job_id must be nullable after v7")
+
+	err = s.QueryRowForTest(ctx, `
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'manage_scan_results_dead_letter'
+		  AND column_name = 'scan_job_id'`).Scan(&deadLetterNullable)
+	require.NoError(t, err)
+	assert.Equal(t, "YES", deadLetterNullable,
+		"manage_scan_results_dead_letter.scan_job_id must be nullable after v7")
+
+	// Queue must have exactly one FK on scan_job_id with delete_rule = SET NULL.
+	// pg_constraint.confdeltype: 'n' = SET NULL, 'r' = RESTRICT, 'c' = CASCADE, 'a' = NO ACTION.
+	var queueSetNullFKs int
+	err = s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM pg_constraint c
+		JOIN pg_class t ON c.conrelid = t.oid
+		JOIN pg_namespace n ON t.relnamespace = n.oid
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'manage_scan_results_queue'
+		  AND a.attname = 'scan_job_id'
+		  AND c.contype = 'f'
+		  AND c.confdeltype = 'n'`).Scan(&queueSetNullFKs)
+	require.NoError(t, err)
+	assert.Equal(t, 1, queueSetNullFKs,
+		"manage_scan_results_queue.scan_job_id must have exactly one FK with ON DELETE SET NULL")
+
+	// Dead-letter must have ZERO FKs on scan_job_id. v4 deliberately omitted
+	// the FK so dead-letter rows survive scan_job pruning. v7 must preserve
+	// that — only the NOT NULL drop, no FK introduction.
+	var deadLetterFKs int
+	err = s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM pg_constraint c
+		JOIN pg_class t ON c.conrelid = t.oid
+		JOIN pg_namespace n ON t.relnamespace = n.oid
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'manage_scan_results_dead_letter'
+		  AND a.attname = 'scan_job_id'
+		  AND c.contype = 'f'`).Scan(&deadLetterFKs)
+	require.NoError(t, err)
+	assert.Equal(t, 0, deadLetterFKs,
+		"manage_scan_results_dead_letter.scan_job_id must NOT have any FK "+
+			"(v4: dead-letter rows must outlive the source job for operator triage)")
+
+	// End-to-end: inserting a scan_job + queue row + dead-letter row, then
+	// deleting the scan_job should leave both child rows in place —
+	// queue.scan_job_id goes NULL (FK SET NULL), dead_letter.scan_job_id
+	// keeps its original value (no FK means no cascade).
+	zoneID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_zones (id, name) VALUES ($1, $2)`, zoneID, "zone-"+zoneID)
+	require.NoError(t, err)
+	hostID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_hosts (id, hostname, zone_id) VALUES ($1, $2, $3)`,
+		hostID, "host-"+hostID, zoneID)
+	require.NoError(t, err)
+	jobID := uuid.Must(uuid.NewV7()).String()
+	tenantID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_scan_jobs (id, tenant_id, zone_id, host_id, profile)
+		 VALUES ($1, $2, $3, $4, 'quick')`,
+		jobID, tenantID, zoneID, hostID)
+	require.NoError(t, err)
+	queueID := uuid.Must(uuid.NewV7()).String()
+	sourceID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_scan_results_queue (id, scan_job_id, source_type, source_id, payload_json)
+		 VALUES ($1, $2, 'manage', $3, '{}'::jsonb)`,
+		queueID, jobID, sourceID)
+	require.NoError(t, err)
+	deadLetterID := uuid.Must(uuid.NewV7()).String()
+	_, err = s.ExecForTest(ctx,
+		`INSERT INTO manage_scan_results_dead_letter
+		 (id, scan_job_id, source_type, source_id, payload_json,
+		  enqueued_at, attempt_count, last_error, dead_letter_reason)
+		 VALUES ($1, $2, 'manage', $3, '{}'::jsonb, NOW(), 1, '', 'test')`,
+		deadLetterID, jobID, sourceID)
+	require.NoError(t, err)
+
+	// Deleting the scan_job must succeed (FK on queue is SET NULL;
+	// dead-letter has no FK).
+	_, err = s.ExecForTest(ctx, `DELETE FROM manage_scan_jobs WHERE id = $1`, jobID)
+	require.NoError(t, err, "deleting a scan_job must not error under v7 FKs")
+
+	// Queue row survives, scan_job_id is now NULL.
+	var queueJobID *string
+	err = s.QueryRowForTest(ctx,
+		`SELECT scan_job_id FROM manage_scan_results_queue WHERE id = $1`, queueID).
+		Scan(&queueJobID)
+	require.NoError(t, err, "queue row must survive scan_job deletion")
+	assert.Nil(t, queueJobID, "queue.scan_job_id must be NULL after scan_job deletion")
+
+	// Dead-letter row survives, scan_job_id KEEPS its original value
+	// because there's no FK to trigger SET NULL. Evidence remains intact
+	// for operators even after the originating scan_job is pruned.
+	var dlJobID *string
+	err = s.QueryRowForTest(ctx,
+		`SELECT scan_job_id FROM manage_scan_results_dead_letter WHERE id = $1`, deadLetterID).
+		Scan(&dlJobID)
+	require.NoError(t, err, "dead-letter row must survive scan_job deletion")
+	require.NotNil(t, dlJobID, "dead-letter.scan_job_id must retain its value (no FK)")
+	assert.Equal(t, jobID, *dlJobID,
+		"dead-letter.scan_job_id keeps the original job ID as evidence trail")
+}
+
 // TestMigrate_ConcurrentCallsAreSafe asserts the advisory lock in Migrate
 // serialises concurrent migrators so no caller sees a duplicate-key error
 // on version-row inserts. Rolling deploys and parallel test runs can both

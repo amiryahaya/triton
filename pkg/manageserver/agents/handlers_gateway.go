@@ -150,12 +150,37 @@ func (h *GatewayHandlers) IngestFindings(w http.ResponseWriter, r *http.Request)
 
 // RotateCert mints a new leaf for the calling agent and returns the
 // fresh cert + key PEM in a JSON body. The agent writes both to disk
-// and switches to the new pair for its next call. The OLD serial is
-// NOT auto-revoked — an admin can revoke independently if needed. The
-// NEW serial replaces cert_serial on manage_agents so the gateway
-// mtlsCNAuth will accept the new cert and reject the old one via the
-// UNIQUE(cert_serial) constraint + existing revocation flow if the
-// admin chooses to.
+// and switches to the new pair for its next call.
+//
+// TRADEOFF — rotation does NOT revoke the old cert. Both the old and
+// new certs remain cryptographically valid until their natural
+// 1-year expiry. The mtlsCNAuth middleware only checks (a) CN prefix
+// and (b) the revocation list — it does NOT check that the
+// presenting serial matches manage_agents.cert_serial. So
+// post-rotation, the old cert continues to pass mTLS.
+//
+// This extends to admin-initiated revocation: DELETE
+// /admin/agents/{id} revokes ONLY the CURRENT cert_serial on the
+// manage_agents row. Any previously-issued serials (pre-rotation)
+// are NOT added to the revocation list and the cert chain keeps
+// validating until expiry.
+//
+// PARTIAL MITIGATION — PhoneHome's MarkActive UPDATE is guarded by
+// `status != 'revoked'`, so an agent whose status has been flipped
+// to revoked (which admin Revoke does) cannot phone-home even with a
+// still-valid OLD cert. This masks the tradeoff on the phone-home
+// path specifically, but endpoints that don't read agent-status
+// (IngestScan, IngestFindings, RotateCert itself) still accept the
+// old cert unless the operator manually revokes the old serial.
+//
+// To invalidate ALL previously-issued certs for an agent across the
+// whole endpoint surface, an operator must either (a) manually
+// revoke each old serial, or (b) enrol a new agent under a fresh
+// UUID and revoke the original. This is a deliberate tradeoff
+// against operational simplicity — the alternative would require a
+// per-agent serial history and cascading revocation.
+// TestGateway_RotateCert_OldCertStillAccepted pins every observable
+// facet above; re-read before changing. See design spec §7.3.
 func (h *GatewayHandlers) RotateCert(w http.ResponseWriter, r *http.Request) {
 	agentID, err := agentIDFromCN(r.Context())
 	if err != nil {

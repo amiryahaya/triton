@@ -45,6 +45,12 @@ type Server struct {
 	licencePusher *license.UsagePusher
 	licenceCancel context.CancelFunc // cancels the pusher goroutine
 
+	// Test-only override for the Batch H seat-cap check. Production
+	// code leaves this nil and handleCreateUser falls back to
+	// licenceGuard. mu-protected so a concurrent test setter doesn't
+	// race the handler read.
+	seatCapGuardOverride SeatCapGuard
+
 	// Admin-API handler packages (Batch C). Constructed in New() against
 	// the shared pool and mounted under /api/v1/admin/*.
 	zonesAdmin *zones.AdminHandlers
@@ -238,7 +244,15 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/scan-jobs", func(r chi.Router) { scanjobs.MountAdminRoutes(r, s.scanjobsAdmin) })
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
-		r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
+
+		// Admin-only subtree (create user, enrol agent). Role check is
+		// chained in addition to jwtAuth so a network_engineer session
+		// hits 403 rather than silently producing licence-seat output.
+		r.Group(func(r chi.Router) {
+			r.Use(RequireRole("admin"))
+			r.Post("/users", s.handleCreateUser)
+			r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
+		})
 	})
 
 	return r

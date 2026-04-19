@@ -331,6 +331,32 @@ func TestMigration_CreatesSingletonRow(t *testing.T) {
 
 // --- Schema versioning isolation ---
 
+// tableExists checks whether a table exists in the current schema.
+func tableExists(t *testing.T, s *managestore.PostgresStore, name string) bool {
+	t.Helper()
+	var exists bool
+	err := s.QueryRowForTest(context.Background(), `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = current_schema() AND table_name = $1
+		)`, name).Scan(&exists)
+	require.NoError(t, err)
+	return exists
+}
+
+// columnExists checks whether a column exists on a table in the current schema.
+func columnExists(t *testing.T, s *managestore.PostgresStore, table, column string) bool {
+	t.Helper()
+	var exists bool
+	err := s.QueryRowForTest(context.Background(), `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2
+		)`, table, column).Scan(&exists)
+	require.NoError(t, err)
+	return exists
+}
+
 // TestMigrate_UsesManageSchemaVersionTable asserts the manage schema uses
 // manage_schema_version (NOT schema_version) so it can cohabit a database
 // with the Report Server's store, which owns schema_version.
@@ -363,4 +389,14 @@ func TestMigrate_UsesManageSchemaVersionTable(t *testing.T) {
 	err = s.QueryRowForTest(ctx, `SELECT COUNT(*) FROM manage_schema_version`).Scan(&count)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, count, 1, "at least one applied migration must be recorded")
+}
+
+// TestMigrate_V2_CreatesZonesAndHosts asserts migration v2 creates the
+// zones, hosts, and zone_memberships tables used by the scanner orchestrator.
+func TestMigrate_V2_CreatesZonesAndHosts(t *testing.T) {
+	s := openTestStore(t)
+
+	assert.True(t, tableExists(t, s, "manage_zones"), "manage_zones must exist")
+	assert.True(t, tableExists(t, s, "manage_hosts"), "manage_hosts must exist")
+	assert.True(t, tableExists(t, s, "manage_zone_memberships"), "manage_zone_memberships must exist")
 }

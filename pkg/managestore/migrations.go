@@ -37,4 +37,30 @@ var migrations = []string{
 		updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 	INSERT INTO manage_setup (id) VALUES (1) ON CONFLICT DO NOTHING;`,
+
+	// Version 2: Zones + Hosts + membership table (Manage B2.2).
+	`CREATE TABLE IF NOT EXISTS manage_zones (
+		id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		name        TEXT        NOT NULL UNIQUE,
+		description TEXT        NOT NULL DEFAULT '',
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE TABLE IF NOT EXISTS manage_hosts (
+		id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		hostname    TEXT        NOT NULL,
+		ip          INET,
+		zone_id     UUID REFERENCES manage_zones(id) ON DELETE SET NULL,
+		os          TEXT        NOT NULL DEFAULT '',
+		last_seen_at TIMESTAMPTZ,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		UNIQUE (hostname)
+	);
+	CREATE INDEX IF NOT EXISTS idx_manage_hosts_zone ON manage_hosts(zone_id);
+	CREATE TABLE IF NOT EXISTS manage_zone_memberships (
+		zone_id UUID NOT NULL REFERENCES manage_zones(id) ON DELETE CASCADE,
+		host_id UUID NOT NULL REFERENCES manage_hosts(id) ON DELETE CASCADE,
+		PRIMARY KEY (zone_id, host_id)
+	);`,
 }

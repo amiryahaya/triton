@@ -127,6 +127,8 @@ The `triton agent` command supports two scheduling modes via `agent.yaml`:
 
 `schedule` wins over `interval` when both are set; if only the CLI `--interval` flag is passed, that wins over neither-set yaml. Implementation: `internal/agentconfig/schedule.go` (plain-data `ScheduleSpec`), `internal/agentconfig/resolve.go::ResolveSchedule` (precedence chain), `cmd/agent_scheduler.go` (`scheduler` interface + `intervalScheduler` + `cronScheduler` via `github.com/robfig/cron/v3`). Invalid cron expressions fail fast at agent startup, including under `--check-config`.
 
+When an agent is bound to a license server, `/validate` can push a `schedule` + `scheduleJitterSeconds` override (stored per-license, admin-editable via `PATCH /api/v1/admin/licenses/{id}`). The agent stashes the yaml-derived `baseSched` at startup and swaps `sched` to a server-pushed override between iterations; when the server clears the field, `sched` reverts to `baseSched`. See `cmd/agent.go::heartbeat` + `pkg/licenseserver/handlers_activation.go::handleValidate`.
+
 ### Job runner (detached scans)
 
 The `triton scan` command accepts six lifecycle flags — `--detach`, `--status`, `--collect`, `--cancel`, `--list-jobs`, `--cleanup` — implemented in `internal/runtime/jobrunner/`. A detached scan fork-exec's itself with `TRITON_DETACHED=1`, writes state to `~/.triton/jobs/<job-id>/`, and reuses the same `Limits.Apply()` pipeline as foreground scans. Cancellation is cooperative via `cancel.flag` for cross-platform parity. See `internal/runtime/jobrunner/doc.go` for caveats and `docs/plans/2026-04-18-job-runner-design.md` for the design spec.

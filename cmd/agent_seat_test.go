@@ -96,7 +96,8 @@ func TestHeartbeat_Valid(t *testing.T) {
 		token:     "tok",
 	}
 
-	result := heartbeat(seat, guard)
+	result, override := heartbeat(seat, guard)
+	assert.Nil(t, override, "no schedule override from server")
 	assert.True(t, seat.activated, "should remain activated")
 	// Tier changes take effect on next restart — guard is unchanged
 	assert.Equal(t, guard, result, "guard should be unchanged (tier changes need restart)")
@@ -118,7 +119,8 @@ func TestHeartbeat_Invalid(t *testing.T) {
 		token:     "tok",
 	}
 
-	result := heartbeat(seat, guard)
+	result, override := heartbeat(seat, guard)
+	assert.Nil(t, override)
 	assert.False(t, seat.activated, "should stop heartbeating after invalid response")
 	assert.Equal(t, license.TierFree, result.Tier())
 }
@@ -132,7 +134,8 @@ func TestHeartbeat_NetworkError(t *testing.T) {
 		token:     "tok",
 	}
 
-	result := heartbeat(seat, guard)
+	result, override := heartbeat(seat, guard)
+	assert.Nil(t, override)
 	assert.True(t, seat.activated, "should remain activated on network error")
 	assert.Equal(t, guard, result, "should return original guard on network error")
 }
@@ -140,7 +143,8 @@ func TestHeartbeat_NetworkError(t *testing.T) {
 func TestHeartbeat_NotActivated(t *testing.T) {
 	guard := license.NewGuard("")
 	seat := &seatState{activated: false}
-	result := heartbeat(seat, guard)
+	result, override := heartbeat(seat, guard)
+	assert.Nil(t, override)
 	assert.Equal(t, guard, result)
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
@@ -30,6 +31,9 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		Limits        licensestore.Limits   `json:"limits"`
 		SoftBufferPct int                   `json:"soft_buffer_pct"`
 		ProductScope  string                `json:"product_scope"`
+		// Portal-pushed schedule (migration 6).
+		Schedule              string `json:"schedule"`
+		ScheduleJitterSeconds int    `json:"scheduleJitterSeconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -54,6 +58,16 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 	}
 	if tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "notes exceeds maximum length")
+		return
+	}
+	if req.Schedule != "" {
+		if _, err := cron.ParseStandard(req.Schedule); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid schedule cron expression: %v", err))
+			return
+		}
+	}
+	if req.ScheduleJitterSeconds < 0 {
+		writeError(w, http.StatusBadRequest, "scheduleJitterSeconds must be >= 0")
 		return
 	}
 
@@ -97,18 +111,20 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lic := &licensestore.LicenseRecord{
-		ID:            uuid.Must(uuid.NewV7()).String(),
-		OrgID:         req.OrgID,
-		Tier:          req.Tier,
-		Seats:         req.Seats,
-		IssuedAt:      now,
-		ExpiresAt:     expiresAt,
-		Notes:         req.Notes,
-		CreatedAt:     now,
-		Features:      req.Features,
-		Limits:        req.Limits,
-		SoftBufferPct: req.SoftBufferPct,
-		ProductScope:  req.ProductScope,
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		OrgID:          req.OrgID,
+		Tier:           req.Tier,
+		Seats:          req.Seats,
+		IssuedAt:       now,
+		ExpiresAt:      expiresAt,
+		Notes:          req.Notes,
+		CreatedAt:      now,
+		Features:       req.Features,
+		Limits:         req.Limits,
+		SoftBufferPct:  req.SoftBufferPct,
+		ProductScope:   req.ProductScope,
+		Schedule:       req.Schedule,
+		ScheduleJitter: req.ScheduleJitterSeconds,
 	}
 
 	if err := s.store.CreateLicense(r.Context(), lic); err != nil {
@@ -117,9 +133,14 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "license_create", lic.ID, req.OrgID, "", map[string]any{
+	auditExtra := map[string]any{
 		"tier": req.Tier, "seats": req.Seats,
-	})
+	}
+	if req.Schedule != "" {
+		auditExtra["schedule"] = req.Schedule
+		auditExtra["scheduleJitterSeconds"] = req.ScheduleJitterSeconds
+	}
+	s.audit(r, "license_create", lic.ID, req.OrgID, "", auditExtra)
 	writeJSON(w, http.StatusCreated, lic)
 }
 
@@ -201,6 +222,66 @@ func (s *Server) handleRevokeLicense(w http.ResponseWriter, r *http.Request) {
 
 	s.audit(r, "license_revoke", id, "", "", map[string]any{"reason": req.Reason})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+// PATCH /api/v1/admin/licenses/{id}
+//
+// Currently supports schedule + scheduleJitterSeconds. Extend the
+// anonymous struct below to add more mutable fields later. Pointer
+// types distinguish "don't touch" (nil) from "clear" (non-nil empty
+// string / zero).
+func (s *Server) handleUpdateLicense(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "license id required")
+		return
+	}
+
+	var req struct {
+		Schedule              *string `json:"schedule"`
+		ScheduleJitterSeconds *int    `json:"scheduleJitterSeconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Schedule != nil && *req.Schedule != "" {
+		if _, err := cron.ParseStandard(*req.Schedule); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid schedule cron expression: %v", err))
+			return
+		}
+	}
+	if req.ScheduleJitterSeconds != nil && *req.ScheduleJitterSeconds < 0 {
+		writeError(w, http.StatusBadRequest, "scheduleJitterSeconds must be >= 0")
+		return
+	}
+
+	upd := licensestore.LicenseUpdate{
+		Schedule:       req.Schedule,
+		ScheduleJitter: req.ScheduleJitterSeconds,
+	}
+	if err := s.store.UpdateLicense(r.Context(), id, upd); err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "license not found")
+			return
+		}
+		log.Printf("update license error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	auditExtra := map[string]any{}
+	if req.Schedule != nil {
+		auditExtra["schedule"] = *req.Schedule
+	}
+	if req.ScheduleJitterSeconds != nil {
+		auditExtra["scheduleJitterSeconds"] = *req.ScheduleJitterSeconds
+	}
+	s.audit(r, "license_schedule_updated", id, "", "", auditExtra)
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // agentYAMLRequest is the optional POST body for the agent.yaml

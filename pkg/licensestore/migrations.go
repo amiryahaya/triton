@@ -145,4 +145,17 @@ var migrations = []string{
 
 	CREATE INDEX IF NOT EXISTS idx_license_usage_reported_at ON license_usage(reported_at);
 	CREATE INDEX IF NOT EXISTS idx_license_usage_license_metric ON license_usage(license_id, metric, "window");`,
+
+	// Version 6: portal-pushed schedule columns on licenses
+	`ALTER TABLE licenses
+		ADD COLUMN IF NOT EXISTS schedule        TEXT,
+		ADD COLUMN IF NOT EXISTS schedule_jitter INTEGER;
+
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'licenses_schedule_jitter_check') THEN
+			ALTER TABLE licenses ADD CONSTRAINT licenses_schedule_jitter_check
+				CHECK (schedule_jitter IS NULL OR schedule_jitter >= 0);
+		END IF;
+	END$$;`,
 }

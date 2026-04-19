@@ -120,12 +120,20 @@ type resolvedAgentConfig struct {
 	Limits limits.Limits
 }
 
+// heartbeatClient is the minimal License Server client surface used by
+// heartbeat(). Declared as an interface so tests can inject a fake
+// without spinning up a real server.
+type heartbeatClient interface {
+	Validate(licenseID, token string) (*license.ValidateResponse, error)
+	Deactivate(licenseID string) error
+}
+
 // seatState tracks whether the agent successfully registered with
 // the license server. Used by the heartbeat and shutdown paths to
 // know whether to call validate/deactivate.
 type seatState struct {
 	activated bool
-	client    *license.ServerClient
+	client    heartbeatClient
 	licenseID string
 	token     string
 }
@@ -382,28 +390,32 @@ func activateWithLicenseServer(resolved *resolvedAgentConfig) seatState {
 	}
 }
 
-// heartbeat calls the license server's validate endpoint to update
-// last_seen_at and detect tier changes or revocations. Returns the
-// updated guard if the tier changed, or the original guard if
-// validation failed or was skipped. Mutates seat.activated to false
-// on invalid response (stops future heartbeats).
-func heartbeat(seat *seatState, currentGuard *license.Guard) *license.Guard {
+// heartbeat posts /validate to the License Server and returns:
+//   - the possibly-updated license.Guard (free tier on invalid response);
+//   - a non-nil *ScheduleSpec when the server pushed a schedule override.
+//
+// When the server returns no schedule (empty string), the override is nil
+// and the caller should revert to its baseSched if it previously adopted
+// a server-pushed value. Cron-parse failures on the returned expression
+// are surfaced later by newSchedulerFromSpec in the caller — this
+// function only assembles the spec.
+func heartbeat(seat *seatState, currentGuard *license.Guard) (*license.Guard, *agentconfig.ScheduleSpec) {
 	if !seat.activated || seat.client == nil {
-		return currentGuard
+		return currentGuard, nil
 	}
 
 	resp, err := seat.client.Validate(seat.licenseID, seat.token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server heartbeat failed: %v — continuing with current tier\n", err)
-		return currentGuard
+		return currentGuard, nil
 	}
 
 	if !resp.Valid {
 		fmt.Fprintf(os.Stderr,
 			"warning: license server reports license invalid — degrading to free tier\n")
 		seat.activated = false
-		return license.NewGuard("") // free tier
+		return license.NewGuard(""), nil
 	}
 
 	// Tier changes (admin upgraded/downgraded) take effect on next
@@ -416,7 +428,15 @@ func heartbeat(seat *seatState, currentGuard *license.Guard) *license.Guard {
 			currentGuard.Tier(), resp.Tier)
 	}
 
-	return currentGuard
+	if resp.Schedule == "" {
+		return currentGuard, nil
+	}
+	spec := agentconfig.ScheduleSpec{
+		Kind:     agentconfig.ScheduleKindCron,
+		CronExpr: resp.Schedule,
+		Jitter:   time.Duration(resp.ScheduleJitterSeconds) * time.Second,
+	}
+	return currentGuard, &spec
 }
 
 // deactivateOnShutdown unregisters this machine from the license
@@ -512,6 +532,17 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		fmt.Printf("  schedule:    one-shot (no interval or schedule configured)\n\n")
 	}
 
+	// Stash the yaml-derived baseline. Server-pushed overrides flip
+	// sched at runtime; when the server clears the override we restore
+	// from baseSched so an admin's "unset schedule" action reliably
+	// returns the agent to its operator-configured local schedule.
+	// cronScheduler embeds a cron.Schedule interface, so comparing
+	// scheduler interface values with `==` can panic at runtime if the
+	// concrete cron.Schedule isn't comparable. Track override state with
+	// an explicit bool instead.
+	baseSched := sched
+	onOverride := false
+
 	// Feature gating. Server submission is enterprise-only; local
 	// report mode is allowed on every tier — it's just running the
 	// scanner and writing files, no coordination cost.
@@ -567,8 +598,44 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		// Heartbeat between scans (continuous mode only). Updates
 		// last_seen_at on the license server and detects tier
 		// changes or revocations. Skipped on one-shot runs to
-		// avoid an unnecessary HTTP round-trip.
-		activeGuard = heartbeat(&seat, activeGuard)
+		// avoid an unnecessary HTTP round-trip. When the server
+		// pushes a schedule override, rebuild sched; when it
+		// clears the override, revert to the operator's local
+		// baseline (baseSched).
+		var override *agentconfig.ScheduleSpec
+		activeGuard, override = heartbeat(&seat, activeGuard)
+		switch {
+		case override != nil:
+			newSched, nerr := newSchedulerFromSpec(*override)
+			if nerr != nil {
+				fmt.Fprintf(os.Stderr, "warning: server-pushed schedule build failed (%v) — keeping previous\n", nerr)
+			} else {
+				sched = newSched
+				onOverride = true
+				fmt.Printf("  schedule updated from server: %s\n", sched.Describe())
+			}
+		default:
+			// Server pushed no schedule. If we had previously adopted an
+			// override, revert to the yaml-derived baseline so an admin
+			// clearing the field restores the operator's local setting.
+			if onOverride {
+				sched = baseSched
+				onOverride = false
+				if sched != nil {
+					fmt.Printf("  schedule reverted to local default: %s\n", sched.Describe())
+				} else {
+					fmt.Printf("  schedule reverted to local default: one-shot\n")
+				}
+			}
+		}
+
+		// Defensive: if a revert somehow produced a nil scheduler
+		// (shouldn't happen because baseSched==nil would have exited at
+		// the top-of-loop one-shot check), exit cleanly rather than
+		// nil-panic on Next().
+		if sched == nil {
+			return nil
+		}
 
 		wait := sched.Next(time.Now())
 		if wait < 0 {

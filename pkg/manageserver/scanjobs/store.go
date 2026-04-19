@@ -76,4 +76,14 @@ type Store interface {
 	// started_at + running_heartbeat_at). Returns the number of rows
 	// reverted. A crashed worker's claim is thus freed for pickup.
 	ReapStale(ctx context.Context, staleAfter time.Duration) (int, error)
+
+	// PlanEnqueueCount returns how many manage_hosts rows the given
+	// EnqueueReq would expand to WITHOUT actually inserting any jobs.
+	// Used by Batch H's soft-buffer scan-cap enforcement at the admin
+	// handler layer: the handler pre-checks cap+usage before delegating
+	// to Enqueue so a rejected request never mutates state.
+	//
+	// Implementation runs the same zone/host expansion query as
+	// Enqueue so numeric parity is guaranteed.
+	PlanEnqueueCount(ctx context.Context, req EnqueueReq) (int64, error)
 }

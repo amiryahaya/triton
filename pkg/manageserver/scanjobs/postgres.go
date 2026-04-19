@@ -326,6 +326,29 @@ func (s *PostgresStore) Cancel(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// PlanEnqueueCount runs the same zone/host expansion query as
+// Enqueue but returns only the count, without writing anything. The
+// admin handler's soft-buffer scan-cap check calls this to know how
+// many jobs a request would create before deciding whether to let
+// the caller through.
+//
+// Returns 0 for an empty ZoneIDs list — matches Enqueue's short-
+// circuit, which also inserts nothing in that case.
+func (s *PostgresStore) PlanEnqueueCount(ctx context.Context, req EnqueueReq) (int64, error) {
+	if len(req.ZoneIDs) == 0 {
+		return 0, nil
+	}
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_hosts WHERE zone_id = ANY($1) AND hostname LIKE $2`,
+		req.ZoneIDs, sqlGlob(req.HostFilter),
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("plan enqueue count: %w", err)
+	}
+	return n, nil
+}
+
 // ReapStale reverts running jobs whose heartbeat is older than
 // staleAfter back to queued so another worker can pick them up.
 // Returns the number of rows revived.

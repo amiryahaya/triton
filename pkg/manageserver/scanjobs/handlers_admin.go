@@ -23,6 +23,25 @@ type QueueDepther interface {
 	QueueDepth(ctx context.Context) (int64, error)
 }
 
+// ScanCapGuard is the narrow licence-guard surface the Enqueue handler
+// consults before accepting a new batch of jobs. Unlike the hard-cap
+// guards on hosts/agents/users, scans use a soft-buffer enforcement
+// model: the usage pusher reports monthly scan counts to the License
+// Server, and the cap carries a soft-buffer percentage that lets
+// operators burst slightly past the nominal cap.
+//
+// Three methods because the enforcement rule is:
+//
+//	used + expected > SoftBufferCeiling  => reject
+//
+// which requires reading all three. A nil Guard on AdminHandlers or
+// any method returning -1 means "no cap for this metric".
+type ScanCapGuard interface {
+	LimitCap(metric, window string) int64
+	CurrentUsage(metric, window string) int64
+	SoftBufferCeiling(metric, window string) int64
+}
+
 // queueSaturationThreshold is the hard cap at which POST /scan-jobs
 // responds 503. Matches the `attempt_count < 10` partial index on the
 // queue; a 10k backlog means ~10k*10 = 100k potential retries before
@@ -36,14 +55,16 @@ const queueSaturationThreshold = 10_000
 type AdminHandlers struct {
 	Store        Store
 	ResultsStore QueueDepther
+	Guard        ScanCapGuard
 }
 
-// NewAdminHandlers wires an AdminHandlers with the given Store and
-// results-queue reader. A nil ResultsStore is acceptable for tests
-// that don't exercise backpressure; the Enqueue handler treats a nil
-// ResultsStore as "skip saturation check".
-func NewAdminHandlers(s Store, resultsStore QueueDepther) *AdminHandlers {
-	return &AdminHandlers{Store: s, ResultsStore: resultsStore}
+// NewAdminHandlers wires an AdminHandlers with the given Store,
+// results-queue reader, and (optional) licence guard. A nil
+// ResultsStore is acceptable for tests that don't exercise backpressure;
+// the Enqueue handler treats a nil ResultsStore as "skip saturation
+// check". A nil Guard skips the licence-cap check.
+func NewAdminHandlers(s Store, resultsStore QueueDepther, guard ScanCapGuard) *AdminHandlers {
+	return &AdminHandlers{Store: s, ResultsStore: resultsStore, Guard: guard}
 }
 
 // enqueueRequestBody is the accepted JSON shape for POST /. TenantID is
@@ -118,6 +139,30 @@ func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 		Profile:        body.Profile,
 		CredentialsRef: body.CredentialsRef,
 	}
+
+	// Licence scan cap (soft-buffered). Computed as:
+	//   used + expected > SoftBufferCeiling  => reject with 403.
+	// Pre-flighting via PlanEnqueueCount keeps the licence concern out
+	// of the store layer while still expanding zones→hosts with the
+	// exact same predicate Enqueue will use. A nil Guard or a cap of
+	// -1 for scans/monthly disables this branch.
+	if h.Guard != nil {
+		if cap := h.Guard.LimitCap("scans", "monthly"); cap >= 0 {
+			expected, err := h.Store.PlanEnqueueCount(r.Context(), req)
+			if err != nil {
+				internalErr(w, r, err, "plan enqueue count for cap")
+				return
+			}
+			used := h.Guard.CurrentUsage("scans", "monthly")
+			ceiling := h.Guard.SoftBufferCeiling("scans", "monthly")
+			if used+expected > ceiling {
+				writeErr(w, http.StatusForbidden,
+					"licence scan cap exceeded (soft-buffered)")
+				return
+			}
+		}
+	}
+
 	jobs, err := h.Store.Enqueue(r.Context(), req)
 	if err != nil {
 		internalErr(w, r, err, "enqueue scan jobs")

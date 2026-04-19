@@ -136,10 +136,16 @@ func (f *fakeStore) IsCancelRequested(_ context.Context, id uuid.UUID) (bool, er
 	defer f.mu.Unlock()
 	return f.cancelled[id], nil
 }
-func (f *fakeStore) Complete(_ context.Context, _ uuid.UUID) error              { return nil }
-func (f *fakeStore) Fail(_ context.Context, _ uuid.UUID, _ string) error        { return nil }
-func (f *fakeStore) Cancel(_ context.Context, _ uuid.UUID) error                { return nil }
-func (f *fakeStore) ReapStale(_ context.Context, _ time.Duration) (int, error)  { return 0, nil }
+func (f *fakeStore) Complete(_ context.Context, _ uuid.UUID) error             { return nil }
+func (f *fakeStore) Fail(_ context.Context, _ uuid.UUID, _ string) error       { return nil }
+func (f *fakeStore) Cancel(_ context.Context, _ uuid.UUID) error               { return nil }
+func (f *fakeStore) ReapStale(_ context.Context, _ time.Duration) (int, error) { return 0, nil }
+func (f *fakeStore) PlanEnqueueCount(_ context.Context, req scanjobs.EnqueueReq) (int64, error) {
+	// Matches the real store's "one job per zone (assuming one host per
+	// zone)" fake shape so cap tests can reason about the count
+	// without touching postgres.
+	return int64(len(req.ZoneIDs)), nil
+}
 
 // --- helpers ----------------------------------------------------------------
 
@@ -164,7 +170,28 @@ func newTestServerWithQueueDepth(t *testing.T, s scanjobs.Store, tenantID uuid.U
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
 		r.Use(injectTenant)
-		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, qd))
+		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, qd, nil))
+	})
+	ts := httptest.NewServer(r)
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// newTestServerWithGuard is the cap-aware variant that swaps in a
+// caller-supplied ScanCapGuard so the Batch H cap tests can exercise
+// the 403 branch without signing a licence token.
+func newTestServerWithGuard(t *testing.T, s scanjobs.Store, tenantID uuid.UUID, guard scanjobs.ScanCapGuard) *httptest.Server {
+	t.Helper()
+	injectTenant := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := orgctx.WithInstanceID(r.Context(), tenantID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+	r := chi.NewRouter()
+	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
+		r.Use(injectTenant)
+		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, &fakeQueueDepther{}, guard))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
@@ -177,7 +204,7 @@ func newTestServerNoTenant(t *testing.T, s scanjobs.Store) *httptest.Server {
 	t.Helper()
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
-		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, &fakeQueueDepther{}))
+		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, &fakeQueueDepther{}, nil))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

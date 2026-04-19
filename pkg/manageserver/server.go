@@ -51,6 +51,7 @@ type Server struct {
 	// concurrent test setter doesn't race the handler read.
 	seatCapGuardOverride SeatCapGuard
 	hostCapGuardOverride hosts.HostCapGuard
+	scanCapGuardOverride scanjobs.ScanCapGuard
 
 	// Admin-API handler packages (Batch C). Constructed in New() against
 	// the shared pool and mounted under /api/v1/admin/*.
@@ -130,7 +131,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		loginLimiter:    newLoginRateLimiter(),
 		zonesAdmin:      zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
 		hostsAdmin:      hosts.NewAdminHandlers(hostsStore, nil),
-		scanjobsAdmin:   scanjobs.NewAdminHandlers(scanjobsStore, resultsStore),
+		scanjobsAdmin:   scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, nil),
 		pushStatusAdmin: scanresults.NewAdminHandlers(resultsStore),
 		scanjobsStore:   scanjobsStore,
 		resultsStore:    resultsStore,

@@ -27,10 +27,15 @@ func TestDrain_DeadLetterAfter400(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
+	// Body snippet is part of the dead-letter reason contract: operators
+	// need the Report Server's error message directly in the DB.
+	const upstreamErr = `{"error":"schema mismatch: missing field submitted_by"}`
 	var received atomic.Int32
 	stub, store, client := setupPushStack(t, pool, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		received.Add(1)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(upstreamErr))
 	}))
 
 	jobID, _ := seedJob(t, pool, "dl-net-01")
@@ -75,12 +80,15 @@ func TestDrain_DeadLetterAfter400(t *testing.T) {
 	assert.Equal(t, 1, dlCount, "4xx must move the row to dead-letter")
 	assert.True(t, strings.Contains(reason, "HTTP 400"),
 		"dead-letter reason must record the HTTP status (got %q)", reason)
+	assert.True(t, strings.Contains(reason, "schema mismatch"),
+		"dead-letter reason must include the Report Server's error body (got %q)", reason)
 
 	// License state updated.
 	st, err := store.LoadLicenseState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, st.ConsecutiveFailures)
 	assert.Contains(t, st.LastPushError, "400")
+	assert.Contains(t, st.LastPushError, "schema mismatch")
 }
 
 // TestDrain_DeadLetterAfterMaxRetries covers the retryable-exhausted

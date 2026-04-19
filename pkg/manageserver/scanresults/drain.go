@@ -11,8 +11,16 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 )
+
+// responseBodySnippetLimit bounds the number of bytes we slurp from a
+// failed push response before truncating. 512 B is enough for the
+// Report Server's { "error": "…" } bodies + the first sentence of a
+// stack trace, without blowing up the dead-letter reason column on
+// long HTML error pages.
+const responseBodySnippetLimit = 512
 
 // maxAttempts is the cut-off at which a failing row is dead-lettered.
 // Mirrors the partial index `idx_manage_queue_due` (attempt_count < 10)
@@ -110,8 +118,13 @@ func (d *Drain) drainOnce(ctx context.Context) error {
 // handleRow pushes a single row and dispatches to the right terminal
 // state based on the HTTP response. Errors are swallowed (already
 // logged inside the helpers) so the loop continues on the next row.
+//
+// For non-success responses, the body snippet returned by pushOne is
+// folded into the reason string stashed on the queue row and the
+// dead-letter row so operators have the Report Server's error message
+// right there in the DB — no need to grep service logs.
 func (d *Drain) handleRow(ctx context.Context, row QueueRow) {
-	statusCode, pushErr := d.pushOne(ctx, row)
+	statusCode, bodySnippet, pushErr := d.pushOne(ctx, row)
 
 	switch {
 	case pushErr == nil && statusCode >= 200 && statusCode < 300:
@@ -131,7 +144,7 @@ func (d *Drain) handleRow(ctx context.Context, row QueueRow) {
 		// dead-letter. 401/403 might be transient (token rotation
 		// in-flight) and 429 is a backoff hint — all three fall
 		// through to the retryable branch.
-		reason := fmt.Sprintf("HTTP %d", statusCode)
+		reason := formatHTTPFailure(statusCode, bodySnippet)
 		if err := d.cfg.Store.DeadLetter(ctx, row.ID, reason); err != nil {
 			log.Printf("manageserver/scanresults: dead-letter after 4xx: %v", err)
 		}
@@ -141,14 +154,27 @@ func (d *Drain) handleRow(ctx context.Context, row QueueRow) {
 
 	default:
 		// Retryable: 5xx, 401/403/429, or network/transport error.
-		reason := "network error"
-		if pushErr != nil {
+		var reason string
+		switch {
+		case pushErr != nil:
 			reason = pushErr.Error()
-		} else {
-			reason = fmt.Sprintf("HTTP %d", statusCode)
+		default:
+			reason = formatHTTPFailure(statusCode, bodySnippet)
 		}
 		d.retryOrDeadLetter(ctx, row, reason)
 	}
+}
+
+// formatHTTPFailure combines an HTTP status code with a (possibly
+// empty) response body snippet into a single reason string. Used for
+// both last_error column writes and dead_letter_reason so operators
+// see the upstream error message directly.
+func formatHTTPFailure(statusCode int, bodySnippet []byte) string {
+	trimmed := strings.TrimSpace(string(bodySnippet))
+	if trimmed == "" {
+		return fmt.Sprintf("HTTP %d", statusCode)
+	}
+	return fmt.Sprintf("HTTP %d: %s", statusCode, trimmed)
 }
 
 // retryOrDeadLetter runs after a retryable push failure. If the next
@@ -204,26 +230,34 @@ func backoffFor(prevAttempts int) time.Duration {
 }
 
 // pushOne fires a single HTTP POST to ReportURL + the /api/v1/scans
-// path. Returns (statusCode, err) where err is the transport error
-// (non-nil ⇒ statusCode is undefined / zero). Body is the opaque
-// payload_json from the queue row.
-func (d *Drain) pushOne(ctx context.Context, row QueueRow) (int, error) {
+// path. Returns (statusCode, bodySnippet, err) where:
+//   - err is the transport error (non-nil ⇒ statusCode is zero, snippet nil)
+//   - bodySnippet is the first responseBodySnippetLimit bytes of the
+//     response body, used to surface the Report Server's error message
+//     in dead-letter reason strings. Empty on 2xx / successful drain.
+//
+// Body is the opaque payload_json from the queue row.
+func (d *Drain) pushOne(ctx context.Context, row QueueRow) (int, []byte, error) {
 	url := d.cfg.ReportURL + "/api/v1/scans"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
 		bytes.NewReader(row.PayloadJSON))
 	if err != nil {
-		return 0, fmt.Errorf("build request: %w", err)
+		return 0, nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := d.cfg.Client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	// Drain the response body so connection-reuse works; ignore bytes.
+
+	// Slurp up to responseBodySnippetLimit bytes for the reason string,
+	// then drain the rest so connection-reuse works. On 2xx we don't
+	// need the snippet but reading is cheap and uniform.
+	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, responseBodySnippetLimit))
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
+	return resp.StatusCode, snippet, nil
 }
 
 // BuildHTTPClient assembles an *http.Client with the TLS bundle in

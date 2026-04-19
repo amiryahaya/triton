@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -118,6 +120,58 @@ type resolvedAgentConfig struct {
 	// agentconfig.Config.ResolveLimits. Zero-value when no limits are
 	// configured (Enabled() returns false).
 	Limits limits.Limits
+}
+
+// agentControlState is the shared state between runAgent's main scan
+// loop and the commandPollLoop goroutine. Populated on startup by
+// runAgent; consulted + mutated by the poll loop as commands arrive.
+//
+// All access goes through the mutex. The struct is cheap enough to
+// pass by pointer everywhere without lock-contention concerns — writes
+// happen at most once per poll (every 30s) plus once per scan start.
+type agentControlState struct {
+	mu          sync.Mutex
+	pausedUntil time.Time          // zero value = not paused
+	scanCancel  context.CancelFunc // nil when no scan in flight
+}
+
+// pauseDeadline returns (until, true) when the agent is paused with a
+// future deadline, otherwise (zero, false). Past pausedUntil values
+// are treated as not-paused (server-side auto-expiry).
+func (s *agentControlState) pauseDeadline() (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pausedUntil.IsZero() || !s.pausedUntil.After(time.Now()) {
+		return time.Time{}, false
+	}
+	return s.pausedUntil, true
+}
+
+// setPausedUntil is called by the poll loop with whatever the server
+// reports (zero = server said no pause).
+func (s *agentControlState) setPausedUntil(t time.Time) {
+	s.mu.Lock()
+	s.pausedUntil = t
+	s.mu.Unlock()
+}
+
+// setScanCancel is called at scan start + cleared (nil) at scan end by
+// the main loop.
+func (s *agentControlState) setScanCancel(fn context.CancelFunc) {
+	s.mu.Lock()
+	s.scanCancel = fn
+	s.mu.Unlock()
+}
+
+// cancelScan is called by the poll loop when a cancel command arrives.
+// Safe when no scan is running.
+func (s *agentControlState) cancelScan() {
+	s.mu.Lock()
+	fn := s.scanCancel
+	s.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // heartbeatClient is the minimal License Server client surface used by
@@ -586,10 +640,72 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	for {
-		if err := runAgentScan(ctx, activeGuard, resolved, client); err != nil {
-			fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
+	// Remote control channel (Task 9). Only spawn when we have a
+	// reportServer to poll from — local-only agents get no commands.
+	var ctrlState *agentControlState
+	var forceRunCh chan *agent.PollCommand
+	var ctrlPoller *agent.CommandPoller
+	if resolved.reportServer != "" {
+		ctrlState = &agentControlState{}
+		forceRunCh = make(chan *agent.PollCommand, 1)
+		ctrlPoller = &agent.CommandPoller{
+			BaseURL:      resolved.reportServer,
+			LicenseToken: resolved.licenseToken,
+			MachineID:    license.MachineFingerprint(),
+			Hostname:     hostnameOrEmpty(),
 		}
+		go commandPollLoop(ctx, ctrlPoller, ctrlState, forceRunCh)
+	}
+
+	// forcedNext carries a pending force_run command from the previous
+	// iteration's wait into the current iteration's scan. nil on the
+	// first iteration and after any non-forced wake.
+	var forcedNext *agent.PollCommand
+
+	for {
+		// Wire up scan-cancel context so an incoming cancel command can
+		// abort this iteration.
+		scanCtx, scanCancel := context.WithCancel(ctx)
+		if ctrlState != nil {
+			ctrlState.setScanCancel(scanCancel)
+		}
+
+		// Per-iteration resolved copy so an optional force_run profile
+		// override doesn't leak into the next iteration.
+		iterResolved := *resolved
+		if forcedNext != nil && len(forcedNext.Args) > 0 {
+			var a struct {
+				Profile string `json:"profile"`
+			}
+			if err := json.Unmarshal(forcedNext.Args, &a); err == nil && a.Profile != "" {
+				if validProfiles[a.Profile] {
+					iterResolved.effectiveProfile = a.Profile
+				}
+			}
+		}
+
+		scanErr := runAgentScan(scanCtx, activeGuard, &iterResolved, client)
+		scanCancel()
+		if ctrlState != nil {
+			ctrlState.setScanCancel(nil)
+		}
+		if scanErr != nil {
+			fmt.Fprintf(os.Stderr, "Scan error: %v\n", scanErr)
+		}
+
+		// Report force_run outcome back to the server now that the
+		// triggered scan has completed (or errored).
+		if forcedNext != nil && ctrlPoller != nil {
+			status := "executed"
+			meta := json.RawMessage(`{}`)
+			if scanErr != nil {
+				status = "rejected"
+				m, _ := json.Marshal(map[string]string{"reason": scanErr.Error()})
+				meta = m
+			}
+			_ = ctrlPoller.PostResult(ctx, forcedNext.ID, status, meta)
+		}
+		forcedNext = nil
 
 		if sched == nil {
 			return nil
@@ -637,16 +753,153 @@ func runAgent(cmd *cobra.Command, _ []string) error {
 			return nil
 		}
 
-		wait := sched.Next(time.Now())
+		// Determine next-scan wait, honouring an active pause if any.
+		// When paused, we wait until the later of the pause deadline
+		// and the scheduler's next fire time so a short scheduler
+		// interval doesn't busy-loop through the pause window.
+		var wait time.Duration
+		if ctrlState != nil {
+			if until, paused := ctrlState.pauseDeadline(); paused {
+				pauseWait := time.Until(until)
+				schedWait := sched.Next(time.Now())
+				if pauseWait > schedWait {
+					wait = pauseWait
+				} else {
+					wait = schedWait
+				}
+				fmt.Printf("Paused until %s; next scan at %s\n",
+					until.Format(time.RFC3339),
+					time.Now().Add(wait).Format(time.RFC3339))
+			} else {
+				wait = sched.Next(time.Now())
+			}
+		} else {
+			wait = sched.Next(time.Now())
+		}
 		if wait < 0 {
 			wait = 0
 		}
+
+		// Sleep + watch for cancel / force_run.
 		fmt.Printf("Next scan in %s...\n", wait.Round(time.Second))
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			fmt.Println("\nAgent stopped.")
-			return nil
+		var forced *agent.PollCommand
+		if forceRunCh != nil {
+			select {
+			case <-time.After(wait):
+			case cmd := <-forceRunCh:
+				forced = cmd
+			case <-ctx.Done():
+				fmt.Println("\nAgent stopped.")
+				return nil
+			}
+		} else {
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				fmt.Println("\nAgent stopped.")
+				return nil
+			}
+		}
+
+		// If this iteration was woken by a force_run, stash it so the
+		// next iteration's top-of-loop scan picks up the (optional)
+		// profile override and the outcome gets reported back.
+		if forced != nil {
+			forcedNext = forced
+		}
+	}
+}
+
+// hostnameOrEmpty returns the current hostname, or an empty string if
+// os.Hostname fails. The agent control channel uses it as a
+// best-effort hint for the fleet view.
+func hostnameOrEmpty() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
+}
+
+// commandPollLoop runs as a goroutine for the agent's lifetime (when
+// reportServer is configured). It long-polls GET /api/v1/agent/commands/poll,
+// applies persistent state (pausedUntil) and dispatches transient
+// commands (cancel immediate, force_run via forceRunCh).
+//
+// On poll errors it backs off exponentially up to 30s. When the server
+// returns 204 (no state, no commands) the poll loop resets pausedUntil
+// to zero so a server-cleared pause is immediately reflected by the
+// scan loop.
+func commandPollLoop(
+	ctx context.Context,
+	poller *agent.CommandPoller,
+	st *agentControlState,
+	forceRunCh chan<- *agent.PollCommand,
+) {
+	backoff := 2 * time.Second
+	const maxBackoff = 30 * time.Second
+	warned := false
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		resp, err := poller.Poll(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if !warned {
+				fmt.Fprintf(os.Stderr,
+					"warning: command poll failed: %v — retrying in %s\n", err, backoff)
+				warned = true
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+		backoff = 2 * time.Second
+		warned = false
+
+		// 204 No Content: server said nothing. Reset pausedUntil so a
+		// server-cleared pause is picked up.
+		if resp == nil {
+			st.setPausedUntil(time.Time{})
+			continue
+		}
+
+		// 200 with body: update state + dispatch any commands.
+		st.setPausedUntil(resp.State.PausedUntil)
+
+		for i := range resp.Commands {
+			cmd := resp.Commands[i]
+			switch cmd.Type {
+			case "cancel":
+				st.cancelScan()
+				if err := poller.PostResult(ctx, cmd.ID, "executed", json.RawMessage(`{}`)); err != nil {
+					fmt.Fprintf(os.Stderr,
+						"warning: cancel result POST failed: %v\n", err)
+				}
+			case "force_run":
+				// Non-blocking send; if a prior force_run is pending
+				// (scan in flight, channel full), reject this one.
+				select {
+				case forceRunCh <- &cmd:
+				default:
+					meta, _ := json.Marshal(map[string]string{"reason": "force_run already pending"})
+					_ = poller.PostResult(ctx, cmd.ID, "rejected", meta)
+				}
+			default:
+				meta, _ := json.Marshal(map[string]string{"reason": "unknown command type"})
+				_ = poller.PostResult(ctx, cmd.ID, "rejected", meta)
+			}
 		}
 	}
 }

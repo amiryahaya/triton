@@ -8,7 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/amiryahaya/triton/pkg/model"
@@ -95,6 +97,23 @@ func (s *PostgresStore) loadEncryptor() *Encryptor {
 // of the Store interface — prefer interface methods in production.
 func (s *PostgresStore) Pool() *pgxpool.Pool {
 	return s.pool
+}
+
+// QueryColumnTestOnly returns the data_type of (table, column) from
+// information_schema.columns, or an empty string if the column does not
+// exist. Used by integration tests to assert schema migrations. Not part
+// of the Store interface — never call from production code.
+func (s *PostgresStore) QueryColumnTestOnly(ctx context.Context, table, column string) (string, error) {
+	var dt string
+	err := s.pool.QueryRow(ctx, `
+		SELECT data_type FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name   = $1
+		  AND column_name  = $2`, table, column).Scan(&dt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return dt, err
 }
 
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
@@ -454,4 +473,244 @@ func (s *PostgresStore) FileHashStats(ctx context.Context) (count int, oldest, n
 		newest = *newestPtr
 	}
 	return count, oldest, newest, nil
+}
+
+// ---------------------------------------------------------------------------
+// AgentStore implementation
+// ---------------------------------------------------------------------------
+
+// UpsertAgent creates the row on first-seen or updates
+// hostname/os/arch + last_seen_at on subsequent polls.
+func (s *PostgresStore) UpsertAgent(ctx context.Context, a *AgentRecord) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO agents (tenant_id, machine_id, hostname, os, arch)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (tenant_id, machine_id) DO UPDATE SET
+			hostname     = EXCLUDED.hostname,
+			os           = EXCLUDED.os,
+			arch         = EXCLUDED.arch,
+			last_seen_at = NOW()
+	`, a.TenantID, a.MachineID, a.Hostname, a.OS, a.Arch)
+	if err != nil {
+		return fmt.Errorf("upserting agent: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetAgent(ctx context.Context, tenantID, machineID string) (*AgentRecord, error) {
+	var a AgentRecord
+	var paused pgtype.Timestamptz
+	err := s.pool.QueryRow(ctx, `
+		SELECT tenant_id, machine_id, hostname, os, arch,
+		       first_seen_at, last_seen_at, paused_until
+		FROM agents
+		WHERE tenant_id = $1 AND machine_id = $2`,
+		tenantID, machineID,
+	).Scan(&a.TenantID, &a.MachineID, &a.Hostname, &a.OS, &a.Arch,
+		&a.FirstSeenAt, &a.LastSeenAt, &paused)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, &ErrNotFound{Resource: "agent", ID: machineID}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting agent: %w", err)
+	}
+	if paused.Valid {
+		a.PausedUntil = paused.Time
+	}
+	return &a, nil
+}
+
+func (s *PostgresStore) ListAgentsByTenant(ctx context.Context, tenantID string, limit int) ([]AgentRecord, error) {
+	q := `
+		SELECT tenant_id, machine_id, hostname, os, arch,
+		       first_seen_at, last_seen_at, paused_until
+		FROM agents
+		WHERE tenant_id = $1
+		ORDER BY last_seen_at DESC`
+	args := []any{tenantID}
+	if limit > 0 {
+		q += " LIMIT $2"
+		args = append(args, limit)
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing agents: %w", err)
+	}
+	defer rows.Close()
+	out := []AgentRecord{}
+	for rows.Next() {
+		var a AgentRecord
+		var paused pgtype.Timestamptz
+		if err := rows.Scan(&a.TenantID, &a.MachineID, &a.Hostname, &a.OS, &a.Arch,
+			&a.FirstSeenAt, &a.LastSeenAt, &paused); err != nil {
+			return nil, fmt.Errorf("scanning agent: %w", err)
+		}
+		if paused.Valid {
+			a.PausedUntil = paused.Time
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) SetAgentPausedUntil(ctx context.Context, tenantID, machineID string, until time.Time) error {
+	res, err := s.pool.Exec(ctx, `
+		UPDATE agents SET paused_until = $3
+		WHERE tenant_id = $1 AND machine_id = $2`,
+		tenantID, machineID, until)
+	if err != nil {
+		return fmt.Errorf("setting paused_until: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "agent", ID: machineID}
+	}
+	return nil
+}
+
+func (s *PostgresStore) ClearAgentPausedUntil(ctx context.Context, tenantID, machineID string) error {
+	res, err := s.pool.Exec(ctx, `
+		UPDATE agents SET paused_until = NULL
+		WHERE tenant_id = $1 AND machine_id = $2`,
+		tenantID, machineID)
+	if err != nil {
+		return fmt.Errorf("clearing paused_until: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "agent", ID: machineID}
+	}
+	return nil
+}
+
+func (s *PostgresStore) EnqueueAgentCommand(ctx context.Context, cmd *AgentCommand) (*AgentCommand, error) {
+	if cmd.ID == "" {
+		cmd.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if len(cmd.Args) == 0 {
+		cmd.Args = []byte(`{}`)
+	}
+	var out AgentCommand
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO agent_commands (id, tenant_id, machine_id, type, args, issued_by, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, tenant_id, machine_id, type, args, issued_by, issued_at, expires_at`,
+		cmd.ID, cmd.TenantID, cmd.MachineID, string(cmd.Type), cmd.Args, cmd.IssuedBy, cmd.ExpiresAt,
+	).Scan(&out.ID, &out.TenantID, &out.MachineID, &out.Type,
+		&out.Args, &out.IssuedBy, &out.IssuedAt, &out.ExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("enqueuing agent command: %w", err)
+	}
+	return &out, nil
+}
+
+func (s *PostgresStore) ClaimPendingCommandsForAgent(ctx context.Context, tenantID, machineID string) ([]AgentCommand, error) {
+	rows, err := s.pool.Query(ctx, `
+		UPDATE agent_commands
+		SET dispatched_at = NOW()
+		WHERE id IN (
+			SELECT id FROM agent_commands
+			WHERE tenant_id = $1 AND machine_id = $2
+			  AND dispatched_at IS NULL
+			  AND expires_at > NOW()
+			ORDER BY issued_at ASC
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, tenant_id, machine_id, type, args, issued_by,
+		          issued_at, expires_at, dispatched_at`,
+		tenantID, machineID)
+	if err != nil {
+		return nil, fmt.Errorf("claiming agent commands: %w", err)
+	}
+	defer rows.Close()
+	out := []AgentCommand{}
+	for rows.Next() {
+		var c AgentCommand
+		var dispatched pgtype.Timestamptz
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.MachineID, &c.Type,
+			&c.Args, &c.IssuedBy, &c.IssuedAt, &c.ExpiresAt, &dispatched); err != nil {
+			return nil, fmt.Errorf("scanning command: %w", err)
+		}
+		if dispatched.Valid {
+			t := dispatched.Time
+			c.DispatchedAt = &t
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) SetAgentCommandResult(ctx context.Context, tenantID, machineID, commandID, status string, meta json.RawMessage) error {
+	if len(meta) == 0 {
+		meta = []byte(`{}`)
+	}
+	res, err := s.pool.Exec(ctx, `
+		UPDATE agent_commands
+		SET result_status = $4, result_meta = $5, resulted_at = NOW()
+		WHERE id = $3 AND tenant_id = $1 AND machine_id = $2`,
+		tenantID, machineID, commandID, status, meta)
+	if err != nil {
+		return fmt.Errorf("setting command result: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "agent_command", ID: commandID}
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListAgentCommands(ctx context.Context, tenantID, machineID string, limit int) ([]AgentCommand, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, tenant_id, machine_id, type, args, issued_by,
+		       issued_at, expires_at, dispatched_at, result_status, result_meta, resulted_at
+		FROM agent_commands
+		WHERE tenant_id = $1 AND machine_id = $2
+		ORDER BY issued_at DESC
+		LIMIT $3`, tenantID, machineID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing commands: %w", err)
+	}
+	defer rows.Close()
+	out := []AgentCommand{}
+	for rows.Next() {
+		var c AgentCommand
+		var dispatched, resulted pgtype.Timestamptz
+		var status pgtype.Text
+		var meta []byte
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.MachineID, &c.Type,
+			&c.Args, &c.IssuedBy, &c.IssuedAt, &c.ExpiresAt,
+			&dispatched, &status, &meta, &resulted); err != nil {
+			return nil, fmt.Errorf("scanning command: %w", err)
+		}
+		if dispatched.Valid {
+			t := dispatched.Time
+			c.DispatchedAt = &t
+		}
+		if status.Valid {
+			st := status.String
+			c.ResultStatus = &st
+		}
+		if resulted.Valid {
+			t := resulted.Time
+			c.ResultedAt = &t
+		}
+		if len(meta) > 0 {
+			c.ResultMeta = meta
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) ExpireStaleAgentCommands(ctx context.Context) (int, error) {
+	res, err := s.pool.Exec(ctx, `
+		UPDATE agent_commands
+		SET result_status = 'expired', resulted_at = NOW()
+		WHERE dispatched_at IS NOT NULL
+		  AND result_status IS NULL
+		  AND expires_at < NOW()`)
+	if err != nil {
+		return 0, fmt.Errorf("expiring stale commands: %w", err)
+	}
+	return int(res.RowsAffected()), nil
 }

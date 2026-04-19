@@ -180,6 +180,40 @@ services:
     volumes:
       - triton-binaries:/opt/triton/binaries
 
+  manageserver:
+    # PR B1 — image is not yet published to ghcr.io, so build locally.
+    # Swap to a pulled image once B1 merges and the release workflow
+    # ships `ghcr.io/amiryahaya/triton-manageserver:<tag>`.
+    build:
+      context: .
+      dockerfile: Containerfile.manageserver
+    image: triton-manageserver:local
+    container_name: triton-manageserver
+    profiles: [manage-server]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TRITON_MANAGE_LISTEN: ":8082"
+      # Manage Server has its own DB on the shared postgres instance.
+      # `triton_manage` is created by scripts/init-db.sh on first
+      # postgres startup; for an already-initialized cluster run:
+      #   podman exec -it triton-db psql -U triton -c "CREATE DATABASE triton_manage"
+      TRITON_MANAGE_DB_URL: "${TRITON_MANAGE_DB_URL:-postgres://triton:triton@postgres:5432/triton_manage?sslmode=disable}"
+      # HS256 secret (hex, ≥32 bytes after decode) used to sign
+      # Manage Server session JWTs. Rotate to invalidate all issued
+      # sessions.
+      TRITON_MANAGE_JWT_SIGNING_KEY: "${TRITON_MANAGE_JWT_SIGNING_KEY:?set TRITON_MANAGE_JWT_SIGNING_KEY in .env — openssl rand -hex 32}"
+      # Ed25519 PUBLIC key (hex, 32 bytes) used to verify licence
+      # tokens returned from the Triton License Server during
+      # activation. Must match the license server's
+      # TRITON_LICENSE_SERVER_SIGNING_KEY public half (last 32 bytes
+      # of the 64-byte private seed).
+      TRITON_MANAGE_LICENSE_SERVER_PUBKEY: "${TRITON_MANAGE_LICENSE_SERVER_PUBKEY:?set TRITON_MANAGE_LICENSE_SERVER_PUBKEY in .env — public half of the license server signing key}"
+      TRITON_MANAGE_SESSION_TTL: "${TRITON_MANAGE_SESSION_TTL:-24h}"
+    ports:
+      - "8082:8082"
+
   engine:
     build:
       context: .

@@ -1,0 +1,19 @@
+FROM docker.io/library/golang:1.26 AS builder
+ARG VERSION=dev
+WORKDIR /src
+# go.mod pins a newer minor; let Go's toolchain mechanism fetch it.
+ENV GOTOOLCHAIN=auto
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X github.com/amiryahaya/triton/internal/version.Version=${VERSION}" \
+    -o /triton-manageserver cmd/manageserver/main.go
+
+FROM scratch
+ENV HOME=/tmp
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /triton-manageserver /triton-manageserver
+EXPOSE 8082
+ENTRYPOINT ["/triton-manageserver"]

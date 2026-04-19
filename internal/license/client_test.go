@@ -176,6 +176,84 @@ func TestServerClient_Activate_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+// TestServerClient_Activate_ParsesV2Fields verifies the additive v2 response
+// fields (features, limits, soft_buffer_pct, product_scope) round-trip off
+// the wire into the ActivateResponse struct so callers (e.g. Manage Server)
+// can enforce feature/product scope client-side after activation.
+func TestServerClient_Activate_ParsesV2Fields(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{
+			"token":        "signed-token",
+			"activationID": "act-v2",
+			"tier":         "pro",
+			"seats":        10,
+			"seatsUsed":    1,
+			"expiresAt":    "2027-01-01T00:00:00Z",
+			"features": {
+				"report":  true,
+				"manage":  true,
+				"diff_trend": true,
+				"export_formats": ["html", "pdf"]
+			},
+			"limits": [
+				{"metric": "hosts",  "window": "total", "cap": 50},
+				{"metric": "tenants","window": "total", "cap": 5}
+			],
+			"soft_buffer_pct": 15,
+			"product_scope":   "bundle"
+		}`))
+	}))
+	defer ts.Close()
+
+	client := NewServerClient(ts.URL)
+	resp, err := client.Activate("lic-v2")
+	require.NoError(t, err)
+
+	// v1 fields still work.
+	assert.Equal(t, "signed-token", resp.Token)
+	assert.Equal(t, "pro", resp.Tier)
+
+	// v2 fields populated.
+	assert.True(t, resp.Features.Report)
+	assert.True(t, resp.Features.Manage)
+	assert.True(t, resp.Features.DiffTrend)
+	assert.Equal(t, []string{"html", "pdf"}, resp.Features.ExportFormats)
+	require.Len(t, resp.Limits, 2)
+	assert.Equal(t, "hosts", resp.Limits[0].Metric)
+	assert.Equal(t, int64(50), resp.Limits[0].Cap)
+	assert.Equal(t, 15, resp.SoftBufferPct)
+	assert.Equal(t, "bundle", resp.ProductScope)
+}
+
+// TestServerClient_Activate_V1ResponseStillWorks verifies back-compat: a v1
+// licence server (no v2 fields) round-trips to a zero-value Features / Limits
+// and empty scalars.
+func TestServerClient_Activate_V1ResponseStillWorks(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":        "tok",
+			"activationID": "act-v1",
+			"tier":         "free",
+			"seats":        1,
+			"seatsUsed":    0,
+			"expiresAt":    "2099-01-01T00:00:00Z",
+		})
+	}))
+	defer ts.Close()
+
+	client := NewServerClient(ts.URL)
+	resp, err := client.Activate("lic-v1")
+	require.NoError(t, err)
+
+	assert.Equal(t, "free", resp.Tier)
+	assert.False(t, resp.Features.Manage)
+	assert.Empty(t, resp.Limits)
+	assert.Equal(t, 0, resp.SoftBufferPct)
+	assert.Empty(t, resp.ProductScope)
+}
+
 func TestValidateResponse_ScheduleFieldsRoundTrip(t *testing.T) {
 	body := `{"valid":true,"tier":"pro","schedule":"0 2 * * *","scheduleJitterSeconds":30}`
 	var vr ValidateResponse

@@ -1,4 +1,4 @@
-.PHONY: build build-all build-agent build-engine build-licenseserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-test web-clean
+.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-test web-clean
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -14,6 +14,11 @@ build-licenseserver:
 	@mkdir -p bin
 	go build -o bin/triton-license-server cmd/licenseserver/main.go
 
+# Build manage server binary
+build-manageserver:
+	@mkdir -p bin
+	go build -o bin/triton-manageserver cmd/manageserver/main.go
+
 # Build for all platforms
 build-all:
 	@mkdir -p bin
@@ -25,6 +30,9 @@ build-all:
 	# License server (server-only platforms)
 	GOOS=linux GOARCH=amd64 go build -o bin/triton-license-server-linux-amd64 cmd/licenseserver/main.go
 	GOOS=linux GOARCH=arm64 go build -o bin/triton-license-server-linux-arm64 cmd/licenseserver/main.go
+	# Manage server (server-only platforms)
+	GOOS=linux GOARCH=amd64 go build -o bin/triton-manageserver-linux-amd64 cmd/manageserver/main.go
+	GOOS=linux GOARCH=arm64 go build -o bin/triton-manageserver-linux-arm64 cmd/manageserver/main.go
 
 # Database lifecycle
 db-up:
@@ -100,6 +108,16 @@ container-run-licenseserver: container-build-licenseserver
 
 container-stop-licenseserver:
 	podman compose --profile license-server down
+
+# Manage server container lifecycle
+container-build-manageserver:
+	podman compose --profile manage-server build
+
+container-run-manageserver: container-build-manageserver
+	podman compose --profile manage-server up -d
+
+container-stop-manageserver:
+	podman compose --profile manage-server down
 
 # Unit tests only — no database required
 test:

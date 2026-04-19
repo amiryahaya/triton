@@ -9,6 +9,8 @@ import (
 	"os"
 	"runtime"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
 // ServerClient communicates with the Triton License Server.
@@ -28,6 +30,11 @@ func NewServerClient(baseURL string) *ServerClient {
 }
 
 // ActivateResponse is the response from the activate endpoint.
+//
+// The v2 fields (Features, Limits, SoftBufferPct, ProductScope) are additive
+// — pre-v2 licence servers omit them and the zero value is correct.
+// Consumers such as the Manage Server inspect Features.Manage after
+// activation to enforce product-scope client-side.
 type ActivateResponse struct {
 	Token        string `json:"token"`
 	ActivationID string `json:"activationID"`
@@ -35,6 +42,12 @@ type ActivateResponse struct {
 	Seats        int    `json:"seats"`
 	SeatsUsed    int    `json:"seatsUsed"`
 	ExpiresAt    string `json:"expiresAt"`
+
+	// v2 fields (additive; zero-value when the server is pre-v2).
+	Features      licensestore.Features `json:"features"`
+	Limits        licensestore.Limits   `json:"limits"`
+	SoftBufferPct int                   `json:"soft_buffer_pct"`
+	ProductScope  string                `json:"product_scope"`
 }
 
 // ValidateResponse is the response from the validate endpoint.

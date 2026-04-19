@@ -35,7 +35,12 @@ func NewAdminHandlers(s Store) *AdminHandlers {
 func (h *AdminHandlers) Status(w http.ResponseWriter, r *http.Request) {
 	st, err := h.Store.LoadLicenseState(r.Context())
 	if err != nil {
-		log.Printf("manageserver/scanresults: load license state: %v", err)
+		// Method + path logged alongside op to match the
+		// zones/hosts/scanjobs/agents internalErr convention, so a
+		// single grep surfaces server-side errors by handler without
+		// needing a request-ID correlation step.
+		log.Printf("manageserver/scanresults: load license state: %s %s: %v",
+			r.Method, r.URL.Path, err)
 		writeErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}

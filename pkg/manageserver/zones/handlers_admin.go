@@ -149,10 +149,10 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 // pgx / Postgres error strings (table names, constraint names, DSN
 // hints) from leaking through the wire. Caller-supplied op should
 // be a short, fixed verb-phrase like "list zones" or "create zone".
+// Request method + path are included so grep-ing server logs for a
+// specific op lands you on the HTTP request without correlation
+// tooling.
 func internalErr(w http.ResponseWriter, r *http.Request, err error, op string) {
-	// r is accepted for future enrichment (request ID, remote addr)
-	// but intentionally unused today to keep the log line stable.
-	_ = r
-	log.Printf("manageserver/zones: %s: %v", op, err)
+	log.Printf("manageserver/zones: %s: %s %s: %v", op, r.Method, r.URL.Path, err)
 	writeErr(w, http.StatusInternalServerError, "internal server error")
 }

@@ -218,9 +218,10 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 // internalErr logs the underlying error with operation context and
 // writes a generic 500 response body to the client, matching the
 // zones/hosts sanitisation pattern. pg error strings (table names,
-// SQLSTATEs, constraint names) never reach the wire.
+// SQLSTATEs, constraint names) never reach the wire. Request method
+// + path are included so grep-ing server logs for a specific op
+// lands you on the HTTP request without correlation tooling.
 func internalErr(w http.ResponseWriter, r *http.Request, err error, op string) {
-	_ = r // reserved for future enrichment (request ID, remote addr)
-	log.Printf("manageserver/scanjobs: %s: %v", op, err)
+	log.Printf("manageserver/scanjobs: %s: %s %s: %v", op, r.Method, r.URL.Path, err)
 	writeErr(w, http.StatusInternalServerError, "internal server error")
 }

@@ -240,9 +240,10 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 // internalErr logs the underlying error + writes a generic 500 to the
 // client, matching the pattern used elsewhere in manageserver. Caller
-// supplies a short fixed verb-phrase for the log line.
+// supplies a short fixed verb-phrase for the log line. Request method
+// + path are included so grep-ing server logs for "update agent row"
+// lands you on the HTTP request without correlation tooling.
 func internalErr(w http.ResponseWriter, r *http.Request, err error, op string) {
-	_ = r
-	log.Printf("manageserver/agents: %s: %v", op, err)
+	log.Printf("manageserver/agents: %s: %s %s: %v", op, r.Method, r.URL.Path, err)
 	writeErr(w, http.StatusInternalServerError, "internal server error")
 }

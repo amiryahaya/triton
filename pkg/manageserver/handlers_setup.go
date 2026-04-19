@@ -234,7 +234,12 @@ func (s *Server) autoEnrolWithReport(ctx context.Context, instanceID, licenseKey
 		return fmt.Errorf("marshal enrol body: %w", err)
 	}
 
-	enrolCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// Derive from a non-cancellable parent so the Report hand-off survives
+	// an operator's browser closing mid-request. /setup/license is
+	// best-effort for the auto-enrol step; losing the signed bundle
+	// because a client disconnected would leave Manage half-configured
+	// with no easy recovery path.
+	enrolCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(enrolCtx, http.MethodPost, enrolURL, bytes.NewReader(body))
 	if err != nil {
@@ -243,7 +248,11 @@ func (s *Server) autoEnrolWithReport(ctx context.Context, instanceID, licenseKey
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Triton-Service-Key", s.cfg.ReportServiceKey)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// No Timeout on the Client — enrolCtx already bounds the whole call,
+	// and setting both makes the lifecycle ambiguous (Client.Timeout
+	// cancels mid-body-read and surfaces as io.ErrUnexpectedEOF instead of
+	// context.DeadlineExceeded).
+	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("POST %s: %w", enrolURL, err)
@@ -334,7 +343,10 @@ func extractBundleFiles(raw []byte) (map[string][]byte, error) {
 		if hdr.Size > maxTotal || total+int(hdr.Size) > maxTotal {
 			return nil, fmt.Errorf("bundle exceeds size cap")
 		}
-		data, err := io.ReadAll(io.LimitReader(tr, maxTotal))
+		// Budget each entry against the remaining total cap (not the full
+		// maxTotal) so a crafted tar can't slip past with entries that
+		// individually fit the cap but collectively exceed it.
+		data, err := io.ReadAll(io.LimitReader(tr, int64(maxTotal-total)))
 		if err != nil {
 			return nil, fmt.Errorf("tar read %s: %w", hdr.Name, err)
 		}

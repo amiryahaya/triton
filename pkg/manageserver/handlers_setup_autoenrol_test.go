@@ -247,6 +247,26 @@ func TestSetupLicense_AutoEnrolSucceeds(t *testing.T) {
 	assert.NotEmpty(t, caBundle.CACertPEM)
 }
 
+// NOTE on TestSetupLicense_AutoEnrolSurvivesClientDisconnect
+// -----------------------------------------------------------------
+// We intentionally DO NOT have an automated test for the I2 fix
+// (context.WithoutCancel for the Report enrol hand-off). A deterministic
+// test would need to cancel the request context AFTER the handler
+// progresses past s.store.GetSetup and license.Activate (which both use
+// r.Context() / their own untethered client) but BEFORE autoEnrolWithReport
+// dials the Report server — which in turn would require a hook inside the
+// handler just for the test. The handler is too linear to thread a barrier
+// through without either refactoring autoEnrolWithReport out of the
+// handler or plumbing in a test-only callback. Neither is worth it for a
+// defensive ~1-line fix.
+//
+// Manual verification: launch Manage Server with ReportServer set, start
+// /setup/license via curl, kill the curl process mid-flight (before the
+// Report POST completes), observe that manage_push_creds still gets
+// populated in the database after the handler finishes on the server side.
+// Alternatively: `go doc context.WithoutCancel` confirms the parent ctx's
+// Done channel is severed from the returned context.
+
 // TestSetupLicense_AutoEnrolFailureIsLogged — Report server is unreachable;
 // /setup/license still returns 200 (best-effort contract); manage_push_creds
 // stays empty.
@@ -284,6 +304,89 @@ func TestSetupLicense_AutoEnrolFailureIsLogged(t *testing.T) {
 	resultsStore := scanresults.NewPostgresStore(store.Pool())
 	_, err = resultsStore.LoadPushCreds(context.Background())
 	assert.Error(t, err, "manage_push_creds must NOT be populated on Report failure")
+}
+
+// TestSetupLicense_AutoEnrolSkippedWhenReportServerOnlySet — only
+// ReportServer configured (ReportServiceKey empty). Auto-enrol must be
+// skipped because the Report /enrol/manage endpoint requires the service
+// key header; there's no point firing a call guaranteed to 403.
+func TestSetupLicense_AutoEnrolSkippedWhenReportServerOnlySet(t *testing.T) {
+	store, cleanup := openStoreForAutoEnrol(t)
+	defer cleanup()
+
+	// Stand up a Report stub that would fail the test if ever called —
+	// any request increments reqCount, and we assert it stays at zero.
+	report := newStubReportServer(t, "never-used-key")
+	defer report.Close()
+
+	ls := newStubLicenseServer(t, fakeActivateResponse{
+		Token:        "signed-token",
+		ExpiresAt:    "2030-01-01T00:00:00Z",
+		Features:     map[string]any{"manage": true},
+		ProductScope: "manage",
+	})
+	defer ls.Close()
+
+	srv := newSetupServerWithReport(t, store, report.URL(), "")
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	body := fmt.Sprintf(`{
+	    "license_server_url": %q,
+	    "license_key":        "lic-half-config-url-only"
+	}`, ls.URL)
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.Equal(t, int64(0), report.reqCount.Load(),
+		"Report must NOT be called when ReportServiceKey is empty")
+
+	resultsStore := scanresults.NewPostgresStore(store.Pool())
+	_, err = resultsStore.LoadPushCreds(context.Background())
+	assert.Error(t, err, "manage_push_creds must stay empty when auto-enrol is skipped")
+}
+
+// TestSetupLicense_AutoEnrolSkippedWhenReportServiceKeyOnlySet — only
+// ReportServiceKey configured (ReportServer empty). Auto-enrol must be
+// skipped because there's no URL to POST the enrol request to.
+func TestSetupLicense_AutoEnrolSkippedWhenReportServiceKeyOnlySet(t *testing.T) {
+	store, cleanup := openStoreForAutoEnrol(t)
+	defer cleanup()
+
+	ls := newStubLicenseServer(t, fakeActivateResponse{
+		Token:        "signed-token",
+		ExpiresAt:    "2030-01-01T00:00:00Z",
+		Features:     map[string]any{"manage": true},
+		ProductScope: "manage",
+	})
+	defer ls.Close()
+
+	srv := newSetupServerWithReport(t, store, "", "service-key-only")
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	body := fmt.Sprintf(`{
+	    "license_server_url": %q,
+	    "license_key":        "lic-half-config-key-only"
+	}`, ls.URL)
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resultsStore := scanresults.NewPostgresStore(store.Pool())
+	_, err = resultsStore.LoadPushCreds(context.Background())
+	assert.Error(t, err, "manage_push_creds must stay empty when auto-enrol is skipped")
 }
 
 // TestSetupLicense_AutoEnrolSkippedWhenUnconfigured — ReportServer + ReportServiceKey

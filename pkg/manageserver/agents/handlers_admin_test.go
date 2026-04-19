@@ -153,6 +153,66 @@ func TestAgentsAdmin_List_Empty(t *testing.T) {
 	assert.JSONEq(t, `[]`, rec.Body.String())
 }
 
+func TestAgentsAdmin_Revoke_EndToEnd(t *testing.T) {
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst")
+	require.NoError(t, err)
+
+	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second)
+	srv := mountEnrol(t, h)
+
+	// Enrol an agent so we have a row + serial to revoke.
+	enrolReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
+		strings.NewReader(`{"name":"edge-01"}`))
+	enrolRec := httptest.NewRecorder()
+	srv.ServeHTTP(enrolRec, enrolReq)
+	require.Equal(t, http.StatusOK, enrolRec.Code)
+
+	// Fish out the agent ID from the persisted row (List returns one).
+	list, err := agentStore.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	agent := list[0]
+	serial := agent.CertSerial
+
+	// Revoke via DELETE.
+	revokeReq := httptest.NewRequest(http.MethodDelete,
+		"/api/v1/admin/agents/"+agent.ID.String(), nil)
+	revokeRec := httptest.NewRecorder()
+	srv.ServeHTTP(revokeRec, revokeReq)
+	assert.Equal(t, http.StatusNoContent, revokeRec.Code)
+
+	// Agent row must be flipped to revoked.
+	got, err := agentStore.Get(context.Background(), agent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, agents.StatusRevoked, got.Status)
+
+	// CA revocation row must be present + IsRevoked must return true
+	// immediately (Revoke invalidates the cache).
+	revoked, err := caStore.IsRevoked(context.Background(), serial)
+	require.NoError(t, err)
+	assert.True(t, revoked, "cert serial must be revoked after DELETE")
+}
+
+func TestAgentsAdmin_Revoke_NotFound(t *testing.T) {
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst")
+	require.NoError(t, err)
+
+	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second)
+	srv := mountEnrol(t, h)
+
+	id := uuid.Must(uuid.NewV7())
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/agents/"+id.String(), nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 func TestAgentsAdmin_Get_NotFound(t *testing.T) {
 	pool := newTestPool(t)
 	caStore := ca.NewPostgresStore(pool)

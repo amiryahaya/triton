@@ -3,6 +3,7 @@ package zones
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -24,7 +25,7 @@ func NewAdminHandlers(s Store) *AdminHandlers {
 func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.List(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "list zones")
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -51,7 +52,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "create zone")
 		return
 	}
 	writeJSON(w, http.StatusCreated, z)
@@ -70,7 +71,7 @@ func (h *AdminHandlers) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "get zone")
 		return
 	}
 	writeJSON(w, http.StatusOK, z)
@@ -106,7 +107,7 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "update zone")
 		return
 	}
 	writeJSON(w, http.StatusOK, z)
@@ -125,7 +126,7 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "delete zone")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -141,4 +142,17 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // writeErr writes a JSON error body {"error": msg} with the given status.
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// internalErr logs the underlying error with operation context and
+// writes a generic 500 response body to the client. This prevents
+// pgx / Postgres error strings (table names, constraint names, DSN
+// hints) from leaking through the wire. Caller-supplied op should
+// be a short, fixed verb-phrase like "list zones" or "create zone".
+func internalErr(w http.ResponseWriter, r *http.Request, err error, op string) {
+	// r is accepted for future enrichment (request ID, remote addr)
+	// but intentionally unused today to keep the log line stable.
+	_ = r
+	log.Printf("manageserver/zones: %s: %v", op, err)
+	writeErr(w, http.StatusInternalServerError, "internal server error")
 }

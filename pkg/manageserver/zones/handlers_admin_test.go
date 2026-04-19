@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -285,4 +286,28 @@ func TestZonesAdmin_Update_EmptyNameRejected(t *testing.T) {
 		map[string]string{"name": "   ", "description": "whitespace only"})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
+}
+
+// TestZonesAdmin_Create_InternalError_NoLeakage asserts that when the
+// store returns an arbitrary non-sentinel error (typical of a pg driver
+// failure like connection lost or SQLSTATE leaking), the handler
+// returns a generic body instead of echoing the pg error text.
+func TestZonesAdmin_Create_InternalError_NoLeakage(t *testing.T) {
+	store := newFakeStore()
+	// Inject a non-sentinel error so the handler falls through to the
+	// internalErr branch. The message intentionally looks like a raw
+	// pg error to make the regression obvious if this ever leaks.
+	store.createErr = errors.New("ERROR: connection refused to host=secret.db.internal (SQLSTATE 08006)")
+	ts := newTestServer(t, store)
+
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/zones/", map[string]string{"name": "any"})
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	resp.Body.Close()
+
+	assert.Equal(t, "internal server error", body["error"],
+		"internal error must be sanitised before reaching the client")
+	assert.NotContains(t, body["error"], "secret.db.internal",
+		"pg connection details must never leak to clients")
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,17 +28,17 @@ type fakeStore struct {
 	mu    sync.Mutex
 	items map[uuid.UUID]hosts.Host
 
-	// nextBulkErrAfter > 0 causes BulkCreate to fail once the i-th
-	// (0-indexed) host is processed. Used to test rollback semantics.
-	nextBulkErrAfter int
-
 	// calls records which API entrypoints were invoked (used by
 	// list-filter tests to assert the correct query path).
 	calls []string
+
+	// createErr, if set, is returned from the next Create call so
+	// handler tests can drive the internal-error branch.
+	createErr error
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{items: map[uuid.UUID]hosts.Host{}, nextBulkErrAfter: -1}
+	return &fakeStore{items: map[uuid.UUID]hosts.Host{}}
 }
 
 func (f *fakeStore) recordCall(name string) {
@@ -48,6 +49,11 @@ func (f *fakeStore) Create(_ context.Context, h hosts.Host) (hosts.Host, error) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recordCall("Create")
+	if f.createErr != nil {
+		err := f.createErr
+		f.createErr = nil
+		return hosts.Host{}, err
+	}
 	for _, existing := range f.items {
 		if existing.Hostname == h.Hostname {
 			return hosts.Host{}, hosts.ErrConflict
@@ -452,6 +458,29 @@ func TestHostsAdmin_Update_InvalidIPReturns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 	assert.NotContains(t, store.calls, "Update")
+}
+
+// TestHostsAdmin_Create_InternalError_NoLeakage asserts that when the
+// store returns an arbitrary non-sentinel error (typical of a pg driver
+// failure like connection lost or SQLSTATE leaking), the handler
+// returns a generic body instead of echoing the pg error text.
+func TestHostsAdmin_Create_InternalError_NoLeakage(t *testing.T) {
+	store := newFakeStore()
+	store.createErr = errors.New("ERROR: connection refused to host=secret.db.internal (SQLSTATE 08006)")
+	ts := newTestServer(t, store)
+
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
+		"hostname": "any.example.com",
+	})
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	var body map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	resp.Body.Close()
+
+	assert.Equal(t, "internal server error", body["error"],
+		"internal error must be sanitised before reaching the client")
+	assert.NotContains(t, body["error"], "secret.db.internal",
+		"pg connection details must never leak to clients")
 }
 
 func TestHostsAdmin_BulkCreate_InvalidIPReturns400(t *testing.T) {

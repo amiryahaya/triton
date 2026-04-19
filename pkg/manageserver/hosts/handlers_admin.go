@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -77,7 +78,7 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 		}
 		list, err := h.Store.ListByZone(r.Context(), zoneID)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			internalErr(w, r, err, "list hosts by zone")
 			return
 		}
 		writeJSON(w, http.StatusOK, list)
@@ -86,7 +87,7 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 
 	list, err := h.Store.List(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "list hosts")
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -114,7 +115,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "create host")
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -133,7 +134,7 @@ func (h *AdminHandlers) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "get host")
 		return
 	}
 	writeJSON(w, http.StatusOK, host)
@@ -171,7 +172,7 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "update host")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -190,7 +191,7 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "delete host")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -230,7 +231,7 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		internalErr(w, r, err, "bulk create hosts")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"hosts": out})
@@ -246,4 +247,17 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // writeErr writes a JSON error body {"error": msg} with the given status.
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// internalErr logs the underlying error with operation context and
+// writes a generic 500 response body to the client. This prevents
+// pgx / Postgres error strings (table names, constraint names, DSN
+// hints) from leaking through the wire. Caller-supplied op should
+// be a short, fixed verb-phrase like "list hosts" or "bulk create hosts".
+func internalErr(w http.ResponseWriter, r *http.Request, err error, op string) {
+	// r is accepted for future enrichment (request ID, remote addr)
+	// but intentionally unused today to keep the log line stable.
+	_ = r
+	log.Printf("manageserver/hosts: %s: %v", op, err)
+	writeErr(w, http.StatusInternalServerError, "internal server error")
 }

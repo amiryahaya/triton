@@ -248,7 +248,7 @@ No E2E / Playwright — UI is out of scope.
 
 Production:
 
-- `pkg/store/migrations.go` — new migration #? (next in sequence) for `agents` + `agent_commands` tables.
+- `pkg/store/migrations.go` — new migration (#25 at time of design — next available slot in the slice) for `agents` + `agent_commands` tables.
 - `pkg/store/agents.go` (new) — `AgentRecord`, `AgentCommand` types, store methods `UpsertAgent`, `GetAgent`, `ListAgentsByTenant`, `SetAgentPausedUntil`, `EnqueueAgentCommand`, `ClaimPendingCommandsForAgent`, `SetAgentCommandResult`, `ExpireStaleCommands`.
 - `pkg/server/handlers_agent_commands.go` (new) — poll + result handlers.
 - `pkg/server/handlers_admin_agents.go` (new) — admin list/detail/command/pause handlers.

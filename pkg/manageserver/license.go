@@ -66,11 +66,18 @@ func (s *Server) collectUsage() []license.UsageMetric {
 	return []license.UsageMetric{}
 }
 
-// stopLicence cancels any running usage pusher. Called during Server.Run
-// shutdown. Safe to call when no pusher is running.
+// stopLicence cancels any running usage pusher and clears all licence fields.
+// Called during Server.Run shutdown. Safe to call when no pusher is running.
+//
+// All three licence fields (guard, pusher, cancel) are cleared under the same
+// locked critical section so that feature-gated middleware reading
+// s.licenceGuard after shutdown sees a clean nil state rather than a stale
+// guard pointing at a cancelled pusher.
 func (s *Server) stopLicence() {
 	s.mu.Lock()
 	cancel := s.licenceCancel
+	s.licenceGuard = nil
+	s.licencePusher = nil
 	s.licenceCancel = nil
 	s.mu.Unlock()
 	if cancel != nil {

@@ -230,6 +230,42 @@ func TestSetupLicense_RejectsWhenFeatureManageFalse(t *testing.T) {
 	assert.Empty(t, state.SignedToken)
 }
 
+func TestSetupLicense_ReturnsBadRequestWhenLicenseServerUnreachable(t *testing.T) {
+	srv, store, cleanup := openSetupServer(t)
+	defer cleanup()
+
+	// Pre-req: admin exists so we get past the AdminCreated gate and actually
+	// exercise the Activate() path.
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Port 1 is IANA-reserved and no service listens there; TCP connect fails
+	// immediately, keeping the test hermetic (no DNS, no external traffic).
+	body := `{
+		"license_server_url": "http://127.0.0.1:1/",
+		"license_key":        "lic-unreachable"
+	}`
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Contains(t, fmt.Sprintf("%v", out["error"]), "activation failed")
+
+	// DB state must remain un-activated — no partial write on LS failure.
+	state, err := store.GetSetup(context.Background())
+	require.NoError(t, err)
+	assert.False(t, state.LicenseActivated, "LicenseActivated must remain false when LS unreachable")
+	assert.Empty(t, state.SignedToken)
+	assert.Empty(t, state.InstanceID)
+}
+
 func TestSetupLicense_RejectsBeforeAdmin(t *testing.T) {
 	srv, _, cleanup := openSetupServer(t)
 	defer cleanup()

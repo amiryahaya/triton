@@ -78,28 +78,31 @@ B2 makes Manage actually do its job: own the on-prem scan surface (zones, hosts,
 
 ## 3. PR Split
 
-### PR B2.1 — pool-injection refactor (~3k LOC)
+### PR B2.1 — pool-injection refactor on pkg/store (~200 LOC)
 
-**Scope:** 4 existing packages (`scanjobs`, `credentials`, `discovery`, `agentpush`) gain two exported helpers alongside their current constructor:
+**Reality check:** the 4 sub-packages (`scanjobs`, `credentials`, `discovery`, `agentpush`) already take `*pgxpool.Pool` directly in their constructors — they do NOT own migrations, and they do NOT need refactoring. The monolithic migration set lives in `pkg/store/migrations.go` (v1…v24) and all tables that `scan_jobs` / `credentials_profiles` / `discovery_jobs` / `agent_push_jobs` reference (orgs, users, engines, scans, findings, ...) are also there. B2.1 therefore targets `pkg/store` only.
+
+**Scope:** `pkg/store` gains two exported helpers alongside the existing URL-taking constructor:
 
 ```go
-// Existing constructor — kept for Report Server, no behaviour change.
-func NewPostgresStore(ctx context.Context, dbURL string) (*PostgresStore, error) { ... }
-
-// New: pool-injectable constructor.
+// NEW: build a store around an existing pool (caller owns pool lifecycle).
 func NewPostgresStoreFromPool(pool *pgxpool.Pool) *PostgresStore { ... }
 
-// New: exportable migration runner (runs package's migrations against the pool's DB).
+// NEW: exported migration runner — runs migrations (v1…vN) against the given pool.
+// Uses the same advisory-lock + schema_version logic as today's private migrate().
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error { ... }
+
+// UNCHANGED externally: still creates a pool + migrates + wraps.
+func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, error) { ... }
 ```
 
-`NewPostgresStore` becomes a thin wrapper over `pgxpool.New` + `Migrate` + `NewPostgresStoreFromPool`.
+Internally, `NewPostgresStore` becomes `pgxpool.New` + `Migrate` + `NewPostgresStoreFromPool`. The existing `PostgresStore.migrate` private method gets its body extracted into the new exported `Migrate` function; `PostgresStore.migrate` becomes a one-line wrapper so callers elsewhere in `pkg/store` (if any) keep working.
 
-**Per-test schema isolation** is mirrored onto each package (following the `managestore.NewPostgresStoreInSchema` pattern from B1) for parallel-safe integration tests.
+**Manage integration (post-B2.2, not part of B2.1):** Manage Server will call `store.Migrate(ctx, managePool)` + `store.NewPostgresStoreFromPool(managePool)` on boot, then pass `managePool` to `scanjobs.NewPostgresStore(managePool, scanStoreAdapter)`, `credentials.NewPostgresStore(managePool)`, `discovery.NewPostgresStore(managePool)`, `agentpush.NewPostgresStore(managePool)`. Manage's `triton_manage` DB will end up with ALL Report tables (including unused ones like `scans`, `findings`, `users`, `organizations`) — this is harmless: they sit empty. Cleaner per-feature migration splitting is deferred; `pkg/store/migrations.go`'s monolithic v1..vN scheme is preserved.
 
 **No new endpoints, migrations, columns, or handler logic.** Report Server behaviour is literally unchanged.
 
-**Gate:** all existing Report Server unit + integration tests pass unchanged; `golangci-lint` clean. One new unit test per package: "store constructed via `NewPostgresStoreFromPool` + `Migrate` behaves identically to `NewPostgresStore(dbURL)`."
+**Gate:** all existing Report Server unit + integration tests pass unchanged; `golangci-lint` clean. One new test: "store constructed via `NewPostgresStoreFromPool` + `Migrate` behaves identically to `NewPostgresStore(connStr)`."
 
 **Branch:** `feat/manage-b2.1-pool-injection`. Merges to main before B2.2 branches.
 
@@ -483,7 +486,7 @@ All created by B2.2 migrations on Manage's `triton_manage` DB:
 - `manage_push_creds` — §7.
 - `license_state` — §8.
 
-Mounted packages (`scanjobs`, `credentials`, `discovery`, `agentpush`) create their own tables via `Migrate` exported in B2.1. Manage's DB ends up with the union.
+The 4 mounted packages (`scanjobs`, `credentials`, `discovery`, `agentpush`) use `*pgxpool.Pool` constructors directly; their underlying tables are created by `pkg/store.Migrate(ctx, managePool)` (exported in B2.1) alongside every other Report-side table. Manage's `triton_manage` DB ends up with the same full Report schema, most of it unused (empty `scans` / `findings` / `users` / `organizations` sit idle).
 
 ## 10. Testing
 
@@ -492,8 +495,8 @@ Mounted packages (`scanjobs`, `credentials`, `discovery`, `agentpush`) create th
 **Risk: zero behaviour change; gate is "Report CI green."**
 
 - All existing Report Server unit + integration tests pass unchanged. Any test diff is a red flag.
-- One new unit test per refactored package: "store constructed via `NewPostgresStoreFromPool` + `Migrate` behaves identically to `NewPostgresStore(dbURL)`."
-- `golangci-lint run ./pkg/server/...` clean.
+- One new test on `pkg/store`: "store constructed via `NewPostgresStoreFromPool` + `Migrate` behaves identically to `NewPostgresStore(connStr)`."
+- `golangci-lint run ./pkg/store/...` clean.
 - PR body explicitly frames the gate: "no new features; reviewers confirm by Report CI green."
 
 ### B2.2 unit tests (fast, no DB)
@@ -552,8 +555,8 @@ Per subsystem:
 ### PR B2.1
 
 - [ ] All existing Report Server tests pass unchanged.
-- [ ] Each of `scanjobs`, `credentials`, `discovery`, `agentpush` packages exposes `NewPostgresStoreFromPool` + `Migrate`.
-- [ ] Each of those 4 packages has a "pool-constructed ≡ URL-constructed" unit test.
+- [ ] `pkg/store` exposes `NewPostgresStoreFromPool(pool)` + `Migrate(ctx, pool)` alongside `NewPostgresStore(ctx, connStr)`.
+- [ ] "pool-constructed ≡ URL-constructed" behaviour-equivalence test on `pkg/store`.
 - [ ] `golangci-lint` clean.
 
 ### PR B2.2
@@ -578,4 +581,4 @@ Per subsystem:
 
 ## 13. Collision Risk
 
-A parallel developer is working on SSH-agentless scans. B2.1 refactors `scanjobs`, `credentials`, `discovery`, `agentpush` — overlap possible. Recommend WORKLOG.md or CODEOWNERS coordination before opening B2.1. If the SSH-agentless work merges first, rebase B2.1 on top; the refactor is shallow enough to cleanly replay.
+A parallel developer is working on SSH-agentless scans. B2.1 touches only `pkg/store` (no handler packages), so overlap risk is minimal. B2.2 re-mounts `scanjobs`, `credentials`, `discovery`, `agentpush` on Manage's router — that's where the collision surface lives. Recommend WORKLOG.md or CODEOWNERS coordination before opening B2.2. If the SSH-agentless work merges first, both PRs rebase cleanly (B2.1 is `pkg/store`-only; B2.2's package mounts are additive to existing code, not modifying it).

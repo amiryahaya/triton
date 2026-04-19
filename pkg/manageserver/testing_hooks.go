@@ -13,13 +13,16 @@ func SetSeatCapGuardForTest(s *Server, g SeatCapGuard) {
 	s.mu.Unlock()
 }
 
-// ClearSeatCapGuardForTest removes any test-injected seat-cap guard
-// from s. Called from t.Cleanup so state doesn't leak across tests.
-//
-// Subsequent Batch H patches extend this helper with per-package
-// overrides (hosts / scanjobs / agents) as those call sites land.
+// ClearSeatCapGuardForTest removes any test-injected cap guards from
+// s. Clears the seat guard AND the per-package overrides that Batch H
+// tests swap in for hosts (and later scanjobs / agents) so a single
+// deferred call restores the server to a clean production default.
 func ClearSeatCapGuardForTest(s *Server) {
 	s.mu.Lock()
 	s.seatCapGuardOverride = nil
+	s.hostCapGuardOverride = nil
+	if s.hostsAdmin != nil {
+		s.hostsAdmin.Guard = nil
+	}
 	s.mu.Unlock()
 }

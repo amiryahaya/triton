@@ -198,7 +198,7 @@ func newTestServer(t *testing.T, s hosts.Store) *httptest.Server {
 	t.Helper()
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/hosts", func(r chi.Router) {
-		hosts.MountAdminRoutes(r, hosts.NewAdminHandlers(s))
+		hosts.MountAdminRoutes(r, hosts.NewAdminHandlers(s, nil))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

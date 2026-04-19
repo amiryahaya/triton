@@ -15,14 +15,29 @@ import (
 	"github.com/google/uuid"
 )
 
+// HostCapGuard is the narrow licence-guard surface the hosts admin
+// handler consults before persisting a new Host. Kept minimal so
+// tests can inject a one-method fake without constructing a real
+// *license.Guard.
+//
+// A nil Guard on AdminHandlers means "no licence configured" — cap
+// check is skipped entirely (unlimited). LimitCap returning -1 for a
+// metric means the same thing.
+type HostCapGuard interface {
+	LimitCap(metric, window string) int64
+}
+
 // AdminHandlers serves the /api/v1/admin/hosts CRUD API.
 type AdminHandlers struct {
 	Store Store
+	Guard HostCapGuard
 }
 
-// NewAdminHandlers wires an AdminHandlers with the given Store.
-func NewAdminHandlers(s Store) *AdminHandlers {
-	return &AdminHandlers{Store: s}
+// NewAdminHandlers wires an AdminHandlers with the given Store and
+// (optional) Guard. Passing a nil Guard disables licence-cap
+// enforcement — useful in tests that exercise the store layer only.
+func NewAdminHandlers(s Store, guard HostCapGuard) *AdminHandlers {
+	return &AdminHandlers{Store: s, Guard: guard}
 }
 
 // hostRequestBody is the JSON shape accepted by Create/Update/BulkCreate.
@@ -105,6 +120,27 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Licence host cap. Checked before the INSERT so a rejected Create
+	// never mutates state. We read Count() directly (no transactional
+	// guard around Count+Insert) because a licence cap overshoot by 1
+	// row under concurrent inserts is acceptable — the usage-pusher
+	// will surface the overshoot in the next tick.
+	if h.Guard != nil {
+		if cap := h.Guard.LimitCap("hosts", "total"); cap >= 0 {
+			c, err := h.Store.Count(r.Context())
+			if err != nil {
+				internalErr(w, r, err, "count hosts for cap")
+				return
+			}
+			if c+1 > cap {
+				writeErr(w, http.StatusForbidden,
+					fmt.Sprintf("licence host cap exceeded (have %d, cap %d)", c, cap))
+				return
+			}
+		}
+	}
+
 	created, err := h.Store.Create(r.Context(), host)
 	if errors.Is(err, ErrConflict) {
 		writeErr(w, http.StatusConflict, "hostname already exists")
@@ -221,6 +257,28 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		batch = append(batch, host)
 	}
+
+	// Licence host cap. The bulk form rejects with a shortfall-aware
+	// error so operators see exactly how many rows the batch exceeds
+	// the cap by — matches the UX the admin UI wants when it surfaces
+	// the 403 back to the user.
+	if h.Guard != nil {
+		if cap := h.Guard.LimitCap("hosts", "total"); cap >= 0 {
+			c, err := h.Store.Count(r.Context())
+			if err != nil {
+				internalErr(w, r, err, "count hosts for cap")
+				return
+			}
+			needed := int64(len(batch))
+			if c+needed > cap {
+				writeErr(w, http.StatusForbidden, fmt.Sprintf(
+					"licence host cap exceeded (have %d, cap %d, requested %d)",
+					c, cap, needed))
+				return
+			}
+		}
+	}
+
 	out, err := h.Store.BulkCreate(r.Context(), batch)
 	if errors.Is(err, ErrConflict) {
 		writeErr(w, http.StatusConflict, "hostname already exists in batch")

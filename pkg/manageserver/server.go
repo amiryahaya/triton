@@ -45,11 +45,12 @@ type Server struct {
 	licencePusher *license.UsagePusher
 	licenceCancel context.CancelFunc // cancels the pusher goroutine
 
-	// Test-only override for the Batch H seat-cap check. Production
-	// code leaves this nil and handleCreateUser falls back to
-	// licenceGuard. mu-protected so a concurrent test setter doesn't
-	// race the handler read.
+	// Test-only overrides for Batch H licence-cap checks. Production
+	// code leaves these nil and handlers fall back to licenceGuard.
+	// mu-protected alongside the rest of the licence fields so a
+	// concurrent test setter doesn't race the handler read.
 	seatCapGuardOverride SeatCapGuard
+	hostCapGuardOverride hosts.HostCapGuard
 
 	// Admin-API handler packages (Batch C). Constructed in New() against
 	// the shared pool and mounted under /api/v1/admin/*.
@@ -128,7 +129,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		store:           store,
 		loginLimiter:    newLoginRateLimiter(),
 		zonesAdmin:      zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
-		hostsAdmin:      hosts.NewAdminHandlers(hostsStore),
+		hostsAdmin:      hosts.NewAdminHandlers(hostsStore, nil),
 		scanjobsAdmin:   scanjobs.NewAdminHandlers(scanjobsStore, resultsStore),
 		pushStatusAdmin: scanresults.NewAdminHandlers(resultsStore),
 		scanjobsStore:   scanjobsStore,

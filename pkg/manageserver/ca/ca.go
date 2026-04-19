@@ -93,7 +93,8 @@ func Generate(instanceID string) (*CA, error) {
 // The keypair is generated here and returned alongside the leaf so the
 // bundle builder can ship both to the operator. CN is "agent:<uuid>" —
 // the mtlsCNAuth middleware asserts this prefix on every gateway request.
-func (c *CA) SignAgentCert(agentID uuid.UUID) ([]byte, []byte, error) {
+// Returns (leafCertPEM, leafKeyPEM, err).
+func (c *CA) SignAgentCert(agentID uuid.UUID) (leafCertPEM, leafKeyPEM []byte, err error) {
 	if c == nil {
 		return nil, nil, errors.New("nil CA")
 	}

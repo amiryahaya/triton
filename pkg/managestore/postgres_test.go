@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -457,4 +459,69 @@ func TestMigrate_V5_CreatesCATables(t *testing.T) {
 		"manage_agents must exist")
 	assert.True(t, tableExists(t, s, "manage_agent_cert_revocations"),
 		"manage_agent_cert_revocations must exist")
+}
+
+// TestMigrate_ConcurrentCallsAreSafe asserts the advisory lock in Migrate
+// serialises concurrent migrators so no caller sees a duplicate-key error
+// against manage_schema_version. Rolling deploys and parallel test runs
+// can both invoke Migrate against the same pool.
+func TestMigrate_ConcurrentCallsAreSafe(t *testing.T) {
+	dbURL := os.Getenv("TRITON_TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	schema := fmt.Sprintf("test_manage_lock_%d", storeTestSeq.Add(1))
+
+	// Create the schema on a short-lived pool.
+	setupPool, err := pgxpool.New(context.Background(), dbURL)
+	if err != nil {
+		t.Skipf("Postgres unavailable: %v", err)
+	}
+	ctx := context.Background()
+	_, err = setupPool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	require.NoError(t, err)
+	_, err = setupPool.Exec(ctx, "CREATE SCHEMA "+schema)
+	require.NoError(t, err)
+	setupPool.Close()
+
+	// Dedicated pool scoped to the isolated schema, shared by all goroutines.
+	cfg, err := pgxpool.ParseConfig(dbURL)
+	require.NoError(t, err)
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		pool.Close()
+		// Teardown on a fresh short-lived pool since the scoped pool is closed.
+		cleanupPool, cerr := pgxpool.New(context.Background(), dbURL)
+		if cerr != nil {
+			return
+		}
+		defer cleanupPool.Close()
+		_, _ = cleanupPool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- managestore.Migrate(ctx, pool)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err, "concurrent Migrate must not race on manage_schema_version")
+	}
+
+	// Exactly one row per migration — no duplicates inserted by racing callers.
+	var countRows, distinctVersions int
+	err = pool.QueryRow(ctx, "SELECT COUNT(*), COUNT(DISTINCT version) FROM manage_schema_version").
+		Scan(&countRows, &distinctVersions)
+	require.NoError(t, err)
+	assert.Equal(t, countRows, distinctVersions, "no duplicate versions in manage_schema_version")
+	assert.Greater(t, countRows, 0, "at least one migration must have been applied")
 }

@@ -120,13 +120,19 @@ func (s *PostgresStore) Close() error {
 
 // Migrate applies any unapplied Manage Server schema migrations against the
 // given pool. Safe to call from any caller that owns a pgxpool.Pool against
-// the target database. Idempotent — running twice against the same DB is a
-// no-op for already-applied migrations.
+// the target database. Uses an advisory lock (id 7355693422) to serialise
+// concurrent migrators on the same database; the lock is released before
+// return. Idempotent — running twice against the same DB is a no-op for
+// already-applied migrations.
 //
 // Uses manage_schema_version (not schema_version) for version tracking, so
 // the Manage schema can cohabit a database with the Report Server's store
 // (pkg/store), which owns schema_version. This lets cmd/manageserver/main.go
 // call BOTH managestore.Migrate and store.Migrate on the same pool at boot.
+//
+// The advisory-lock id (7355693422) is deliberately one greater than
+// pkg/store.Migrate's id (7355693421) so the two migrations cannot deadlock
+// when run in sequence against the same pool.
 //
 // Mirrors pkg/store.Migrate from B2.1.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
@@ -137,14 +143,30 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("creating manage_schema_version: %w", err)
 	}
+
+	// Acquire a dedicated connection for advisory lock to prevent concurrent migrations.
+	// Advisory locks are session-level — we must hold the same connection for lock + migrations.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection for migration: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(7355693422)"); err != nil {
+		return fmt.Errorf("acquiring migration lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock(7355693422)")
+	}()
+
 	var current int
-	err = pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM manage_schema_version").Scan(&current)
+	err = conn.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM manage_schema_version").Scan(&current)
 	if err != nil {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
 	for i := current; i < len(migrations); i++ {
 		version := i + 1
-		tx, err := pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin tx for migration %d: %w", version, err)
 		}

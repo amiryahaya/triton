@@ -1,0 +1,19 @@
+package manageserver
+
+import (
+	"crypto/ed25519"
+	"time"
+)
+
+// Config wires the Manage Server runtime.
+type Config struct {
+	Listen        string            // e.g. ":8082"
+	DBUrl         string            // postgres DSN
+	JWTSigningKey []byte            // HS256 secret; ≥32 bytes
+	PublicKey     ed25519.PublicKey // License Server public key (for parsing signed tokens)
+	InstanceID    string            // UUID for this Manage instance
+	SessionTTL    time.Duration     // default 24h
+
+	// Reserved for B2 — unused here, but config carries them so B2 is a drop-in.
+	ReportServer string //nolint:unused // wired in B2
+}

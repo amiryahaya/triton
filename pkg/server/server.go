@@ -17,6 +17,7 @@ import (
 	"github.com/amiryahaya/triton/internal/auth/sessioncache"
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/internal/mailer"
+	"github.com/amiryahaya/triton/pkg/server/manage_enrol"
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
@@ -96,6 +97,13 @@ type Config struct {
 	// included in usage-push payloads for multi-instance deployments.
 	// If empty, the server generates a UUID at startup (see New()).
 	InstanceID string
+
+	// ManageEnrolHandlers, when non-nil, is mounted under
+	// /api/v1/admin/enrol/manage (behind ServiceKeyAuth) and replaces the
+	// 501 stub returned when the handler is absent. Deployments that run
+	// Manage supply this via cmd/server.go; plain Report-only deployments
+	// leave it nil and the endpoint reports "not configured".
+	ManageEnrolHandlers *manage_enrol.EnrolHandlers
 }
 
 // Server is the Triton REST API server.
@@ -153,6 +161,10 @@ type Server struct {
 	// regular interval. Nil when no LicenseServer URL is configured or
 	// when no licence token is present (free-tier / no-token mode).
 	licencePusher *license.UsagePusher
+
+	// manageEnrolHandlers serves the real /api/v1/admin/enrol/manage flow
+	// when configured. Nil → handleEnrolManage returns 501. Batch G.
+	manageEnrolHandlers *manage_enrol.EnrolHandlers
 }
 
 // BackfillInProgress exposes the atomic flag so cmd/server.go can flip
@@ -284,15 +296,16 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		})
 	}
 	srv := &Server{
-		config:         cfg,
-		store:          s,
-		guard:          cfg.Guard,
-		loginLimiter:   auth.NewLoginRateLimiter(rateLimitCfg),
-		requestLimiter: auth.NewRequestRateLimiter(requestLimitCfg),
-		ctx:            ctx,
-		cancel:         cancel,
-		auditSem:       make(chan struct{}, auditSemDepth),
-		sessionCache:   sessCache,
+		config:              cfg,
+		store:               s,
+		guard:               cfg.Guard,
+		loginLimiter:        auth.NewLoginRateLimiter(rateLimitCfg),
+		requestLimiter:      auth.NewRequestRateLimiter(requestLimitCfg),
+		ctx:                 ctx,
+		cancel:              cancel,
+		auditSem:            make(chan struct{}, auditSemDepth),
+		sessionCache:        sessCache,
+		manageEnrolHandlers: cfg.ManageEnrolHandlers,
 	}
 	srv.pipeline = store.NewPipeline(s)
 

@@ -4,19 +4,23 @@ import (
 	"net/http"
 )
 
-// handleEnrolManage is a stub placeholder for the Manage Server mTLS
-// enrolment endpoint. The real implementation lands in PR B2
-// (triton#feat/manage-server-b2) when the Manage Server's scanner
-// orchestrator needs to push scan results to the Report Server over
-// a mutually-authenticated channel.
+// handleEnrolManage is the Report-side admin endpoint Manage calls during
+// its /setup/license flow to obtain an mTLS client bundle. Real behaviour
+// lives in pkg/server/manage_enrol/handlers_admin.go; this method is a
+// thin delegator that returns 501 when the handler isn't configured.
 //
-// In B1 we only stand up the Manage Server's HTTP shell (setup, auth,
-// licence wiring) — no scans flow between Manage → Report yet — so
-// this handler deliberately returns 501 Not Implemented.
+// Authentication: mounted behind ServiceKeyAuth under /api/v1/admin, same
+// gate used by /api/v1/admin/orgs so both admin service-to-service flows
+// share a single shared-secret.
 //
-// Authentication: mounted behind ServiceKeyAuth under /api/v1/admin,
-// same gate used by /api/v1/admin/orgs so both admin service-to-service
-// flows share a single shared-secret.
-func (s *Server) handleEnrolManage(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "manage mTLS enrolment lands in PR B2 (triton#feat/manage-server-b2)")
+// Configuration: wired in server.New when cfg.ManageEnrolConfig is
+// populated (requires a Master key, an engine CA store for a specific
+// OrgID, a ReportPublicURL, and a LicenseValidator). Deployments that do
+// not run Manage leave ManageEnrolConfig nil and the route stays 501.
+func (s *Server) handleEnrolManage(w http.ResponseWriter, r *http.Request) {
+	if s.manageEnrolHandlers == nil {
+		writeError(w, http.StatusNotImplemented, "manage enrol not configured on this server")
+		return
+	}
+	s.manageEnrolHandlers.Enrol(w, r)
 }

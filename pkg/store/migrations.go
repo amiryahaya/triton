@@ -801,4 +801,30 @@ CREATE INDEX IF NOT EXISTS agent_commands_pending_idx
 CREATE INDEX IF NOT EXISTS agent_commands_history_idx
 	ON agent_commands (tenant_id, machine_id, issued_at DESC);
 `,
+
+	// Version 26: Manage instance enrolment registry (Manage B2.2 Batch G).
+	// One row per enrolled Manage Server that has been issued an mTLS leaf
+	// by Report's engine CA. cert_serial is the signed leaf's serial number
+	// (hex lowercase) and is what the mTLS middleware looks up on each
+	// request whose client-cert CommonName starts with `manage:`.
+	//
+	// license_key_hash stores a truncated SHA-256 of the licence key so
+	// operators can correlate enrolments to a licence without surfacing the
+	// raw key in the DB. tenant_attribution is the tenant UUID (or empty
+	// string for single-tenant deployments) stamped into the bundle's
+	// config.yaml — Manage stamps it on every scan payload pushed upstream.
+	//
+	// status transitions are admin-driven: active → revoked. The mTLS
+	// middleware denies revoked instances with 403.
+	`
+CREATE TABLE IF NOT EXISTS manage_instances (
+	id                 UUID        PRIMARY KEY,
+	license_key_hash   TEXT        NOT NULL,
+	cert_serial        TEXT        NOT NULL UNIQUE,
+	tenant_attribution TEXT        NOT NULL DEFAULT '',
+	enrolled_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	status             TEXT        NOT NULL DEFAULT 'active'
+		CHECK (status IN ('active','revoked'))
+);
+`,
 }

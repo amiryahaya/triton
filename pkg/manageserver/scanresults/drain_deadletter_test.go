@@ -98,9 +98,17 @@ func TestDrain_DeadLetterAfterMaxRetries(t *testing.T) {
 	jobID, _ := seedJob(t, pool, "dl-retry-01")
 	require.NoError(t, store.Enqueue(ctx, jobID, "manage", uuid.Must(uuid.NewV7()), sampleScan()))
 
-	// Fast-forward attempt_count to the cusp of the cutoff.
-	_, err := pool.Exec(ctx,
-		`UPDATE manage_scan_results_queue SET attempt_count = 9, next_attempt_at = NOW()`,
+	// Fast-forward attempt_count to the cusp of the cutoff. Scope the
+	// UPDATE to the specific row we just enqueued — an unconditional
+	// UPDATE would clobber any stray rows the test pool happens to share
+	// and hide bugs that manifest as mis-targeted writes.
+	rows, err := store.ClaimDue(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	rowID := rows[0].ID
+	_, err = pool.Exec(ctx,
+		`UPDATE manage_scan_results_queue SET attempt_count = 9, next_attempt_at = NOW() WHERE id = $1`,
+		rowID,
 	)
 	require.NoError(t, err)
 

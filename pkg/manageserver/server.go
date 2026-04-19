@@ -429,6 +429,19 @@ func (s *Server) buildGatewayRouter() chi.Router {
 //
 // If the CA isn't bootstrapped, runGateway logs + returns nil so
 // admin setup can complete and a subsequent restart picks up the CA.
+//
+// SERVER CERT LIFETIME — the TLS leaf handed to the listener is
+// issued at startup by caStore.IssueServerCert with a 90-day NotAfter
+// (serverCertValidity in pkg/manageserver/ca/postgres.go). The cert
+// is NOT auto-rotated at runtime: a server restart is required to
+// mint a fresh leaf. Operators SHOULD schedule a restart well
+// before the 90-day window closes (e.g. monthly, rolling) to avoid
+// agent handshakes tripping expired-cert errors. Shortening or
+// lengthening the lifetime requires editing serverCertValidity and
+// redeploying — there's no runtime knob.
+//
+// The CA itself is 10-year and covers the server leaf through
+// many restart cycles, so this is only a server-leaf concern.
 func (s *Server) runGateway(ctx context.Context) error {
 	caBundle, err := s.caStore.Load(ctx)
 	if err != nil {

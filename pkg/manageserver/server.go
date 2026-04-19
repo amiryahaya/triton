@@ -3,6 +3,7 @@ package manageserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
@@ -23,6 +25,12 @@ type Server struct {
 	mu           sync.RWMutex
 	setupMode    bool              // true until admin created AND license activated
 	loginLimiter *loginRateLimiter // in-memory brute-force guard for /auth/login
+
+	// Licence wiring (Task 5.1). Populated by startLicence; nil until
+	// /setup/license activates or a valid persisted token is found at boot.
+	licenceGuard  *license.Guard
+	licencePusher *license.UsagePusher
+	licenceCancel context.CancelFunc // cancels the pusher goroutine
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
@@ -50,6 +58,13 @@ func New(cfg *Config, store managestore.Store) (*Server, error) {
 		return nil, fmt.Errorf("init setup state: %w", err)
 	}
 	srv.router = srv.buildRouter()
+
+	// If a persisted licence already exists, bring the guard + usage pusher
+	// online now. A bad token is non-fatal: we log and continue so admins can
+	// re-activate via /setup/license without needing to restart the process.
+	if err := srv.startLicence(context.Background()); err != nil {
+		log.Printf("manageserver: startLicence at boot: %v (server will run; re-activate via API)", err)
+	}
 	return srv, nil
 }
 
@@ -148,10 +163,15 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
+		// Stop the usage pusher BEFORE waiting on HTTP shutdown so it
+		// doesn't keep trying to reach the Licence Server while shutdown
+		// is in progress (and so its goroutine exits cleanly).
+		s.stopLicence()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return s.http.Shutdown(shutdownCtx)
 	case err := <-errCh:
+		s.stopLicence()
 		return err
 	}
 }

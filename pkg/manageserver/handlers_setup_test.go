@@ -100,18 +100,18 @@ func TestSetupAdmin_RejectsPasswordWithoutDigit(t *testing.T) {
 
 // fakeActivateResponse is the minimal v2 body the stub License Server returns.
 type fakeActivateResponse struct {
-	Token         string                   `json:"token"`
-	ActivationID  string                   `json:"activationID"`
-	Tier          string                   `json:"tier"`
-	Seats         int                      `json:"seats"`
-	SeatsUsed     int                      `json:"seatsUsed"`
-	ExpiresAt     string                   `json:"expiresAt"`
-	Features      map[string]any           `json:"features"`
-	Limits        []map[string]any         `json:"limits"`
-	SoftBufferPct int                      `json:"soft_buffer_pct"`
-	ProductScope  string                   `json:"product_scope"`
+	Token         string                    `json:"token"`
+	ActivationID  string                    `json:"activationID"`
+	Tier          string                    `json:"tier"`
+	Seats         int                       `json:"seats"`
+	SeatsUsed     int                       `json:"seatsUsed"`
+	ExpiresAt     string                    `json:"expiresAt"`
+	Features      map[string]any            `json:"features"`
+	Limits        []map[string]any          `json:"limits"`
+	SoftBufferPct int                       `json:"soft_buffer_pct"`
+	ProductScope  string                    `json:"product_scope"`
 	Usage         map[string]map[string]int `json:"usage"`
-	GraceSeconds  int                      `json:"grace_seconds"`
+	GraceSeconds  int                       `json:"grace_seconds"`
 }
 
 func newStubLicenseServer(t *testing.T, resp fakeActivateResponse) *httptest.Server {

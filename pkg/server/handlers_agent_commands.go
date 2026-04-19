@@ -102,7 +102,8 @@ func (s *Server) handleAgentCommandsPoll(w http.ResponseWriter, r *http.Request)
 			if pausedActive {
 				resp.State.PausedUntil = current.PausedUntil.UTC()
 			}
-			for _, c := range cmds {
+			for i := range cmds {
+				c := &cmds[i]
 				resp.Commands = append(resp.Commands, agentPollCommand{
 					ID:        c.ID,
 					Type:      string(c.Type),

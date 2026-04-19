@@ -67,7 +67,7 @@ func (c *CommandPoller) httpClient() *http.Client {
 // cancellation. A non-2xx response returns an error.
 func (c *CommandPoller) Poll(ctx context.Context) (*PollResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.BaseURL+"/api/v1/agent/commands/poll", nil)
+		c.BaseURL+"/api/v1/agent/commands/poll", http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("build poll request: %w", err)
 	}
@@ -83,7 +83,7 @@ func (c *CommandPoller) Poll(ctx context.Context) (*PollResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNoContent {
 		return nil, nil
 	}
@@ -118,7 +118,7 @@ func (c *CommandPoller) PostResult(ctx context.Context, commandID, status string
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("result status %d: %s", resp.StatusCode, msg)

@@ -745,4 +745,60 @@ ALTER TABLE discovery_candidates ADD COLUMN IF NOT EXISTS mac_address TEXT;
 ALTER TABLE discovery_candidates ADD COLUMN IF NOT EXISTS mac_vendor TEXT;
 ALTER TABLE discovery_candidates ADD COLUMN IF NOT EXISTS services TEXT[];
 `,
+
+	// Version 25: Agent remote control channel (step 6).
+	// Per-agent registry + pending/completed command queue for the
+	// Report Server long-poll control plane. See
+	// docs/plans/2026-04-19-agent-control-channel-design.md.
+	//
+	// agents: one row per (tenant, machine). Identifies agents by the
+	//   same machine_id used by the existing license/fingerprint subsystem
+	//   (SHA-3-256 of hostname|GOOS|GOARCH). paused_until carries the
+	//   server-side pause state; NULL = running normally.
+	//
+	// agent_commands: append-only queue of cancel/force_run commands
+	//   dispatched to agents via the long-poll control channel. IDs are
+	//   generated in Go (uuid.NewV7) — no DB DEFAULT needed. dispatched_at
+	//   is set when the agent acks the command; result_* columns populated
+	//   on completion. The FK ON DELETE CASCADE keeps orphaned commands
+	//   from accumulating when an agent row is removed.
+	`
+CREATE TABLE IF NOT EXISTS agents (
+	tenant_id     UUID        NOT NULL,
+	machine_id    TEXT        NOT NULL,
+	hostname      TEXT        NOT NULL DEFAULT '',
+	os            TEXT        NOT NULL DEFAULT '',
+	arch          TEXT        NOT NULL DEFAULT '',
+	first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	paused_until  TIMESTAMPTZ,
+	PRIMARY KEY (tenant_id, machine_id)
+);
+
+CREATE INDEX IF NOT EXISTS agents_last_seen_idx
+	ON agents (tenant_id, last_seen_at);
+
+CREATE TABLE IF NOT EXISTS agent_commands (
+	id            UUID        PRIMARY KEY,
+	tenant_id     UUID        NOT NULL,
+	machine_id    TEXT        NOT NULL,
+	type          TEXT        NOT NULL CHECK (type IN ('cancel', 'force_run')),
+	args          JSONB       NOT NULL DEFAULT '{}',
+	issued_by     TEXT        NOT NULL,
+	issued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	expires_at    TIMESTAMPTZ NOT NULL,
+	dispatched_at TIMESTAMPTZ,
+	result_status TEXT,
+	result_meta   JSONB,
+	resulted_at   TIMESTAMPTZ,
+	FOREIGN KEY (tenant_id, machine_id) REFERENCES agents(tenant_id, machine_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS agent_commands_pending_idx
+	ON agent_commands (tenant_id, machine_id, issued_at)
+	WHERE dispatched_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS agent_commands_history_idx
+	ON agent_commands (tenant_id, machine_id, issued_at DESC);
+`,
 }

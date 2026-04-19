@@ -97,6 +97,23 @@ func (s *PostgresStore) Pool() *pgxpool.Pool {
 	return s.pool
 }
 
+// QueryColumnTestOnly returns the data_type of (table, column) from
+// information_schema.columns, or an empty string if the column does not
+// exist. Used by integration tests to assert schema migrations. Not part
+// of the Store interface — never call from production code.
+func (s *PostgresStore) QueryColumnTestOnly(ctx context.Context, table, column string) (string, error) {
+	var dt string
+	err := s.pool.QueryRow(ctx, `
+		SELECT data_type FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name   = $1
+		  AND column_name  = $2`, table, column).Scan(&dt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return dt, err
+}
+
 // NewPostgresStore connects to PostgreSQL and runs any pending schema migrations.
 func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, error) {
 	pool, err := pgxpool.New(ctx, connStr)

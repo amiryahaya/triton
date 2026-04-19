@@ -16,6 +16,13 @@ var ErrNotFound = errors.New("hosts: not found")
 // Handlers map this to HTTP 409.
 var ErrConflict = errors.New("hosts: conflict")
 
+// ErrInvalidInput is returned when the store rejects malformed input
+// before the row reaches the DB — e.g. a bad INET literal surfacing as
+// SQLSTATE 22P02. Handlers map this to HTTP 400. The handler layer
+// also validates before the call, so this is a belt-and-braces guard
+// for bypasses.
+var ErrInvalidInput = errors.New("hosts: invalid input")
+
 // Store is the persistence boundary for the hosts bounded context.
 // The ListByZone / ListByHostnames / CountByZone helpers exist to
 // support Batch D's scanjobs.Enqueue target-expansion logic.

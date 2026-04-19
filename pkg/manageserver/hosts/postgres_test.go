@@ -254,6 +254,32 @@ func TestHosts_BulkCreate_InsertsAll(t *testing.T) {
 	assert.Equal(t, int64(3), count)
 }
 
+// TestHosts_InvalidIP_AtStoreLayer confirms the belt-and-braces guard
+// in the store: if a caller bypasses the handler validation and hands
+// the store a malformed IP literal, we surface ErrInvalidInput rather
+// than a raw pg SQLSTATE 22P02.
+func TestHosts_InvalidIP_AtStoreLayer(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := hosts.NewPostgresStore(pool)
+
+	// Create: bad literal cast against INET -> ErrInvalidInput.
+	_, err := s.Create(ctx, hosts.Host{Hostname: "bad-ip", IP: "not-an-ip"})
+	assert.ErrorIs(t, err, hosts.ErrInvalidInput)
+
+	// BulkCreate: same guard should fire mid-batch and roll back.
+	_, err = s.BulkCreate(ctx, []hosts.Host{
+		{Hostname: "ok-bulk"},
+		{Hostname: "bad-ip-bulk", IP: "also-bogus"},
+	})
+	assert.ErrorIs(t, err, hosts.ErrInvalidInput)
+
+	// And nothing should have been committed.
+	count, err := s.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count, "invalid bulk insert must not leave rows behind")
+}
+
 func TestHosts_BulkCreate_ConflictRollsBackAll(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()

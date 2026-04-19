@@ -74,6 +74,14 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+// isInvalidTextRepresentation reports whether err wraps SQLSTATE 22P02.
+// This triggers when Postgres cannot parse a literal for the target
+// column's type — most commonly a non-IP string cast to INET.
+func isInvalidTextRepresentation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
+}
+
 // Create inserts a new host. Empty IP and nil ZoneID insert NULL.
 // Returns ErrConflict if the hostname collides.
 func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
@@ -86,6 +94,9 @@ func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
 	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return Host{}, fmt.Errorf("%w: hostname %q", ErrConflict, h.Hostname)
+		}
+		if isInvalidTextRepresentation(err) {
+			return Host{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 		}
 		return Host{}, fmt.Errorf("create host: %w", err)
 	}
@@ -145,6 +156,9 @@ func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
 		}
 		if isUniqueViolation(err) {
 			return Host{}, fmt.Errorf("%w: hostname %q", ErrConflict, h.Hostname)
+		}
+		if isInvalidTextRepresentation(err) {
+			return Host{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 		}
 		return Host{}, fmt.Errorf("update host: %w", err)
 	}
@@ -260,6 +274,9 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 		if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 			if isUniqueViolation(err) {
 				return nil, fmt.Errorf("%w: hostname %q (index %d)", ErrConflict, h.Hostname, i)
+			}
+			if isInvalidTextRepresentation(err) {
+				return nil, fmt.Errorf("%w: index %d: %v", ErrInvalidInput, i, err)
 			}
 			return nil, fmt.Errorf("bulk create host %q (index %d): %w", h.Hostname, i, err)
 		}

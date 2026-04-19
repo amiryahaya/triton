@@ -408,3 +408,71 @@ func TestHostsAdmin_Patch_MissingReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	resp.Body.Close()
 }
+
+func TestHostsAdmin_Update_EmptyHostnameRejected(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	h, err := store.Create(context.Background(), hosts.Host{Hostname: "seeded"})
+	require.NoError(t, err)
+
+	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+h.ID.String(),
+		map[string]string{"hostname": "   "})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestHostsAdmin_Create_InvalidIPReturns400(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
+		"hostname": "bad-ip",
+		"ip":       "not-an-ip",
+	})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+
+	// Ensure the store was never called with invalid input.
+	assert.NotContains(t, store.calls, "Create")
+}
+
+func TestHostsAdmin_Update_InvalidIPReturns400(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	h, err := store.Create(context.Background(), hosts.Host{Hostname: "seed"})
+	require.NoError(t, err)
+	store.calls = nil
+
+	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+h.ID.String(), map[string]string{
+		"hostname": "seed",
+		"ip":       "not-an-ip",
+	})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+	assert.NotContains(t, store.calls, "Update")
+}
+
+func TestHostsAdmin_BulkCreate_InvalidIPReturns400(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	body := map[string]any{
+		"hosts": []map[string]string{
+			{"hostname": "bulk-1", "ip": "10.0.0.1"},
+			{"hostname": "bulk-2", "ip": "not-an-ip"}, // boom at index 1
+			{"hostname": "bulk-3"},
+		},
+	}
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+
+	// No partial inserts: the store must never have been called.
+	assert.NotContains(t, store.calls, "BulkCreate")
+
+	count, err := store.Count(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+}

@@ -3,6 +3,8 @@ package hosts
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,6 +47,26 @@ func (b hostRequestBody) toHost() Host {
 	}
 }
 
+// validateHost checks the handler-layer invariants that must hold before
+// the Host reaches the store: hostname is required, and if an IP is
+// supplied it must parse. Callers should have already applied toHost()
+// so whitespace is trimmed.
+//
+// Keeping this above the store boundary means malformed input never
+// reaches Postgres, so clients see a clean 400 instead of a 500 with
+// leaked pg error text.
+func validateHost(h Host) error {
+	if h.Hostname == "" {
+		return errors.New("hostname is required")
+	}
+	if h.IP != "" {
+		if ip := net.ParseIP(h.IP); ip == nil {
+			return fmt.Errorf("invalid ip address %q", h.IP)
+		}
+	}
+	return nil
+}
+
 // List returns every host, or hosts filtered by ?zone_id=<uuid>.
 func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 	if zoneStr := r.URL.Query().Get("zone_id"); zoneStr != "" {
@@ -78,13 +100,17 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host := body.toHost()
-	if host.Hostname == "" {
-		writeErr(w, http.StatusBadRequest, "hostname is required")
+	if err := validateHost(host); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	created, err := h.Store.Create(r.Context(), host)
 	if errors.Is(err, ErrConflict) {
 		writeErr(w, http.StatusConflict, "hostname already exists")
+		return
+	}
+	if errors.Is(err, ErrInvalidInput) {
+		writeErr(w, http.StatusBadRequest, "invalid host input")
 		return
 	}
 	if err != nil {
@@ -127,6 +153,10 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	host := body.toHost()
 	host.ID = id
+	if err := validateHost(host); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	updated, err := h.Store.Update(r.Context(), host)
 	if errors.Is(err, ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "host not found")
@@ -134,6 +164,10 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, ErrConflict) {
 		writeErr(w, http.StatusConflict, "hostname already exists")
+		return
+	}
+	if errors.Is(err, ErrInvalidInput) {
+		writeErr(w, http.StatusBadRequest, "invalid host input")
 		return
 	}
 	if err != nil {
@@ -180,8 +214,8 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	batch := make([]Host, 0, len(body.Hosts))
 	for i, row := range body.Hosts {
 		host := row.toHost()
-		if host.Hostname == "" {
-			writeErr(w, http.StatusBadRequest, "hostname is required (index "+strconv.Itoa(i)+")")
+		if err := validateHost(host); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error()+" (index "+strconv.Itoa(i)+")")
 			return
 		}
 		batch = append(batch, host)
@@ -189,6 +223,10 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	out, err := h.Store.BulkCreate(r.Context(), batch)
 	if errors.Is(err, ErrConflict) {
 		writeErr(w, http.StatusConflict, "hostname already exists in batch")
+		return
+	}
+	if errors.Is(err, ErrInvalidInput) {
+		writeErr(w, http.StatusBadRequest, "invalid host input in batch")
 		return
 	}
 	if err != nil {

@@ -85,4 +85,51 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_manage_scan_jobs_pull ON manage_scan_jobs (status, enqueued_at);
 	CREATE INDEX IF NOT EXISTS idx_manage_scan_jobs_stale ON manage_scan_jobs (running_heartbeat_at) WHERE status='running';`,
+
+	// Version 4: Result queue + push creds + license state.
+	`CREATE TABLE IF NOT EXISTS manage_scan_results_queue (
+		id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		scan_job_id     UUID        NOT NULL REFERENCES manage_scan_jobs(id) ON DELETE CASCADE,
+		source_type     TEXT        NOT NULL CHECK (source_type IN ('manage','agent')),
+		source_id       UUID        NOT NULL,
+		payload_json    JSONB       NOT NULL,
+		enqueued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		attempt_count   INT         NOT NULL DEFAULT 0,
+		last_error      TEXT        NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_manage_queue_due ON manage_scan_results_queue (next_attempt_at) WHERE attempt_count < 10;
+
+	CREATE TABLE IF NOT EXISTS manage_scan_results_dead_letter (
+		id                  UUID        PRIMARY KEY,
+		scan_job_id         UUID        NOT NULL,
+		source_type         TEXT        NOT NULL,
+		source_id           UUID        NOT NULL,
+		payload_json        JSONB       NOT NULL,
+		enqueued_at         TIMESTAMPTZ NOT NULL,
+		attempt_count       INT         NOT NULL,
+		last_error          TEXT        NOT NULL,
+		dead_lettered_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		dead_letter_reason  TEXT        NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS manage_push_creds (
+		id              SMALLINT    PRIMARY KEY DEFAULT 1 CHECK (id=1),
+		client_cert_pem TEXT        NOT NULL,
+		client_key_pem  TEXT        NOT NULL,
+		ca_cert_pem     TEXT        NOT NULL,
+		report_url      TEXT        NOT NULL,
+		tenant_id       TEXT        NOT NULL DEFAULT '',
+		updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS manage_license_state (
+		id                   SMALLINT    PRIMARY KEY DEFAULT 1 CHECK (id=1),
+		last_pushed_at       TIMESTAMPTZ,
+		last_pushed_metrics  JSONB,
+		last_push_error      TEXT        NOT NULL DEFAULT '',
+		consecutive_failures INT         NOT NULL DEFAULT 0,
+		updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	INSERT INTO manage_license_state (id) VALUES (1) ON CONFLICT DO NOTHING;`,
 }

@@ -421,3 +421,26 @@ func TestMigrate_V3_CreatesScanJobs(t *testing.T) {
 			"manage_scan_jobs must have column %q", col)
 	}
 }
+
+// TestMigrate_V4_CreatesResultQueueTables asserts migration v4 creates the
+// result queue, dead-letter table, push credentials, and license state
+// singleton. The license_state singleton row must be pre-seeded.
+func TestMigrate_V4_CreatesResultQueueTables(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	assert.True(t, tableExists(t, s, "manage_scan_results_queue"),
+		"manage_scan_results_queue must exist")
+	assert.True(t, tableExists(t, s, "manage_scan_results_dead_letter"),
+		"manage_scan_results_dead_letter must exist")
+	assert.True(t, tableExists(t, s, "manage_push_creds"),
+		"manage_push_creds must exist")
+	assert.True(t, tableExists(t, s, "manage_license_state"),
+		"manage_license_state must exist")
+
+	var count int
+	err := s.QueryRowForTest(ctx, "SELECT COUNT(*) FROM manage_license_state").Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count,
+		"migration must seed exactly one manage_license_state singleton row")
+}

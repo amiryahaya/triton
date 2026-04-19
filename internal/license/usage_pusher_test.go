@@ -129,3 +129,93 @@ func TestUsagePusher_SurvivesServerError(t *testing.T) {
 	defer cancel()
 	p.Run(ctx) // no panic
 }
+
+// TestUsagePusher_InvokesSuccessCallback_OnHTTP200 verifies the Batch H
+// hook fires on a successful push with the marshalled metrics body.
+func TestUsagePusher_InvokesSuccessCallback_OnHTTP200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	var successes int64
+	var lastBody []byte
+	p := NewUsagePusher(UsagePusherConfig{
+		LicenseServer: srv.URL,
+		LicenseID:     "L1",
+		InstanceID:    "i1",
+		Source:        func() []UsageMetric { return []UsageMetric{{Metric: "scans", Window: "monthly", Value: 42}} },
+		Interval:      time.Hour,
+		OnPushSuccess: func(_ context.Context, body []byte) {
+			atomic.AddInt64(&successes, 1)
+			lastBody = body
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	go p.Run(ctx)
+	time.Sleep(60 * time.Millisecond) // initial push
+	cancel()
+
+	if got := atomic.LoadInt64(&successes); got < 1 {
+		t.Fatalf("expected ≥1 success callback, got %d", got)
+	}
+	if len(lastBody) == 0 {
+		t.Errorf("success callback must receive non-empty body")
+	}
+}
+
+// TestUsagePusher_InvokesFailureCallback_On500 verifies the failure
+// hook fires with a reason string on a 5xx.
+func TestUsagePusher_InvokesFailureCallback_On500(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	var failures int64
+	var lastReason string
+	p := NewUsagePusher(UsagePusherConfig{
+		LicenseServer: srv.URL,
+		LicenseID:     "L1",
+		InstanceID:    "i1",
+		Source:        func() []UsageMetric { return nil },
+		Interval:      time.Hour,
+		OnPushFailure: func(_ context.Context, reason string) {
+			atomic.AddInt64(&failures, 1)
+			lastReason = reason
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	go p.Run(ctx)
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+
+	if got := atomic.LoadInt64(&failures); got < 1 {
+		t.Fatalf("expected ≥1 failure callback, got %d", got)
+	}
+	if lastReason == "" {
+		t.Errorf("failure callback must receive a non-empty reason")
+	}
+}
+
+// TestUsagePusher_NilCallbacks_NoPanic verifies callbacks are
+// genuinely optional: nil on either side must not crash the pusher.
+func TestUsagePusher_NilCallbacks_NoPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	p := NewUsagePusher(UsagePusherConfig{
+		LicenseServer: srv.URL,
+		LicenseID:     "L1",
+		InstanceID:    "i1",
+		Source:        func() []UsageMetric { return nil },
+		Interval:      time.Hour,
+		// OnPushSuccess + OnPushFailure intentionally nil.
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	go p.Run(ctx)
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+}

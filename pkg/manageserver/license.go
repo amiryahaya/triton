@@ -3,6 +3,7 @@ package manageserver
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/amiryahaya/triton/internal/license"
 )
@@ -38,6 +39,8 @@ func (s *Server) startLicence(ctx context.Context) error {
 		LicenseID:     state.LicenseKey,
 		InstanceID:    state.InstanceID,
 		Source:        s.collectUsage,
+		OnPushSuccess: s.onUsagePushSuccess,
+		OnPushFailure: s.onUsagePushFailure,
 	})
 
 	pCtx, cancel := context.WithCancel(context.Background())
@@ -64,6 +67,34 @@ func (s *Server) startLicence(ctx context.Context) error {
 // Interval, which LS uses to detect live instances.
 func (s *Server) collectUsage() []license.UsageMetric {
 	return []license.UsageMetric{}
+}
+
+// onUsagePushSuccess stamps manage_license_state.last_pushed_at +
+// last_pushed_metrics after a successful LS push. Hook fires
+// synchronously on the UsagePusher's goroutine; kept narrow — one
+// DB write — so the pusher tick cadence isn't perturbed.
+//
+// No-ops when resultsStore is nil (tests that don't exercise the
+// drain pipeline). DB errors are logged so sustained failures don't
+// silently drop metric freshness.
+func (s *Server) onUsagePushSuccess(ctx context.Context, metricsJSON []byte) {
+	if s.resultsStore == nil {
+		return
+	}
+	if err := s.resultsStore.RecordPushSuccess(ctx, metricsJSON); err != nil {
+		log.Printf("manageserver/license: record push success: %v", err)
+	}
+}
+
+// onUsagePushFailure increments manage_license_state.consecutive_failures
+// and stashes the reason. Same lifecycle as onUsagePushSuccess.
+func (s *Server) onUsagePushFailure(ctx context.Context, reason string) {
+	if s.resultsStore == nil {
+		return
+	}
+	if err := s.resultsStore.RecordPushFailure(ctx, reason); err != nil {
+		log.Printf("manageserver/license: record push failure: %v", err)
+	}
 }
 
 // stopLicence cancels any running usage pusher and clears all licence fields.

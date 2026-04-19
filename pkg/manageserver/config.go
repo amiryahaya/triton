@@ -14,6 +14,11 @@ type Config struct {
 	InstanceID    string            // UUID for this Manage instance
 	SessionTTL    time.Duration     // default 24h
 
+	// Parallelism is the scan-orchestrator worker count (Batch E).
+	// Zero defaults to 10 inside NewOrchestrator; negative is clamped
+	// there too. Capped at 50 to bound Postgres connection usage.
+	Parallelism int
+
 	// Reserved for B2 — unused here, but config carries them so B2 is a drop-in.
 	ReportServer string //nolint:unused // wired in B2
 }

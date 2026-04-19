@@ -11,10 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
+	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
+	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
 	"github.com/amiryahaya/triton/pkg/manageserver/zones"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
@@ -40,6 +43,15 @@ type Server struct {
 	// the shared pool and mounted under /api/v1/admin/*.
 	zonesAdmin *zones.AdminHandlers
 	hostsAdmin *hosts.AdminHandlers
+
+	// Batch E admin handlers + the scanner pipeline stores. Orchestrator
+	// + drain goroutines are spawned in Run() — not in New() — so
+	// construction stays side-effect-free and testable.
+	scanjobsAdmin   *scanjobs.AdminHandlers
+	pushStatusAdmin *scanresults.AdminHandlers
+	scanjobsStore   scanjobs.Store
+	resultsStore    scanresults.Store
+	hostsStore      *hosts.PostgresStore
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
@@ -66,12 +78,21 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		return nil, fmt.Errorf("nil pool")
 	}
 
+	hostsStore := hosts.NewPostgresStore(pool)
+	resultsStore := scanresults.NewPostgresStore(pool)
+	scanjobsStore := scanjobs.NewPostgresStore(pool)
+
 	srv := &Server{
-		cfg:          cfg,
-		store:        store,
-		loginLimiter: newLoginRateLimiter(),
-		zonesAdmin:   zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
-		hostsAdmin:   hosts.NewAdminHandlers(hosts.NewPostgresStore(pool)),
+		cfg:             cfg,
+		store:           store,
+		loginLimiter:    newLoginRateLimiter(),
+		zonesAdmin:      zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
+		hostsAdmin:      hosts.NewAdminHandlers(hostsStore),
+		scanjobsAdmin:   scanjobs.NewAdminHandlers(scanjobsStore, resultsStore),
+		pushStatusAdmin: scanresults.NewAdminHandlers(resultsStore),
+		scanjobsStore:   scanjobsStore,
+		resultsStore:    resultsStore,
+		hostsStore:      hostsStore,
 	}
 	if err := srv.initSetupState(context.Background()); err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
@@ -174,15 +195,24 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.injectInstanceOrg)
 		r.Route("/zones", func(r chi.Router) { zones.MountAdminRoutes(r, s.zonesAdmin) })
 		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
-		// scan-jobs, agents, push-status, enrol mounted in later batches.
+		r.Route("/scan-jobs", func(r chi.Router) { scanjobs.MountAdminRoutes(r, s.scanjobsAdmin) })
+		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
+		// agents, enrol mounted in later batches.
 	})
 
 	return r
 }
 
 // Run starts the HTTP listener and blocks until ctx is cancelled.
-// On shutdown, blocks up to 10s for in-flight requests to complete.
+// On shutdown, blocks up to 10s for in-flight requests to complete
+// and waits for the orchestrator + drain goroutines to exit.
 func (s *Server) Run(ctx context.Context) error {
+	// Spawn the Batch E scanner pipeline before the HTTP listener comes
+	// up so we never serve /scan-jobs while the orchestrator is offline.
+	// startScannerPipeline derives a cancellable child context from ctx;
+	// stopScannerPipeline waits for graceful exit.
+	pipelineWG := s.startScannerPipeline(ctx)
+
 	s.http = &http.Server{
 		Addr:              s.cfg.Listen,
 		Handler:           s.router,
@@ -203,11 +233,90 @@ func (s *Server) Run(ctx context.Context) error {
 		s.stopLicence()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return s.http.Shutdown(shutdownCtx)
+		shutdownErr := s.http.Shutdown(shutdownCtx)
+		// Wait for orchestrator + drain goroutines. The parent ctx is
+		// already cancelled; they'll exit after their current poll tick.
+		pipelineWG.Wait()
+		return shutdownErr
 	case err := <-errCh:
 		s.stopLicence()
+		pipelineWG.Wait()
 		return err
 	}
+}
+
+// startScannerPipeline spawns the orchestrator + drain goroutines. It
+// returns a WaitGroup the caller blocks on during shutdown so a
+// cancelled ctx doesn't leave workers running past Run's return.
+//
+// Two resolvers are intentionally best-effort at startup:
+//   - InstanceID: if setup hasn't completed yet, we log and skip the
+//     orchestrator. Future /setup/license activations can restart the
+//     pipeline via a call-site outside this function (Batch F/G).
+//   - Push creds: not present until Batch G's auto-enrol populates
+//     manage_push_creds. We log and skip; drain will start idling
+//     once creds land.
+//
+// Either branch returns a "drained" WaitGroup so Run.Wait is a no-op.
+func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
+	var wg sync.WaitGroup
+
+	state, err := s.store.GetSetup(ctx)
+	if err != nil {
+		log.Printf("manageserver: scanner pipeline: read setup state: %v (skipping orchestrator + drain)", err)
+		return &wg
+	}
+	if state.InstanceID == "" {
+		log.Printf("manageserver: scanner pipeline: instance_id not set (setup incomplete); skipping orchestrator + drain")
+		return &wg
+	}
+	instanceID, err := uuid.Parse(state.InstanceID)
+	if err != nil {
+		log.Printf("manageserver: scanner pipeline: parse instance_id %q: %v (skipping orchestrator + drain)", state.InstanceID, err)
+		return &wg
+	}
+
+	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
+		Store:       s.scanjobsStore,
+		ResultStore: s.resultsStore,
+		Parallelism: s.cfg.Parallelism,
+		ScanFunc:    scanjobs.NewScanFunc(s.hostsStore),
+		SourceID:    instanceID,
+	})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		orch.Run(ctx)
+	}()
+
+	// Drain is best-effort: missing creds = log + idle. Batch G wires
+	// the /setup or /enrol flow that persists creds; until then the
+	// queue fills up with scan results and /admin/push-status surfaces
+	// the backlog via queue_depth.
+	creds, err := s.resultsStore.LoadPushCreds(ctx)
+	if err != nil {
+		log.Printf("manageserver: scanner pipeline: push creds not present (%v); drain idle until populated", err)
+		return &wg
+	}
+	client, err := scanresults.BuildHTTPClient(creds)
+	if err != nil {
+		log.Printf("manageserver: scanner pipeline: build push http client: %v; drain disabled", err)
+		return &wg
+	}
+	drain := scanresults.NewDrain(scanresults.DrainConfig{
+		Store:     s.resultsStore,
+		ReportURL: creds.ReportURL,
+		Client:    client,
+		Batch:     100,
+		Interval:  5 * time.Second,
+	})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		drain.Run(ctx)
+	}()
+
+	return &wg
 }
 
 // manageSecurityHeaders adds baseline security headers to every response.

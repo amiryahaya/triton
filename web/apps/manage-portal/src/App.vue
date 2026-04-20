@@ -71,8 +71,9 @@ async function onLogin(creds: { email: string; password: string }) {
   try {
     const resp = await api.get().login(creds.email, creds.password);
     auth.setToken(resp.token);
-    // Future phase: resp.must_change_password → push to change-password
-    // view. Phase 1 has no such view; admins reset via the API directly.
+    // No push needed here: the new JWT carries mcp=<user.must_change_pw>,
+    // and the route guard in router.ts redirects to /auth/change-password
+    // on the next navigation when mustChangePassword is true.
   } catch (err) {
     loginError.value = err instanceof Error ? err.message : 'Sign-in failed';
   } finally {

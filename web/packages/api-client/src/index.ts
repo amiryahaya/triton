@@ -11,4 +11,15 @@ export type {
   ChangePasswordRequest,
   ChangePasswordResponse,
 } from './reportServer';
+export { createManageApi } from './manageServer';
+export type { ManageApi } from './manageServer';
+export type {
+  SetupStatus, CreateAdminReq, CreateAdminResp,
+  ActivateLicenseReq, ActivateLicenseResp,
+  LoginResp as ManageLoginResp, ManageUser,
+  Zone, Host, CreateHostReq, UpdateHostReq,
+  Agent, AgentStatus,
+  ScanJob, ScanJobStatus, ScanJobProfile, EnqueueReq,
+  PushStatus, CreateUserReq, CreateUserResp,
+} from './manageServer.types';
 export * from './types';

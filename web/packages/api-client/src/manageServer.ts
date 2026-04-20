@@ -26,6 +26,8 @@ export function createManageApi(http: Http) {
     login: (email: string, password: string) => http.post<LoginResp>('/v1/auth/login', { email, password }),
     logout: () => http.post<{ ok: boolean }>('/v1/auth/logout', {}),
     refresh: () => http.post<LoginResp>('/v1/auth/refresh', {}),
+    changePassword: (req: { current: string; next: string }) =>
+      http.post<LoginResp>('/v1/auth/change-password', req),
     me: () => http.get<ManageUser>('/v1/me'),
 
     // Zones

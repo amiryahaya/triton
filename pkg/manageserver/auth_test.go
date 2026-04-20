@@ -93,6 +93,21 @@ func TestVerifyPassword_WrongPasswordFails(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestJWT_McpRoundTrip(t *testing.T) {
+	in := JWTClaims{
+		Sub:  "u1",
+		Role: "admin",
+		Iat:  100,
+		Exp:  9999999999,
+		Mcp:  true,
+	}
+	token, err := signJWT(in, testKey32)
+	require.NoError(t, err)
+	out, err := parseJWT(token, testKey32)
+	require.NoError(t, err)
+	assert.True(t, out.Mcp, "Mcp lost in round trip")
+}
+
 func TestHashToken_DeterministicAndHex(t *testing.T) {
 	const token = "test.jwt.token"
 	h1 := hashToken(token)

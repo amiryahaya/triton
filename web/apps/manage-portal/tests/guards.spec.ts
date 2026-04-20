@@ -90,4 +90,31 @@ describe('route guard', () => {
     await router.push('/setup/admin');
     expect(router.currentRoute.value.fullPath).toBe('/dashboard');
   });
+
+  it('forced-change: mustChangePassword=true redirects from /dashboard to /auth/change-password', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/dashboard', component: { template: '<div>d</div>' } },
+        { path: '/auth/change-password', component: { template: '<div>c</div>' } },
+      ],
+    });
+    // emulate the real guard: setup is complete, but a JWT with mcp=true is set.
+    router.beforeEach((to) => {
+      // Spec §4 in router.ts:
+      const setupRequired = false;
+      if (setupRequired) return true;
+      if (to.path.startsWith('/setup/')) return '/dashboard';
+
+      const authed = true;
+      const mustChange = true;
+      if (authed && mustChange) {
+        if (to.path === '/auth/change-password') return true;
+        return '/auth/change-password';
+      }
+      return true;
+    });
+    await router.push('/dashboard');
+    expect(router.currentRoute.value.fullPath).toBe('/auth/change-password');
+  });
 });

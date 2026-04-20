@@ -9,6 +9,7 @@ import {
   TCrumbBar,
   TUserMenu,
   TToastHost,
+  TButton,
   useTheme,
   useToast,
   type Crumb,
@@ -70,8 +71,9 @@ async function onLogin(creds: { email: string; password: string }) {
   try {
     const resp = await api.get().login(creds.email, creds.password);
     auth.setToken(resp.token);
-    // Future phase: resp.must_change_password → push to change-password
-    // view. Phase 1 has no such view; admins reset via the API directly.
+    // No push needed here: the new JWT carries mcp=<user.must_change_pw>,
+    // and the route guard in router.ts redirects to /auth/change-password
+    // on the next navigation when mustChangePassword is true.
   } catch (err) {
     loginError.value = err instanceof Error ? err.message : 'Sign-in failed';
   } finally {
@@ -94,8 +96,10 @@ async function signOut() {
 <template>
   <!-- Setup routes render BELOW the auth gate — they don't need a JWT -->
   <!-- to reach. TAuthGate only activates when the user navigates to a -->
-  <!-- non-setup route. -->
-  <template v-if="route.path.startsWith('/setup/')">
+  <!-- non-setup route. The change-password view also renders standalone -->
+  <!-- so forced-change users (JWT has mcp=true) aren't blocked by the -->
+  <!-- AppShell chrome before they can comply. -->
+  <template v-if="route.path.startsWith('/setup/') || route.path === '/auth/change-password'">
     <router-view />
   </template>
   <template v-else>
@@ -134,6 +138,13 @@ async function signOut() {
               current-id="manage"
             />
             <TThemeToggle />
+            <TButton
+              variant="ghost"
+              size="sm"
+              @click="router.push('/auth/change-password')"
+            >
+              Change password
+            </TButton>
             <TUserMenu
               :name="userName"
               :role="userRole"

@@ -55,6 +55,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Iat:  now.Unix(),
 		Exp:  now.Add(s.cfg.SessionTTL).Unix(),
 		Jti:  now.UnixNano(),
+		Mcp:  user.MustChangePW,
 	}
 	token, err := signJWT(claims, s.cfg.JWTSigningKey)
 	if err != nil {
@@ -134,6 +135,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		Iat:  now.Unix(),
 		Exp:  now.Add(s.cfg.SessionTTL).Unix(),
 		Jti:  now.UnixNano(),
+		Mcp:  user.MustChangePW,
 	}
 	newToken, err := signJWT(newClaims, s.cfg.JWTSigningKey)
 	if err != nil {
@@ -155,6 +157,111 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"token": newToken})
+}
+
+// handleChangePassword rotates the authenticated user's password and issues
+// a fresh session. Tolerates must_change_pw=true sessions — this is the one
+// endpoint forced-change users can hit.
+//
+// POST /api/v1/auth/change-password
+// Body: {"current":"<plain>","next":"<plain>"}
+// 200:  {"token":"<jwt>","expires_at":"...","must_change_password":false}
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+
+	// 1. Auth — parse token, locate session + user.
+	token := bearerToken(r)
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "missing authorization header")
+		return
+	}
+	claims, err := parseJWT(token, s.cfg.JWTSigningKey)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid or expired token")
+		return
+	}
+	oldHash := hashToken(token)
+	oldSess, err := s.store.GetSessionByTokenHash(r.Context(), oldHash)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session not found")
+		return
+	}
+	user, err := s.store.GetUserByID(r.Context(), claims.Sub)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "user not found")
+		return
+	}
+
+	// 2. Decode + validate body.
+	var req struct {
+		Current string `json:"current"`
+		Next    string `json:"next"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Current == "" || req.Next == "" {
+		writeError(w, http.StatusBadRequest, "current and next password required")
+		return
+	}
+	if req.Next == req.Current {
+		writeError(w, http.StatusBadRequest, "new password must differ from current")
+		return
+	}
+	if err := validatePassword(req.Next); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// 3. Verify current password.
+	if err := VerifyPassword(user.PasswordHash, req.Current); err != nil {
+		writeError(w, http.StatusUnauthorized, "current password incorrect")
+		return
+	}
+
+	// 4. Hash + persist (atomically clears must_change_pw inside
+	// UpdateUserPassword).
+	nextHash, err := HashPassword(req.Next)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if err := s.store.UpdateUserPassword(r.Context(), user.ID, nextHash); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	// 5. Rotate session — delete old row BEFORE minting the new token so a
+	// token_hash collision on same-second issue can never fire.
+	_ = s.store.DeleteSession(r.Context(), oldSess.ID)
+
+	now := time.Now()
+	newClaims := JWTClaims{
+		Sub:  user.ID,
+		Role: user.Role,
+		Iat:  now.Unix(),
+		Exp:  now.Add(s.cfg.SessionTTL).Unix(),
+		Jti:  now.UnixNano(),
+		Mcp:  false,
+	}
+	newToken, err := signJWT(newClaims, s.cfg.JWTSigningKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	expiresAt := now.Add(s.cfg.SessionTTL)
+	newSess := &managestore.ManageSession{
+		UserID:    user.ID,
+		TokenHash: hashToken(newToken),
+		ExpiresAt: expiresAt,
+	}
+	if err := s.store.CreateSession(r.Context(), newSess); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":                newToken,
+		"expires_at":           expiresAt.UTC().Format(time.RFC3339),
+		"must_change_password": false,
+	})
 }
 
 // handleMe returns the authenticated user (requires jwtAuth middleware).

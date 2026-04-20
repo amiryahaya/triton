@@ -1,3 +1,3 @@
 <template>
-  <div>Manage Portal boot</div>
+  <router-view />
 </template>

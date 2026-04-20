@@ -18,12 +18,18 @@ import (
 )
 
 // JWTClaims are the payload fields for Manage Server HS256 JWTs.
+//
+// The Mcp ("must change password") field is a one-bit hint the frontend route
+// guard reads without a /me round-trip. It mirrors ManageUser.MustChangePW at
+// the moment the token was minted; after a successful /auth/change-password
+// flow the next JWT carries Mcp=false.
 type JWTClaims struct {
 	Sub  string `json:"sub"`  // user UUID
 	Role string `json:"role"` // "admin" | "network_engineer"
 	Iat  int64  `json:"iat"`
 	Exp  int64  `json:"exp"`
 	Jti  int64  `json:"jti,omitempty"` // nanosecond nonce — guarantees uniqueness across same-second issues
+	Mcp  bool   `json:"mcp,omitempty"` // must_change_password — frontend guard pushes user to /auth/change-password
 }
 
 // jwtHeader is the fixed header for HS256 JWTs, pre-encoded.

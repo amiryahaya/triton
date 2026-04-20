@@ -55,6 +55,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Iat:  now.Unix(),
 		Exp:  now.Add(s.cfg.SessionTTL).Unix(),
 		Jti:  now.UnixNano(),
+		Mcp:  user.MustChangePW,
 	}
 	token, err := signJWT(claims, s.cfg.JWTSigningKey)
 	if err != nil {
@@ -134,6 +135,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		Iat:  now.Unix(),
 		Exp:  now.Add(s.cfg.SessionTTL).Unix(),
 		Jti:  now.UnixNano(),
+		Mcp:  user.MustChangePW,
 	}
 	newToken, err := signJWT(newClaims, s.cfg.JWTSigningKey)
 	if err != nil {

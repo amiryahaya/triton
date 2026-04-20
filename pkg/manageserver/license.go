@@ -84,6 +84,11 @@ func (s *Server) startLicence(ctx context.Context) error {
 // want to exercise a fake licence install it via Set*CapGuardForTest,
 // which the override resolvers consult before falling through to
 // s.licenceGuard.
+func (s *Server) guardSnapshot() *license.Guard {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.licenceGuard
+}
 
 // hostGuardProvider is the closure wired into hosts.AdminHandlers. It
 // consults the per-package test override first so Set*CapGuardForTest

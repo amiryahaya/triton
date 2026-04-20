@@ -5,9 +5,22 @@ package manageserver
 import (
 	"context"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
+
+// SetLicenceGuardForTest swaps the top-level s.licenceGuard under the
+// licence mutex so integration tests can exercise the
+// /api/v1/admin/licence handler without constructing a real licence
+// server stub. Pass nil to simulate "licence inactive".
+//
+// Production code never calls this — startLicence is the real wiring.
+func (s *Server) SetLicenceGuardForTest(g *license.Guard) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.licenceGuard = g
+}
 
 // GatewayStateForTest exposes the atomic gateway state for integration
 // tests that assert the retry loop + listener-up transitions. Returns

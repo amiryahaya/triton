@@ -9,7 +9,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard',                    name: 'dashboard',   component: Placeholder },
   { path: '/setup/admin',                  name: 'setupAdmin',  component: () => import('./views/SetupAdmin.vue') },
   { path: '/setup/license',                name: 'setupLicense',component: () => import('./views/SetupLicense.vue') },
-  { path: '/inventory/zones',              name: 'zones',       component: Placeholder },
+  { path: '/inventory/zones',              name: 'zones',       component: () => import('./views/Zones.vue') },
   { path: '/inventory/hosts',              name: 'hosts',       component: Placeholder },
   { path: '/inventory/agents',             name: 'agents',      component: Placeholder },
   { path: '/operations/scan-jobs',         name: 'scanJobs',    component: Placeholder },

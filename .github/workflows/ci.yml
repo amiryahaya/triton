@@ -56,10 +56,8 @@ jobs:
         working-directory: web
         run: pnpm build
 
-      # Both license-portal and report-portal Vite builds now populate
-      # their respective pkg/<portal>/ui/dist/ directories. When the
-      # manage-portal Vite build lands (PR C), add pkg/manageserver/ui/dist/
-      # to the path list below.
+      # All three portals' Vite builds populate their respective
+      # pkg/<portal>/ui/dist/ directories.
       - name: Upload built portals
         uses: actions/upload-artifact@v4
         with:
@@ -67,6 +65,7 @@ jobs:
           path: |
             pkg/licenseserver/ui/dist/
             pkg/server/ui/dist/
+            pkg/manageserver/ui/dist/
           if-no-files-found: error
           retention-days: 7
 

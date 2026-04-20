@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -260,6 +261,20 @@ func (s *Server) buildRouter() chi.Router {
 			r.Post("/users", s.handleCreateUser)
 			r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
 		})
+	})
+
+	// Serve the embedded Vue portal at /ui/. Root and unknown paths
+	// redirect to /ui/ so operators can visit https://manage.example.com
+	// and land on the dashboard. The hash router inside the SPA handles
+	// deep links (#/inventory/hosts etc.) so no SPA-fallback logic is
+	// needed here.
+	uiSub, _ := fs.Sub(uiFS, "ui/dist")
+	r.Handle("/ui/*", http.StripPrefix("/ui/", http.FileServer(http.FS(uiSub))))
+	r.Get("/ui", func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, "/ui/", http.StatusMovedPermanently)
+	})
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, "/ui/", http.StatusFound)
 	})
 
 	return r

@@ -30,6 +30,8 @@ pkg/licenseserver/ui/dist/*
 !pkg/licenseserver/ui/dist/.gitkeep
 pkg/server/ui/dist/*
 !pkg/server/ui/dist/.gitkeep
+pkg/manageserver/ui/dist/*
+!pkg/manageserver/ui/dist/.gitkeep
 !pkg/licenseserver/download/dist/
 build/
 

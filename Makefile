@@ -1,4 +1,4 @@
-.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-test web-clean
+.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-build-manage web-test web-clean
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -110,7 +110,7 @@ container-stop-licenseserver:
 	podman compose --profile license-server down
 
 # Manage server container lifecycle
-container-build-manageserver:
+container-build-manageserver: web-build-manage
 	podman compose --profile manage-server build
 
 container-run-manageserver: container-build-manageserver
@@ -210,6 +210,9 @@ web-install:
 
 web: web-install
 	cd web && pnpm build
+
+web-build-manage: web-install
+	cd web && pnpm --filter manage-portal build
 
 web-test: web-install
 	cd web && pnpm test

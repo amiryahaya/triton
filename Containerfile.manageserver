@@ -15,5 +15,9 @@ ENV HOME=/tmp
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /triton-manageserver /triton-manageserver
-EXPOSE 8082
+# Default the agent-gateway listener to :8443 inside the container so a
+# bare `podman run` exposes both the admin plane (:8082) and the agent
+# mTLS plane (:8443) without requiring an explicit override.
+ENV TRITON_MANAGE_GATEWAY_LISTEN=:8443
+EXPOSE 8082 8443
 ENTRYPOINT ["/triton-manageserver"]

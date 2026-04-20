@@ -66,6 +66,11 @@ describe('createManageApi', () => {
     await api.getLicence();
     expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/licence' });
   });
+
+  it('getSettings GETs /v1/admin/settings', async () => {
+    await api.getSettings();
+    expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/settings' });
+  });
 });
 
 describe('enrolAgent (direct fetch)', () => {

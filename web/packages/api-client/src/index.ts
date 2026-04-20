@@ -22,5 +22,6 @@ export type {
   ScanJob, ScanJobStatus, ScanJobProfile, EnqueueReq,
   PushStatus, CreateUserReq, CreateUserResp,
   LimitPair, ScansLimitPair, LicenceSummary,
+  SettingsSummary,
 } from './manageServer.types';
 export * from './types';

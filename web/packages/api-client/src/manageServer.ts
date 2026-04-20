@@ -6,7 +6,7 @@ import type {
   Zone, Host, CreateHostReq, UpdateHostReq,
   Agent, ScanJob, EnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
-  LicenceSummary,
+  LicenceSummary, SettingsSummary,
 } from './manageServer.types';
 
 /**
@@ -91,6 +91,9 @@ export function createManageApi(http: Http) {
 
     // Licence summary (Batch E)
     getLicence: () => http.get<LicenceSummary>('/v1/admin/licence'),
+
+    // Runtime settings (Batch F)
+    getSettings: () => http.get<SettingsSummary>('/v1/admin/settings'),
   };
 }
 

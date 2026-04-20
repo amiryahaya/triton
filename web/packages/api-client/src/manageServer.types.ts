@@ -167,3 +167,16 @@ export interface LicenceSummary {
   last_push_error: string;
   consecutive_failures: number;
 }
+
+// SettingsSummary mirrors pkg/manageserver.SettingsSummary — the
+// read-only runtime config exposed at GET /v1/admin/settings. Field
+// names are snake_case to match the Go JSON shape 1:1 (no rename layer).
+export interface SettingsSummary {
+  parallelism: number;
+  gateway_listen: string;
+  gateway_hostname: string;
+  report_server_url: string;
+  manage_listen: string;
+  instance_id: string;
+  version: string;
+}

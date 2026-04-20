@@ -71,7 +71,7 @@ export function createManageApi(http: Http) {
     listScanJobs: (opts?: { status?: string; limit?: number }) => {
       const params = new URLSearchParams();
       if (opts?.status) params.set('status', opts.status);
-      if (opts?.limit) params.set('limit', String(opts.limit));
+      if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
       const qs = params.toString() ? `?${params}` : '';
       return http.get<ScanJob[]>(`/v1/admin/scan-jobs/${qs}`);
     },

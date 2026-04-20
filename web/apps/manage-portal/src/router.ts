@@ -25,14 +25,9 @@ export const router = createRouter({
   routes,
 });
 
-// Ensure both stores are referenced so this import is not dropped by the
-// TS checker. Authentication is enforced by TAuthGate in App.vue, not the
-// router; keeping the import here documents the store dependency and
-// leaves room for a future refinement that handles 401s in the guard.
-void useAuthStore;
-
 router.beforeEach(async (to) => {
   const setup = useSetupStore();
+  const auth = useAuthStore();
 
   // 1. Ensure we have setup status at least once per session load. The
   //    store's loading flag prevents concurrent refreshes.
@@ -53,6 +48,15 @@ router.beforeEach(async (to) => {
     return { path: '/dashboard' };
   }
 
-  // 4. JWT is enforced via TAuthGate in App.vue.
+  // 4. Forced-change: a logged-in user with must_change_password=true is
+  //    trapped on /auth/change-password until they comply. The endpoint
+  //    is reachable; everything else redirects there.
+  const tokenLive = Boolean(auth.token) && !auth.isExpired;
+  if (tokenLive && auth.claims?.mustChangePassword) {
+    if (to.path === '/auth/change-password') return true;
+    return { path: '/auth/change-password' };
+  }
+
+  // 5. JWT is enforced via TAuthGate in App.vue.
   return true;
 });

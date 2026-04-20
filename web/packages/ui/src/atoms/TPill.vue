@@ -6,7 +6,7 @@ export type PillVariant =
   | 'info' | 'neutral' | 'enterprise';
 
 withDefaults(
-  defineProps<{ variant?: PillVariant; dot?: boolean }>(),
+  defineProps<{ variant?: PillVariant; dot?: boolean; title?: string }>(),
   { variant: 'neutral', dot: true }
 );
 </script>
@@ -15,6 +15,7 @@ withDefaults(
   <span
     class="t-pill"
     :class="`t-pill--${variant}`"
+    :title="title"
   >
     <TDot v-if="dot" />
     <slot />

@@ -16,8 +16,10 @@ export const useGatewayHealthStore = defineStore('gatewayHealth', () => {
     loading.value = true;
     try {
       state.value = await useApiClient().get().getGatewayHealth();
-    } catch {
-      // Non-fatal — the pill just hides.
+    } catch (e) {
+      // Non-fatal — the pill just hides. Log in dev so a misconfigured
+      // endpoint or broken auth token is detectable.
+      if (import.meta.env.DEV) console.warn('[gatewayHealth] fetch failed:', e);
     } finally {
       loading.value = false;
     }

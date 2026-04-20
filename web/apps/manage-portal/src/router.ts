@@ -11,7 +11,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/setup/license',                name: 'setupLicense',component: () => import('./views/SetupLicense.vue') },
   { path: '/inventory/zones',              name: 'zones',       component: () => import('./views/Zones.vue') },
   { path: '/inventory/hosts',              name: 'hosts',       component: () => import('./views/Hosts.vue') },
-  { path: '/inventory/agents',             name: 'agents',      component: Placeholder },
+  { path: '/inventory/agents',             name: 'agents',      component: () => import('./views/Agents.vue') },
   { path: '/operations/scan-jobs',         name: 'scanJobs',    component: Placeholder },
   { path: '/operations/scan-jobs/:id',     name: 'scanJob',     component: Placeholder },
   { path: '/operations/push-status',       name: 'pushStatus',  component: Placeholder },

@@ -228,6 +228,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Post("/login", s.handleLogin)
 		r.Post("/logout", s.handleLogout)
 		r.Post("/refresh", s.handleRefresh)
+		r.Post("/change-password", s.handleChangePassword)
 	})
 
 	// Authenticated endpoints — require valid JWT.

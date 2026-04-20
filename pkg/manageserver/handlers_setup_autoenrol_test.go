@@ -183,6 +183,7 @@ func buildFakeBundle(instanceID, pubPEM string) ([]byte, error) {
 // server; after /setup/license returns 200, manage_push_creds and manage_ca
 // must be populated by the auto-enrol flow.
 func TestSetupLicense_AutoEnrolSucceeds(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	store, cleanup := openStoreForAutoEnrol(t)
 	defer cleanup()
 
@@ -271,6 +272,7 @@ func TestSetupLicense_AutoEnrolSucceeds(t *testing.T) {
 // /setup/license still returns 200 (best-effort contract); manage_push_creds
 // stays empty.
 func TestSetupLicense_AutoEnrolFailureIsLogged(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	store, cleanup := openStoreForAutoEnrol(t)
 	defer cleanup()
 
@@ -311,6 +313,7 @@ func TestSetupLicense_AutoEnrolFailureIsLogged(t *testing.T) {
 // skipped because the Report /enrol/manage endpoint requires the service
 // key header; there's no point firing a call guaranteed to 403.
 func TestSetupLicense_AutoEnrolSkippedWhenReportServerOnlySet(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	store, cleanup := openStoreForAutoEnrol(t)
 	defer cleanup()
 
@@ -356,6 +359,7 @@ func TestSetupLicense_AutoEnrolSkippedWhenReportServerOnlySet(t *testing.T) {
 // ReportServiceKey configured (ReportServer empty). Auto-enrol must be
 // skipped because there's no URL to POST the enrol request to.
 func TestSetupLicense_AutoEnrolSkippedWhenReportServiceKeyOnlySet(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	store, cleanup := openStoreForAutoEnrol(t)
 	defer cleanup()
 
@@ -392,6 +396,7 @@ func TestSetupLicense_AutoEnrolSkippedWhenReportServiceKeyOnlySet(t *testing.T) 
 // TestSetupLicense_AutoEnrolSkippedWhenUnconfigured — ReportServer + ReportServiceKey
 // both empty → auto-enrol is skipped silently; setup succeeds.
 func TestSetupLicense_AutoEnrolSkippedWhenUnconfigured(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	store, cleanup := openStoreForAutoEnrol(t)
 	defer cleanup()
 

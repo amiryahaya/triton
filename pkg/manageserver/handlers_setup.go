@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -138,6 +139,16 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 		req.LicenseServerURL == "" || req.LicenseKey == "" {
 		writeError(w, http.StatusBadRequest, "license_server_url and license_key required")
 		return
+	}
+
+	// Reject plaintext License Server URLs unless dev opts out explicitly.
+	// Production must use HTTPS so the license key isn't exposed on the wire.
+	if !strings.HasPrefix(req.LicenseServerURL, "https://") {
+		if os.Getenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER") != "true" {
+			writeError(w, http.StatusBadRequest,
+				"license_server_url must use https:// (set TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER=true to override in dev)")
+			return
+		}
 	}
 
 	// Activate against the License Server. The client is v1-shaped: it accepts

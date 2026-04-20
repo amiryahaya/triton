@@ -2,8 +2,6 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 import { useAuthStore } from './stores/auth';
 import { useSetupStore } from './stores/setup';
 
-const Placeholder = () => import('./views/_Placeholder.vue');
-
 const routes: RouteRecordRaw[] = [
   { path: '/',                             redirect: '/dashboard' },
   { path: '/dashboard',                    name: 'dashboard',   component: () => import('./views/Dashboard.vue') },
@@ -17,7 +15,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/operations/push-status',       name: 'pushStatus',  component: () => import('./views/PushStatus.vue') },
   { path: '/admin/users',                  name: 'users',       component: () => import('./views/Users.vue') },
   { path: '/admin/licence',                name: 'licence',     component: () => import('./views/Licence.vue') },
-  { path: '/admin/settings',               name: 'settings',    component: Placeholder },
+  { path: '/admin/settings',               name: 'settings',    component: () => import('./views/Settings.vue') },
   { path: '/:pathMatch(.*)*',              redirect: '/dashboard' },
 ];
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,6 +128,7 @@ func newStubLicenseServer(t *testing.T, resp fakeActivateResponse) *httptest.Ser
 }
 
 func TestSetupLicense_PersistsAndExitsSetupMode(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	srv, store, cleanup := openSetupServer(t)
 	defer cleanup()
 
@@ -193,6 +195,7 @@ func TestSetupLicense_PersistsAndExitsSetupMode(t *testing.T) {
 }
 
 func TestSetupLicense_RejectsWhenFeatureManageFalse(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	srv, store, cleanup := openSetupServer(t)
 	defer cleanup()
 
@@ -231,6 +234,7 @@ func TestSetupLicense_RejectsWhenFeatureManageFalse(t *testing.T) {
 }
 
 func TestSetupLicense_ReturnsBadRequestWhenLicenseServerUnreachable(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	srv, store, cleanup := openSetupServer(t)
 	defer cleanup()
 
@@ -289,6 +293,82 @@ func TestSetupLicense_RejectsBeforeAdmin(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+// --- Batch A: HTTPS gate on /setup/license --------------------------------
+
+func TestSetupLicense_RejectsHTTP(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "")
+	srv, _, cleanup := openSetupServer(t)
+	defer cleanup()
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Create admin first so we can reach /setup/license.
+	_, _ = http.Post(ts.URL+"/api/v1/setup/admin", "application/json", strings.NewReader(`{
+		"email":"admin@example.com","name":"A","password":"Sup3rStr0ngPw!"
+	}`))
+
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json", strings.NewReader(`{
+		"license_server_url":"http://insecure.example.com","license_key":"abc"
+	}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Contains(t, fmt.Sprintf("%v", body["error"]), "https://")
+}
+
+func TestSetupLicense_AllowsHTTPWhenEnvSet(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
+	srv, _, cleanup := openSetupServer(t)
+	defer cleanup()
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// Stub LS accepting activation.
+	ls := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token":"stub","features":{"manage":true}}`))
+	}))
+	defer ls.Close()
+
+	_, _ = http.Post(ts.URL+"/api/v1/setup/admin", "application/json", strings.NewReader(`{
+		"email":"admin@example.com","name":"A","password":"Sup3rStr0ngPw!"
+	}`))
+
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json", strings.NewReader(fmt.Sprintf(`{
+		"license_server_url":%q,"license_key":"abc"
+	}`, ls.URL)))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// With the env set we should NOT hit the https:// rejection.
+	// Downstream activation may still 4xx with a different error
+	// (stub may not sign a valid token); either way the body must
+	// NOT contain "must use https://".
+	body, _ := io.ReadAll(resp.Body)
+	assert.NotContains(t, string(body), "must use https://")
+}
+
+func TestSetupLicense_RejectsMissingScheme(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "")
+	srv, _, cleanup := openSetupServer(t)
+	defer cleanup()
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	_, _ = http.Post(ts.URL+"/api/v1/setup/admin", "application/json", strings.NewReader(`{
+		"email":"admin@example.com","name":"A","password":"Sup3rStr0ngPw!"
+	}`))
+
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json", strings.NewReader(`{
+		"license_server_url":"example.com","license_key":"abc"
+	}`))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 // openSetupServer returns a fresh-DB Server+Store in setup mode (no admin,

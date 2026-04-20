@@ -72,4 +72,44 @@ describe('Zones view', () => {
     expect(document.body.textContent).toContain('New zone');
     wrapper.unmount();
   });
+
+  it('renders cascade-aware delete confirmation', async () => {
+    const wrapper = mount(Zones, {
+      global: {
+        plugins: [
+          createTestingPinia({
+            createSpy: vi.fn,
+            initialState: {
+              zones: {
+                items: [
+                  {
+                    id: 'z1',
+                    name: 'dmz',
+                    description: '',
+                    created_at: '',
+                    updated_at: '',
+                  },
+                ],
+                loading: false,
+              },
+            },
+          }),
+        ],
+      },
+    });
+    await flushPromises();
+
+    const deleteBtn = wrapper.find('[data-test="zone-delete-z1"]');
+    expect(deleteBtn.exists()).toBe(true);
+    await deleteBtn.trigger('click');
+    await flushPromises();
+
+    const modal = document.querySelector('[data-test="confirm-dialog"]');
+    expect(modal).not.toBeNull();
+    const modalText = modal!.textContent ?? '';
+    expect(modalText).toContain('dmz');
+    expect(modalText).toContain('set zone_id to NULL');
+    expect(modalText).toContain('cannot be undone');
+    wrapper.unmount();
+  });
 });

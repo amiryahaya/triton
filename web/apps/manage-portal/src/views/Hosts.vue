@@ -181,6 +181,7 @@ async function onConfirmDelete() {
           <TButton
             variant="danger"
             size="sm"
+            :data-test="`host-delete-${row.id}`"
             @click="askDelete(row)"
           >
             Delete
@@ -206,9 +207,14 @@ async function onConfirmDelete() {
     <TConfirmDialog
       :open="confirmOpen"
       title="Delete host?"
-      :message="pendingDelete ? `Delete ${pendingDelete.hostname}? This cannot be undone.` : ''"
+      :message="pendingDelete
+        ? `Deleting host '${pendingDelete.hostname}' will set host_id to NULL on scan jobs `
+          + 'referencing it. Historical scan results remain in the queue / Report '
+          + 'Server. This cannot be undone.'
+        : ''"
       confirm-label="Delete"
       variant="danger"
+      data-test="confirm-dialog"
       @confirm="onConfirmDelete"
       @cancel="confirmOpen = false; pendingDelete = null"
     />

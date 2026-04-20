@@ -24,4 +24,9 @@ describe('TPill', () => {
     const w = mount(TPill, { slots: { default: 'Draft' } });
     expect(w.classes()).toContain('t-pill--neutral');
   });
+
+  it('binds title prop to root element', () => {
+    const w = mount(TPill, { props: { title: 'Tooltip text' }, slots: { default: 'x' } });
+    expect(w.attributes('title')).toBe('Tooltip text');
+  });
 });

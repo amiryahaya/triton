@@ -6,6 +6,7 @@ import type {
   Zone, Host, CreateHostReq, UpdateHostReq,
   Agent, ScanJob, EnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
+  LicenceSummary, SettingsSummary, GatewayHealthResponse,
 } from './manageServer.types';
 
 /**
@@ -87,6 +88,15 @@ export function createManageApi(http: Http) {
     // Users
     listUsers: () => http.get<ManageUser[]>('/v1/admin/users/'),
     createUser: (req: CreateUserReq) => http.post<CreateUserResp>('/v1/admin/users', req),
+
+    // Licence summary (Batch E)
+    getLicence: () => http.get<LicenceSummary>('/v1/admin/licence'),
+
+    // Runtime settings (Batch F)
+    getSettings: () => http.get<SettingsSummary>('/v1/admin/settings'),
+
+    // Gateway cert / listener health (Batch G)
+    getGatewayHealth: () => http.get<GatewayHealthResponse>('/v1/admin/gateway-health'),
   };
 }
 

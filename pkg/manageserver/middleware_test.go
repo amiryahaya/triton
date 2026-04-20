@@ -285,6 +285,17 @@ func openRawStore(t *testing.T) (*managestore.PostgresStore, func()) {
 // openOperationalServer creates a Server + Store pair that is already past
 // setup mode (admin created + license activated).
 func openOperationalServer(t *testing.T) (*manageserver.Server, *managestore.PostgresStore, func()) {
+	return openOperationalServerWithRetryInterval(t, 0)
+}
+
+// openOperationalServerWithRetryInterval mirrors openOperationalServer
+// but lets the caller override Config.GatewayRetryInterval for
+// deterministic test timing around the gateway retry loop. A zero
+// interval falls through to the production default (5s) inside
+// manageserver.New.
+func openOperationalServerWithRetryInterval(
+	t *testing.T, interval time.Duration,
+) (*manageserver.Server, *managestore.PostgresStore, func()) {
 	t.Helper()
 	schema := fmt.Sprintf("test_msrv_op_%d", serverTestSeq.Add(1))
 	store, err := managestore.NewPostgresStoreInSchema(context.Background(), getTestDBURL(), schema)
@@ -297,9 +308,11 @@ func openOperationalServer(t *testing.T) (*manageserver.Server, *managestore.Pos
 		"https://ls.example.com", "key", "tok", "00000000-0000-0000-0000-000000000001"))
 
 	cfg := &manageserver.Config{
-		Listen:        ":0",
-		JWTSigningKey: testJWTKey,
-		SessionTTL:    time.Hour,
+		Listen:               ":0",
+		GatewayListen:        ":0",
+		JWTSigningKey:        testJWTKey,
+		SessionTTL:           time.Hour,
+		GatewayRetryInterval: interval,
 	}
 	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)

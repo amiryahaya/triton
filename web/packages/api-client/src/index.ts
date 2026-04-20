@@ -21,5 +21,7 @@ export type {
   Agent, AgentStatus,
   ScanJob, ScanJobStatus, ScanJobProfile, EnqueueReq,
   PushStatus, CreateUserReq, CreateUserResp,
+  LimitPair, ScansLimitPair, LicenceSummary,
+  SettingsSummary, GatewayHealthResponse,
 } from './manageServer.types';
 export * from './types';

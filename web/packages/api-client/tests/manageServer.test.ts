@@ -61,6 +61,21 @@ describe('createManageApi', () => {
       body: { current: 'old', next: 'new' },
     });
   });
+
+  it('getLicence GETs /v1/admin/licence', async () => {
+    await api.getLicence();
+    expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/licence' });
+  });
+
+  it('getSettings GETs /v1/admin/settings', async () => {
+    await api.getSettings();
+    expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/settings' });
+  });
+
+  it('getGatewayHealth GETs /v1/admin/gateway-health', async () => {
+    await api.getGatewayHealth();
+    expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/gateway-health' });
+  });
 });
 
 describe('enrolAgent (direct fetch)', () => {

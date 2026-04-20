@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   TAppShell,
@@ -10,6 +10,7 @@ import {
   TUserMenu,
   TToastHost,
   TButton,
+  TPill,
   useTheme,
   useToast,
   type Crumb,
@@ -18,6 +19,7 @@ import { TAuthGate } from '@triton/auth';
 import { nav, apps, PORTAL_ACCENT } from './nav';
 import { useAuthStore } from './stores/auth';
 import { useApiClient } from './stores/apiClient';
+import { useGatewayHealthStore } from './stores/gatewayHealth';
 
 useTheme();
 const route = useRoute();
@@ -25,6 +27,18 @@ const router = useRouter();
 const auth = useAuthStore();
 const api = useApiClient();
 const toast = useToast();
+const gatewayHealth = useGatewayHealthStore();
+
+onMounted(() => gatewayHealth.startPolling());
+onBeforeUnmount(() => gatewayHealth.stopPolling());
+
+// Show a warn pill when cert will expire within 14 days. Hide when the
+// fetch hasn't completed yet (state is null) or when the cert is already
+// expired / not issued (days_remaining <= 0 — no actionable window).
+const gatewayCertWarn = computed(() => {
+  const s = gatewayHealth.state;
+  return !!s && s.cert_days_remaining > 0 && s.cert_days_remaining < 14;
+});
 
 const currentHref = computed(() => `#${route.path}`);
 
@@ -138,6 +152,13 @@ async function signOut() {
               current-id="manage"
             />
             <TThemeToggle />
+            <TPill
+              v-if="gatewayCertWarn"
+              variant="warn"
+              title="Restart triton-manageserver within this window to mint a fresh 90-day cert."
+            >
+              Gateway cert expires in {{ gatewayHealth.state?.cert_days_remaining }}d
+            </TPill>
             <TButton
               variant="ghost"
               size="sm"

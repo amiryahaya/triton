@@ -142,3 +142,52 @@ export interface CreateUserResp {
   role: string;
   temp_password: string;
 }
+
+export interface LimitPair {
+  cap: number;
+  used: number;
+}
+
+export interface ScansLimitPair extends LimitPair {
+  soft_buffer_ceiling: number;
+}
+
+export interface LicenceSummary {
+  tier: string;
+  features: Record<string, boolean>;
+  limits: {
+    seats: LimitPair;
+    hosts: LimitPair;
+    agents: LimitPair;
+    scans: ScansLimitPair;
+  };
+  license_server_url: string;
+  instance_id: string;
+  last_pushed_at: string | null;
+  last_push_error: string;
+  consecutive_failures: number;
+}
+
+// SettingsSummary mirrors pkg/manageserver.SettingsSummary — the
+// read-only runtime config exposed at GET /v1/admin/settings. Field
+// names are snake_case to match the Go JSON shape 1:1 (no rename layer).
+export interface SettingsSummary {
+  parallelism: number;
+  gateway_listen: string;
+  gateway_hostname: string;
+  report_server_url: string;
+  manage_listen: string;
+  instance_id: string;
+  version: string;
+}
+
+// GatewayHealthResponse mirrors pkg/manageserver.GatewayHealthResponse —
+// the read-only gateway cert/listener state exposed at
+// GET /v1/admin/gateway-health. Field names are snake_case to match the
+// Go JSON shape 1:1 (no rename layer).
+export interface GatewayHealthResponse {
+  ca_bootstrapped: boolean;
+  listener_state: 'pending_setup' | 'retry_loop' | 'up' | 'failed';
+  cert_expires_at: string | null;
+  cert_days_remaining: number;
+}

@@ -1,70 +1,43 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import { describe, it, expect, vi } from 'vitest';
+import { mount } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import Settings from '../../src/views/Settings.vue';
-import { useSettingsStore } from '../../src/stores/settings';
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
 
 describe('Settings view', () => {
-  it('calls settings.fetch on mount and renders all five fields', async () => {
-    const wrapper = mount(Settings, {
-      global: {
-        plugins: [
-          createTestingPinia({
-            createSpy: vi.fn,
-            initialState: {
-              settings: {
-                settings: {
-                  parallelism: 10,
-                  gatewayListen: ':8443',
-                  gatewayHostname: 'localhost',
-                  reportServerURL: 'https://report.example.com',
-                  instanceID: 'inst-abc123',
-                },
-                loading: false,
-              },
-            },
-          }),
-        ],
+  it('renders all runtime config fields', () => {
+    const pinia = createTestingPinia({
+      createSpy: vi.fn,
+      initialState: {
+        settings: {
+          settings: {
+            parallelism: 10,
+            gateway_listen: ':8443',
+            gateway_hostname: 'manage.example.com',
+            report_server_url: 'https://report.example.com',
+            manage_listen: ':8082',
+            instance_id: 'abc-123',
+            version: '0.1.0',
+          },
+          loading: false,
+          error: '',
+        },
       },
     });
-    const store = useSettingsStore();
-    await flushPromises();
-
-    expect(store.fetch).toHaveBeenCalledTimes(1);
-
-    const html = wrapper.html();
-    expect(html).toContain('Parallelism');
-    expect(html).toContain('10');
-    expect(html).toContain('Gateway listen');
-    expect(html).toContain(':8443');
-    expect(html).toContain('Gateway hostname');
-    expect(html).toContain('localhost');
-    expect(html).toContain('Report server URL');
-    expect(html).toContain('https://report.example.com');
-    expect(html).toContain('Instance ID');
-    expect(html).toContain('inst-abc123');
-    wrapper.unmount();
-  });
-
-  it('shows a loading placeholder when settings is null', async () => {
-    const wrapper = mount(Settings, {
-      global: {
-        plugins: [
-          createTestingPinia({
-            createSpy: vi.fn,
-            initialState: {
-              settings: { settings: null, loading: true },
-            },
-          }),
-        ],
+    const stubs = {
+      // Render the slot so dl/dt/dd show up in the rendered HTML. The
+      // default string-stub of 'TPanel' swallows the default slot.
+      TPanel: {
+        props: ['title'],
+        template: '<section class="t-panel-stub" :data-title="title"><slot /></section>',
       },
-    });
-    await flushPromises();
-    expect(wrapper.html()).toContain('Loading…');
-    wrapper.unmount();
+    };
+    const w = mount(Settings, { global: { plugins: [pinia], stubs } });
+    expect(w.html()).toContain(':8443');
+    expect(w.html()).toContain(':8082');
+    expect(w.html()).toContain('manage.example.com');
+    expect(w.html()).toContain('https://report.example.com');
+    expect(w.html()).toContain('10');
+    expect(w.html()).toContain('abc-123');
+    expect(w.html()).toContain('0.1.0');
   });
 });

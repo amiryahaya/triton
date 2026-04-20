@@ -503,6 +503,9 @@ func (f *manageE2EFixture) startRun(t *testing.T) {
 // requests.
 func (f *manageE2EFixture) completeSetup(t *testing.T) string {
 	t.Helper()
+	// Stub license servers in tests use http:// — opt out of the prod-safe
+	// HTTPS enforcement so the integration suite doesn't need a TLS harness.
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
 	const adminEmail = "admin@e2e.local"
 	const adminPassword = "e2e-password-1234" // ≥12 chars + digit
 

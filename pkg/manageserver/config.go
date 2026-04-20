@@ -33,6 +33,11 @@ type Config struct {
 	// GatewayHostname + GatewayListen.
 	ManageGatewayURL string
 
+	// GatewayRetryInterval is how often gatewayRetryLoop polls caStore.Load
+	// when CA is not yet bootstrapped. Default 5s; tests override to shorter
+	// for deterministic fast-path coverage.
+	GatewayRetryInterval time.Duration
+
 	// ReportServer is the base URL Manage calls to auto-enrol via
 	// /api/v1/admin/enrol/manage during /setup/license. Empty = skip
 	// auto-enrol (best-effort; admin can re-trigger later). Batch G.

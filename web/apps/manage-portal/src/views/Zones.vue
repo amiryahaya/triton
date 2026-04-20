@@ -108,6 +108,7 @@ async function onConfirmDelete() {
           <TButton
             variant="danger"
             size="sm"
+            :data-test="`zone-delete-${row.id}`"
             @click="askDelete(row)"
           >
             Delete
@@ -126,9 +127,15 @@ async function onConfirmDelete() {
     <TConfirmDialog
       :open="confirmOpen"
       title="Delete zone?"
-      :message="pendingDelete ? `Delete ${pendingDelete.name}? This cannot be undone.` : ''"
+      :message="pendingDelete
+        ? `Deleting zone '${pendingDelete.name}' will set zone_id to NULL on any hosts in `
+          + 'it (they become unassigned) and on any scan jobs referencing this '
+          + 'zone (audit trail preserved). Zone memberships are cascaded-deleted. '
+          + 'This cannot be undone.'
+        : ''"
       confirm-label="Delete"
       variant="danger"
+      data-test="confirm-dialog"
       @confirm="onConfirmDelete"
       @cancel="confirmOpen = false; pendingDelete = null"
     />

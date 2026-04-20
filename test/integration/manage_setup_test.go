@@ -128,6 +128,10 @@ func openManageServer(t *testing.T, pub []byte) (*manageserver.Server, *managest
 
 // TestManageServerSetupFlow — end-to-end happy path.
 func TestManageServerSetupFlow(t *testing.T) {
+	// Stub license server uses http:// — opt out of the prod-safe HTTPS
+	// enforcement so the integration suite doesn't need a TLS harness.
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
+
 	// 1. Mint an Ed25519 keypair + sign a licence token the stub LS returns.
 	pub, priv, err := license.GenerateKeypair()
 	require.NoError(t, err)

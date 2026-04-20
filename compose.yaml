@@ -211,8 +211,25 @@ services:
       # of the 64-byte private seed).
       TRITON_MANAGE_LICENSE_SERVER_PUBKEY: "${TRITON_MANAGE_LICENSE_SERVER_PUBKEY:?set TRITON_MANAGE_LICENSE_SERVER_PUBKEY in .env — public half of the license server signing key}"
       TRITON_MANAGE_SESSION_TTL: "${TRITON_MANAGE_SESSION_TTL:-24h}"
+      # Agent mTLS gateway listener (Batch F/I). Default :8443 inside the
+      # container; exposed via the "8443:8443" port mapping below so
+      # agents can reach it from outside the compose network.
+      TRITON_MANAGE_GATEWAY_LISTEN: ":8443"
+      # DNS name or IP used in the gateway server leaf's CN+SAN. Agents
+      # connecting from outside must reach Manage via this name; for
+      # local dev "localhost" works because the port is loopback-mapped.
+      TRITON_MANAGE_GATEWAY_HOSTNAME: "${MANAGE_GATEWAY_HOSTNAME:-localhost}"
+      # Scan orchestrator worker count. 1-50; zero/empty defaults to 10.
+      TRITON_MANAGE_PARALLELISM: "${MANAGE_PARALLELISM:-10}"
+      # Report Server base URL + service key for Manage auto-enrol after
+      # /setup/license completes. Both must be set for auto-enrol to fire;
+      # either alone is treated as unconfigured. Admin can re-trigger the
+      # enrol flow manually via the admin API.
+      TRITON_MANAGE_REPORT_SERVER: "${REPORT_URL:-}"
+      TRITON_MANAGE_REPORT_SERVICE_KEY: "${REPORT_SERVICE_KEY:-}"
     ports:
       - "8082:8082"
+      - "8443:8443"
 
   engine:
     build:

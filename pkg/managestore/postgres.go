@@ -38,6 +38,28 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 	return s, nil
 }
 
+// NewPostgresStoreFromPool wraps an externally-owned pgxpool.Pool as a
+// PostgresStore without touching connection or migration lifecycle.
+//
+// **Pool ownership.** The caller owns the pool's lifecycle. Do NOT call
+// Close() on the returned store when the pool is shared with other
+// packages — PostgresStore.Close() unconditionally closes the underlying
+// pool and would pull it out from under the other consumers. Close the
+// pool yourself when the last user is done. This contrasts with
+// NewPostgresStore, which is the sole owner of its pool and whose
+// Close() method IS the correct teardown path.
+//
+// The caller MUST have run Migrate(ctx, pool) (or gone through
+// NewPostgresStore which does this) before using the returned store, or
+// reads/writes will fail against a schema that doesn't exist.
+//
+// Mirrors pkg/store.NewPostgresStoreFromPool from B2.1. Intended for
+// cmd/manageserver/main.go, which runs BOTH managestore.Migrate and
+// store.Migrate against a single shared pool at boot.
+func NewPostgresStoreFromPool(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
+}
+
 // NewPostgresStoreInSchema is for integration tests — isolates tables
 // in a named schema so parallel test runs don't collide.
 func NewPostgresStoreInSchema(ctx context.Context, connStr, schema string) (*PostgresStore, error) {
@@ -96,23 +118,66 @@ func (s *PostgresStore) Close() error {
 	return nil
 }
 
-// migrate applies any unapplied schema migrations.
-func (s *PostgresStore) migrate(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS manage_schema_version (
+// Pool returns the underlying pgx connection pool. Exposed so other Manage
+// packages (zones, hosts, scanjobs) can share the single pool their store
+// already opened, instead of dialling a second time. The caller must NOT
+// Close() the returned pool — that remains the store's responsibility when
+// constructed via NewPostgresStore or NewPostgresStoreInSchema. When the
+// store was built via NewPostgresStoreFromPool, the original caller still
+// owns the pool's lifecycle.
+func (s *PostgresStore) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
+// Migrate applies any unapplied Manage Server schema migrations against the
+// given pool. Safe to call from any caller that owns a pgxpool.Pool against
+// the target database. Uses an advisory lock (id 7355693422) to serialise
+// concurrent migrators on the same database; the lock is released before
+// return. Idempotent — running twice against the same DB is a no-op for
+// already-applied migrations.
+//
+// Uses manage_schema_version (not schema_version) for version tracking, so
+// the Manage schema can cohabit a database with the Report Server's store
+// (pkg/store), which owns schema_version. This lets cmd/manageserver/main.go
+// call BOTH managestore.Migrate and store.Migrate on the same pool at boot.
+//
+// The advisory-lock id (7355693422) is deliberately one greater than
+// pkg/store.Migrate's id (7355693421) so the two migrations cannot deadlock
+// when run in sequence against the same pool.
+//
+// Mirrors pkg/store.Migrate from B2.1.
+func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS manage_schema_version (
 		version    INTEGER     NOT NULL UNIQUE,
 		applied_at TIMESTAMPTZ NOT NULL
 	)`)
 	if err != nil {
 		return fmt.Errorf("creating manage_schema_version: %w", err)
 	}
+
+	// Acquire a dedicated connection for advisory lock to prevent concurrent migrations.
+	// Advisory locks are session-level — we must hold the same connection for lock + migrations.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection for migration: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(7355693422)"); err != nil {
+		return fmt.Errorf("acquiring migration lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock(7355693422)")
+	}()
+
 	var current int
-	err = s.pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM manage_schema_version").Scan(&current)
+	err = conn.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM manage_schema_version").Scan(&current)
 	if err != nil {
 		return fmt.Errorf("reading schema version: %w", err)
 	}
 	for i := current; i < len(migrations); i++ {
 		version := i + 1
-		tx, err := s.pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin tx for migration %d: %w", version, err)
 		}
@@ -131,6 +196,13 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// migrate applies any unapplied schema migrations using the store's pool.
+// Thin wrapper over Migrate so the exported function is the single source
+// of truth.
+func (s *PostgresStore) migrate(ctx context.Context) error {
+	return Migrate(ctx, s.pool)
 }
 
 // --- Users -----------------------------------------------------------------

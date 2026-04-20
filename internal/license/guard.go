@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amiryahaya/triton/internal/scannerconfig"
@@ -14,9 +15,19 @@ import (
 )
 
 // Guard enforces feature gating based on the resolved licence tier.
+//
+// The usage map is populated by RecordUsage (called by the
+// UsagePusher's OnPushSuccess hook when the LS response includes
+// remaining-cap info). CurrentUsage reads it. Pre-Batch-H call sites
+// that never wire the hook see an empty map and a 0 read, which is
+// correct behaviour for soft-buffer checks that haven't been
+// primed yet.
 type Guard struct {
 	license *License // nil → free tier
 	tier    Tier
+
+	usageMu sync.RWMutex
+	usage   map[string]int64 // key: "<metric>/<window>"
 }
 
 // NewGuard creates a Guard by resolving the licence token from (in order):

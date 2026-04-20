@@ -46,7 +46,7 @@ func openTestServer(t *testing.T) (*manageserver.Server, func()) {
 		JWTSigningKey: testJWTKey,
 		SessionTTL:    0, // let New() default to 24h
 	}
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err, "New() must succeed on a fresh DB")
 
 	cleanup := func() {
@@ -76,7 +76,7 @@ func TestNew_RejectsShortJWTKey(t *testing.T) {
 		Listen:        ":0",
 		JWTSigningKey: []byte("tooshort"),
 	}
-	_, err = manageserver.New(cfg, store)
+	_, err = manageserver.New(cfg, store, store.Pool())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "≥32 bytes")
 }

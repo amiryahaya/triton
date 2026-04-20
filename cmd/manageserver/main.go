@@ -11,15 +11,21 @@
 //
 // Optional:
 //
-//   - TRITON_MANAGE_LISTEN        (default ":8082")
-//   - TRITON_MANAGE_SESSION_TTL   (default "24h")
+//   - TRITON_MANAGE_LISTEN              (default ":8082")
+//   - TRITON_MANAGE_SESSION_TTL         (default "24h")
+//   - TRITON_MANAGE_GATEWAY_LISTEN      (default ":8443")
+//   - TRITON_MANAGE_GATEWAY_HOSTNAME    (default "localhost")
+//   - TRITON_MANAGE_GATEWAY_URL         (default derived from hostname+listen)
+//   - TRITON_MANAGE_PARALLELISM         (default 10, clamped to [1,50])
+//   - TRITON_MANAGE_REPORT_SERVER       (base URL for auto-enrol; empty = skip)
+//   - TRITON_MANAGE_REPORT_SERVICE_KEY  (service-key header for auto-enrol;
+//     empty = skip even if SERVER is set)
 //
-// Reserved (unused in B1; kept in the contract for B2):
+// Reserved (unused; kept in the contract for future work):
 //
 //   - TRITON_MANAGE_INSTANCE_ID
 //   - TRITON_MANAGE_LICENSE_SERVER
 //   - TRITON_MANAGE_LICENSE_KEY
-//   - TRITON_MANAGE_REPORT_SERVER
 package main
 
 import (
@@ -30,11 +36,15 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/amiryahaya/triton/pkg/manageserver"
 	"github.com/amiryahaya/triton/pkg/managestore"
+	"github.com/amiryahaya/triton/pkg/store"
 )
 
 func main() {
@@ -49,6 +59,16 @@ func run() error {
 	jwtHex := envOr("TRITON_MANAGE_JWT_SIGNING_KEY", "")
 	pubHex := envOr("TRITON_MANAGE_LICENSE_SERVER_PUBKEY", "")
 	sessionTTLStr := envOr("TRITON_MANAGE_SESSION_TTL", "24h")
+
+	// B2.2 gateway + orchestrator + auto-enrol wiring. All optional —
+	// pkg/manageserver applies its own defaults (":8443", "localhost",
+	// 10 workers, skip auto-enrol) when these are empty.
+	gatewayListen := envOr("TRITON_MANAGE_GATEWAY_LISTEN", "")
+	gatewayHostname := envOr("TRITON_MANAGE_GATEWAY_HOSTNAME", "")
+	gatewayURL := envOr("TRITON_MANAGE_GATEWAY_URL", "")
+	parallelismStr := envOr("TRITON_MANAGE_PARALLELISM", "")
+	reportServer := envOr("TRITON_MANAGE_REPORT_SERVER", "")
+	reportServiceKey := envOr("TRITON_MANAGE_REPORT_SERVICE_KEY", "")
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_MANAGE_DB_URL is required")
@@ -82,22 +102,56 @@ func run() error {
 		return fmt.Errorf("parsing TRITON_MANAGE_SESSION_TTL %q (use Go duration format, e.g. 24h): %w", sessionTTLStr, err)
 	}
 
+	// Parallelism is optional — empty means "let pkg/manageserver
+	// default to 10" (NewOrchestrator clamps 0/negative to 10 and caps
+	// at 50). An invalid non-empty value fails fast so misconfigured
+	// deploys don't silently pin at 10.
+	var parallelism int
+	if parallelismStr != "" {
+		n, perr := strconv.Atoi(parallelismStr)
+		if perr != nil {
+			return fmt.Errorf("parsing TRITON_MANAGE_PARALLELISM %q (must be an integer): %w", parallelismStr, perr)
+		}
+		parallelism = n
+	}
+
 	ctx := context.Background()
-	store, err := managestore.NewPostgresStore(ctx, dbURL)
+
+	// Manage DB co-hosts BOTH the Manage-native schema (users, zones,
+	// hosts, scan_jobs, CA, …) AND the Report Server's read-model tables
+	// (scans, findings, …) that Manage consumes inline. Run both
+	// migrators against a single shared pool to avoid double-dialling.
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
-	defer func() { _ = store.Close() }()
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("pinging database: %w", err)
+	}
+	if err := managestore.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("running managestore migrations: %w", err)
+	}
+	if err := store.Migrate(ctx, pool); err != nil {
+		return fmt.Errorf("running scan store migrations: %w", err)
+	}
+	manageStore := managestore.NewPostgresStoreFromPool(pool)
 
 	cfg := &manageserver.Config{
-		Listen:        listen,
-		DBUrl:         dbURL,
-		JWTSigningKey: jwtKey,
-		PublicKey:     pubKey,
-		SessionTTL:    sessionTTL,
+		Listen:           listen,
+		DBUrl:            dbURL,
+		JWTSigningKey:    jwtKey,
+		PublicKey:        pubKey,
+		SessionTTL:       sessionTTL,
+		GatewayListen:    gatewayListen,
+		GatewayHostname:  gatewayHostname,
+		ManageGatewayURL: gatewayURL,
+		Parallelism:      parallelism,
+		ReportServer:     reportServer,
+		ReportServiceKey: reportServiceKey,
 	}
 
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, manageStore, pool)
 	if err != nil {
 		return fmt.Errorf("constructing server: %w", err)
 	}

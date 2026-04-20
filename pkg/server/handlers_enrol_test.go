@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,10 +14,13 @@ import (
 )
 
 // enrolReq POSTs to /api/v1/admin/enrol/manage with the given service key.
-// Empty serviceKey omits the header (used to test the 401 path).
-func enrolReq(t *testing.T, srv *Server, serviceKey string) *httptest.ResponseRecorder {
+// When body is nil, the request is sent without a body (used to exercise
+// the auth-gate paths only).
+func enrolReq(t *testing.T, srv *Server, serviceKey string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/manage", nil)
+	rdr := bytes.NewReader(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/manage", rdr)
+	req.Header.Set("Content-Type", "application/json")
 	if serviceKey != "" {
 		req.Header.Set("X-Triton-Service-Key", serviceKey)
 	}
@@ -25,30 +29,30 @@ func enrolReq(t *testing.T, srv *Server, serviceKey string) *httptest.ResponseRe
 	return w
 }
 
-// TestEnrolManage_Stub501 — with a valid service key the stub returns 501
-// with the B2 landing-pad message. PR B2 replaces this handler with the
-// real mTLS enrolment flow.
-func TestEnrolManage_Stub501(t *testing.T) {
+// TestEnrolManage_StubWhenNotConfigured — with a valid service key but no
+// ManageEnrolHandlers wired, the route returns 501 with a descriptive
+// message. Preserves the "not configured" escape hatch for Report-only
+// deployments that don't run Manage.
+func TestEnrolManage_StubWhenNotConfigured(t *testing.T) {
 	srv, _, key := testServerWithServiceKey(t)
-	w := enrolReq(t, srv, key)
+	w := enrolReq(t, srv, key, nil)
 
 	require.Equal(t, http.StatusNotImplemented, w.Code, "body: %s", w.Body.String())
-	assert.Contains(t, strings.ToLower(w.Body.String()), "b2")
-	assert.Contains(t, strings.ToLower(w.Body.String()), "enrol")
+	assert.Contains(t, strings.ToLower(w.Body.String()), "not configured")
 }
 
 // TestEnrolManage_MissingServiceKey — without a service key the route
 // returns 401 via the ServiceKeyAuth middleware (same as /api/v1/admin/orgs).
 func TestEnrolManage_MissingServiceKey(t *testing.T) {
 	srv, _, _ := testServerWithServiceKey(t)
-	w := enrolReq(t, srv, "")
+	w := enrolReq(t, srv, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 // TestEnrolManage_WrongServiceKey — a mismatched service key returns 403.
 func TestEnrolManage_WrongServiceKey(t *testing.T) {
 	srv, _, _ := testServerWithServiceKey(t)
-	w := enrolReq(t, srv, "wrong-key")
+	w := enrolReq(t, srv, "wrong-key", nil)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
@@ -57,6 +61,6 @@ func TestEnrolManage_WrongServiceKey(t *testing.T) {
 // route returns 404 like the other admin endpoints.
 func TestEnrolManage_RouteDisabledWithoutServiceKey(t *testing.T) {
 	srv, _ := testServer(t)
-	w := enrolReq(t, srv, "")
+	w := enrolReq(t, srv, "", nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }

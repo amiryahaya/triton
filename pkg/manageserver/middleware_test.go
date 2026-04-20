@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/pkg/manageserver"
+	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
@@ -55,7 +56,7 @@ func TestSetupOnly_RejectsWhenOperational(t *testing.T) {
 		JWTSigningKey: testJWTKey,
 		SessionTTL:    time.Hour,
 	}
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)
 
 	// Wrap SetupOnly around a simple handler.
@@ -191,6 +192,49 @@ func TestJWTAuth_SessionNotInStoreReturns401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
+func TestInjectInstanceOrg_StashesInstanceID(t *testing.T) {
+	srv, _, storeCleanup := openOperationalServer(t)
+	defer storeCleanup()
+
+	// openOperationalServer saves "00000000-0000-0000-0000-000000000001".
+	wantID := "00000000-0000-0000-0000-000000000001"
+
+	// Echo the UUID the middleware stashes.
+	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := orgctx.InstanceIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "no instance id", http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(id.String()))
+	})
+	ts := httptest.NewServer(srv.InjectInstanceOrgForTest(echo))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, wantID, string(body))
+}
+
+func TestInjectInstanceOrg_ServiceUnavailableWhenSetupIncomplete(t *testing.T) {
+	// Fresh-DB server: instance_id never populated.
+	srv, cleanup := openTestServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.InjectInstanceOrgForTest(okHandler))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
 func TestRequireRole_AdmitsMatchedRole(t *testing.T) {
 	srv, store, storeCleanup := openOperationalServer(t)
 	defer storeCleanup()
@@ -257,7 +301,7 @@ func openOperationalServer(t *testing.T) (*manageserver.Server, *managestore.Pos
 		JWTSigningKey: testJWTKey,
 		SessionTTL:    time.Hour,
 	}
-	srv, err := manageserver.New(cfg, store)
+	srv, err := manageserver.New(cfg, store, store.Pool())
 	require.NoError(t, err)
 
 	cleanup := func() {

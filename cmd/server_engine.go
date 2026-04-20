@@ -228,7 +228,11 @@ func startEngineGateway(
 	// Stash the request on the context so AuditAdapter can reach
 	// RemoteAddr when recording gateway events.
 	r.Use(server.StashRequestMiddleware)
-	r.Use(enginepkg.MTLSMiddleware(store))
+	// Manage_enrol store is nil here — this listener is the engine gateway
+	// (port 8443), which only serves engine: CNs. Manage pushes scan results
+	// to a separate Report endpoint; when that path is wired, it will use
+	// the same MTLSMiddleware with a populated manage_enrol.Store.
+	r.Use(enginepkg.MTLSMiddleware(store, nil))
 	r.Route("/api/v1/engine", func(sub chi.Router) {
 		enginepkg.MountGatewayRoutes(sub, gwHandlers)
 		// Onboarding Phase 3 — discovery long-poll + submit, mounted

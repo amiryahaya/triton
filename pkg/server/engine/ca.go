@@ -10,6 +10,7 @@
 package engine
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -103,41 +104,93 @@ func GenerateCA(masterKey []byte) (*CA, error) {
 //
 // masterKey must be the same key used to encrypt the CA at
 // GenerateCA time.
+//
+// Implemented on top of signLeafInternal so both engine and manage_enrol
+// leaves share a single signing codepath. Engine leaves keep their legacy
+// Organization ("Triton Engine") and KeyUsage (DigitalSignature only) for
+// backward compatibility with any fleet engines minted before this
+// refactor; the generic SignLeaf path uses "Triton" + DigitalSignature |
+// KeyEncipherment, which is the usual mTLS client-auth shape.
 func (c *CA) SignEngineCert(masterKey []byte, label string, pubKey ed25519.PublicKey) ([]byte, error) {
-	if c == nil {
-		return nil, errors.New("nil CA")
-	}
 	if len(pubKey) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("invalid Ed25519 public key length: %d", len(pubKey))
 	}
+	return c.signLeafInternal(leafSignSpec{
+		masterKey: masterKey,
+		cn:        label,
+		org:       "Triton Engine",
+		validity:  engineCertValidity,
+		keyUsage:  x509.KeyUsageDigitalSignature,
+		pub:       pubKey,
+	})
+}
 
-	caCert, caKey, err := c.parseAndDecrypt(masterKey)
+// SignLeaf signs a generic leaf cert with the provided CN, validity, and
+// public key. ExtKeyUsage is fixed to ClientAuth. This is the canonical
+// signing helper for non-engine leaves — currently consumed by the
+// manage_enrol package to mint `manage:` CN client certs against
+// externally-supplied ECDSA-P256 public keys.
+//
+// masterKey must match the key used to encrypt the CA at GenerateCA time.
+// pub must be one of the Go stdlib public-key types accepted by
+// x509.CreateCertificate (typically *ecdsa.PublicKey, ed25519.PublicKey,
+// or *rsa.PublicKey).
+func (c *CA) SignLeaf(masterKey []byte, cn string, validity time.Duration, pub crypto.PublicKey) ([]byte, error) {
+	return c.signLeafInternal(leafSignSpec{
+		masterKey: masterKey,
+		cn:        cn,
+		org:       "Triton",
+		validity:  validity,
+		keyUsage:  x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		pub:       pub,
+	})
+}
+
+// leafSignSpec bundles the knobs that actually vary between the engine
+// flavour and the generic SignLeaf flavour. Unexported; callers go through
+// the public wrappers.
+type leafSignSpec struct {
+	masterKey []byte
+	cn        string
+	org       string
+	validity  time.Duration
+	keyUsage  x509.KeyUsage
+	pub       crypto.PublicKey
+}
+
+// signLeafInternal is the shared backend. Encapsulates the CA decrypt,
+// serial generation, template construction, and PEM emission.
+func (c *CA) signLeafInternal(spec leafSignSpec) ([]byte, error) {
+	if c == nil {
+		return nil, errors.New("nil CA")
+	}
+
+	caCert, caKey, err := c.parseAndDecrypt(spec.masterKey)
 	if err != nil {
 		return nil, err
 	}
 
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return nil, fmt.Errorf("generate engine serial: %w", err)
+		return nil, fmt.Errorf("generate leaf serial: %w", err)
 	}
 
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:   label,
-			Organization: []string{"Triton Engine"},
+			CommonName:   spec.cn,
+			Organization: []string{spec.org},
 		},
 		NotBefore:   time.Now().Add(-1 * time.Minute),
-		NotAfter:    time.Now().Add(engineCertValidity),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
+		NotAfter:    time.Now().Add(spec.validity),
+		KeyUsage:    spec.keyUsage,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 
-	der, err := x509.CreateCertificate(rand.Reader, template, caCert, pubKey, caKey)
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, spec.pub, caKey)
 	if err != nil {
-		return nil, fmt.Errorf("sign engine cert: %w", err)
+		return nil, fmt.Errorf("sign leaf: %w", err)
 	}
-
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }
 

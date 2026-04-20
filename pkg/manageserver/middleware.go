@@ -3,6 +3,9 @@ package manageserver
 import (
 	"net/http"
 
+	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
@@ -80,6 +83,38 @@ func (s *Server) jwtAuth(next http.Handler) http.Handler {
 		ctx = contextWithUser(ctx, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// injectInstanceOrg reads the singleton manage_setup.instance_id and stashes
+// it into request context so handler packages can scope writes to the
+// Manage instance. Returns 503 when the instance is not yet initialised
+// (e.g., /setup/license has not run) — in practice requireOperational
+// blocks the setup phase first, but this is defence-in-depth against
+// misconfiguration. Must be chained AFTER jwtAuth.
+func (s *Server) injectInstanceOrg(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		state, err := s.store.GetSetup(r.Context())
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "setup state unavailable")
+			return
+		}
+		if state.InstanceID == "" {
+			writeError(w, http.StatusServiceUnavailable, "instance not initialised")
+			return
+		}
+		id, err := uuid.Parse(state.InstanceID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "instance id invalid")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(orgctx.WithInstanceID(r.Context(), id)))
+	})
+}
+
+// InjectInstanceOrgForTest exposes injectInstanceOrg to tests in the
+// manageserver_test package. Production code paths go through buildRouter.
+func (s *Server) InjectInstanceOrgForTest(next http.Handler) http.Handler {
+	return s.injectInstanceOrg(next)
 }
 
 // RequireRole returns middleware that admits only users whose role is in the

@@ -56,6 +56,52 @@ func (g *Guard) SoftBufferCeiling(metric, window string) int64 {
 	return limitCap + (limitCap*int64(pct))/100
 }
 
+// CurrentUsage returns the current usage the licence server most
+// recently acknowledged for the given metric / window, or 0 when no
+// acknowledgement is on record. Intended as the "used" half of the
+// soft-buffer cap formula (used + expected > SoftBufferCeiling).
+//
+// The Guard keeps usage in an in-memory map that the consumer-side
+// UsagePusher hooks update via RecordPushAck — Manage Server does not
+// keep a separate shadow copy. Pre-Batch-H Guards have no ack
+// callback wired, so this method returns 0 until the first successful
+// usage push.
+//
+// The returned value lags reality by up to one pusher tick (default
+// 60 s). Admins who need stricter enforcement can tighten the pusher
+// interval via UsagePusherConfig.Interval.
+func (g *Guard) CurrentUsage(metric, window string) int64 {
+	if g == nil {
+		return 0
+	}
+	g.usageMu.RLock()
+	defer g.usageMu.RUnlock()
+	return g.usage[metric+"/"+window]
+}
+
+// RecordUsage stashes the ack'd usage count for the given metric /
+// window. Called by the UsagePusher's OnPushSuccess hook when the LS
+// response includes remaining-cap information. Safe to call
+// concurrently; the map is guarded by usageMu.
+//
+// Overwrites whatever was previously stashed for (metric, window) —
+// we trust the most recent LS ack. A ≤-zero count is stored as 0 so
+// downstream arithmetic stays positive.
+func (g *Guard) RecordUsage(metric, window string, used int64) {
+	if g == nil {
+		return
+	}
+	if used < 0 {
+		used = 0
+	}
+	g.usageMu.Lock()
+	defer g.usageMu.Unlock()
+	if g.usage == nil {
+		g.usage = map[string]int64{}
+	}
+	g.usage[metric+"/"+window] = used
+}
+
 // AllowsFormat returns whether the given report format is permitted by the
 // licence's export-formats allowlist. Falls back to the legacy-tier compat
 // mapping for pre-v2 tokens.

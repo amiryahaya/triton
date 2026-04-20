@@ -1,0 +1,39 @@
+// Package agents is the agent-enrolment + gateway-protocol bounded
+// context for the Manage Server. It owns the manage_agents table (one
+// row per enrolled agent), the admin enrol/revoke endpoints, and the
+// :8443 gateway handlers an agent dials with its client cert.
+package agents
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// AgentStatus is the lifecycle state of a manage_agents row.
+//
+//   - pending: bundle issued but agent has not yet phoned home.
+//   - active:  agent has phoned home at least once (MarkActive flips it).
+//   - revoked: admin revoked; the cert serial is in the revocations table
+//     and gateway mTLS will refuse the cert.
+type AgentStatus string
+
+const (
+	StatusPending AgentStatus = "pending"
+	StatusActive  AgentStatus = "active"
+	StatusRevoked AgentStatus = "revoked"
+)
+
+// Agent is a row in manage_agents. ZoneID is optional — agents can be
+// enrolled without a zone and assigned later.
+type Agent struct {
+	ID            uuid.UUID   `json:"id"`
+	Name          string      `json:"name"`
+	ZoneID        *uuid.UUID  `json:"zone_id,omitempty"`
+	CertSerial    string      `json:"cert_serial"`
+	CertExpiresAt time.Time   `json:"cert_expires_at"`
+	Status        AgentStatus `json:"status"`
+	LastSeenAt    *time.Time  `json:"last_seen_at,omitempty"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}

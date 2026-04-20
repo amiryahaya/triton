@@ -1,138 +1,68 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
+import { TPanel } from '@triton/ui';
 import { useSettingsStore } from '../stores/settings';
 
 const settings = useSettingsStore();
-
-onMounted(() => {
-  void settings.fetch();
-});
+onMounted(() => settings.fetch());
 </script>
 
 <template>
-  <section class="settings-view">
-    <header class="settings-head">
-      <div>
-        <h1>Settings</h1>
-        <p class="settings-sub">
-          Runtime configuration for this Manage Server instance.
-          Read-only in this release.
-        </p>
-      </div>
-    </header>
-
-    <div class="settings-panel">
-      <dl
-        v-if="settings.settings"
-        class="settings-dl"
-      >
+  <section class="view">
+    <h1>Settings</h1>
+    <div v-if="settings.loading">Loading…</div>
+    <div
+      v-else-if="settings.error"
+      class="err"
+    >
+      {{ settings.error }}
+    </div>
+    <TPanel
+      v-else-if="settings.settings"
+      title="Runtime config"
+    >
+      <dl>
+        <dt>Manage listen</dt>
+        <dd class="mono">{{ settings.settings.manage_listen }}</dd>
+        <dt>Gateway listen</dt>
+        <dd class="mono">{{ settings.settings.gateway_listen }}</dd>
+        <dt>Gateway hostname</dt>
+        <dd class="mono">{{ settings.settings.gateway_hostname || '—' }}</dd>
+        <dt>Report Server URL</dt>
+        <dd class="mono">{{ settings.settings.report_server_url || '—' }}</dd>
         <dt>Parallelism</dt>
         <dd>{{ settings.settings.parallelism }}</dd>
-        <dt>Gateway listen</dt>
-        <dd>
-          <code>{{ settings.settings.gatewayListen }}</code>
-        </dd>
-        <dt>Gateway hostname</dt>
-        <dd>
-          <code>{{ settings.settings.gatewayHostname }}</code>
-        </dd>
-        <dt>Report server URL</dt>
-        <dd>
-          <code v-if="settings.settings.reportServerURL">{{ settings.settings.reportServerURL }}</code>
-          <span
-            v-else
-            class="settings-none"
-          >—</span>
-        </dd>
         <dt>Instance ID</dt>
-        <dd>
-          <code v-if="settings.settings.instanceID">{{ settings.settings.instanceID }}</code>
-          <span
-            v-else
-            class="settings-none"
-          >—</span>
-        </dd>
+        <dd class="mono">{{ settings.settings.instance_id }}</dd>
+        <dt>Version</dt>
+        <dd class="mono">{{ settings.settings.version }}</dd>
       </dl>
-      <p
-        v-else
-        class="settings-loading"
-      >
-        Loading…
-      </p>
-      <p class="settings-note">
-        A follow-up PR exposes <code>GET /v1/admin/settings</code> so
-        operators can edit these values in-portal. Today, changes
-        require a restart with updated environment variables.
-      </p>
-    </div>
+    </TPanel>
   </section>
 </template>
 
 <style scoped>
-.settings-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+.view {
   padding: var(--space-4);
-}
-.settings-head h1 {
-  font-family: var(--font-display);
-  font-size: 1.4rem;
-  margin: 0;
-}
-.settings-sub {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  margin: var(--space-1) 0 0;
-}
-.settings-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space-4);
-  background: var(--bg-surface);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
-.settings-dl {
+dl {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
-  font-size: 0.85rem;
+  grid-template-columns: 160px 1fr;
+  gap: var(--space-1) var(--space-3);
 }
-.settings-dl dt {
+dt {
   color: var(--text-muted);
 }
-.settings-dl dd {
-  margin: 0;
-}
-.settings-dl code {
+dd {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  padding: 1px 4px;
-  background: var(--bg-code, var(--bg));
-  border-radius: var(--radius-sm);
 }
-.settings-none {
-  color: var(--text-muted);
-}
-.settings-loading {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-.settings-note {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  line-height: 1.5;
-}
-.settings-note code {
+.mono {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  padding: 1px 4px;
-  background: var(--bg-code, var(--bg));
-  border-radius: var(--radius-sm);
+}
+.err {
+  color: var(--danger);
 }
 </style>

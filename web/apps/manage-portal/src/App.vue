@@ -94,8 +94,10 @@ async function signOut() {
 <template>
   <!-- Setup routes render BELOW the auth gate — they don't need a JWT -->
   <!-- to reach. TAuthGate only activates when the user navigates to a -->
-  <!-- non-setup route. -->
-  <template v-if="route.path.startsWith('/setup/')">
+  <!-- non-setup route. The change-password view also renders standalone -->
+  <!-- so forced-change users (JWT has mcp=true) aren't blocked by the -->
+  <!-- AppShell chrome before they can comply. -->
+  <template v-if="route.path.startsWith('/setup/') || route.path === '/auth/change-password'">
     <router-view />
   </template>
   <template v-else>

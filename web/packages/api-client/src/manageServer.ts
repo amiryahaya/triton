@@ -20,38 +20,33 @@ import type {
 export function createManageApi(http: Http) {
   return {
     // Setup + auth
-    getSetupStatus:   ()                          => http.get<SetupStatus>('/v1/setup/status'),
-    createAdmin:      (req: CreateAdminReq)       => http.post<CreateAdminResp>('/v1/setup/admin', req),
-    activateLicense:  (req: ActivateLicenseReq)   => http.post<ActivateLicenseResp>('/v1/setup/license', req),
-    login:            (email: string, password: string)
-                                                  => http.post<LoginResp>('/v1/auth/login', { email, password }),
-    logout:           ()                          => http.post<{ ok: boolean }>('/v1/auth/logout', {}),
-    refresh:          ()                          => http.post<LoginResp>('/v1/auth/refresh', {}),
-    me:               ()                          => http.get<ManageUser>('/v1/me'),
+    getSetupStatus: () => http.get<SetupStatus>('/v1/setup/status'),
+    createAdmin: (req: CreateAdminReq) => http.post<CreateAdminResp>('/v1/setup/admin', req),
+    activateLicense: (req: ActivateLicenseReq) => http.post<ActivateLicenseResp>('/v1/setup/license', req),
+    login: (email: string, password: string) => http.post<LoginResp>('/v1/auth/login', { email, password }),
+    logout: () => http.post<{ ok: boolean }>('/v1/auth/logout', {}),
+    refresh: () => http.post<LoginResp>('/v1/auth/refresh', {}),
+    me: () => http.get<ManageUser>('/v1/me'),
 
     // Zones
-    listZones:        ()                          => http.get<Zone[]>('/v1/admin/zones/'),
-    createZone:       (req: { name: string; description?: string })
-                                                  => http.post<Zone>('/v1/admin/zones/', req),
-    updateZone:       (id: string, req: { name: string; description?: string })
-                                                  => http.put<Zone>(`/v1/admin/zones/${id}`, req),
-    deleteZone:       (id: string)                => http.del<void>(`/v1/admin/zones/${id}`),
+    listZones: () => http.get<Zone[]>('/v1/admin/zones/'),
+    createZone: (req: { name: string; description?: string }) => http.post<Zone>('/v1/admin/zones/', req),
+    updateZone: (id: string, req: { name: string; description?: string }) => http.put<Zone>(`/v1/admin/zones/${id}`, req),
+    deleteZone: (id: string) => http.del<void>(`/v1/admin/zones/${id}`),
 
     // Hosts
-    listHosts:        (zoneID?: string) => {
+    listHosts: (zoneID?: string) => {
       const qs = zoneID ? `?zone_id=${encodeURIComponent(zoneID)}` : '';
       return http.get<Host[]>(`/v1/admin/hosts/${qs}`);
     },
-    createHost:       (req: CreateHostReq)        => http.post<Host>('/v1/admin/hosts/', req),
-    bulkCreateHosts:  (req: { hosts: CreateHostReq[] })
-                                                  => http.post<Host[]>('/v1/admin/hosts/bulk', req),
-    updateHost:       (id: string, req: UpdateHostReq)
-                                                  => http.put<Host>(`/v1/admin/hosts/${id}`, req),
-    deleteHost:       (id: string)                => http.del<void>(`/v1/admin/hosts/${id}`),
+    createHost: (req: CreateHostReq) => http.post<Host>('/v1/admin/hosts/', req),
+    bulkCreateHosts: (req: { hosts: CreateHostReq[] }) => http.post<Host[]>('/v1/admin/hosts/bulk', req),
+    updateHost: (id: string, req: UpdateHostReq) => http.put<Host>(`/v1/admin/hosts/${id}`, req),
+    deleteHost: (id: string) => http.del<void>(`/v1/admin/hosts/${id}`),
 
     // Agents
-    listAgents:       ()                          => http.get<Agent[]>('/v1/admin/agents/'),
-    enrolAgent:       async (req: { name: string; zone_id?: string }): Promise<Blob> => {
+    listAgents: () => http.get<Agent[]>('/v1/admin/agents/'),
+    enrolAgent: async (req: { name: string; zone_id?: string }): Promise<Blob> => {
       // enrolAgent returns a tar.gz stream; the shared Http client only
       // reads JSON/text. Call fetch() directly here so we get the Blob.
       const res = await fetch('/api/v1/admin/enrol/agent', {
@@ -70,26 +65,26 @@ export function createManageApi(http: Http) {
       }
       return res.blob();
     },
-    revokeAgent:      (id: string)                => http.del<void>(`/v1/admin/agents/${id}`),
+    revokeAgent: (id: string) => http.del<void>(`/v1/admin/agents/${id}`),
 
     // Scan jobs
-    listScanJobs:     (opts?: { status?: string; limit?: number }) => {
+    listScanJobs: (opts?: { status?: string; limit?: number }) => {
       const params = new URLSearchParams();
       if (opts?.status) params.set('status', opts.status);
       if (opts?.limit) params.set('limit', String(opts.limit));
       const qs = params.toString() ? `?${params}` : '';
       return http.get<ScanJob[]>(`/v1/admin/scan-jobs/${qs}`);
     },
-    getScanJob:       (id: string)                => http.get<ScanJob>(`/v1/admin/scan-jobs/${id}`),
-    enqueueScanJobs:  (req: EnqueueReq)           => http.post<ScanJob[]>('/v1/admin/scan-jobs/', req),
-    cancelScanJob:    (id: string)                => http.post<void>(`/v1/admin/scan-jobs/${id}/cancel`, {}),
+    getScanJob: (id: string) => http.get<ScanJob>(`/v1/admin/scan-jobs/${id}`),
+    enqueueScanJobs: (req: EnqueueReq) => http.post<ScanJob[]>('/v1/admin/scan-jobs/', req),
+    cancelScanJob: (id: string) => http.post<void>(`/v1/admin/scan-jobs/${id}/cancel`, {}),
 
     // Push status
-    getPushStatus:    ()                          => http.get<PushStatus>('/v1/admin/push-status/'),
+    getPushStatus: () => http.get<PushStatus>('/v1/admin/push-status/'),
 
     // Users
-    listUsers:        ()                          => http.get<ManageUser[]>('/v1/admin/users/'),
-    createUser:       (req: CreateUserReq)        => http.post<CreateUserResp>('/v1/admin/users', req),
+    listUsers: () => http.get<ManageUser[]>('/v1/admin/users/'),
+    createUser: (req: CreateUserReq) => http.post<CreateUserResp>('/v1/admin/users', req),
   };
 }
 

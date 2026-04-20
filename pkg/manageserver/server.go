@@ -29,7 +29,7 @@ import (
 )
 
 // Gateway listener lifecycle states. Read by /admin/gateway-health,
-// written by runGateway (current) / gatewayRetryLoop (post-Batch C).
+// written by gatewayRetryLoop + bootstrapGatewayListener.
 const (
 	gatewayStatePendingSetup int32 = 0 // CA not yet minted
 	gatewayStateRetryLoop    int32 = 1 // Retry loop running, listener not yet up
@@ -127,6 +127,9 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	}
 	if cfg.GatewayHostname == "" {
 		cfg.GatewayHostname = "localhost"
+	}
+	if cfg.GatewayRetryInterval == 0 {
+		cfg.GatewayRetryInterval = 5 * time.Second
 	}
 
 	hostsStore := hosts.NewPostgresStore(pool)
@@ -312,15 +315,17 @@ func (s *Server) Run(ctx context.Context) error {
 	pipelineWG := s.startScannerPipeline(ctx)
 
 	// Gateway listener runs concurrently with admin. Spawn it AFTER
-	// startScannerPipeline (which bootstraps the CA) so runGateway sees
-	// a populated CA row on first-boot scenarios.
+	// startScannerPipeline (which bootstraps the CA) so the retry loop
+	// sees a populated CA row on first-boot scenarios. When the CA is
+	// not yet bootstrapped (e.g. /setup/license hasn't been called),
+	// gatewayRetryLoop polls caStore.Load and brings the listener up
+	// as soon as the CA lands, so the gateway self-recovers without a
+	// server restart.
 	gatewayWG := sync.WaitGroup{}
 	gatewayWG.Add(1)
 	go func() {
 		defer gatewayWG.Done()
-		if err := s.runGateway(ctx); err != nil {
-			log.Printf("manageserver: gateway: %v", err)
-		}
+		s.gatewayRetryLoop(ctx)
 	}()
 
 	s.http = &http.Server{
@@ -473,33 +478,69 @@ func (s *Server) buildGatewayRouter() chi.Router {
 	return r
 }
 
-// runGateway blocks on the :8443 TLS listener until ctx is cancelled
-// or the listener errors. Called from Run() in its own goroutine.
-// Gateway failures are logged but don't kill the admin :8082 listener —
-// a broken CA shouldn't knock the admin UI offline.
+// gatewayRetryLoop polls caStore.Load every cfg.GatewayRetryInterval
+// until the CA is bootstrapped, then invokes bootstrapGatewayListener.
+// Meant to be spawned as a goroutine from Server.Run.
 //
-// If the CA isn't bootstrapped, runGateway logs + returns nil so
-// admin setup can complete and a subsequent restart picks up the CA.
+// Gateway failures are logged but don't kill the admin :8082 listener —
+// a broken CA shouldn't knock the admin UI offline. When the CA is
+// absent at Run-entry, the loop keeps polling so that a later
+// /setup/license call (which triggers bootstrapCA) brings the gateway
+// up without a process restart.
+//
+// Cancellation: ctx cancel stops the poll loop AND (via
+// bootstrapGatewayListener) the listener itself.
 //
 // SERVER CERT LIFETIME — the TLS leaf handed to the listener is
-// issued at startup by caStore.IssueServerCert with a 90-day NotAfter
-// (serverCertValidity in pkg/manageserver/ca/postgres.go). The cert
-// is NOT auto-rotated at runtime: a server restart is required to
-// mint a fresh leaf. Operators SHOULD schedule a restart well
-// before the 90-day window closes (e.g. monthly, rolling) to avoid
-// agent handshakes tripping expired-cert errors. Shortening or
+// issued once at listener startup by caStore.IssueServerCert with a
+// 90-day NotAfter (serverCertValidity in pkg/manageserver/ca/postgres.go).
+// The cert is NOT auto-rotated at runtime: a server restart is
+// required to mint a fresh leaf. Operators SHOULD schedule a restart
+// well before the 90-day window closes (e.g. monthly, rolling) to
+// avoid agent handshakes tripping expired-cert errors. Shortening or
 // lengthening the lifetime requires editing serverCertValidity and
 // redeploying — there's no runtime knob.
 //
 // The CA itself is 10-year and covers the server leaf through
 // many restart cycles, so this is only a server-leaf concern.
-func (s *Server) runGateway(ctx context.Context) error {
+func (s *Server) gatewayRetryLoop(ctx context.Context) {
+	s.gatewayState.Store(gatewayStatePendingSetup)
+
+	ticker := time.NewTicker(s.cfg.GatewayRetryInterval)
+	defer ticker.Stop()
+
+	for {
+		if _, err := s.caStore.Load(ctx); err == nil {
+			s.gatewayState.Store(gatewayStateRetryLoop)
+			if err := s.bootstrapGatewayListener(ctx); err != nil {
+				log.Printf("manageserver: gateway listener exited: %v", err)
+				s.gatewayState.Store(gatewayStateFailed)
+			}
+			return
+		} else if !errors.Is(err, ca.ErrNotFound) {
+			// Transient DB error — log once per tick and keep polling.
+			// A sticky DB failure isn't the gateway's problem to solve.
+			log.Printf("manageserver: gateway retry loop: caStore.Load: %v", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// loop
+		}
+	}
+}
+
+// bootstrapGatewayListener assumes the CA is bootstrapped. Mints a
+// fresh server leaf via caStore.IssueServerCert, caches it on Server
+// (so /admin/gateway-health can report its expiry), flips gatewayState
+// to Up, and blocks until ctx.Done() or listener error.
+//
+// Called at most once per Server lifetime by gatewayRetryLoop.
+func (s *Server) bootstrapGatewayListener(ctx context.Context) error {
 	caBundle, err := s.caStore.Load(ctx)
 	if err != nil {
-		if errors.Is(err, ca.ErrNotFound) {
-			log.Printf("manageserver: CA not bootstrapped; gateway listener disabled")
-			return nil
-		}
 		return fmt.Errorf("load CA for gateway: %w", err)
 	}
 
@@ -512,6 +553,9 @@ func (s *Server) runGateway(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("issue server cert: %w", err)
 	}
+	// Publish the leaf so /admin/gateway-health can read NotAfter
+	// without another CA round-trip.
+	s.serverLeaf.Store(serverCert)
 
 	tlsCfg := &tls.Config{
 		MinVersion:   tls.VersionTLS12,
@@ -533,6 +577,12 @@ func (s *Server) runGateway(ctx context.Context) error {
 			errCh <- err
 		}
 	}()
+
+	// Flip to Up only after ListenAndServeTLS has been invoked. A
+	// bind-error on the port won't have hit the handshake path yet;
+	// the errCh branch below will demote to Failed in that case.
+	s.gatewayState.Store(gatewayStateUp)
+
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

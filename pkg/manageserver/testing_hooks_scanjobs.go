@@ -8,11 +8,11 @@ import "github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 //
 // Production code never calls this; /startLicence wires the real
 // *license.Guard. Pair with ClearSeatCapGuardForTest in t.Cleanup.
+// Handlers observe the change on their next request because they
+// consult the GuardProvider closure — which reads
+// s.scanCapGuardOverride under s.mu — per call.
 func SetScanCapGuardForTest(s *Server, g scanjobs.ScanCapGuard) {
 	s.mu.Lock()
 	s.scanCapGuardOverride = g
-	if s.scanjobsAdmin != nil {
-		s.scanjobsAdmin.Guard = g
-	}
 	s.mu.Unlock()
 }

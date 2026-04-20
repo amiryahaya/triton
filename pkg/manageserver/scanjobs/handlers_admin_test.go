@@ -194,10 +194,14 @@ func newTestServerWithGuard(t *testing.T, s scanjobs.Store, tenantID uuid.UUID, 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+	var provider func() scanjobs.ScanCapGuard
+	if guard != nil {
+		provider = func() scanjobs.ScanCapGuard { return guard }
+	}
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
 		r.Use(injectTenant)
-		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, &fakeQueueDepther{}, guard))
+		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(s, &fakeQueueDepther{}, provider))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

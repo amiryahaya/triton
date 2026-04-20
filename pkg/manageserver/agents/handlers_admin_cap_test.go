@@ -60,8 +60,9 @@ func TestAgentsAdmin_Enrol_CapExceeded_Returns403(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(cap), n)
 
+	fakeGuard := &fakeAgentCapGuard{caps: map[string]int64{"agents/total": cap}}
 	guardedH := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second,
-		&fakeAgentCapGuard{caps: map[string]int64{"agents/total": cap}})
+		func() agents.AgentCapGuard { return fakeGuard })
 	guardedSrv := mountEnrol(t, guardedH)
 
 	// cap+1 enrol must be rejected.

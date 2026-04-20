@@ -9,6 +9,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/internal/license"
+	"github.com/amiryahaya/triton/pkg/manageserver/agents"
+	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
+	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 )
 
 // startLicence brings the licence guard + usage pusher online based on the
@@ -58,27 +61,82 @@ func (s *Server) startLicence(ctx context.Context) error {
 	s.licenceGuard = guard
 	s.licencePusher = pusher
 	s.licenceCancel = cancel
-
-	// Propagate the guard into every sub-handler package so that hosts
-	// (H2), scan-jobs (H3) and agents (H4) cap enforcement fires in
-	// production. Without this, only H1 (seat cap) would work — the
-	// other sub-handlers read their own `Guard` field directly, which
-	// would otherwise stay nil forever. Tests that swap a fake via
-	// Set*CapGuardForTest win because their override sets the same
-	// field under the same mu critical section.
-	if s.hostsAdmin != nil {
-		s.hostsAdmin.Guard = guard
-	}
-	if s.scanjobsAdmin != nil {
-		s.scanjobsAdmin.Guard = guard
-	}
-	if s.agentsAdmin != nil {
-		s.agentsAdmin.Guard = guard
-	}
 	s.mu.Unlock()
+
+	// No direct propagation into sub-handlers here. Sub-handlers consult
+	// their injected GuardProvider closures, which in turn read
+	// s.licenceGuard under s.mu.RLock() on every request. That means
+	// concurrent startLicence/stopLicence can run alongside active admin
+	// requests without racing on a shared guard pointer.
 
 	go pusher.Run(pCtx)
 	return nil
+}
+
+// guardSnapshot returns the current *license.Guard read under the
+// licence mutex. Nil when no licence is active — sub-handler guard
+// provider closures call this on every request, so a concurrent
+// startLicence/stopLicence rotate is race-free by construction.
+//
+// Exported (lowercase-first but used by the manageserver package's own
+// sub-handler wiring in server.go) via a closure passed to each sub-
+// handler's NewAdminHandlers. Tests that want to exercise a fake
+// licence install it via Set*CapGuardForTest, which the override
+// resolvers consult before falling through to s.licenceGuard.
+func (s *Server) guardSnapshot() *license.Guard {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.licenceGuard
+}
+
+// hostGuardProvider is the closure wired into hosts.AdminHandlers. It
+// consults the per-package test override first so Set*CapGuardForTest
+// retains its override semantics, then falls back to the current
+// licenceGuard snapshot. All reads happen under s.mu so a concurrent
+// startLicence/stopLicence cannot race.
+//
+// Returning an interface typed-nil (nil hosts.HostCapGuard) when no
+// guard is available lets handlers do a clean `if g := h.guard(); g
+// != nil` check without tripping the interface-wrapping-nil gotcha.
+func (s *Server) hostGuardProvider() hosts.HostCapGuard {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.hostCapGuardOverride != nil {
+		return s.hostCapGuardOverride
+	}
+	if s.licenceGuard == nil {
+		return nil
+	}
+	return s.licenceGuard
+}
+
+// scanGuardProvider mirrors hostGuardProvider for the scanjobs
+// admin handler. The override lane lets Batch H tests inject a soft-
+// buffered fake guard without activating a real licence.
+func (s *Server) scanGuardProvider() scanjobs.ScanCapGuard {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.scanCapGuardOverride != nil {
+		return s.scanCapGuardOverride
+	}
+	if s.licenceGuard == nil {
+		return nil
+	}
+	return s.licenceGuard
+}
+
+// agentGuardProvider mirrors hostGuardProvider for the agents admin
+// handler. Same override + fallback pattern.
+func (s *Server) agentGuardProvider() agents.AgentCapGuard {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.agentCapGuardOverride != nil {
+		return s.agentCapGuardOverride
+	}
+	if s.licenceGuard == nil {
+		return nil
+	}
+	return s.licenceGuard
 }
 
 // collectUsage reports current usage metrics to the License Server
@@ -195,21 +253,10 @@ func (s *Server) stopLicence() {
 	s.licenceGuard = nil
 	s.licencePusher = nil
 	s.licenceCancel = nil
-	// Mirror the propagation in startLicence so a clean shutdown
-	// doesn't leave sub-handlers holding a guard that points at a
-	// cancelled pusher. ClearSeatCapGuardForTest already clears these
-	// fields in test tear-down — the same surface just for the
-	// production Run() shutdown path.
-	if s.hostsAdmin != nil {
-		s.hostsAdmin.Guard = nil
-	}
-	if s.scanjobsAdmin != nil {
-		s.scanjobsAdmin.Guard = nil
-	}
-	if s.agentsAdmin != nil {
-		s.agentsAdmin.Guard = nil
-	}
 	s.mu.Unlock()
+	// Sub-handlers observe the nil guard on their next request because
+	// their GuardProvider closures re-read s.licenceGuard under the
+	// licence mutex every time — no explicit propagation needed.
 	if cancel != nil {
 		cancel()
 	}

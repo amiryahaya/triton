@@ -121,9 +121,6 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	caStore := ca.NewPostgresStore(pool)
 	agentStore := agents.NewPostgresStore(pool)
 
-	agentsAdmin := agents.NewAdminHandlers(
-		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, nil,
-	)
 	agentsGateway := agents.NewGatewayHandlers(caStore, agentStore, resultsStore)
 
 	srv := &Server{
@@ -131,17 +128,24 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		store:           store,
 		loginLimiter:    newLoginRateLimiter(),
 		zonesAdmin:      zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
-		hostsAdmin:      hosts.NewAdminHandlers(hostsStore, nil),
-		scanjobsAdmin:   scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, nil),
 		pushStatusAdmin: scanresults.NewAdminHandlers(resultsStore),
 		scanjobsStore:   scanjobsStore,
 		resultsStore:    resultsStore,
 		hostsStore:      hostsStore,
 		caStore:         caStore,
 		agentStore:      agentStore,
-		agentsAdmin:     agentsAdmin,
 		agentsGateway:   agentsGateway,
 	}
+	// Guard providers close over srv so sub-handlers see the current
+	// licence snapshot without a shared field write (race-free by
+	// construction — see pkg/manageserver/license.go::guardSnapshot).
+	// Providers consult the test overrides first so Set*CapGuardForTest
+	// still wins without having to re-wire the handler.
+	srv.hostsAdmin = hosts.NewAdminHandlers(hostsStore, srv.hostGuardProvider)
+	srv.scanjobsAdmin = scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, srv.scanGuardProvider)
+	srv.agentsAdmin = agents.NewAdminHandlers(
+		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
+	)
 	if err := srv.initSetupState(context.Background()); err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
 	}

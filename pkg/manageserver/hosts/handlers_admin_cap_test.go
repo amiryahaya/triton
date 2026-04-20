@@ -30,12 +30,18 @@ func (f *fakeHostCapGuard) LimitCap(metric, window string) int64 {
 
 // newTestServerWithGuard mounts the hosts admin routes with the
 // caller-supplied cap guard. Useful for driving the 403 branch without
-// constructing a signed licence.
+// constructing a signed licence. A nil guard is wired as a nil
+// provider — matches the production pattern where a GuardProvider
+// yields nil when no licence is active.
 func newTestServerWithGuard(t *testing.T, s hosts.Store, guard hosts.HostCapGuard) *httptest.Server {
 	t.Helper()
+	var provider func() hosts.HostCapGuard
+	if guard != nil {
+		provider = func() hosts.HostCapGuard { return guard }
+	}
 	r := chi.NewRouter()
 	r.Route("/api/v1/admin/hosts", func(r chi.Router) {
-		hosts.MountAdminRoutes(r, hosts.NewAdminHandlers(s, guard))
+		hosts.MountAdminRoutes(r, hosts.NewAdminHandlers(s, provider))
 	})
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

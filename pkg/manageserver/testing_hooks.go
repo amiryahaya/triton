@@ -1,36 +1,37 @@
 package manageserver
 
 import (
+	"context"
+
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/agents"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 )
 
-// SubHandlerGuardsForTest returns the current Guard values on each
-// sub-handler package (hosts, scan-jobs, agents) so integration tests
-// can assert that startLicence correctly propagated the licence guard
-// down to the handlers that enforce per-package caps.
+// SubHandlerGuardsForTest returns the Guard that each sub-handler
+// (hosts, scan-jobs, agents) would consult on its next request so
+// integration tests can assert startLicence correctly plumbed the
+// licence guard down to the per-package cap enforcement.
 //
-// Production code never reads these; the handlers consult their own
-// `Guard` field directly. This accessor is the only way to cross the
-// package boundary without exporting the fields themselves.
+// Invokes each handler's GuardProvider closure — which reads the
+// override or s.licenceGuard under s.mu — rather than reading a shared
+// Guard field. That makes this test hook the single, race-free way to
+// observe what a real cap check would see at request time.
 func SubHandlerGuardsForTest(s *Server) (hosts.HostCapGuard, scanjobs.ScanCapGuard, agents.AgentCapGuard) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	var (
 		hg hosts.HostCapGuard
 		sg scanjobs.ScanCapGuard
 		ag agents.AgentCapGuard
 	)
-	if s.hostsAdmin != nil {
-		hg = s.hostsAdmin.Guard
+	if s.hostsAdmin != nil && s.hostsAdmin.GuardProvider != nil {
+		hg = s.hostsAdmin.GuardProvider()
 	}
-	if s.scanjobsAdmin != nil {
-		sg = s.scanjobsAdmin.Guard
+	if s.scanjobsAdmin != nil && s.scanjobsAdmin.GuardProvider != nil {
+		sg = s.scanjobsAdmin.GuardProvider()
 	}
-	if s.agentsAdmin != nil {
-		ag = s.agentsAdmin.Guard
+	if s.agentsAdmin != nil && s.agentsAdmin.GuardProvider != nil {
+		ag = s.agentsAdmin.GuardProvider()
 	}
 	return hg, sg, ag
 }
@@ -50,6 +51,14 @@ func LicenceGuardForTest(s *Server) *license.Guard {
 // a full Run() -> cancel cycle.
 func StopLicenceForTest(s *Server) {
 	s.stopLicence()
+}
+
+// StartLicenceForTest exposes the unexported startLicence activation
+// path so tests can rotate the licence guard deterministically without
+// going through the /setup/license HTTP handler. Mostly used by the
+// race test to ping-pong start/stop against concurrent handler reads.
+func StartLicenceForTest(s *Server) error {
+	return s.startLicence(context.Background())
 }
 
 // CollectUsageForTest exposes the unexported collectUsage so tests
@@ -75,22 +84,15 @@ func SetSeatCapGuardForTest(s *Server, g SeatCapGuard) {
 
 // ClearSeatCapGuardForTest removes any test-injected cap guards from
 // s. Clears the seat guard AND the per-package overrides that Batch H
-// tests swap in for hosts (and later scanjobs / agents) so a single
-// deferred call restores the server to a clean production default.
+// tests swap in for hosts / scanjobs / agents so a single deferred
+// call restores the server to a clean production default. Handlers
+// pick up the cleared overrides on their next request via their
+// GuardProvider closures.
 func ClearSeatCapGuardForTest(s *Server) {
 	s.mu.Lock()
 	s.seatCapGuardOverride = nil
 	s.hostCapGuardOverride = nil
 	s.scanCapGuardOverride = nil
 	s.agentCapGuardOverride = nil
-	if s.hostsAdmin != nil {
-		s.hostsAdmin.Guard = nil
-	}
-	if s.scanjobsAdmin != nil {
-		s.scanjobsAdmin.Guard = nil
-	}
-	if s.agentsAdmin != nil {
-		s.agentsAdmin.Guard = nil
-	}
 	s.mu.Unlock()
 }

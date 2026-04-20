@@ -7,12 +7,11 @@ import "github.com/amiryahaya/triton/pkg/manageserver/hosts"
 // hard-cap enforcement path without constructing a signed licence.
 //
 // Safe to pass nil to revert; ClearSeatCapGuardForTest also clears
-// this override as part of its blanket reset.
+// this override as part of its blanket reset. Handlers observe the
+// change on their next request because they consult the GuardProvider
+// closure — which reads s.hostCapGuardOverride under s.mu — per call.
 func SetHostCapGuardForTest(s *Server, g hosts.HostCapGuard) {
 	s.mu.Lock()
 	s.hostCapGuardOverride = g
-	if s.hostsAdmin != nil {
-		s.hostsAdmin.Guard = g
-	}
 	s.mu.Unlock()
 }

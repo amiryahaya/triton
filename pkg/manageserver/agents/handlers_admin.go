@@ -34,8 +34,13 @@ type AgentCapGuard interface {
 // Constructed against a ca.Store (which owns CA load + signing), an
 // agents.Store (which owns manage_agents CRUD), a ManageGatewayURL
 // string that's baked into each issued bundle, a PhoneHomeInterval
-// cadence for the bundle's config.yaml, and an optional Guard that
-// enforces the Batch H licence seat cap.
+// cadence for the bundle's config.yaml, and an optional GuardProvider
+// that enforces the Batch H licence seat cap.
+//
+// GuardProvider is consulted per-request so the Server can rotate the
+// licence guard under a mutex during /setup/license activation without
+// racing the admin handlers. A nil provider (or a provider returning
+// nil) disables licence-cap enforcement.
 //
 // PhoneHomeInterval defaults to 60 s when the constructor receives
 // zero. ManageGatewayURL must be non-empty or Enrol will 500.
@@ -44,15 +49,15 @@ type AdminHandlers struct {
 	AgentStore        Store
 	ManageGatewayURL  string
 	PhoneHomeInterval time.Duration
-	Guard             AgentCapGuard
+	GuardProvider     func() AgentCapGuard
 }
 
 // NewAdminHandlers wires the admin handlers with sensible defaults.
 // PhoneHomeInterval defaults to 60s when zero — matches the Batch F
 // spec. ManageGatewayURL must be non-empty or Enrol will 500. A nil
-// Guard disables licence-cap enforcement (used in tests that don't
-// exercise Batch H).
-func NewAdminHandlers(caStore ca.Store, agentStore Store, gatewayURL string, phoneHome time.Duration, guard AgentCapGuard) *AdminHandlers {
+// GuardProvider (or a provider returning nil) disables licence-cap
+// enforcement (used in tests that don't exercise Batch H).
+func NewAdminHandlers(caStore ca.Store, agentStore Store, gatewayURL string, phoneHome time.Duration, provider func() AgentCapGuard) *AdminHandlers {
 	if phoneHome <= 0 {
 		phoneHome = 60 * time.Second
 	}
@@ -61,8 +66,18 @@ func NewAdminHandlers(caStore ca.Store, agentStore Store, gatewayURL string, pho
 		AgentStore:        agentStore,
 		ManageGatewayURL:  gatewayURL,
 		PhoneHomeInterval: phoneHome,
-		Guard:             guard,
+		GuardProvider:     provider,
 	}
+}
+
+// guard returns the AgentCapGuard for this request, or nil when no
+// provider is wired or the provider yields nil. Centralises the
+// nil-check so Enrol reads as `if g := h.guard(); g != nil`.
+func (h *AdminHandlers) guard() AgentCapGuard {
+	if h.GuardProvider == nil {
+		return nil
+	}
+	return h.GuardProvider()
 }
 
 // enrolRequest is the body shape of POST /api/v1/admin/enrol/agent.
@@ -103,8 +118,8 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 	// AgentStore.Count races with concurrent Enrols but a single-row
 	// overshoot is tolerable — the usage pusher surfaces the overshoot
 	// on the next tick.
-	if h.Guard != nil {
-		if cap := h.Guard.LimitCap("agents", "total"); cap >= 0 {
+	if g := h.guard(); g != nil {
+		if cap := g.LimitCap("agents", "total"); cap >= 0 {
 			c, err := h.AgentStore.Count(r.Context())
 			if err != nil {
 				internalErr(w, r, err, "count agents for cap")

@@ -28,16 +28,37 @@ type HostCapGuard interface {
 }
 
 // AdminHandlers serves the /api/v1/admin/hosts CRUD API.
+//
+// GuardProvider is called per-request to read the current licence
+// guard snapshot (or nil when no licence is active). The indirection
+// lets the Server rotate its internal *license.Guard under a mutex
+// during /setup/license activation without racing concurrent admin
+// requests that would otherwise read a shared struct field.
+// GuardProvider may itself be nil — that's treated identically to
+// "returns nil" and disables cap enforcement.
 type AdminHandlers struct {
-	Store Store
-	Guard HostCapGuard
+	Store         Store
+	GuardProvider func() HostCapGuard
 }
 
 // NewAdminHandlers wires an AdminHandlers with the given Store and
-// (optional) Guard. Passing a nil Guard disables licence-cap
-// enforcement — useful in tests that exercise the store layer only.
-func NewAdminHandlers(s Store, guard HostCapGuard) *AdminHandlers {
-	return &AdminHandlers{Store: s, Guard: guard}
+// (optional) Guard provider. Passing a nil provider disables licence-
+// cap enforcement — useful in tests that exercise the store layer
+// only. The provider is consulted on every cap-enforcing request so
+// callers that rotate the guard (e.g. /setup/license) don't need to
+// re-wire the handler.
+func NewAdminHandlers(s Store, provider func() HostCapGuard) *AdminHandlers {
+	return &AdminHandlers{Store: s, GuardProvider: provider}
+}
+
+// guard returns the guard to use for this request, or nil when no
+// provider is wired or the provider returns nil. Centralises the
+// nil-check so handler bodies read as `if g := h.guard(); g != nil`.
+func (h *AdminHandlers) guard() HostCapGuard {
+	if h.GuardProvider == nil {
+		return nil
+	}
+	return h.GuardProvider()
 }
 
 // hostRequestBody is the JSON shape accepted by Create/Update/BulkCreate.
@@ -126,8 +147,8 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	// guard around Count+Insert) because a licence cap overshoot by 1
 	// row under concurrent inserts is acceptable — the usage-pusher
 	// will surface the overshoot in the next tick.
-	if h.Guard != nil {
-		if cap := h.Guard.LimitCap("hosts", "total"); cap >= 0 {
+	if g := h.guard(); g != nil {
+		if cap := g.LimitCap("hosts", "total"); cap >= 0 {
 			c, err := h.Store.Count(r.Context())
 			if err != nil {
 				internalErr(w, r, err, "count hosts for cap")
@@ -262,8 +283,8 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	// error so operators see exactly how many rows the batch exceeds
 	// the cap by — matches the UX the admin UI wants when it surfaces
 	// the 403 back to the user.
-	if h.Guard != nil {
-		if cap := h.Guard.LimitCap("hosts", "total"); cap >= 0 {
+	if g := h.guard(); g != nil {
+		if cap := g.LimitCap("hosts", "total"); cap >= 0 {
 			c, err := h.Store.Count(r.Context())
 			if err != nil {
 				internalErr(w, r, err, "count hosts for cap")

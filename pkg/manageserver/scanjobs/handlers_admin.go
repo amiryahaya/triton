@@ -52,19 +52,35 @@ const queueSaturationThreshold = 10_000
 // AdminHandlers serves the /api/v1/admin/scan-jobs API. All handlers
 // pull the tenant ID from orgctx (populated upstream by the server's
 // injectInstanceOrg middleware); clients never supply tenant_id.
+//
+// GuardProvider is consulted per-request so the Server can rotate the
+// licence guard under a mutex during /setup/license activation without
+// racing the admin handlers. A nil provider (or a provider returning
+// nil) disables licence-cap enforcement.
 type AdminHandlers struct {
-	Store        Store
-	ResultsStore QueueDepther
-	Guard        ScanCapGuard
+	Store         Store
+	ResultsStore  QueueDepther
+	GuardProvider func() ScanCapGuard
 }
 
 // NewAdminHandlers wires an AdminHandlers with the given Store,
-// results-queue reader, and (optional) licence guard. A nil
+// results-queue reader, and (optional) licence-guard provider. A nil
 // ResultsStore is acceptable for tests that don't exercise backpressure;
 // the Enqueue handler treats a nil ResultsStore as "skip saturation
-// check". A nil Guard skips the licence-cap check.
-func NewAdminHandlers(s Store, resultsStore QueueDepther, guard ScanCapGuard) *AdminHandlers {
-	return &AdminHandlers{Store: s, ResultsStore: resultsStore, Guard: guard}
+// check". A nil GuardProvider (or a provider returning nil) skips
+// the licence-cap check.
+func NewAdminHandlers(s Store, resultsStore QueueDepther, provider func() ScanCapGuard) *AdminHandlers {
+	return &AdminHandlers{Store: s, ResultsStore: resultsStore, GuardProvider: provider}
+}
+
+// guard returns the ScanCapGuard to use for this request, or nil when
+// no provider is wired or the provider yields nil. Centralises the
+// nil-check so Enqueue reads as `if g := h.guard(); g != nil`.
+func (h *AdminHandlers) guard() ScanCapGuard {
+	if h.GuardProvider == nil {
+		return nil
+	}
+	return h.GuardProvider()
 }
 
 // enqueueRequestBody is the accepted JSON shape for POST /. TenantID is
@@ -146,15 +162,15 @@ func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 	// of the store layer while still expanding zones→hosts with the
 	// exact same predicate Enqueue will use. A nil Guard or a cap of
 	// -1 for scans/monthly disables this branch.
-	if h.Guard != nil {
-		if cap := h.Guard.LimitCap("scans", "monthly"); cap >= 0 {
+	if g := h.guard(); g != nil {
+		if cap := g.LimitCap("scans", "monthly"); cap >= 0 {
 			expected, err := h.Store.PlanEnqueueCount(r.Context(), req)
 			if err != nil {
 				internalErr(w, r, err, "plan enqueue count for cap")
 				return
 			}
-			used := h.Guard.CurrentUsage("scans", "monthly")
-			ceiling := h.Guard.SoftBufferCeiling("scans", "monthly")
+			used := g.CurrentUsage("scans", "monthly")
+			ceiling := g.SoftBufferCeiling("scans", "monthly")
 			if used+expected > ceiling {
 				writeErr(w, http.StatusForbidden,
 					"licence scan cap exceeded (soft-buffered)")

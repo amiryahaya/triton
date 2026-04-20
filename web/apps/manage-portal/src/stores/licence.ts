@@ -1,34 +1,31 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import type { LicenceSummary } from '@triton/api-client';
 import { useApiClient } from './apiClient';
 
-export interface LicenceSummary {
-  tier: string;
-  features: Record<string, boolean>;
-  limits: Record<string, unknown>;
-  expiresAt: string | null;
-  licenseServerURL: string | null;
-}
-
+// Pinia store for the /v1/admin/licence summary. Mirrors the backend
+// wire shape 1:1 — no normalisation layer — so views read the same
+// field names the Go handler emits (tier, features, limits, etc.).
+//
+// error is a plain message string; 503 from the backend surfaces as
+// "licence inactive" and the view branches on that to show the
+// re-activate nudge.
 export const useLicenceStore = defineStore('licence', () => {
   const summary = ref<LicenceSummary | null>(null);
   const loading = ref(false);
+  const error = ref('');
 
   async function fetch() {
     loading.value = true;
+    error.value = '';
     try {
-      // Licence data is embedded in /v1/me response on Manage Server.
-      await useApiClient().get().me();
-      // For this MVP, we expose role only; a dedicated /admin/licence
-      // endpoint can back a richer summary in a follow-up. Until then
-      // the view surfaces "active" when me() succeeds and "inactive"
-      // otherwise.
-      summary.value = {
-        tier: 'active', // placeholder — see above
-        features: {}, limits: {}, expiresAt: null, licenseServerURL: null,
-      };
-    } finally { loading.value = false; }
+      summary.value = await useApiClient().get().getLicence();
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'failed to load licence';
+    } finally {
+      loading.value = false;
+    }
   }
 
-  return { summary, loading, fetch };
+  return { summary, loading, error, fetch };
 });

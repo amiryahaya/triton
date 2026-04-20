@@ -89,4 +89,22 @@ describe('Hosts view', () => {
     expect(hosts.fetch).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
+
+  it('renders cascade-aware delete confirmation', async () => {
+    const wrapper = mountWithState();
+    await flushPromises();
+
+    const deleteBtn = wrapper.find('[data-test="host-delete-h-1"]');
+    expect(deleteBtn.exists()).toBe(true);
+    await deleteBtn.trigger('click');
+    await flushPromises();
+
+    const modal = document.querySelector('[data-test="confirm-dialog"]');
+    expect(modal).not.toBeNull();
+    const modalText = modal!.textContent ?? '';
+    expect(modalText).toContain('web-01');
+    expect(modalText).toContain('set host_id to NULL');
+    expect(modalText).toContain('cannot be undone');
+    wrapper.unmount();
+  });
 });

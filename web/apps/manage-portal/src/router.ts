@@ -16,7 +16,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/operations/scan-jobs/:id',     name: 'scanJob',     component: () => import('./views/ScanJobs.vue') },
   { path: '/operations/push-status',       name: 'pushStatus',  component: () => import('./views/PushStatus.vue') },
   { path: '/admin/users',                  name: 'users',       component: () => import('./views/Users.vue') },
-  { path: '/admin/licence',                name: 'licence',     component: Placeholder },
+  { path: '/admin/licence',                name: 'licence',     component: () => import('./views/Licence.vue') },
   { path: '/admin/settings',               name: 'settings',    component: Placeholder },
   { path: '/:pathMatch(.*)*',              redirect: '/dashboard' },
 ];

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -27,6 +28,15 @@ import (
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
+// Gateway listener lifecycle states. Read by /admin/gateway-health,
+// written by runGateway (current) / gatewayRetryLoop (post-Batch C).
+const (
+	gatewayStatePendingSetup int32 = 0 // CA not yet minted
+	gatewayStateRetryLoop    int32 = 1 // Retry loop running, listener not yet up
+	gatewayStateUp           int32 = 2 // Listener bound, cert minted, healthy
+	gatewayStateFailed       int32 = 3 // Listener exited with error
+)
+
 // Server is the Manage Server HTTP shell. Run() blocks until ctx is cancelled.
 type Server struct {
 	cfg         *Config
@@ -39,6 +49,9 @@ type Server struct {
 	mu           sync.RWMutex
 	setupMode    bool              // true until admin created AND license activated
 	loginLimiter *loginRateLimiter // in-memory brute-force guard for /auth/login
+
+	gatewayState atomic.Int32 // see gatewayState* constants
+	serverLeaf   atomic.Value // stores tls.Certificate when listener is up
 
 	// Licence wiring (Task 5.1). Populated by startLicence; nil until
 	// /setup/license activates or a valid persisted token is found at boot.

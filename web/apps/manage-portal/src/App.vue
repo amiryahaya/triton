@@ -9,6 +9,7 @@ import {
   TCrumbBar,
   TUserMenu,
   TToastHost,
+  TButton,
   useTheme,
   useToast,
   type Crumb,
@@ -136,6 +137,13 @@ async function signOut() {
               current-id="manage"
             />
             <TThemeToggle />
+            <TButton
+              variant="ghost"
+              size="sm"
+              @click="router.push('/auth/change-password')"
+            >
+              Change password
+            </TButton>
             <TUserMenu
               :name="userName"
               :role="userRole"

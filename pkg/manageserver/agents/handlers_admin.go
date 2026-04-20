@@ -122,13 +122,13 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 	// overshoot is tolerable — the usage pusher surfaces the overshoot
 	// on the next tick.
 	if g := h.guard(); g != nil {
-		if cap := g.LimitCap("agents", "total"); cap >= 0 {
+		if limit := g.LimitCap("agents", "total"); limit >= 0 {
 			c, err := h.AgentStore.Count(r.Context())
 			if err != nil {
 				internalErr(w, r, err, "count agents for cap")
 				return
 			}
-			if c+1 > cap {
+			if c+1 > limit {
 				writeErr(w, http.StatusForbidden, "licence agent cap exceeded")
 				return
 			}

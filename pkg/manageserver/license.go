@@ -78,16 +78,12 @@ func (s *Server) startLicence(ctx context.Context) error {
 // provider closures call this on every request, so a concurrent
 // startLicence/stopLicence rotate is race-free by construction.
 //
-// Exported (lowercase-first but used by the manageserver package's own
-// sub-handler wiring in server.go) via a closure passed to each sub-
-// handler's NewAdminHandlers. Tests that want to exercise a fake
-// licence install it via Set*CapGuardForTest, which the override
-// resolvers consult before falling through to s.licenceGuard.
-func (s *Server) guardSnapshot() *license.Guard {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.licenceGuard
-}
+// The per-sub-handler providers below (hostGuardProvider, scanGuardProvider,
+// agentGuardProvider) are the actual call sites — each closure is wired
+// into its respective NewAdminHandlers at construction time. Tests that
+// want to exercise a fake licence install it via Set*CapGuardForTest,
+// which the override resolvers consult before falling through to
+// s.licenceGuard.
 
 // hostGuardProvider is the closure wired into hosts.AdminHandlers. It
 // consults the per-package test override first so Set*CapGuardForTest

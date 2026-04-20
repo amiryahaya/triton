@@ -106,11 +106,11 @@ func (d *Drain) drainOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("claim due: %w", err)
 	}
-	for _, row := range rows {
+	for i := range rows {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		d.handleRow(ctx, row)
+		d.handleRow(ctx, rows[i])
 	}
 	return nil
 }
@@ -237,20 +237,20 @@ func backoffFor(prevAttempts int) time.Duration {
 //     in dead-letter reason strings. Empty on 2xx / successful drain.
 //
 // Body is the opaque payload_json from the queue row.
-func (d *Drain) pushOne(ctx context.Context, row QueueRow) (int, []byte, error) {
+func (d *Drain) pushOne(ctx context.Context, row QueueRow) (statusCode int, bodySnippet []byte, err error) {
 	url := d.cfg.ReportURL + "/api/v1/scans"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, url,
 		bytes.NewReader(row.PayloadJSON))
-	if err != nil {
-		return 0, nil, fmt.Errorf("build request: %w", err)
+	if reqErr != nil {
+		return 0, nil, fmt.Errorf("build request: %w", reqErr)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := d.cfg.Client.Do(req)
-	if err != nil {
-		return 0, nil, err
+	resp, doErr := d.cfg.Client.Do(req)
+	if doErr != nil {
+		return 0, nil, doErr
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Slurp up to responseBodySnippetLimit bytes for the reason string,
 	// then drain the rest so connection-reuse works. On 2xx we don't

@@ -19,7 +19,7 @@
 //   - TRITON_MANAGE_PARALLELISM         (default 10, clamped to [1,50])
 //   - TRITON_MANAGE_REPORT_SERVER       (base URL for auto-enrol; empty = skip)
 //   - TRITON_MANAGE_REPORT_SERVICE_KEY  (service-key header for auto-enrol;
-//                                        empty = skip even if SERVER is set)
+//     empty = skip even if SERVER is set)
 //
 // Reserved (unused; kept in the contract for future work):
 //

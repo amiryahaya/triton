@@ -129,13 +129,13 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	// when adding one would exceed it. Non-nil guard + non-negative
 	// cap is the only path that gates; nil guard or -1 cap means
 	// unlimited.
-	if cap := seatCapGuardLimit(s.resolveSeatCapGuard(), "seats", "total"); cap >= 0 {
+	if limit := seatCapGuardLimit(s.resolveSeatCapGuard(), "seats", "total"); limit >= 0 {
 		cur, err := s.store.CountUsers(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "count users failed")
 			return
 		}
-		if cur+1 > cap {
+		if cur+1 > limit {
 			writeError(w, http.StatusForbidden, "licence seat cap exceeded")
 			return
 		}

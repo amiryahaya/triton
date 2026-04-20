@@ -264,23 +264,25 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	out := make([]Host, len(hosts))
-	for i, h := range hosts {
+	for i := range hosts {
+		src := &hosts[i]
 		row := tx.QueryRow(ctx,
 			`INSERT INTO manage_hosts (hostname, ip, zone_id, os, last_seen_at)
 			 VALUES ($1, $2::inet, $3, $4, $5)
 			 RETURNING id, created_at, updated_at`,
-			h.Hostname, ipArg(h.IP), zoneArg(h.ZoneID), h.OS, h.LastSeenAt,
+			src.Hostname, ipArg(src.IP), zoneArg(src.ZoneID), src.OS, src.LastSeenAt,
 		)
-		if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
+		dst := *src
+		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt); err != nil {
 			if isUniqueViolation(err) {
-				return nil, fmt.Errorf("%w: hostname %q (index %d)", ErrConflict, h.Hostname, i)
+				return nil, fmt.Errorf("%w: hostname %q (index %d)", ErrConflict, src.Hostname, i)
 			}
 			if isInvalidTextRepresentation(err) {
 				return nil, fmt.Errorf("%w: index %d: %v", ErrInvalidInput, i, err)
 			}
-			return nil, fmt.Errorf("bulk create host %q (index %d): %w", h.Hostname, i, err)
+			return nil, fmt.Errorf("bulk create host %q (index %d): %w", src.Hostname, i, err)
 		}
-		out[i] = h
+		out[i] = dst
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit bulk-create tx: %w", err)

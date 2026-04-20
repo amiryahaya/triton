@@ -42,11 +42,11 @@ func (f *fakeQueueDepther) QueueDepth(_ context.Context) (int64, error) {
 
 // fakeStore is an in-memory scanjobs.Store for handler unit tests.
 type fakeStore struct {
-	mu       sync.Mutex
-	items    map[uuid.UUID]scanjobs.Job
-	calls    []string
-	enqErr   error // if set, Enqueue returns it
-	listErr  error // if set, List returns it
+	mu        sync.Mutex
+	items     map[uuid.UUID]scanjobs.Job
+	calls     []string
+	enqErr    error // if set, Enqueue returns it
+	listErr   error // if set, List returns it
 	cancelled map[uuid.UUID]bool
 }
 

@@ -263,7 +263,7 @@ func (s *Server) autoEnrolWithReport(ctx context.Context, instanceID, licenseKey
 		// Cap the excerpt so a misbehaving proxy can't spray megabytes
 		// into logs.
 		excerpt, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
-		return fmt.Errorf("Report /enrol/manage returned %d: %s", resp.StatusCode, string(excerpt))
+		return fmt.Errorf("report /enrol/manage returned %d: %s", resp.StatusCode, string(excerpt))
 	}
 
 	// 3. Parse the gzipped tar bundle. Expected entries:

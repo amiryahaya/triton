@@ -25,8 +25,8 @@ var _ scanjobs.QueueDepther = (*scanresults.PostgresStore)(nil)
 // admin handlers import it by, without the handlers having to pull in
 // internal/license directly.
 var (
-	_ SeatCapGuard        = (*license.Guard)(nil)
-	_ hosts.HostCapGuard  = (*license.Guard)(nil)
-	_ agents.AgentCapGuard = (*license.Guard)(nil)
+	_ SeatCapGuard          = (*license.Guard)(nil)
+	_ hosts.HostCapGuard    = (*license.Guard)(nil)
+	_ agents.AgentCapGuard  = (*license.Guard)(nil)
 	_ scanjobs.ScanCapGuard = (*license.Guard)(nil)
 )

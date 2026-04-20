@@ -155,10 +155,7 @@ func TestScanJobsAdmin_Create_CapCheckRunsAfterBackpressure(t *testing.T) {
 		})
 	}
 	r := chi.NewRouter()
-	var scanProvider func() scanjobs.ScanCapGuard
-	if guard != nil {
-		scanProvider = func() scanjobs.ScanCapGuard { return guard }
-	}
+	scanProvider := func() scanjobs.ScanCapGuard { return guard }
 	r.Route("/api/v1/admin/scan-jobs", func(r chi.Router) {
 		r.Use(injectTenant)
 		scanjobs.MountAdminRoutes(r, scanjobs.NewAdminHandlers(store, saturated, scanProvider))

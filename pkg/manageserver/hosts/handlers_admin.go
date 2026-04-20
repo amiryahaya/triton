@@ -152,15 +152,15 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	// row under concurrent inserts is acceptable — the usage-pusher
 	// will surface the overshoot in the next tick.
 	if g := h.guard(); g != nil {
-		if cap := g.LimitCap("hosts", "total"); cap >= 0 {
+		if limit := g.LimitCap("hosts", "total"); limit >= 0 {
 			c, err := h.Store.Count(r.Context())
 			if err != nil {
 				internalErr(w, r, err, "count hosts for cap")
 				return
 			}
-			if c+1 > cap {
+			if c+1 > limit {
 				writeErr(w, http.StatusForbidden,
-					fmt.Sprintf("licence host cap exceeded (have %d, cap %d)", c, cap))
+					fmt.Sprintf("licence host cap exceeded (have %d, cap %d)", c, limit))
 				return
 			}
 		}
@@ -292,17 +292,17 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	// the cap by — matches the UX the admin UI wants when it surfaces
 	// the 403 back to the user.
 	if g := h.guard(); g != nil {
-		if cap := g.LimitCap("hosts", "total"); cap >= 0 {
+		if limit := g.LimitCap("hosts", "total"); limit >= 0 {
 			c, err := h.Store.Count(r.Context())
 			if err != nil {
 				internalErr(w, r, err, "count hosts for cap")
 				return
 			}
 			needed := int64(len(batch))
-			if c+needed > cap {
+			if c+needed > limit {
 				writeErr(w, http.StatusForbidden, fmt.Sprintf(
 					"licence host cap exceeded (have %d, cap %d, requested %d)",
-					c, cap, needed))
+					c, limit, needed))
 				return
 			}
 		}

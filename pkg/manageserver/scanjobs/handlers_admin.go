@@ -166,7 +166,7 @@ func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 	// exact same predicate Enqueue will use. A nil Guard or a cap of
 	// -1 for scans/monthly disables this branch.
 	if g := h.guard(); g != nil {
-		if cap := g.LimitCap("scans", "monthly"); cap >= 0 {
+		if limit := g.LimitCap("scans", "monthly"); limit >= 0 {
 			expected, err := h.Store.PlanEnqueueCount(r.Context(), req)
 			if err != nil {
 				internalErr(w, r, err, "plan enqueue count for cap")

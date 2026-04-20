@@ -142,3 +142,28 @@ export interface CreateUserResp {
   role: string;
   temp_password: string;
 }
+
+export interface LimitPair {
+  cap: number;
+  used: number;
+}
+
+export interface ScansLimitPair extends LimitPair {
+  soft_buffer_ceiling: number;
+}
+
+export interface LicenceSummary {
+  tier: string;
+  features: Record<string, boolean>;
+  limits: {
+    seats: LimitPair;
+    hosts: LimitPair;
+    agents: LimitPair;
+    scans: ScansLimitPair;
+  };
+  license_server_url: string;
+  instance_id: string;
+  last_pushed_at: string | null;
+  last_push_error: string;
+  consecutive_failures: number;
+}

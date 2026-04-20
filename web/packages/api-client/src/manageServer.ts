@@ -6,7 +6,7 @@ import type {
   Zone, Host, CreateHostReq, UpdateHostReq,
   Agent, ScanJob, EnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
-  LicenceSummary, SettingsSummary,
+  LicenceSummary, SettingsSummary, GatewayHealthResponse,
 } from './manageServer.types';
 
 /**
@@ -94,6 +94,9 @@ export function createManageApi(http: Http) {
 
     // Runtime settings (Batch F)
     getSettings: () => http.get<SettingsSummary>('/v1/admin/settings'),
+
+    // Gateway cert / listener health (Batch G)
+    getGatewayHealth: () => http.get<GatewayHealthResponse>('/v1/admin/gateway-health'),
   };
 }
 

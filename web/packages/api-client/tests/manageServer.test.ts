@@ -71,6 +71,11 @@ describe('createManageApi', () => {
     await api.getSettings();
     expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/settings' });
   });
+
+  it('getGatewayHealth GETs /v1/admin/gateway-health', async () => {
+    await api.getGatewayHealth();
+    expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/gateway-health' });
+  });
 });
 
 describe('enrolAgent (direct fetch)', () => {

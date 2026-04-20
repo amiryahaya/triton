@@ -180,3 +180,14 @@ export interface SettingsSummary {
   instance_id: string;
   version: string;
 }
+
+// GatewayHealthResponse mirrors pkg/manageserver.GatewayHealthResponse —
+// the read-only gateway cert/listener state exposed at
+// GET /v1/admin/gateway-health. Field names are snake_case to match the
+// Go JSON shape 1:1 (no rename layer).
+export interface GatewayHealthResponse {
+  ca_bootstrapped: boolean;
+  listener_state: 'pending_setup' | 'retry_loop' | 'up' | 'failed';
+  cert_expires_at: string | null;
+  cert_days_remaining: number;
+}

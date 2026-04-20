@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
 	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 )
 
@@ -115,6 +116,8 @@ func validateEnqueue(b enqueueRequestBody) error {
 // Enqueue creates new scan jobs for the authenticated tenant.
 // Body: {zones, target_filter?, profile, credentials_ref?}
 func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
 	if !ok {
 		writeErr(w, http.StatusServiceUnavailable, "instance not initialised")

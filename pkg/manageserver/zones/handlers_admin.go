@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
 )
 
 // AdminHandlers serves the /api/v1/admin/zones CRUD API.
@@ -33,6 +35,8 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 
 // Create inserts a new zone. Body: {name, description}. Name is required.
 func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -79,6 +83,8 @@ func (h *AdminHandlers) Get(w http.ResponseWriter, r *http.Request) {
 
 // Update changes name + description on an existing zone. Body matches Zone.
 func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid zone id")

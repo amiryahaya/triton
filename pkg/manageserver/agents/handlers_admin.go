@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
+	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
 )
 
 // AgentCapGuard is the narrow licence-guard surface the agents Enrol
@@ -97,6 +98,8 @@ type enrolRequest struct {
 // sits unused. Guard is nil in tests and in production deployments
 // without a licence.
 func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	if h.ManageGatewayURL == "" {
 		internalErr(w, r, errors.New("ManageGatewayURL is empty"), "enrol agent")
 		return

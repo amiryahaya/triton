@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
 )
 
 // HostCapGuard is the narrow licence-guard surface the hosts admin
@@ -131,6 +133,8 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 
 // Create inserts a single host. Body: {hostname, ip?, zone_id?, os?, last_seen_at?}.
 func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	var body hostRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -199,6 +203,8 @@ func (h *AdminHandlers) Get(w http.ResponseWriter, r *http.Request) {
 
 // Update changes host fields. Body shape matches hostRequestBody.
 func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid host id")
@@ -258,6 +264,8 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 // hostname collision rolls back the entire batch (all-or-nothing).
 // Body: {"hosts": [{hostname, ip?, zone_id?, os?}, ...]}
 func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	var body struct {
 		Hosts []hostRequestBody `json:"hosts"`
 	}

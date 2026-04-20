@@ -271,6 +271,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
 		r.Get("/gateway-health", s.handleGatewayHealth)
 		r.Get("/licence", s.handleLicenceSummary)
+		r.Get("/settings", s.handleSettings)
 
 		// Admin-only subtree (create user, enrol agent). Role check is
 		// chained in addition to jwtAuth so a network_engineer session

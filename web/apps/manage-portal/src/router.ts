@@ -5,8 +5,8 @@ const Placeholder = () => import('./views/_Placeholder.vue');
 const routes: RouteRecordRaw[] = [
   { path: '/',                             redirect: '/dashboard' },
   { path: '/dashboard',                    name: 'dashboard',   component: Placeholder },
-  { path: '/setup/admin',                  name: 'setupAdmin',  component: Placeholder },
-  { path: '/setup/license',                name: 'setupLicense',component: Placeholder },
+  { path: '/setup/admin',                  name: 'setupAdmin',  component: () => import('./views/SetupAdmin.vue') },
+  { path: '/setup/license',                name: 'setupLicense',component: () => import('./views/SetupLicense.vue') },
   { path: '/inventory/zones',              name: 'zones',       component: Placeholder },
   { path: '/inventory/hosts',              name: 'hosts',       component: Placeholder },
   { path: '/inventory/agents',             name: 'agents',      component: Placeholder },

@@ -535,15 +535,6 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/index.html", http.StatusFound)
 	})
-	// Spec alias: Phase 1 management portal lives at /manage/* — redirect
-	// to the embedded SPA under /ui/manage/. The hash router inside the
-	// SPA owns sub-routes from there.
-	r.Get("/manage", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/manage/", http.StatusFound)
-	})
-	r.Get("/manage/*", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/manage/", http.StatusFound)
-	})
 
 	srv.router = r
 	srv.http = &http.Server{

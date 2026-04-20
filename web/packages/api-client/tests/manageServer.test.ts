@@ -52,6 +52,15 @@ describe('createManageApi', () => {
     await api.cancelScanJob('job-1');
     expect(fake.calls[0]).toEqual({ method: 'POST', path: '/v1/admin/scan-jobs/job-1/cancel', body: {} });
   });
+
+  it('changePassword POSTs body to /v1/auth/change-password', async () => {
+    await api.changePassword({ current: 'old', next: 'new' });
+    expect(fake.calls[0]).toEqual({
+      method: 'POST',
+      path: '/v1/auth/change-password',
+      body: { current: 'old', next: 'new' },
+    });
+  });
 });
 
 describe('enrolAgent (direct fetch)', () => {

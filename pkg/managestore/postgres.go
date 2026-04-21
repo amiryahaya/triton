@@ -295,7 +295,10 @@ func (s *PostgresStore) UpdateUserPassword(ctx context.Context, id, newHash stri
 func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM manage_users`).Scan(&n)
-	return n, err
+	if err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return n, nil
 }
 
 func (s *PostgresStore) CountAdmins(ctx context.Context) (int64, error) {
@@ -303,7 +306,10 @@ func (s *PostgresStore) CountAdmins(ctx context.Context) (int64, error) {
 	err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM manage_users WHERE role = 'admin'`,
 	).Scan(&n)
-	return n, err
+	if err != nil {
+		return 0, fmt.Errorf("count admins: %w", err)
+	}
+	return n, nil
 }
 
 func (s *PostgresStore) DeleteUser(ctx context.Context, id string) error {

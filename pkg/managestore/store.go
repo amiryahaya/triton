@@ -47,6 +47,10 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]ManageUser, error)
 	UpdateUserPassword(ctx context.Context, id, newHash string) error
 	CountUsers(ctx context.Context) (int64, error)
+	// CountAdmins + DeleteUser are consumed by the admin-only
+	// /api/v1/admin/users/{id} DELETE handler (handleDeleteUser) — the
+	// last-admin guardrail reads CountAdmins before DeleteUser to avoid
+	// locking the portal out of its last administrator.
 	CountAdmins(ctx context.Context) (int64, error)
 	DeleteUser(ctx context.Context, id string) error
 

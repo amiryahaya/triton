@@ -73,6 +73,7 @@ func (l *loginRateLimiter) ActiveLockouts() []Lockout {
 	cutoff := l.now().Add(-l.window)
 	var out []Lockout
 	for k, ts := range l.failures {
+		// kept aliases ts's backing array — safe because appends only move elements left.
 		kept := ts[:0]
 		for _, t := range ts {
 			if t.After(cutoff) {
@@ -84,6 +85,9 @@ func (l *loginRateLimiter) ActiveLockouts() []Lockout {
 			continue
 		}
 		idx := strings.Index(k, "|")
+		if idx < 0 {
+			continue // malformed key — skip silently
+		}
 		out = append(out, Lockout{
 			Email:        k[:idx],
 			IP:           k[idx+1:],

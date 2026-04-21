@@ -54,7 +54,7 @@ func TestCreateUser_HappyPath(t *testing.T) {
 	}
 	buf, err := json.Marshal(body)
 	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users", bytes.NewReader(buf))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users/", bytes.NewReader(buf))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -98,7 +98,7 @@ func TestCreateUser_NonAdminRejected(t *testing.T) {
 
 	body := map[string]string{"email": "another@example.com"}
 	buf, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users", bytes.NewReader(buf))
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users/", bytes.NewReader(buf))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
@@ -143,7 +143,7 @@ func TestCreateUser_SeatCapExceeded_Returns403(t *testing.T) {
 
 	body := map[string]string{"email": "tipping-point@example.com"}
 	buf, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users", bytes.NewReader(buf))
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users/", bytes.NewReader(buf))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)

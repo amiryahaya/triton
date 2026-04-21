@@ -273,12 +273,16 @@ func (s *Server) buildRouter() chi.Router {
 		r.Get("/licence", s.handleLicenceSummary)
 		r.Get("/settings", s.handleSettings)
 
-		// Admin-only subtree (create user, enrol agent). Role check is
+		// Admin-only subtree (user CRUD, agent enrol). Role check is
 		// chained in addition to jwtAuth so a network_engineer session
 		// hits 403 rather than silently producing licence-seat output.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireRole("admin"))
-			r.Post("/users", s.handleCreateUser)
+			r.Route("/users", func(r chi.Router) {
+				r.Get("/", s.handleListUsers)
+				r.Post("/", s.handleCreateUser)
+				r.Delete("/{id}", s.handleDeleteUser)
+			})
 			r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
 		})
 	})

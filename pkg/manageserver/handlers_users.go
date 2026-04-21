@@ -182,3 +182,13 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		"temp_password":  tempPW,
 	})
 }
+
+// handleListUsers is GET /api/v1/admin/users/. See Task 3.
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "not implemented")
+}
+
+// handleDeleteUser is DELETE /api/v1/admin/users/{id}. See Task 4.
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "not implemented")
+}

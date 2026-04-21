@@ -9,7 +9,10 @@ import (
 // GET /api/v1/admin/security-events
 // Response: {"active_lockouts": [...]} — empty slice, never null. 200 always.
 func (s *Server) handleListSecurityEvents(w http.ResponseWriter, r *http.Request) {
-	lockouts := s.loginLimiter.ActiveLockouts()
+	var lockouts []Lockout
+	if s.loginLimiter != nil {
+		lockouts = s.loginLimiter.ActiveLockouts()
+	}
 	if lockouts == nil {
 		lockouts = []Lockout{}
 	}
@@ -25,11 +28,11 @@ func (s *Server) handleClearSecurityEvent(w http.ResponseWriter, r *http.Request
 	email := r.URL.Query().Get("email")
 	ip := r.URL.Query().Get("ip")
 	if email == "" || ip == "" {
-		writeError(w, http.StatusBadRequest, "email and ip query parameters are required")
+		writeError(w, http.StatusBadRequest, "email and IP query parameters are required")
 		return
 	}
-	if !s.loginLimiter.Clear(email, ip) {
-		writeError(w, http.StatusNotFound, "no active lockout for the given email and ip")
+	if s.loginLimiter == nil || !s.loginLimiter.Clear(email, ip) {
+		writeError(w, http.StatusNotFound, "no active lockout for the given email and IP")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -17,6 +17,12 @@ export const useUsersStore = defineStore('users', () => {
     await fetch();
     return resp;
   }
+  async function remove(id: string): Promise<void> {
+    await useApiClient().get().deleteUser(id);
+    // Optimistically drop the row from local state. The list is short
+    // enough that a refetch would also work; local prune is instant.
+    items.value = items.value.filter((u) => u.id !== id);
+  }
 
-  return { items, loading, fetch, create };
+  return { items, loading, fetch, create, remove };
 });

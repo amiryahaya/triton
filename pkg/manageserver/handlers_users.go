@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
@@ -196,7 +199,65 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, users)
 }
 
-// handleDeleteUser is DELETE /api/v1/admin/users/{id}. See Task 4.
+// handleDeleteUser is DELETE /api/v1/admin/users/{id}. Gated by
+// RequireRole("admin") upstream. Enforces two guardrails before
+// touching the DB:
+//
+//  1. Self-delete prevention: if the caller's user_id equals {id},
+//     return 403. This is the most common footgun — admins trying
+//     to remove their own row and locking themselves out.
+//
+//  2. Last-admin prevention: if the target's role is "admin" and
+//     the current admin count is <= 1 (meaning removing them would
+//     drop us to zero admins), return 409. Protects against
+//     post-login role-downgrade races where the caller is no
+//     longer an admin in DB but their JWT still grants access.
+//
+// Session rows for the deleted user are cleaned up automatically
+// by the ON DELETE CASCADE on manage_sessions.user_id (migration v2).
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not implemented")
+	id := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
+	caller := userFromContext(r)
+	if caller == nil {
+		writeError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	if caller.ID == id {
+		writeError(w, http.StatusForbidden, "cannot delete your own account")
+		return
+	}
+
+	target, err := s.store.GetUserByID(r.Context(), id)
+	if err != nil {
+		var nf *managestore.ErrNotFound
+		if errors.As(err, &nf) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+
+	if target.Role == "admin" {
+		n, err := s.store.CountAdmins(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "count admins failed")
+			return
+		}
+		if n <= 1 {
+			writeError(w, http.StatusConflict, "cannot delete the last admin")
+			return
+		}
+	}
+
+	if err := s.store.DeleteUser(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "delete user failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

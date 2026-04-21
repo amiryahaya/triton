@@ -2,11 +2,13 @@ package manageserver
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/agents"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
+	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
 // SubHandlerGuardsForTest returns the Guard that each sub-handler
@@ -80,6 +82,20 @@ func SetSeatCapGuardForTest(s *Server, g SeatCapGuard) {
 	s.mu.Lock()
 	s.seatCapGuardOverride = g
 	s.mu.Unlock()
+}
+
+// ContextWithUserForTest returns a copy of r with the given user
+// stashed in context under userCtxKey, bypassing jwtAuth. Intended
+// for unit-level handler tests that want to exercise handler logic
+// without a live DB session.
+func ContextWithUserForTest(r *http.Request, u *managestore.ManageUser) *http.Request {
+	return r.WithContext(contextWithUser(r.Context(), u))
+}
+
+// HandleDeleteUserForTest exposes handleDeleteUser for direct invocation
+// in handler unit tests that bypass the full HTTP stack.
+func HandleDeleteUserForTest(s *Server, w http.ResponseWriter, r *http.Request) {
+	s.handleDeleteUser(w, r)
 }
 
 // ClearSeatCapGuardForTest removes any test-injected cap guards from

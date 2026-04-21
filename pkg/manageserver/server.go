@@ -284,6 +284,8 @@ func (s *Server) buildRouter() chi.Router {
 				r.Delete("/{id}", s.handleDeleteUser)
 			})
 			r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
+			r.Get("/security-events", s.handleListSecurityEvents)
+			r.Delete("/security-events", s.handleClearSecurityEvent)
 		})
 	})
 

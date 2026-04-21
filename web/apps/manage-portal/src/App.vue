@@ -56,6 +56,7 @@ const labels: Record<string, string> = {
   'scan-jobs': 'Scan Jobs',
   'push-status': 'Push Status',
   users: 'Users',
+  security: 'Security',
   licence: 'Licence',
   settings: 'Settings',
   setup: 'Setup',

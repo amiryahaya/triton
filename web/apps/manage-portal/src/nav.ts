@@ -23,6 +23,7 @@ export const nav: NavSection[] = [
     label: 'Admin',
     items: [
       { href: '#/admin/users',    label: 'Users' },
+      { href: '#/admin/security', label: 'Security' },
       { href: '#/admin/licence',  label: 'Licence' },
       { href: '#/admin/settings', label: 'Settings' },
     ],

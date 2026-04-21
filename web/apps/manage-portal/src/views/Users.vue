@@ -1,23 +1,30 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   TDataTable,
   TButton,
   TPill,
+  TConfirmDialog,
   useToast,
   type Column,
   type PillVariant,
 } from '@triton/ui';
 import { useUsersStore } from '../stores/users';
+import { useAuthStore } from '../stores/auth';
 import UserCreateForm from './modals/UserCreateForm.vue';
 import UserCreatedResult from './modals/UserCreatedResult.vue';
 import type { ManageUser, CreateUserReq, CreateUserResp } from '@triton/api-client';
 
 const users = useUsersStore();
+const auth = useAuthStore();
 const toast = useToast();
 
 const createOpen = ref(false);
 const created = ref<CreateUserResp | null>(null);
+const confirmOpen = ref(false);
+const pendingDelete = ref<ManageUser | null>(null);
+
+const selfId = computed(() => auth.claims?.sub ?? '');
 
 const columns: Column<ManageUser>[] = [
   { key: 'email', label: 'Email' },
@@ -25,6 +32,7 @@ const columns: Column<ManageUser>[] = [
   { key: 'role', label: 'Role' },
   { key: 'must_change_pw', label: 'Must change pw?' },
   { key: 'created_at', label: 'Created' },
+  { key: 'id', label: '', width: '120px', align: 'right' },
 ];
 
 // TPill variants: admin → enterprise (distinct weight), network_engineer →
@@ -38,6 +46,11 @@ onMounted(() => {
   void users.fetch();
 });
 
+function askDelete(u: ManageUser) {
+  pendingDelete.value = u;
+  confirmOpen.value = true;
+}
+
 async function onCreate(req: CreateUserReq) {
   try {
     const resp = await users.create(req);
@@ -46,6 +59,20 @@ async function onCreate(req: CreateUserReq) {
     created.value = resp;
   } catch (e) {
     toast.error({ title: 'Create failed', description: String(e) });
+  }
+}
+
+async function onConfirmDelete() {
+  const u = pendingDelete.value;
+  if (!u) return;
+  try {
+    await users.remove(u.id);
+    toast.success({ title: 'User deleted', description: u.email });
+  } catch (e) {
+    toast.error({ title: 'Delete failed', description: String(e) });
+  } finally {
+    confirmOpen.value = false;
+    pendingDelete.value = null;
   }
 }
 </script>
@@ -81,6 +108,17 @@ async function onCreate(req: CreateUserReq) {
         <span v-if="row.must_change_pw">yes</span>
         <span v-else>no</span>
       </template>
+      <template #[`cell:id`]="{ row }">
+        <TButton
+          v-if="row.id !== selfId"
+          variant="danger"
+          size="sm"
+          :data-test="`user-delete-${row.id}`"
+          @click="askDelete(row)"
+        >
+          Delete
+        </TButton>
+      </template>
     </TDataTable>
 
     <UserCreateForm
@@ -93,6 +131,18 @@ async function onCreate(req: CreateUserReq) {
       :email="created?.email ?? ''"
       :temp-password="created?.temp_password ?? ''"
       @close="created = null"
+    />
+    <TConfirmDialog
+      :open="confirmOpen"
+      title="Delete user?"
+      :message="pendingDelete
+        ? `Delete user ${pendingDelete.email}? This cannot be undone.`
+        : ''"
+      confirm-label="Delete"
+      variant="danger"
+      data-test="confirm-dialog"
+      @confirm="onConfirmDelete"
+      @cancel="confirmOpen = false; pendingDelete = null"
     />
   </section>
 </template>

@@ -76,6 +76,20 @@ describe('createManageApi', () => {
     await api.getGatewayHealth();
     expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/gateway-health' });
   });
+
+  it('deleteUser DELETEs /v1/admin/users/<id>', async () => {
+    await api.deleteUser('abc-123');
+    expect(fake.calls).toContainEqual({ method: 'DELETE', path: '/v1/admin/users/abc-123' });
+  });
+
+  it('createUser POSTs /v1/admin/users/ (trailing slash)', async () => {
+    await api.createUser({ email: 'e@example.com', role: 'network_engineer' });
+    expect(fake.calls).toContainEqual({
+      method: 'POST',
+      path: '/v1/admin/users/',
+      body: { email: 'e@example.com', role: 'network_engineer' },
+    });
+  });
 });
 
 describe('enrolAgent (direct fetch)', () => {

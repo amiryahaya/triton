@@ -8,7 +8,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function mountWithState() {
+function mountWithState(selfSub = '') {
   return mount(Users, {
     global: {
       plugins: [
@@ -37,6 +37,11 @@ function mountWithState() {
                 },
               ],
               loading: false,
+            },
+            auth: {
+              token: selfSub
+                ? `header.${btoa(JSON.stringify({ sub: selfSub, org: '', org_name: '', role: 'admin', name: '', mcp: false, exp: 9999999999 })).replace(/=/g, '')}.sig`
+                : '',
             },
           },
         }),
@@ -120,6 +125,68 @@ describe('Users view', () => {
       (c) => c.textContent?.includes('Sup3rSecretTemp!'),
     );
     expect(tempPasswordShown).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('hides the Delete button on the caller own row', async () => {
+    // selfSub = 'u-1' → alice's row should have no delete button; bob's row should.
+    const wrapper = mountWithState('u-1');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="user-delete-u-1"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="user-delete-u-2"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('opens the confirm dialog with the target email in the message', async () => {
+    const wrapper = mountWithState('u-1');
+    await flushPromises();
+
+    await wrapper.find('[data-test="user-delete-u-2"]').trigger('click');
+    await flushPromises();
+
+    const dialog = document.querySelector('[data-test="confirm-dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.textContent).toContain('bob@example.com');
+    wrapper.unmount();
+  });
+
+  it('calls store.remove on confirm and closes dialog', async () => {
+    const wrapper = mountWithState('u-1');
+    const store = useUsersStore();
+    await flushPromises();
+
+    await wrapper.find('[data-test="user-delete-u-2"]').trigger('click');
+    await flushPromises();
+
+    // Find the confirm button inside the teleported modal.
+    const okBtn = document.querySelector('.t-confirm-ok') as HTMLButtonElement | null;
+    expect(okBtn).not.toBeNull();
+    okBtn!.click();
+    await flushPromises();
+
+    expect(store.remove).toHaveBeenCalledWith('u-2');
+    expect(document.querySelector('[data-test="confirm-dialog"]')).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('closes the dialog on cancel without calling remove', async () => {
+    const wrapper = mountWithState('u-1');
+    const store = useUsersStore();
+    await flushPromises();
+
+    await wrapper.find('[data-test="user-delete-u-2"]').trigger('click');
+    await flushPromises();
+
+    expect(document.querySelector('[data-test="confirm-dialog"]')).not.toBeNull();
+
+    const cancelBtn = document.querySelector('.t-confirm-cancel') as HTMLButtonElement | null;
+    expect(cancelBtn).not.toBeNull();
+    cancelBtn!.click();
+    await flushPromises();
+
+    expect(document.querySelector('[data-test="confirm-dialog"]')).toBeNull();
+    expect(store.remove).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });

@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
@@ -181,4 +185,75 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		"must_change_pw": true,
 		"temp_password":  tempPW,
 	})
+}
+
+// handleListUsers is GET /api/v1/admin/users/. Gated by
+// RequireRole("admin") upstream. Returns a JSON array of users
+// ordered newest-first; password_hash is never serialised thanks to
+// the `json:"-"` tag on managestore.ManageUser.
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list users failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+// handleDeleteUser is DELETE /api/v1/admin/users/{id}. Gated by
+// RequireRole("admin") upstream. Guard order:
+//
+//  1. Bad UUID → 400
+//  2. Missing caller → 500 + log (router misconfiguration, not a client error)
+//  3. Self-delete → 403
+//  4. Target not found (via GetUserByID) → 404
+//  5. DeleteUser (store-level atomic guard) → 409 on ErrLastAdmin, else 204
+//
+// The last-admin invariant is enforced atomically inside DeleteUser via a
+// subquery guard, closing the TOCTOU race that a handler-level
+// CountAdmins → DeleteUser sequence would leave open.
+//
+// Session rows for the deleted user are cleaned up automatically
+// by the ON DELETE CASCADE on manage_sessions.user_id (migration v2).
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+
+	caller := userFromContext(r)
+	if caller == nil {
+		// Defensive — jwtAuth should have populated this. Reaching this
+		// branch indicates a router misconfiguration (handler wired
+		// outside the auth middleware chain), not a client auth failure.
+		log.Printf("manageserver: handleDeleteUser: no user in context; middleware may be misconfigured")
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if caller.ID == id {
+		writeError(w, http.StatusForbidden, "cannot delete your own account")
+		return
+	}
+
+	_, err := s.store.GetUserByID(r.Context(), id)
+	if err != nil {
+		var nf *managestore.ErrNotFound
+		if errors.As(err, &nf) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+
+	if err := s.store.DeleteUser(r.Context(), id); err != nil {
+		if errors.Is(err, managestore.ErrLastAdmin) {
+			writeError(w, http.StatusConflict, "cannot delete the last admin")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "delete user failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

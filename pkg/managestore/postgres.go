@@ -262,7 +262,7 @@ func (s *PostgresStore) GetUserByID(ctx context.Context, id string) (*ManageUser
 func (s *PostgresStore) ListUsers(ctx context.Context) ([]ManageUser, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, email, name, role, password, must_change_pw, created_at, updated_at
-		FROM manage_users ORDER BY created_at`)
+		FROM manage_users ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -295,7 +295,67 @@ func (s *PostgresStore) UpdateUserPassword(ctx context.Context, id, newHash stri
 func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM manage_users`).Scan(&n)
-	return n, err
+	if err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return n, nil
+}
+
+func (s *PostgresStore) CountAdmins(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_users WHERE role = 'admin'`,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count admins: %w", err)
+	}
+	return n, nil
+}
+
+// DeleteUser removes a user row. Sessions are cleaned up automatically
+// by the ON DELETE CASCADE on manage_sessions.user_id.
+//
+// Atomicity: the DELETE is guarded by a subquery so an admin row is
+// only removed when doing so leaves at least one other admin. This
+// closes a TOCTOU race the handler's CountAdmins → DeleteUser sequence
+// would otherwise have against two concurrent admin deletions.
+// Returns ErrLastAdmin when the guard blocks the delete; callers can
+// use errors.Is to distinguish.
+func (s *PostgresStore) DeleteUser(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM manage_users
+		WHERE id = $1
+		  AND NOT (
+		      role = 'admin'
+		      AND (SELECT COUNT(*) FROM manage_users WHERE role = 'admin') <= 1
+		  )`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Either the row never existed or the last-admin guard fired.
+		// Distinguish via a follow-up lookup — cheap, and only runs in
+		// the failure path.
+		var role string
+		err := s.pool.QueryRow(ctx,
+			`SELECT role FROM manage_users WHERE id = $1`, id,
+		).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Row didn't exist — noop semantics preserved (handler
+			// owns 404 via GetUserByID upstream).
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("delete user guard lookup: %w", err)
+		}
+		if role == "admin" {
+			return ErrLastAdmin
+		}
+		// Shouldn't happen — row exists but wasn't an admin, so the
+		// guard wouldn't have fired. Treat as transient.
+		return fmt.Errorf("delete user: row present but guard blocked")
+	}
+	return nil
 }
 
 // --- Sessions --------------------------------------------------------------

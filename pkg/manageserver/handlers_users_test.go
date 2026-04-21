@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,7 +55,7 @@ func TestCreateUser_HappyPath(t *testing.T) {
 	}
 	buf, err := json.Marshal(body)
 	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users", bytes.NewReader(buf))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users/", bytes.NewReader(buf))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -98,7 +99,7 @@ func TestCreateUser_NonAdminRejected(t *testing.T) {
 
 	body := map[string]string{"email": "another@example.com"}
 	buf, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users", bytes.NewReader(buf))
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users/", bytes.NewReader(buf))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
@@ -143,7 +144,7 @@ func TestCreateUser_SeatCapExceeded_Returns403(t *testing.T) {
 
 	body := map[string]string{"email": "tipping-point@example.com"}
 	buf, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users", bytes.NewReader(buf))
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/users/", bytes.NewReader(buf))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
@@ -175,4 +176,183 @@ func (f *fakeSeatCapGuard) LimitCap(metric, window string) int64 {
 		return v
 	}
 	return -1
+}
+
+// TestListUsers_ReturnsAllUsersWithoutPasswordHash exercises the happy
+// path: admin GETs the user list, gets 200 + an array of users that
+// does NOT include password hash material.
+func TestListUsers_ReturnsAllUsersWithoutPasswordHash(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	admin := seedAdminUser(t, store)
+	seedExtraUser(t, store, "engineer1@example.com", "network_engineer")
+	seedExtraUser(t, store, "engineer2@example.com", "network_engineer")
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/users/", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out []map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Len(t, out, 3, "admin + 2 seeded engineers")
+
+	for _, row := range out {
+		_, has := row["password_hash"]
+		assert.False(t, has, "response must not carry password_hash")
+		_, has = row["password"]
+		assert.False(t, has, "response must not carry password")
+	}
+}
+
+// TestListUsers_NonAdminRejected verifies RequireRole("admin")
+// middleware continues to gate the new GET endpoint.
+func TestListUsers_NonAdminRejected(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	_ = seedAdminUser(t, store)
+	engineer := "engineer-gate@example.com"
+	seedExtraUser(t, store, engineer, "network_engineer")
+	token := loginViaHTTP(t, ts.URL, engineer, "Password123!")
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/users/", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// TestDeleteUser_HappyPath_NonAdminTarget: admin deletes an engineer.
+// Row is gone, session rows are cascaded.
+func TestDeleteUser_HappyPath_NonAdminTarget(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	admin := seedAdminUser(t, store)
+	seedExtraUser(t, store, "deleteme@example.com", "network_engineer")
+	eng, err := store.GetUserByEmail(context.Background(), "deleteme@example.com")
+	require.NoError(t, err)
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/admin/users/"+eng.ID, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	_, err = store.GetUserByID(context.Background(), eng.ID)
+	var nf *managestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf, "user row should be deleted")
+}
+
+// TestDeleteUser_SelfDeletePrevented: admin cannot delete their own
+// row. Self-check fires before any DB round-trip.
+func TestDeleteUser_SelfDeletePrevented(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	admin := seedAdminUser(t, store)
+	// Seed a second admin so the last-admin guard won't fire.
+	seedExtraUser(t, store, "admin2@example.com", "admin")
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/admin/users/"+admin.ID, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, string(body), "cannot delete your own account")
+
+	_, err = store.GetUserByID(context.Background(), admin.ID)
+	require.NoError(t, err, "admin row should still be present")
+}
+
+// TestDeleteUser_LastAdminPrevented: the last-admin invariant is now
+// enforced atomically inside store.DeleteUser via a subquery guard
+// (see pkg/managestore.DeleteUser and ErrLastAdmin). The HTTP-level
+// test is not viable here because jwtAuth does a live DB lookup — any
+// state that makes the store guard fire also means the caller's DB role
+// is no longer "admin", so RequireRole("admin") 403s before the handler
+// runs. The definitive coverage lives in:
+//
+//	pkg/managestore.TestDeleteUser_LastAdminGuardRejects
+//	pkg/managestore.TestDeleteUser_AdminDeletionAllowedWhenMultipleAdmins
+
+// TestDeleteUser_UnknownIDReturns404
+func TestDeleteUser_UnknownIDReturns404(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	admin := seedAdminUser(t, store)
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	req, err := http.NewRequest(
+		http.MethodDelete,
+		ts.URL+"/api/v1/admin/users/00000000-0000-0000-0000-000000000000",
+		nil,
+	)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// TestDeleteUser_BadUUIDReturns400
+func TestDeleteUser_BadUUIDReturns400(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	admin := seedAdminUser(t, store)
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	req, err := http.NewRequest(
+		http.MethodDelete,
+		ts.URL+"/api/v1/admin/users/not-a-uuid",
+		nil,
+	)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

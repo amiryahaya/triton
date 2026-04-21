@@ -2,6 +2,7 @@ package managestore
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -47,10 +48,10 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]ManageUser, error)
 	UpdateUserPassword(ctx context.Context, id, newHash string) error
 	CountUsers(ctx context.Context) (int64, error)
-	// CountAdmins + DeleteUser are consumed by the admin-only
-	// /api/v1/admin/users/{id} DELETE handler (handleDeleteUser) — the
-	// last-admin guardrail reads CountAdmins before DeleteUser to avoid
-	// locking the portal out of its last administrator.
+	// CountAdmins is a read-only helper (used by tests and diagnostics).
+	// DeleteUser enforces the last-admin invariant atomically via a
+	// subquery guard; callers use errors.Is(err, ErrLastAdmin) to
+	// distinguish the guard rejection from other errors.
 	CountAdmins(ctx context.Context) (int64, error)
 	DeleteUser(ctx context.Context, id string) error
 
@@ -77,3 +78,8 @@ func (e *ErrNotFound) Error() string { return e.Resource + " not found: " + e.ID
 type ErrConflict struct{ Message string }
 
 func (e *ErrConflict) Error() string { return e.Message }
+
+// ErrLastAdmin signals that DeleteUser blocked an admin deletion that
+// would have dropped the admin count to zero. Distinct from ErrConflict
+// because it represents a semantic invariant, not a uniqueness violation.
+var ErrLastAdmin = errors.New("cannot delete the last admin")

@@ -721,6 +721,50 @@ func TestDeleteUser_NoopOnUnknownID(t *testing.T) {
 	assert.NoError(t, store.DeleteUser(ctx, "00000000-0000-0000-0000-000000000000"))
 }
 
+// TestDeleteUser_LastAdminGuardRejects asserts that DeleteUser returns
+// ErrLastAdmin when the target is the sole admin, and that the row is
+// not removed. This is the definitive coverage for the atomic subquery
+// guard that closes the TOCTOU race in the handler-level CountAdmins →
+// DeleteUser sequence.
+func TestDeleteUser_LastAdminGuardRejects(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	admin := &managestore.ManageUser{
+		Email: "only-admin@example.com", Role: "admin", PasswordHash: "x",
+	}
+	require.NoError(t, store.CreateUser(ctx, admin))
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "eng@example.com", Role: "network_engineer", PasswordHash: "x",
+	}))
+
+	// Only one admin — deleting them should be blocked.
+	err := store.DeleteUser(ctx, admin.ID)
+	assert.ErrorIs(t, err, managestore.ErrLastAdmin)
+
+	// Row still present.
+	_, err = store.GetUserByID(ctx, admin.ID)
+	assert.NoError(t, err, "admin row should still be present after guard fires")
+}
+
+// TestDeleteUser_AdminDeletionAllowedWhenMultipleAdmins asserts that
+// DeleteUser succeeds when multiple admins exist, leaving at least one.
+func TestDeleteUser_AdminDeletionAllowedWhenMultipleAdmins(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	a := &managestore.ManageUser{Email: "a@example.com", Role: "admin", PasswordHash: "x"}
+	b := &managestore.ManageUser{Email: "b@example.com", Role: "admin", PasswordHash: "x"}
+	require.NoError(t, store.CreateUser(ctx, a))
+	require.NoError(t, store.CreateUser(ctx, b))
+
+	require.NoError(t, store.DeleteUser(ctx, a.ID))
+
+	n, err := store.CountAdmins(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+}
+
 // --- ListUsers ordering tests ---
 
 func TestListUsers_OrderedNewestFirst(t *testing.T) {

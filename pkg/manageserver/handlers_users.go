@@ -183,9 +183,17 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleListUsers is GET /api/v1/admin/users/. See Task 3.
+// handleListUsers is GET /api/v1/admin/users/. Gated by
+// RequireRole("admin") upstream. Returns a JSON array of users
+// ordered newest-first; password_hash is never serialised thanks to
+// the `json:"-"` tag on managestore.ManageUser.
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not implemented")
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list users failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
 }
 
 // handleDeleteUser is DELETE /api/v1/admin/users/{id}. See Task 4.

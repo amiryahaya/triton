@@ -176,3 +176,63 @@ func (f *fakeSeatCapGuard) LimitCap(metric, window string) int64 {
 	}
 	return -1
 }
+
+// TestListUsers_ReturnsAllUsersWithoutPasswordHash exercises the happy
+// path: admin GETs the user list, gets 200 + an array of users that
+// does NOT include password hash material.
+func TestListUsers_ReturnsAllUsersWithoutPasswordHash(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	admin := seedAdminUser(t, store)
+	seedExtraUser(t, store, "engineer1@example.com", "network_engineer")
+	seedExtraUser(t, store, "engineer2@example.com", "network_engineer")
+	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/users/", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out []map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Len(t, out, 3, "admin + 2 seeded engineers")
+
+	for _, row := range out {
+		_, has := row["password_hash"]
+		assert.False(t, has, "response must not carry password_hash")
+		_, has = row["password"]
+		assert.False(t, has, "response must not carry password")
+	}
+}
+
+// TestListUsers_NonAdminRejected verifies RequireRole("admin")
+// middleware continues to gate the new GET endpoint.
+func TestListUsers_NonAdminRejected(t *testing.T) {
+	srv, store, cleanup := openOperationalServer(t)
+	defer cleanup()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	_ = seedAdminUser(t, store)
+	engineer := "engineer-gate@example.com"
+	seedExtraUser(t, store, engineer, "network_engineer")
+	token := loginViaHTTP(t, ts.URL, engineer, "Password123!")
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/users/", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}

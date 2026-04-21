@@ -159,9 +159,6 @@ describe('Users view', () => {
     await wrapper.find('[data-test="user-delete-u-2"]').trigger('click');
     await flushPromises();
 
-    const confirmBtn = document.querySelector(
-      '[data-test="confirm-dialog"] ~ * .t-confirm-ok, .t-confirm-ok',
-    ) as HTMLButtonElement | null;
     // Find the confirm button inside the teleported modal.
     const okBtn = document.querySelector('.t-confirm-ok') as HTMLButtonElement | null;
     expect(okBtn).not.toBeNull();

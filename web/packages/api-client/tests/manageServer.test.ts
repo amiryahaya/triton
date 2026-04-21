@@ -90,6 +90,19 @@ describe('createManageApi', () => {
       body: { email: 'e@example.com', role: 'network_engineer' },
     });
   });
+
+  it('listLockouts GETs /v1/admin/security-events', async () => {
+    await api.listLockouts();
+    expect(fake.calls[0]).toEqual({ method: 'GET', path: '/v1/admin/security-events' });
+  });
+
+  it('clearLockout DELETEs /v1/admin/security-events with encoded email + ip', async () => {
+    await api.clearLockout('user@example.com', '127.0.0.1');
+    expect(fake.calls[0]).toEqual({
+      method: 'DELETE',
+      path: '/v1/admin/security-events?email=user%40example.com&ip=127.0.0.1',
+    });
+  });
 });
 
 describe('enrolAgent (direct fetch)', () => {

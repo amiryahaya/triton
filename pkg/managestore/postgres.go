@@ -262,7 +262,7 @@ func (s *PostgresStore) GetUserByID(ctx context.Context, id string) (*ManageUser
 func (s *PostgresStore) ListUsers(ctx context.Context) ([]ManageUser, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, email, name, role, password, must_change_pw, created_at, updated_at
-		FROM manage_users ORDER BY created_at`)
+		FROM manage_users ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -296,6 +296,22 @@ func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM manage_users`).Scan(&n)
 	return n, err
+}
+
+func (s *PostgresStore) CountAdmins(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_users WHERE role = 'admin'`,
+	).Scan(&n)
+	return n, err
+}
+
+func (s *PostgresStore) DeleteUser(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM manage_users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
 }
 
 // --- Sessions --------------------------------------------------------------

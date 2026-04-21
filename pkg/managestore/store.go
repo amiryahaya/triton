@@ -47,6 +47,8 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]ManageUser, error)
 	UpdateUserPassword(ctx context.Context, id, newHash string) error
 	CountUsers(ctx context.Context) (int64, error)
+	CountAdmins(ctx context.Context) (int64, error)
+	DeleteUser(ctx context.Context, id string) error
 
 	// Sessions
 	CreateSession(ctx context.Context, sess *ManageSession) error

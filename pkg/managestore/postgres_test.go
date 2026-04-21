@@ -665,6 +665,88 @@ func TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK(t *testing.T) {
 		"dead-letter.scan_job_id keeps the original job ID as evidence trail")
 }
 
+// --- CountAdmins Tests ---
+
+func TestCountAdmins_ReflectsRoleColumn(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "a1@example.com", Role: "admin", PasswordHash: "x",
+	}))
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "a2@example.com", Role: "admin", PasswordHash: "x",
+	}))
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "e1@example.com", Role: "network_engineer", PasswordHash: "x",
+	}))
+
+	n, err := store.CountAdmins(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n)
+}
+
+// --- DeleteUser Tests ---
+
+func TestDeleteUser_RemovesRowAndCascadesSessions(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	u := &managestore.ManageUser{Email: "e@example.com", Role: "network_engineer", PasswordHash: "x"}
+	require.NoError(t, store.CreateUser(ctx, u))
+	require.NoError(t, store.CreateSession(ctx, &managestore.ManageSession{
+		UserID:    u.ID,
+		TokenHash: "token-hash-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	_, err := store.GetUserByID(ctx, u.ID)
+	require.NoError(t, err)
+	_, err = store.GetSessionByTokenHash(ctx, "token-hash-1")
+	require.NoError(t, err)
+
+	require.NoError(t, store.DeleteUser(ctx, u.ID))
+
+	_, err = store.GetUserByID(ctx, u.ID)
+	var nf *managestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf, "user row should be gone after DeleteUser")
+
+	_, err = store.GetSessionByTokenHash(ctx, "token-hash-1")
+	assert.ErrorAs(t, err, &nf, "session row should be cascade-deleted")
+}
+
+func TestDeleteUser_NoopOnUnknownID(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	assert.NoError(t, store.DeleteUser(ctx, "00000000-0000-0000-0000-000000000000"))
+}
+
+// --- ListUsers ordering tests ---
+
+func TestListUsers_OrderedNewestFirst(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "first@example.com", Role: "network_engineer", PasswordHash: "x",
+	}))
+	time.Sleep(5 * time.Millisecond)
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "second@example.com", Role: "network_engineer", PasswordHash: "x",
+	}))
+	time.Sleep(5 * time.Millisecond)
+	require.NoError(t, store.CreateUser(ctx, &managestore.ManageUser{
+		Email: "third@example.com", Role: "network_engineer", PasswordHash: "x",
+	}))
+
+	got, err := store.ListUsers(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, "third@example.com", got[0].Email, "newest should come first")
+	assert.Equal(t, "second@example.com", got[1].Email)
+	assert.Equal(t, "first@example.com", got[2].Email)
+}
+
 // TestMigrate_ConcurrentCallsAreSafe asserts the advisory lock in Migrate
 // serialises concurrent migrators so no caller sees a duplicate-key error
 // on version-row inserts. Rolling deploys and parallel test runs can both

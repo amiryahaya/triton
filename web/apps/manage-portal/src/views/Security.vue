@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   TDataTable,
   TButton,
@@ -10,27 +10,44 @@ import {
 import { useSecurityStore } from '../stores/security';
 import type { Lockout } from '@triton/api-client';
 
+interface LockoutRow {
+  email: string;
+  ip: string;
+  failures: number;
+  first_failure: string;
+  last_failure: string;
+  locked_until: string;
+  _key: string;
+  [key: string]: unknown;
+}
+
 const security = useSecurityStore();
 const toast = useToast();
 
 const confirmOpen = ref(false);
 const pendingUnlock = ref<Lockout | null>(null);
 
-const columns: Column<Lockout>[] = [
+// Pre-map to add a composite row key — TDataTable requires keyof T & string.
+const rows = computed<LockoutRow[]>(() =>
+  security.items.map((l) => ({ ...l, _key: `${l.email}|${l.ip}` }))
+);
+
+const columns: Column<LockoutRow>[] = [
   { key: 'email',         label: 'Email' },
   { key: 'ip',            label: 'IP' },
   { key: 'failures',      label: 'Failures' },
   { key: 'first_failure', label: 'First failure' },
   { key: 'locked_until',  label: 'Locked until' },
-  { key: 'last_failure',  label: '', width: '120px', align: 'right' },
+  { key: '_key',          label: '', width: '120px', align: 'right' },
 ];
 
 onMounted(() => {
   void security.fetch();
 });
 
-function askUnlock(l: Lockout) {
-  pendingUnlock.value = l;
+function askUnlock(row: Record<string, unknown>) {
+  // row is always LockoutRow from the computed rows array; cast to Lockout for state
+  pendingUnlock.value = row as unknown as Lockout;
   confirmOpen.value = true;
 }
 
@@ -61,21 +78,21 @@ async function onConfirmUnlock() {
 
     <TDataTable
       :columns="columns"
-      :rows="security.items"
-      row-key="email"
+      :rows="rows"
+      row-key="_key"
       :empty-text="security.loading ? 'Loading…' : 'No active lockouts.'"
     >
       <template #[`cell:first_failure`]="{ row }">
-        {{ new Date(row.first_failure).toLocaleString() }}
+        {{ new Date(String(row.first_failure)).toLocaleString() }}
       </template>
       <template #[`cell:locked_until`]="{ row }">
-        {{ new Date(row.locked_until).toLocaleString() }}
+        {{ new Date(String(row.locked_until)).toLocaleString() }}
       </template>
-      <template #[`cell:last_failure`]="{ row }">
+      <template #[`cell:_key`]="{ row }">
         <TButton
           variant="danger"
           size="sm"
-          :data-test="`unlock-${row.email}|${row.ip}`"
+          :data-test="`unlock-${String(row._key)}`"
           @click="askUnlock(row)"
         >
           Unlock

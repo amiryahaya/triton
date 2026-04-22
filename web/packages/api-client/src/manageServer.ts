@@ -7,6 +7,7 @@ import type {
   Agent, ScanJob, EnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
   LicenceSummary, SettingsSummary, GatewayHealthResponse,
+  SecurityEventsResponse,
 } from './manageServer.types';
 
 /**
@@ -98,6 +99,13 @@ export function createManageApi(http: Http) {
 
     // Gateway cert / listener health (Batch G)
     getGatewayHealth: () => http.get<GatewayHealthResponse>('/v1/admin/gateway-health'),
+
+    // Security events (login lockouts)
+    listLockouts: () => http.get<SecurityEventsResponse>('/v1/admin/security-events'),
+    clearLockout: (email: string, ip: string) =>
+      http.del<void>(
+        `/v1/admin/security-events?email=${encodeURIComponent(email)}&ip=${encodeURIComponent(ip)}`,
+      ),
   };
 }
 

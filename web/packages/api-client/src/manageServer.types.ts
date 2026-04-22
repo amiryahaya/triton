@@ -191,3 +191,19 @@ export interface GatewayHealthResponse {
   cert_expires_at: string | null;
   cert_days_remaining: number;
 }
+
+// Lockout mirrors pkg/manageserver.Lockout — one active (email, IP) pair
+// over the login failure threshold.
+export interface Lockout {
+  email: string;
+  ip: string;
+  failures: number;
+  first_failure: string;
+  last_failure: string;
+  locked_until: string;
+}
+
+// SecurityEventsResponse mirrors the body of GET /v1/admin/security-events.
+export interface SecurityEventsResponse {
+  active_lockouts: Lockout[];
+}

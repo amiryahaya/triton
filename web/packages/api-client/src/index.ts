@@ -23,5 +23,6 @@ export type {
   PushStatus, CreateUserReq, CreateUserResp,
   LimitPair, ScansLimitPair, LicenceSummary,
   SettingsSummary, GatewayHealthResponse,
+  Lockout, SecurityEventsResponse,
 } from './manageServer.types';
 export * from './types';

@@ -3,6 +3,9 @@ import { useAdminKey } from '../src/adminKey';
 
 describe('useAdminKey', () => {
   beforeEach(() => {
+    // Tear down any prior singleton state so each spec re-initialises
+    // from a clean sessionStorage.
+    useAdminKey().stop();
     sessionStorage.clear();
     vi.useFakeTimers();
   });

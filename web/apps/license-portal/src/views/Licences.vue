@@ -100,6 +100,13 @@ function onRowClick(row: Record<string, unknown>) {
 async function onSubmit(payload: CreateLicenceRequest) {
   try {
     const created = await api.get().createLicence(payload);
+    // POST /admin/licenses returns the licence without orgName — that
+    // field is populated by a JOIN in the list endpoint only. Enrich
+    // from the orgs cache we already loaded so the new row in the
+    // table shows the org name instead of a truncated UUID until the
+    // next refresh.
+    const org = orgs.value.find((o) => o.id === created.orgID);
+    if (org) created.orgName = org.name;
     items.value.push(created);
     formOpen.value = false;
     toast.success({ title: 'Licence created' });

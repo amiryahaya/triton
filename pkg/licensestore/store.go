@@ -93,9 +93,14 @@ type LicenseRecord struct {
 	Notes     string     `json:"notes"`
 	CreatedAt time.Time  `json:"createdAt"`
 
-	// v2 fields (migration 5).
-	Features      Features `json:"features,omitempty"`
-	Limits        Limits   `json:"limits,omitempty"`
+	// v2 fields (migration 5). No `omitempty` on Features or Limits —
+	// both types have custom MarshalJSON that emits a non-null zero
+	// value (empty Features object, empty []), and the frontend relies
+	// on these fields being present on every Licence. With omitempty
+	// the whole key disappears for legacy licences, bypassing the
+	// custom marshaller and breaking the UI (l.limits.find → undefined).
+	Features      Features `json:"features"`
+	Limits        Limits   `json:"limits"`
 	SoftBufferPct int      `json:"soft_buffer_pct"`
 	ProductScope  string   `json:"product_scope"`
 

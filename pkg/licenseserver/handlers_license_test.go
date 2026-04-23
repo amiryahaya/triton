@@ -210,3 +210,79 @@ func TestUpdateLicense_NotFound(t *testing.T) {
 		map[string]any{"schedule": "0 2 * * *"})
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
+
+func TestCreateLicense_SeatsZeroScansZero_Rejected(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	const adminKey = "test-admin-key"
+	orgID := createOrgViaAPI(t, ts.URL, adminKey, "ZeroZero")
+
+	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+		"orgID": orgID,
+		"tier":  "pro",
+		"seats": 0,
+		"days":  30,
+	})
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Contains(t, strings.ToLower(resp.Body["error"].(string)),
+		"at least one of seats or scans")
+}
+
+func TestCreateLicense_SeatsZeroScansSet_Accepted(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	const adminKey = "test-admin-key"
+	orgID := createOrgViaAPI(t, ts.URL, adminKey, "ScansOnly")
+
+	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+		"orgID": orgID,
+		"tier":  "pro",
+		"seats": 0,
+		"days":  30,
+		"limits": []map[string]any{
+			{"metric": "scans", "window": "total", "cap": 1000},
+		},
+	})
+	assert.Equal(t, http.StatusCreated, resp.Code)
+}
+
+func TestCreateLicense_SeatsSetScansZero_Accepted(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	const adminKey = "test-admin-key"
+	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SeatsOnly")
+
+	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+		"orgID": orgID,
+		"tier":  "pro",
+		"seats": 5,
+		"days":  30,
+	})
+	assert.Equal(t, http.StatusCreated, resp.Code)
+}
+
+func TestCreateLicense_ReportsGeneratedStripped(t *testing.T) {
+	ts, _ := setupTestServer(t)
+	const adminKey = "test-admin-key"
+	orgID := createOrgViaAPI(t, ts.URL, adminKey, "StripRG")
+
+	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+		"orgID": orgID,
+		"tier":  "pro",
+		"seats": 1,
+		"days":  30,
+		"limits": []map[string]any{
+			{"metric": "scans", "window": "total", "cap": 100},
+			{"metric": "reports_generated", "window": "monthly", "cap": 10},
+		},
+	})
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	licenceID := resp.Body["id"].(string)
+	get := adminDo(t, ts.URL, adminKey, http.MethodGet, "/api/v1/admin/licenses/"+licenceID, nil)
+	require.Equal(t, http.StatusOK, get.Code)
+
+	limits, ok := get.Body["limits"].([]any)
+	require.True(t, ok, "limits should be a JSON array")
+	// After stripping, only the scans entry remains.
+	assert.Len(t, limits, 1)
+	first := limits[0].(map[string]any)
+	assert.Equal(t, "scans", first["metric"])
+}

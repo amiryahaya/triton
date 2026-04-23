@@ -111,10 +111,13 @@ type LicenseRecord struct {
 	// Schedule is non-empty.
 	ScheduleJitter int `json:"scheduleJitterSeconds"`
 
-	// Populated by joins, not stored directly.
-	OrgName   string `json:"orgName,omitempty"`
-	SeatsUsed int    `json:"seatsUsed,omitempty"`
-	IsExpired bool   `json:"isExpired,omitempty"`
+	// Populated by joins, not stored directly. No `omitempty` so the
+	// zero values still serialise — the frontend relies on these fields
+	// being present on every Licence (seatsUsed=0 is a valid state for
+	// a newly issued licence with no activations yet).
+	OrgName   string `json:"orgName"`
+	SeatsUsed int    `json:"seatsUsed"`
+	IsExpired bool   `json:"isExpired"`
 }
 
 // Activation represents a machine activation record.

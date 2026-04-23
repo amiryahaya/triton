@@ -23,10 +23,10 @@ describe('licenseApi', () => {
     expect(http.get).toHaveBeenCalledWith('/v1/admin/stats');
   });
 
-  it('orgs(p) builds /v1/admin/orgs?page=N', () => {
+  it('orgs() hits /v1/admin/orgs', () => {
     const http = fakeHttp();
-    createLicenseApi(http).orgs(3);
-    expect(http.get).toHaveBeenCalledWith('/v1/admin/orgs?page=3');
+    createLicenseApi(http).orgs();
+    expect(http.get).toHaveBeenCalledWith('/v1/admin/orgs');
   });
 
   it('org(id) hits /v1/admin/orgs/:id', () => {
@@ -37,8 +37,8 @@ describe('licenseApi', () => {
 
   it('createOrg POSTs to /v1/admin/orgs', () => {
     const http = fakeHttp();
-    createLicenseApi(http).createOrg('Acme');
-    expect(http.post).toHaveBeenCalledWith('/v1/admin/orgs', { name: 'Acme' });
+    createLicenseApi(http).createOrg({ name: 'Acme', contact: 'admin@acme.com' });
+    expect(http.post).toHaveBeenCalledWith('/v1/admin/orgs', { name: 'Acme', contact: 'admin@acme.com' });
   });
 
   it('deleteOrg DELETEs /v1/admin/orgs/:id', () => {
@@ -47,10 +47,10 @@ describe('licenseApi', () => {
     expect(http.del).toHaveBeenCalledWith('/v1/admin/orgs/O1');
   });
 
-  it('licences(p) builds /v1/admin/licenses?page=N', () => {
+  it('licences() hits /v1/admin/licenses', () => {
     const http = fakeHttp();
-    createLicenseApi(http).licences(2);
-    expect(http.get).toHaveBeenCalledWith('/v1/admin/licenses?page=2');
+    createLicenseApi(http).licences();
+    expect(http.get).toHaveBeenCalledWith('/v1/admin/licenses');
   });
 
   it('licence(id) hits /v1/admin/licenses/:id', () => {
@@ -63,6 +63,34 @@ describe('licenseApi', () => {
     const http = fakeHttp();
     createLicenseApi(http).revokeLicence('L1');
     expect(http.post).toHaveBeenCalledWith('/v1/admin/licenses/L1/revoke', {});
+  });
+
+  it('createLicence POSTs to /v1/admin/licenses', () => {
+    const http = fakeHttp();
+    const req = {
+      orgID: 'O1',
+      tier: 'pro' as const,
+      seats: 10,
+      days: 365,
+      features: {
+        report: true,
+        manage: false,
+        comprehensive_profile: true,
+        diff_trend: true,
+        custom_policy: false,
+        sso: false,
+      },
+      limits: [],
+      product_scope: 'report' as const,
+    };
+    createLicenseApi(http).createLicence(req);
+    expect(http.post).toHaveBeenCalledWith('/v1/admin/licenses', req);
+  });
+
+  it('downloadAgentYaml POSTs to /v1/admin/licenses/:id/agent-yaml', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).downloadAgentYaml('L1');
+    expect(http.post).toHaveBeenCalledWith('/v1/admin/licenses/L1/agent-yaml', {});
   });
 
   it('activations(licenceId) builds /v1/admin/activations?license=:id', () => {

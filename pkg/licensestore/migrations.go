@@ -158,4 +158,14 @@ var migrations = []string{
 				CHECK (schedule_jitter IS NULL OR schedule_jitter >= 0);
 		END IF;
 	END$$;`,
+
+	// Version 7: Relax seats check from > 0 to >= 0.
+	// seats = 0 now means "unlimited" — enforced at the application layer.
+	`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'licenses_seats_check') THEN
+			ALTER TABLE licenses DROP CONSTRAINT licenses_seats_check;
+		END IF;
+		ALTER TABLE licenses ADD CONSTRAINT licenses_seats_check CHECK (seats >= 0);
+	END$$;`,
 }

@@ -52,9 +52,39 @@ func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "tier must be free, pro, or enterprise")
 		return
 	}
-	if req.Seats < 1 {
-		writeError(w, http.StatusBadRequest, "seats must be >= 1")
+	if req.Seats < 0 {
+		writeError(w, http.StatusBadRequest, "seats must be >= 0 (0 = unlimited)")
 		return
+	}
+
+	// Strip the reports_generated metric — UI does not expose it, and
+	// leaving it storable-but-unused causes surprises. Safe to drop silently.
+	filtered := req.Limits[:0]
+	for _, lim := range req.Limits {
+		if lim.Metric == "reports_generated" {
+			continue
+		}
+		filtered = append(filtered, lim)
+	}
+	req.Limits = filtered
+
+	// Cross-field rule: if seats=0, there must be at least one other
+	// enforced cap (today only scans is surfaced; extend when new metrics
+	// land in the UI). Empty licence with no caps means unlimited
+	// everything — refuse.
+	if req.Seats == 0 {
+		var hasScansCap bool
+		for _, lim := range req.Limits {
+			if lim.Metric == "scans" && lim.Cap > 0 {
+				hasScansCap = true
+				break
+			}
+		}
+		if !hasScansCap {
+			writeError(w, http.StatusBadRequest,
+				"at least one of seats or scans (limits[].cap) must be greater than 0")
+			return
+		}
 	}
 	if tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "notes exceeds maximum length")

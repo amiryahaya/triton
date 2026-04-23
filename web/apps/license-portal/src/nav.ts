@@ -3,17 +3,15 @@ import type { NavSection, AppEntry } from '@triton/ui';
 export const nav: NavSection[] = [
   {
     items: [
-      { href: '#/',            label: 'Dashboard' },
-      { href: '#/orgs',        label: 'Organisations' },
-      { href: '#/licenses',    label: 'Licences' },
-      { href: '#/activations', label: 'Activations' },
+      { href: '#/',         label: 'Dashboard' },
+      { href: '#/orgs',     label: 'Organisations' },
+      { href: '#/licenses', label: 'Licences' },
     ],
   },
   {
     label: 'Admin',
     items: [
       { href: '#/audit',       label: 'Audit log' },
-      { href: '#/binaries',    label: 'Binaries' },
       { href: '#/superadmins', label: 'Superadmins' },
     ],
   },

@@ -30,9 +30,7 @@ const crumbs = computed<Crumb[]>(() => {
   const labels: Record<string, string> = {
     orgs: 'Organisations',
     licenses: 'Licences',
-    activations: 'Activations',
     audit: 'Audit log',
-    binaries: 'Binaries',
     superadmins: 'Superadmins',
   };
   const parent = labels[first] ?? first;

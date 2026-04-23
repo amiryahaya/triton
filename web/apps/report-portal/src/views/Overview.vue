@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { TStatCard, TPill, TLineChart } from '@triton/ui';
 import type { PillVariant } from '@triton/ui';
 import type { PolicyVerdictSummary } from '@triton/api-client';
@@ -7,7 +7,17 @@ import { useOverviewStore } from '../stores/overview';
 
 const overview = useOverviewStore();
 
-onMounted(() => { void overview.fetch(); });
+const REFRESH_INTERVAL_MS = 60_000;
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
+
+onMounted(() => {
+  void overview.fetch();
+  refreshTimer = setInterval(() => { void overview.fetch(); }, REFRESH_INTERVAL_MS);
+});
+
+onUnmounted(() => {
+  if (refreshTimer !== undefined) clearInterval(refreshTimer);
+});
 
 const readinessPct = computed(() => overview.summary?.readiness.readiness_pct ?? 0);
 const readiness = computed(() => overview.summary?.readiness);

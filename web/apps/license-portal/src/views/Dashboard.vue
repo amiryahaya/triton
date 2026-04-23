@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { TStatCard, TPanel, TLineChart, useToast } from '@triton/ui';
+import { TStatCard, useToast } from '@triton/ui';
 import type { DashboardStats } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
 
@@ -12,7 +12,10 @@ onMounted(async () => {
   try {
     stats.value = await api.get().dashboard();
   } catch (err) {
-    toast.error({ title: 'Could not load dashboard', description: String(err) });
+    toast.error({
+      title: 'Could not load dashboard',
+      description: String(err),
+    });
   }
 });
 </script>
@@ -23,34 +26,51 @@ onMounted(async () => {
 
     <div
       v-if="stats"
-      class="stat-row"
+      class="stat-grid"
     >
       <TStatCard
-        label="Organisations"
-        :value="stats.orgs"
+        label="Total orgs"
+        :value="stats.totalOrgs"
         accent="var(--accent)"
       />
       <TStatCard
-        label="Seats used"
-        :value="`${stats.seatsUsed} / ${stats.seatsTotal}`"
+        label="Total licences"
+        :value="stats.totalLicenses"
+        accent="var(--accent)"
+      />
+      <TStatCard
+        label="Active licences"
+        :value="stats.activeLicenses"
+        accent="var(--safe)"
+      />
+      <TStatCard
+        label="Revoked licences"
+        :value="stats.revokedLicenses"
+        accent="var(--unsafe)"
+      />
+      <TStatCard
+        label="Expired licences"
+        :value="stats.expiredLicenses"
+        accent="var(--warn)"
+      />
+      <TStatCard
+        label="Total activations"
+        :value="stats.totalActivations"
         accent="var(--violet)"
       />
       <TStatCard
-        label="Expiring 30d"
-        :value="stats.expiringIn30d"
-        accent="var(--warn)"
+        label="Active seats"
+        :value="stats.activeSeats"
+        accent="var(--violet)"
       />
     </div>
 
-    <TPanel
-      title="Licence activations"
-      subtitle="· last 12 weeks"
+    <div
+      v-else
+      class="placeholder"
     >
-      <TLineChart
-        :labels="['W1','W2','W3','W4','W5','W6','W7','W8','W9','W10','W11','W12']"
-        :values="[3,5,7,6,9,11,14,16,19,22,25,28]"
-      />
-    </TPanel>
+      Loading…
+    </div>
   </div>
 </template>
 
@@ -63,11 +83,15 @@ onMounted(async () => {
   margin: 0 0 var(--space-4);
   color: var(--text-primary);
 }
-.stat-row {
+.stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+}
+.placeholder {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
 }
 .dash {
   display: flex;

@@ -49,7 +49,7 @@ async function mountDetail() {
     licence: vi.fn().mockResolvedValue(LIC),
     activations: vi.fn().mockResolvedValue(ACTIVATIONS),
     revokeLicence: vi.fn().mockResolvedValue(undefined),
-    downloadAgentYaml: vi.fn().mockResolvedValue({ yaml: 'instance_id: x' }),
+    downloadAgentYaml: vi.fn().mockResolvedValue('instance_id: x\n'),
   } as unknown as ReturnType<typeof client.get>);
   w0.unmount();
   return mount(LicenceDetail, { global: { plugins: [pinia, router] } });

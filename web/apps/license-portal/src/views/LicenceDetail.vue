@@ -105,8 +105,8 @@ async function copyID() {
 async function downloadAgentYaml() {
   if (!licence.value) return;
   try {
-    const resp = await api.get().downloadAgentYaml(licence.value.id);
-    const blob = new Blob([resp.yaml], { type: 'text/yaml' });
+    const yaml = await api.get().downloadAgentYaml(licence.value.id);
+    const blob = new Blob([yaml], { type: 'text/yaml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

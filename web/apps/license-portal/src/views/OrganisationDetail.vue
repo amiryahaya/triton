@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  TPanel, TDataTable, TPill, useToast, type Column,
+  TPanel, TDataTable, TPill, useToast, type Column, type PillVariant,
 } from '@triton/ui';
 import type { Organisation, Licence } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
@@ -15,13 +15,15 @@ const id = computed(() => String(route.params.id));
 const org = ref<Organisation | null>(null);
 const licences = ref<Licence[]>([]);
 
+type LicenceStatus = 'Active' | 'Revoked' | 'Expired';
+
 interface LicenceRow {
   id: string;
   tier: string;
   seats: number;
   seatsUsed: number;
   expiresAt: string;
-  revoked: boolean;
+  status: LicenceStatus;
   [key: string]: unknown;
 }
 
@@ -30,8 +32,20 @@ const licColumns: Column<LicenceRow>[] = [
   { key: 'tier', label: 'Tier', width: '0.8fr' },
   { key: 'seats', label: 'Seats', width: '0.8fr' },
   { key: 'expiresAt', label: 'Expires', width: '1fr' },
-  { key: 'revoked', label: 'Status', width: '100px' },
+  { key: 'status', label: 'Status', width: '100px' },
 ];
+
+function statusOf(l: Licence): LicenceStatus {
+  if (l.revoked) return 'Revoked';
+  if (new Date(l.expiresAt).getTime() < Date.now()) return 'Expired';
+  return 'Active';
+}
+
+function statusVariant(s: LicenceStatus): PillVariant {
+  if (s === 'Active') return 'safe';
+  if (s === 'Revoked') return 'unsafe';
+  return 'warn';
+}
 
 const licRows = computed<LicenceRow[]>(() =>
   licences.value.map((l) => ({
@@ -40,7 +54,7 @@ const licRows = computed<LicenceRow[]>(() =>
     seats: l.seats,
     seatsUsed: l.seatsUsed,
     expiresAt: l.expiresAt,
-    revoked: l.revoked,
+    status: statusOf(l),
   })),
 );
 
@@ -91,9 +105,9 @@ function onLicenceClick(row: Record<string, unknown>) {
         <template #[`cell:seats`]="{ row }">
           {{ row.seatsUsed }} / {{ row.seats === 0 ? '∞' : row.seats }}
         </template>
-        <template #[`cell:revoked`]="{ row }">
-          <TPill :variant="row.revoked ? 'unsafe' : 'safe'">
-            {{ row.revoked ? 'Revoked' : 'Active' }}
+        <template #[`cell:status`]="{ row }">
+          <TPill :variant="statusVariant(row.status as LicenceStatus)">
+            {{ String(row.status) }}
           </TPill>
         </template>
       </TDataTable>

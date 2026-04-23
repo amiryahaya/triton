@@ -5,7 +5,6 @@ export type {
   LicenseApi,
   CreateOrgRequest,
   CreateLicenceRequest,
-  DownloadAgentYamlResponse,
 } from './licenseServer';
 export { createReportApi } from './reportServer';
 export type {

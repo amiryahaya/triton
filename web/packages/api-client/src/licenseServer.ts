@@ -28,10 +28,6 @@ export interface CreateLicenceRequest {
   product_scope: ProductScope;
 }
 
-export interface DownloadAgentYamlResponse {
-  yaml: string;
-}
-
 export function createLicenseApi(http: Http) {
   return {
     dashboard: () => http.get<DashboardStats>('/v1/admin/stats'),
@@ -46,11 +42,11 @@ export function createLicenseApi(http: Http) {
       http.post<Licence>('/v1/admin/licenses', req),
     revokeLicence: (id: string) =>
       http.post<void>(`/v1/admin/licenses/${id}/revoke`, {}),
+    // Returns raw YAML text — backend Content-Type is application/x-yaml
+    // so the Http wrapper's non-JSON fallback yields the body as a
+    // string. Callers wrap it in a Blob for the browser download.
     downloadAgentYaml: (id: string) =>
-      http.post<DownloadAgentYamlResponse>(
-        `/v1/admin/licenses/${id}/agent-yaml`,
-        {},
-      ),
+      http.post<string>(`/v1/admin/licenses/${id}/agent-yaml`, {}),
     activations: (licenceId: string) =>
       http.get<Activation[]>(
         `/v1/admin/activations?license=${encodeURIComponent(licenceId)}`,

@@ -116,37 +116,34 @@ function submit() {
   >
     <div class="form">
       <TFormField label="Organisation" required>
-        <TSelect
-          v-model="orgID"
-          :options="orgs.map(o => ({ value: o.id, label: o.name }))"
-          placeholder="Select organisation"
-        />
+        <TSelect v-model="orgID">
+          <option value="" disabled>Select organisation</option>
+          <option
+            v-for="o in orgs"
+            :key="o.id"
+            :value="o.id"
+          >{{ o.name }}</option>
+        </TSelect>
       </TFormField>
 
       <TFormField label="Tier">
-        <TSelect
-          v-model="tier"
-          :options="[
-            { value: 'free', label: 'Free' },
-            { value: 'pro', label: 'Pro' },
-            { value: 'enterprise', label: 'Enterprise' },
-          ]"
-        />
+        <TSelect v-model="tier">
+          <option value="free">Free</option>
+          <option value="pro">Pro</option>
+          <option value="enterprise">Enterprise</option>
+        </TSelect>
       </TFormField>
 
       <TFormField
         label="Product scope"
         hint="Which product(s) this licence entitles"
       >
-        <TSelect
-          v-model="productScope"
-          :options="[
-            { value: 'legacy', label: 'Legacy (both products)' },
-            { value: 'report', label: 'Report Server only' },
-            { value: 'manage', label: 'Manage Server only' },
-            { value: 'bundle', label: 'Bundle (both, scoped)' },
-          ]"
-        />
+        <TSelect v-model="productScope">
+          <option value="legacy">Legacy (both products)</option>
+          <option value="report">Report Server only</option>
+          <option value="manage">Manage Server only</option>
+          <option value="bundle">Bundle (both, scoped)</option>
+        </TSelect>
       </TFormField>
 
       <div class="row">
@@ -178,12 +175,12 @@ function submit() {
 
       <TFormField label="Features">
         <div class="features">
-          <TCheckbox v-model="fReport">Report server</TCheckbox>
-          <TCheckbox v-model="fManage">Manage server</TCheckbox>
-          <TCheckbox v-model="fComprehensive">Comprehensive profile</TCheckbox>
-          <TCheckbox v-model="fDiffTrend">Diff &amp; trend</TCheckbox>
-          <TCheckbox v-model="fCustomPolicy">Custom policy</TCheckbox>
-          <TCheckbox v-model="fSSO">SSO</TCheckbox>
+          <TCheckbox v-model="fReport" label="Report server" />
+          <TCheckbox v-model="fManage" label="Manage server" />
+          <TCheckbox v-model="fComprehensive" label="Comprehensive profile" />
+          <TCheckbox v-model="fDiffTrend" label="Diff & trend" />
+          <TCheckbox v-model="fCustomPolicy" label="Custom policy" />
+          <TCheckbox v-model="fSSO" label="SSO" />
         </div>
       </TFormField>
 

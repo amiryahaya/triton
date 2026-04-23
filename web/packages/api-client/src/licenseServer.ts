@@ -10,18 +10,18 @@ import type {
 
 export function createLicenseApi(http: Http) {
   return {
-    dashboard: () => http.get<DashboardStats>('/v1/dashboard/stats'),
-    orgs: (p = 1) => http.get<Paged<Organisation>>(`/v1/orgs?page=${p}`),
-    org: (id: string) => http.get<Organisation>(`/v1/orgs/${id}`),
-    createOrg: (name: string) => http.post<Organisation>('/v1/orgs', { name }),
-    deleteOrg: (id: string) => http.del<void>(`/v1/orgs/${id}`),
-    licences: (p = 1) => http.get<Paged<Licence>>(`/v1/licenses?page=${p}`),
-    licence: (id: string) => http.get<Licence>(`/v1/licenses/${id}`),
+    dashboard: () => http.get<DashboardStats>('/v1/admin/stats'),
+    orgs: (p = 1) => http.get<Paged<Organisation>>(`/v1/admin/orgs?page=${p}`),
+    org: (id: string) => http.get<Organisation>(`/v1/admin/orgs/${id}`),
+    createOrg: (name: string) => http.post<Organisation>('/v1/admin/orgs', { name }),
+    deleteOrg: (id: string) => http.del<void>(`/v1/admin/orgs/${id}`),
+    licences: (p = 1) => http.get<Paged<Licence>>(`/v1/admin/licenses?page=${p}`),
+    licence: (id: string) => http.get<Licence>(`/v1/admin/licenses/${id}`),
     revokeLicence: (id: string) =>
-      http.post<void>(`/v1/licenses/${id}/revoke`, {}),
+      http.post<void>(`/v1/admin/licenses/${id}/revoke`, {}),
     activations: (licenceId: string) =>
-      http.get<Paged<Activation>>(`/v1/licenses/${licenceId}/activations`),
-    audit: (p = 1) => http.get<Paged<AuditEntry>>(`/v1/audit?page=${p}`),
+      http.get<Paged<Activation>>(`/v1/admin/activations?license=${licenceId}`),
+    audit: (p = 1) => http.get<Paged<AuditEntry>>(`/v1/admin/audit?page=${p}`),
   };
 }
 

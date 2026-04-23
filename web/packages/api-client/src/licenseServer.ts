@@ -2,26 +2,61 @@ import type { Http } from './http';
 import type {
   Organisation,
   Licence,
+  LicenceTier,
+  LicenceFeatures,
+  LicenceLimit,
+  ProductScope,
   Activation,
   AuditEntry,
   DashboardStats,
-  Paged,
 } from './types';
+
+export interface CreateOrgRequest {
+  name: string;
+  contact?: string;
+  notes?: string;
+}
+
+export interface CreateLicenceRequest {
+  orgID: string;
+  tier: LicenceTier;
+  seats: number;
+  days: number;
+  notes?: string;
+  features: LicenceFeatures;
+  limits: LicenceLimit[];
+  product_scope: ProductScope;
+}
+
+export interface DownloadAgentYamlResponse {
+  yaml: string;
+}
 
 export function createLicenseApi(http: Http) {
   return {
     dashboard: () => http.get<DashboardStats>('/v1/admin/stats'),
-    orgs: (p = 1) => http.get<Paged<Organisation>>(`/v1/admin/orgs?page=${p}`),
+    orgs: () => http.get<Organisation[]>('/v1/admin/orgs'),
     org: (id: string) => http.get<Organisation>(`/v1/admin/orgs/${id}`),
-    createOrg: (name: string) => http.post<Organisation>('/v1/admin/orgs', { name }),
+    createOrg: (req: CreateOrgRequest) =>
+      http.post<Organisation>('/v1/admin/orgs', req),
     deleteOrg: (id: string) => http.del<void>(`/v1/admin/orgs/${id}`),
-    licences: (p = 1) => http.get<Paged<Licence>>(`/v1/admin/licenses?page=${p}`),
+    licences: () => http.get<Licence[]>('/v1/admin/licenses'),
     licence: (id: string) => http.get<Licence>(`/v1/admin/licenses/${id}`),
+    createLicence: (req: CreateLicenceRequest) =>
+      http.post<Licence>('/v1/admin/licenses', req),
     revokeLicence: (id: string) =>
       http.post<void>(`/v1/admin/licenses/${id}/revoke`, {}),
+    downloadAgentYaml: (id: string) =>
+      http.post<DownloadAgentYamlResponse>(
+        `/v1/admin/licenses/${id}/agent-yaml`,
+        {},
+      ),
     activations: (licenceId: string) =>
-      http.get<Paged<Activation>>(`/v1/admin/activations?license=${licenceId}`),
-    audit: (p = 1) => http.get<Paged<AuditEntry>>(`/v1/admin/audit?page=${p}`),
+      http.get<Activation[]>(
+        `/v1/admin/activations?license=${encodeURIComponent(licenceId)}`,
+      ),
+    audit: (p = 1) =>
+      http.get<AuditEntry[]>(`/v1/admin/audit?page=${p}`),
   };
 }
 

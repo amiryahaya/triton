@@ -1,7 +1,12 @@
 export { createHttp } from './http';
 export type { Http, HttpConfig } from './http';
 export { createLicenseApi } from './licenseServer';
-export type { LicenseApi } from './licenseServer';
+export type {
+  LicenseApi,
+  CreateOrgRequest,
+  CreateLicenceRequest,
+  DownloadAgentYamlResponse,
+} from './licenseServer';
 export { createReportApi } from './reportServer';
 export type {
   ReportApi,
@@ -51,4 +56,16 @@ export type {
   SettingsSummary, GatewayHealthResponse,
   Lockout, SecurityEventsResponse,
 } from './manageServer.types';
-export * from './types';
+export type {
+  Organisation,
+  LicenceTier,
+  ProductScope,
+  LimitMetric,
+  LimitWindow,
+  LicenceFeatures,
+  LicenceLimit,
+  Licence,
+  Activation,
+  AuditEntry,
+  DashboardStats,
+} from './types';

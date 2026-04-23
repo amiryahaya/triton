@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
-  TModal, TFormField, TInput, TSelect, TCheckbox, TButton,
+  TModal, TFormField, TInput, TSelect, TButton,
 } from '@triton/ui';
 import type {
   Organisation,
@@ -20,20 +20,27 @@ const emit = defineEmits<{
   submit: [payload: CreateLicenceRequest];
 }>();
 
+// Features are all enabled by default during development. product_scope
+// determines which product(s) the licence entitles — fine-grained
+// capability gating (comprehensive profile, diff/trend, custom policy,
+// SSO) can be surfaced when the product is mature enough to price those
+// as upsells. For now, every licence gets the full capability set.
+const ALL_FEATURES_ON = {
+  report: true,
+  manage: true,
+  comprehensive_profile: true,
+  diff_trend: true,
+  custom_policy: true,
+  sso: true,
+} as const;
+
 const orgID = ref('');
 const tier = ref<LicenceTier>('pro');
-const productScope = ref<ProductScope>('legacy');
+const productScope = ref<ProductScope>('bundle');
 const seats = ref<string>('0');
 const scans = ref<string>('0');
 const days = ref<string>('365');
 const notes = ref('');
-
-const fReport = ref(false);
-const fManage = ref(false);
-const fComprehensive = ref(false);
-const fDiffTrend = ref(false);
-const fCustomPolicy = ref(false);
-const fSSO = ref(false);
 
 const submitError = ref('');
 
@@ -64,17 +71,11 @@ watch(
     if (!open) return;
     orgID.value = props.orgs[0]?.id ?? '';
     tier.value = 'pro';
-    productScope.value = 'legacy';
+    productScope.value = 'bundle';
     seats.value = '0';
     scans.value = '0';
     days.value = '365';
     notes.value = '';
-    fReport.value = false;
-    fManage.value = false;
-    fComprehensive.value = false;
-    fDiffTrend.value = false;
-    fCustomPolicy.value = false;
-    fSSO.value = false;
     submitError.value = '';
   },
   { immediate: true },
@@ -91,14 +92,7 @@ function submit() {
     seats: seatsNum.value,
     days: daysNum.value,
     notes: notes.value || undefined,
-    features: {
-      report: fReport.value,
-      manage: fManage.value,
-      comprehensive_profile: fComprehensive.value,
-      diff_trend: fDiffTrend.value,
-      custom_policy: fCustomPolicy.value,
-      sso: fSSO.value,
-    },
+    features: { ...ALL_FEATURES_ON },
     limits: scansNum.value > 0
       ? [{ metric: 'scans', window: 'total', cap: scansNum.value }]
       : [],
@@ -139,10 +133,9 @@ function submit() {
         hint="Which product(s) this licence entitles"
       >
         <TSelect v-model="productScope">
-          <option value="legacy">Legacy (both products)</option>
+          <option value="bundle">Bundle (Report + Manage)</option>
           <option value="report">Report Server only</option>
           <option value="manage">Manage Server only</option>
-          <option value="bundle">Bundle (both, scoped)</option>
         </TSelect>
       </TFormField>
 
@@ -172,17 +165,6 @@ function submit() {
           />
         </TFormField>
       </div>
-
-      <TFormField label="Features">
-        <div class="features">
-          <TCheckbox v-model="fReport" label="Report server" />
-          <TCheckbox v-model="fManage" label="Manage server" />
-          <TCheckbox v-model="fComprehensive" label="Comprehensive profile" />
-          <TCheckbox v-model="fDiffTrend" label="Diff & trend" />
-          <TCheckbox v-model="fCustomPolicy" label="Custom policy" />
-          <TCheckbox v-model="fSSO" label="SSO" />
-        </div>
-      </TFormField>
 
       <TFormField label="Notes">
         <TInput v-model="notes" />
@@ -224,11 +206,6 @@ function submit() {
 <style scoped>
 .form { display: flex; flex-direction: column; gap: var(--space-3); }
 .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
-.features {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-2);
-}
 .err { color: var(--unsafe); font-size: 0.76rem; }
 .hint { color: var(--text-muted); font-size: 0.72rem; }
 </style>

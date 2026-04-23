@@ -68,7 +68,10 @@ async function confirmDelete() {
 async function onSubmit(payload: { name: string; contact?: string; notes?: string }) {
   try {
     const o = await api.get().createOrg(payload);
-    items.value.push(o);
+    // Backend sorts organisations alphabetically by name. Refetch
+    // so the new row lands in the correct slot rather than at the
+    // end of the list (where push would put it).
+    await load();
     formOpen.value = false;
     toast.success({ title: 'Organisation created', description: o.name });
   } catch (err) {

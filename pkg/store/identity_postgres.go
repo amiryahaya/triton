@@ -184,7 +184,9 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 	query := `SELECT ` + userSelectColumns + ` FROM users WHERE 1=1`
 	args := []any{}
 	idx := 0
-	if filter.OrgID == "platform" {
+	if filter.OrgID == PlatformOrgFilter {
+		// Platform admins have NULL org_id; filter by role instead.
+		// filter.Role is intentionally ignored here.
 		query += ` AND role = 'platform_admin'`
 	} else if filter.OrgID != "" {
 		idx++

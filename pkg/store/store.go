@@ -457,7 +457,14 @@ type UserUpdate struct {
 	MustChangePassword *bool  // nil = unchanged
 }
 
+// PlatformOrgFilter is the sentinel value for UserFilter.OrgID that
+// selects platform_admin users (who have no org). Using a constant
+// prevents callers from passing a magic string literal.
+const PlatformOrgFilter = "platform"
+
 // UserFilter controls user listing.
+// When OrgID is PlatformOrgFilter, all platform_admin users are returned
+// regardless of the Role field (which is ignored in that case).
 type UserFilter struct {
 	OrgID string
 	Role  string

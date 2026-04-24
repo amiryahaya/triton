@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   TAppShell,
@@ -83,6 +83,30 @@ async function onLogin(creds: { email: string; password: string }) {
     loginBusy.value = false;
   }
 }
+
+// First-run setup guard: if the server hasn't been set up yet, redirect to
+// the Setup view. Silently ignored if the API is unreachable.
+onMounted(async () => {
+  try {
+    const status = await api.get().setupStatus();
+    if (status.needsSetup && router.currentRoute.value.name !== 'setup') {
+      await router.replace({ name: 'setup' });
+    }
+  } catch {
+    // API unreachable — proceed normally
+  }
+});
+
+// Force password-change redirect whenever the JWT claim flips on.
+watch(
+  () => auth.claims?.mustChangePassword,
+  (mcp) => {
+    if (mcp && router.currentRoute.value.name !== 'change-password') {
+      void router.push({ name: 'change-password' });
+    }
+  },
+  { immediate: true },
+);
 
 async function signOut() {
   try {

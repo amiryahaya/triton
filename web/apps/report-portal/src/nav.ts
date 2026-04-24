@@ -36,6 +36,13 @@ export const nav: NavSection[] = [
       { href: '#/admin/audit',   label: 'Audit log' },
     ],
   },
+  {
+    label: 'Platform',
+    items: [
+      { href: '#/platform/admins',  label: 'Platform Admins' },
+      { href: '#/platform/tenants', label: 'Tenants' },
+    ],
+  },
 ];
 
 // Build-time env vars wire cross-portal URLs in the app-switcher. When

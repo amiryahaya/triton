@@ -48,6 +48,7 @@ export type {
   ReportUser,
   ReportUserCreate,
   ReportUserUpdate,
+  TenantResponse,
 } from './reportServer';
 export { createManageApi } from './manageServer';
 export type { ManageApi } from './manageServer';

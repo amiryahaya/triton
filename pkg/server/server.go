@@ -175,6 +175,9 @@ type Server struct {
 	// licence activation/validation/deactivation. Nil when LicencePortalURL
 	// is not configured.
 	licencePortalClient *license.ServerClient
+
+	// licenceValidatorDone is closed when the background validator exits.
+	licenceValidatorDone chan struct{}
 }
 
 // BackfillInProgress exposes the atomic flag so cmd/server.go can flip

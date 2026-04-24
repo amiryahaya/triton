@@ -184,7 +184,7 @@ type testRecorder struct {
 	status int
 }
 
-func (r *testRecorder) Header() http.Header        { return r.header }
+func (r *testRecorder) Header() http.Header         { return r.header }
 func (r *testRecorder) Write(b []byte) (int, error) { return r.body.Write(b) }
 func (r *testRecorder) WriteHeader(s int)           { r.status = s }
 

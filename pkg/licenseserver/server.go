@@ -110,6 +110,10 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/refresh", srv.handleRefresh)
 	})
 
+	// Setup API (public, guarded by empty-DB check inside the handler).
+	r.Get("/api/v1/setup/status", srv.handleSetupStatus)
+	r.Post("/api/v1/setup/first-admin", srv.handleFirstAdminSetup)
+
 	// Install API (token-authed via HMAC token in URL path — no admin key).
 	r.Route("/api/v1/install/{token}", func(r chi.Router) {
 		r.Get("/", srv.handleInstallScript)

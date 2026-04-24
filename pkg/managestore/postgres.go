@@ -408,10 +408,10 @@ func (s *PostgresStore) GetSetup(ctx context.Context) (*SetupState, error) {
 	var state SetupState
 	var instanceID *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT admin_created, license_activated, license_server_url, license_key, signed_token, instance_id, updated_at
+		SELECT admin_created, license_activated, license_server_url, license_key, signed_token, instance_id, pending_deactivation, updated_at
 		FROM manage_setup WHERE id = 1`,
 	).Scan(&state.AdminCreated, &state.LicenseActivated, &state.LicenseServerURL,
-		&state.LicenseKey, &state.SignedToken, &instanceID, &state.UpdatedAt)
+		&state.LicenseKey, &state.SignedToken, &instanceID, &state.PendingDeactivation, &state.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Singleton row guaranteed by migration. Lazily insert and retry once.
 		if _, ierr := s.pool.Exec(ctx,

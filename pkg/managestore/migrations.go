@@ -211,4 +211,11 @@ var migrations = []string{
 	ALTER TABLE manage_scan_results_queue ADD CONSTRAINT manage_scan_results_queue_scan_job_id_fkey
 		FOREIGN KEY (scan_job_id) REFERENCES manage_scan_jobs(id) ON DELETE SET NULL;
 	ALTER TABLE manage_scan_results_dead_letter ALTER COLUMN scan_job_id DROP NOT NULL;`,
+
+	// Version 8: pending_deactivation flag on the setup singleton row.
+	// Set when the operator has requested licence deactivation but the
+	// deactivation handshake with the licence server has not yet completed
+	// (e.g. server unreachable). Cleared on successful deactivation.
+	`ALTER TABLE manage_setup
+		ADD COLUMN IF NOT EXISTS pending_deactivation BOOLEAN NOT NULL DEFAULT FALSE;`,
 }

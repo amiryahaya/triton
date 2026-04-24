@@ -791,6 +791,25 @@ func TestListUsers_OrderedNewestFirst(t *testing.T) {
 	assert.Equal(t, "first@example.com", got[2].Email)
 }
 
+// TestSetupState_PendingDeactivation asserts that the pending_deactivation
+// column added in migration v8 is present and defaults to false.
+func TestSetupState_PendingDeactivation(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+
+	state, err := store.GetSetup(ctx)
+	require.NoError(t, err)
+	assert.False(t, state.PendingDeactivation, "defaults to false")
+}
+
+// TestMigrate_V8_AddsPendingDeactivationColumn asserts that migration v8
+// adds the pending_deactivation boolean column to manage_setup.
+func TestMigrate_V8_AddsPendingDeactivationColumn(t *testing.T) {
+	s := openTestStore(t)
+	assert.True(t, columnExists(t, s, "manage_setup", "pending_deactivation"),
+		"manage_setup must have pending_deactivation column after v8")
+}
+
 // TestMigrate_ConcurrentCallsAreSafe asserts the advisory lock in Migrate
 // serialises concurrent migrators so no caller sees a duplicate-key error
 // on version-row inserts. Rolling deploys and parallel test runs can both

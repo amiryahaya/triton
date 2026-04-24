@@ -30,13 +30,14 @@ type ManageSession struct {
 
 // SetupState is the singleton row tracking Manage Server initialisation.
 type SetupState struct {
-	AdminCreated     bool
-	LicenseActivated bool
-	LicenseServerURL string
-	LicenseKey       string
-	SignedToken      string
-	InstanceID       string
-	UpdatedAt        time.Time
+	AdminCreated         bool
+	LicenseActivated     bool
+	LicenseServerURL     string
+	LicenseKey           string
+	SignedToken          string
+	InstanceID           string
+	PendingDeactivation  bool
+	UpdatedAt            time.Time
 }
 
 // Store is the Manage Server's storage surface.

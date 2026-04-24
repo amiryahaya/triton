@@ -127,6 +127,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Get("/orgs/{id}", srv.handleGetOrg)
 		r.Put("/orgs/{id}", srv.handleUpdateOrg)
 		r.Delete("/orgs/{id}", srv.handleDeleteOrg)
+		r.Post("/orgs/{id}/suspend", srv.handleSuspendOrg)
 
 		// Licenses
 		r.Post("/licenses", srv.handleCreateLicense)

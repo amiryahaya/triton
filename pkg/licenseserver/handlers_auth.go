@@ -263,9 +263,13 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Revoke all old sessions and mint a fresh JWT.
+	// Revoke all old sessions. For a still-active user (unlike delete-user) there
+	// is no JWTAuth safety net — old tokens remain live until they expire. Treat
+	// failure as fatal so the caller knows their old sessions are still valid.
 	if err := s.store.DeleteSessionsForUser(r.Context(), user.ID); err != nil {
-		log.Printf("change password: revoke sessions: %v (non-fatal)", err)
+		log.Printf("change password: revoke sessions: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
 	}
 
 	claims := &auth.UserClaims{

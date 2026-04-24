@@ -14,40 +14,48 @@
 // those tests can be un-skipped (and re-authored against the new DOM).
 const { test, expect } = require('@playwright/test');
 
-const ADMIN_KEY = 'e2e-test-key';
+// Must match the constants in license-global-setup.js
+const TEST_EMAIL = 'admin@triton.e2e';
+const TEST_PASSWORD = 'E2eAdminPass123!';
 
-// Helper: inject admin key into sessionStorage before each test.
-// The Vue auth store reads from sessionStorage key 'triton_admin_key'.
+// Helper: login via API and inject JWT into localStorage before each test.
+// The Vue auth store (useJwt) reads from localStorage key 'tritonJWT'.
 test.beforeEach(async ({ page }) => {
+  // Navigate first to establish the SPA origin for localStorage access.
   await page.goto('/ui/index.html');
-  await page.evaluate((key) => {
-    sessionStorage.setItem('triton_admin_key', key);
-  }, ADMIN_KEY);
+
+  // Get a fresh JWT via the login API (runs outside the browser context).
+  const loginResp = await page.request.post('/api/v1/auth/login', {
+    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+  });
+  const { token } = await loginResp.json();
+
+  // Inject JWT into localStorage, then reload so the module-level token
+  // ref in jwt.ts picks it up from storage on fresh module initialisation.
+  await page.evaluate((t) => localStorage.setItem('tritonJWT', t), token);
+  await page.reload();
 });
 
 test.describe('Admin Authentication', () => {
-  test('shows auth prompt without admin key', async ({ page }) => {
-    // Clear the key we just set
-    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
-    await page.goto('/ui/index.html#/');
-    // Vue: TAdminKeyPrompt renders .t-admin-prompt wrapper
-    await expect(page.locator('.t-admin-prompt')).toBeVisible();
-    // Vue: TInput renders <input class="t-input" type="password">
-    await expect(page.locator('.t-admin-prompt .t-input')).toBeVisible();
-    // Vue: TButton renders <button type="submit">
-    await expect(page.locator('.t-admin-prompt button[type=submit]')).toBeVisible();
+  test('shows login form when not authenticated', async ({ page }) => {
+    // Remove the JWT the beforeEach injected
+    await page.evaluate(() => localStorage.removeItem('tritonJWT'));
+    await page.reload();
+    // Vue: TLoginPrompt renders .t-login-prompt wrapper
+    await expect(page.locator('.t-login-prompt')).toBeVisible();
+    await expect(page.locator('.t-login-prompt input[type="email"]')).toBeVisible();
+    await expect(page.locator('.t-login-prompt button[type="submit"]')).toBeVisible();
   });
 
-  test('login with valid admin key shows dashboard', async ({ page }) => {
-    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
-    await page.goto('/ui/index.html#/');
-    // Vue: fill the password input inside the auth prompt
-    await page.fill('.t-admin-prompt .t-input', ADMIN_KEY);
-    await page.click('.t-admin-prompt button[type=submit]');
-    // Vue: Dashboard renders .stat-row with TStatCard components
-    await expect(page.locator('.stat-row')).toBeVisible({ timeout: 10_000 });
-    // Vue: page heading is h1.page-h1 (not h2)
-    await expect(page.locator('h1.page-h1')).toHaveText('Fleet health');
+  test('login with valid credentials shows dashboard', async ({ page }) => {
+    await page.evaluate(() => localStorage.removeItem('tritonJWT'));
+    await page.reload();
+    await expect(page.locator('.t-login-prompt')).toBeVisible();
+    await page.fill('.t-login-prompt input[type="email"]', TEST_EMAIL);
+    await page.fill('.t-login-prompt input[type="password"]', TEST_PASSWORD);
+    await page.click('.t-login-prompt button[type="submit"]');
+    // Vue: Dashboard renders .t-stat-card components
+    await expect(page.locator('.t-stat-card').first()).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -272,19 +280,20 @@ test.describe('License Mutations', () => {
   });
 
   test('revoke license', async ({ page }) => {
-    // Create a fresh license via API to revoke
-    const licResp = await page.evaluate(async (key) => {
+    // Create a fresh license via API — read JWT from localStorage (injected in beforeEach)
+    const licResp = await page.evaluate(async () => {
+      const token = localStorage.getItem('tritonJWT');
       const orgsResp = await fetch('/api/v1/admin/orgs', {
-        headers: { 'X-Triton-Admin-Key': key },
+        headers: { Authorization: `Bearer ${token}` },
       });
       const orgs = await orgsResp.json();
       const resp = await fetch('/api/v1/admin/licenses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Triton-Admin-Key': key },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ orgID: orgs[0].id, tier: 'free', seats: 1, days: 30 }),
       });
       return resp.json();
-    }, ADMIN_KEY);
+    });
 
     await page.goto('/ui/index.html#/licenses');
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
@@ -361,38 +370,35 @@ test.describe('Modal Behavior', () => {
 // --- New tests: Group D — Auth Edge Cases ---
 
 test.describe('Auth Edge Cases', () => {
-  test('invalid key triggers auth prompt', async ({ page }) => {
-    // Set an invalid key
+  test('invalid token shows login form', async ({ page }) => {
+    // Override with a syntactically-valid but semantically-invalid JWT
     await page.evaluate(() => {
-      sessionStorage.setItem('triton_admin_key', 'bad-key');
+      localStorage.setItem('tritonJWT', 'invalid.jwt.payload');
     });
-    await page.goto('/ui/index.html#/');
-
-    // The API call will return 403, which clears the key and shows auth prompt
-    // Vue: TAdminKeyPrompt renders .t-admin-prompt
-    await expect(page.locator('.t-admin-prompt')).toBeVisible({ timeout: 10_000 });
+    await page.reload();
+    // TAuthGate sees expired/null claims and renders TLoginPrompt
+    await expect(page.locator('.t-login-prompt')).toBeVisible({ timeout: 10_000 });
   });
 
   test('re-authentication persists across navigation', async ({ page }) => {
-    // Clear key
-    await page.evaluate(() => sessionStorage.removeItem('triton_admin_key'));
-    await page.goto('/ui/index.html#/');
+    // Start unauthenticated
+    await page.evaluate(() => localStorage.removeItem('tritonJWT'));
+    await page.reload();
+    await expect(page.locator('.t-login-prompt')).toBeVisible({ timeout: 10_000 });
 
-    // Vue: auth prompt should appear
-    await expect(page.locator('.t-admin-prompt')).toBeVisible({ timeout: 10_000 });
-
-    // Authenticate via .t-admin-prompt
-    await page.fill('.t-admin-prompt .t-input', ADMIN_KEY);
-    await page.click('.t-admin-prompt button[type=submit]');
+    // Authenticate via JWT login form
+    await page.fill('.t-login-prompt input[type="email"]', TEST_EMAIL);
+    await page.fill('.t-login-prompt input[type="password"]', TEST_PASSWORD);
+    await page.click('.t-login-prompt button[type="submit"]');
 
     // Dashboard should load
-    await expect(page.locator('.stat-row')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.t-stat-card').first()).toBeVisible({ timeout: 10_000 });
 
-    // Navigate to orgs via sidebar .t-nav-item
+    // Navigate to orgs via sidebar — JWT should still be in localStorage
     await page.click('.t-nav-item[href="#/orgs"]');
     await expect(page.locator('.t-panel-title').first()).toHaveText('Organisations');
 
-    // Org table rows should load (key persisted)
+    // Org table rows should load (token persisted across navigation)
     await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
     await expect(page.locator('text=Acme Corp')).toBeVisible();
   });

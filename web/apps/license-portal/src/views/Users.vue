@@ -12,6 +12,8 @@ const items = ref<User[]>([]);
 const loading = ref(false);
 const formOpen = ref(false);
 const err = ref('');
+const actionErr = ref('');
+const tempCred = ref<{ intro: string; password: string } | null>(null);
 
 async function load() {
   loading.value = true;
@@ -27,39 +29,53 @@ function selfID(): string | null {
 }
 
 async function onSubmit(payload: { name: string; email: string }) {
+  actionErr.value = '';
+  tempCred.value = null;
   try {
     const resp = await api.get().createUser(payload);
     formOpen.value = false;
     await load();
-    const msg = resp.emailSent
-      ? `Invite email sent to ${resp.user.email}.`
-      : `Copy the temp password: ${resp.tempPassword}`;
-    alert(resp.emailSent ? `Invite sent. ${msg}` : msg);
+    if (resp.emailSent) {
+      tempCred.value = { intro: `Invite email sent to ${resp.user.email}.`, password: '' };
+    } else {
+      tempCred.value = {
+        intro: `User created. Share this temp password with ${resp.user.email} — shown once:`,
+        password: resp.tempPassword,
+      };
+    }
   } catch (e) {
-    alert('Create failed: ' + String(e));
+    actionErr.value = 'Create failed: ' + String(e);
   }
 }
 
 async function onDelete(u: User) {
-  if (u.id === selfID()) { alert("Can't delete your own account"); return; }
+  if (u.id === selfID()) { actionErr.value = "Can't delete your own account"; return; }
   if (!confirm(`Delete ${u.email}?`)) return;
+  actionErr.value = '';
+  tempCred.value = null;
   try {
     await api.get().deleteUser(u.id);
     items.value = items.value.filter((x) => x.id !== u.id);
   } catch (e) {
-    alert('Delete failed: ' + String(e));
+    actionErr.value = 'Delete failed: ' + String(e);
   }
 }
 
 async function onResend(u: User) {
+  actionErr.value = '';
+  tempCred.value = null;
   try {
     const resp = await api.get().resendInvite(u.id);
-    const msg = resp.emailSent
-      ? `Invite resent to ${u.email}.`
-      : `New temp password: ${resp.tempPassword}`;
-    alert(msg);
+    if (resp.emailSent) {
+      tempCred.value = { intro: `Invite resent to ${u.email}.`, password: '' };
+    } else {
+      tempCred.value = {
+        intro: `New temp password for ${u.email} — shown once:`,
+        password: resp.tempPassword,
+      };
+    }
   } catch (e) {
-    alert('Resend failed: ' + String(e));
+    actionErr.value = 'Resend failed: ' + String(e);
   }
 }
 </script>
@@ -69,6 +85,14 @@ async function onResend(u: User) {
     <div class="page-header">
       <h1>Users</h1>
       <button class="btn-primary" @click="formOpen = true">New user</button>
+    </div>
+
+    <div v-if="actionErr" class="action-err">{{ actionErr }}</div>
+
+    <div v-if="tempCred" class="temp-cred">
+      <p class="small">{{ tempCred.intro }}</p>
+      <code v-if="tempCred.password" class="temp">{{ tempCred.password }}</code>
+      <button class="dismiss" @click="tempCred = null">Dismiss</button>
     </div>
 
     <div v-if="loading" class="muted">Loading…</div>
@@ -117,5 +141,37 @@ async function onResend(u: User) {
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .muted { color: var(--text-muted); }
 .err { color: var(--unsafe); }
+.action-err { color: var(--unsafe); margin-bottom: var(--space-3); }
 .btn-primary { background: var(--accent); color: white; padding: var(--space-2) var(--space-3); border: none; border-radius: var(--radius-sm); cursor: pointer; }
+.temp-cred {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.temp {
+  display: block;
+  padding: var(--space-2);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  word-break: break-all;
+}
+.small { font-size: 0.78rem; color: var(--text-muted); margin: 0; }
+.dismiss {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  color: var(--text-muted);
+}
 </style>

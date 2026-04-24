@@ -11,6 +11,47 @@ import type {
   DashboardStats,
 } from './types';
 
+export interface LoginResponse {
+  token: string;
+  expiresAt: string;
+  mustChangePassword: boolean;
+}
+
+export interface ChangePasswordRequest {
+  current: string;
+  next: string;
+}
+
+export interface ChangePasswordResponse {
+  token: string;
+  expiresAt: string;
+}
+
+export interface SetupStatus {
+  needsSetup: boolean;
+}
+
+export interface SetupFirstAdminRequest {
+  name: string;
+  email: string;
+}
+
+export interface CreateUserRequest {
+  name: string;
+  email: string;
+}
+
+export interface UserWithTempPassword {
+  user: import('./types').User;
+  tempPassword: string;
+  emailSent: boolean;
+}
+
+export interface ResendInviteResponse {
+  tempPassword: string;
+  emailSent: boolean;
+}
+
 export interface CreateOrgRequest {
   name: string;
   contact?: string;
@@ -58,6 +99,29 @@ export function createLicenseApi(http: Http) {
       ),
     audit: (p = 1) =>
       http.get<AuditEntry[]>(`/v1/admin/audit?page=${p}`),
+
+    // Auth
+    login: (req: { email: string; password: string }) =>
+      http.post<LoginResponse>('/v1/auth/login', req),
+    logout: () => http.post<{ status: string }>('/v1/auth/logout', {}),
+    refresh: () => http.post<LoginResponse>('/v1/auth/refresh', {}),
+    changePassword: (req: ChangePasswordRequest) =>
+      http.post<ChangePasswordResponse>('/v1/auth/change-password', req),
+
+    // Setup
+    setupStatus: () => http.get<SetupStatus>('/v1/setup/status'),
+    setupFirstAdmin: (req: SetupFirstAdminRequest) =>
+      http.post<UserWithTempPassword>('/v1/setup/first-admin', req),
+
+    // Users (admin)
+    listUsers: () => http.get<import('./types').User[]>('/v1/admin/superadmins/'),
+    createUser: (req: CreateUserRequest) =>
+      http.post<UserWithTempPassword>('/v1/admin/superadmins/', req),
+    deleteUser: (id: string) =>
+      http.del<void>(`/v1/admin/superadmins/${id}`),
+    resendInvite: (id: string) =>
+      http.post<ResendInviteResponse>(
+        `/v1/admin/superadmins/${id}/resend-invite`, {}),
   };
 }
 

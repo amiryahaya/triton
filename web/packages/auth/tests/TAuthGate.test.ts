@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import TAuthGate from '../src/TAuthGate.vue';
 import { useJwt } from '../src/jwt';
+import { useAdminKey } from '../src/adminKey';
 
 function makeToken(claims: Record<string, unknown>): string {
   const h = btoa(JSON.stringify({ alg: 'HS256' }));
@@ -10,7 +11,12 @@ function makeToken(claims: Record<string, unknown>): string {
 }
 
 describe('TAuthGate (adminKey)', () => {
-  beforeEach(() => sessionStorage.clear());
+  beforeEach(() => {
+    // Tear down the admin-key singleton so each spec starts fresh
+    // — ensureInit will re-read sessionStorage on next useAdminKey().
+    useAdminKey().stop();
+    sessionStorage.clear();
+  });
 
   it('shows prompt when no key stored', () => {
     const w = mount(TAuthGate, {

@@ -35,6 +35,12 @@ defineProps<{ portalAccent: string }>();
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* TSidebar is position:fixed so it's removed from the grid flow —
+     without this explicit grid-column, the main area auto-places
+     into column 1 (overlapped by the fixed sidebar) and the page
+     body ends up squashed into a 256px sliver, invisible behind
+     the sidebar. Pin main to column 2. */
+  grid-column: 2;
 }
 
 .t-topbar {

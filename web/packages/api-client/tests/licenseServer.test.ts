@@ -47,10 +47,16 @@ describe('licenseApi', () => {
     expect(http.del).toHaveBeenCalledWith('/v1/admin/orgs/O1');
   });
 
-  it('licences() hits /v1/admin/licenses', () => {
+  it('licences() hits /v1/admin/licenses (no filter)', () => {
     const http = fakeHttp();
     createLicenseApi(http).licences();
     expect(http.get).toHaveBeenCalledWith('/v1/admin/licenses');
+  });
+
+  it('licences({ org }) appends ?org=<id> query param', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).licences({ org: 'O1' });
+    expect(http.get).toHaveBeenCalledWith('/v1/admin/licenses?org=O1');
   });
 
   it('licence(id) hits /v1/admin/licenses/:id', () => {

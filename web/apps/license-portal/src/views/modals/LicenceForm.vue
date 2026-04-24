@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
-  TModal, TFormField, TInput, TSelect, TCheckbox, TButton,
+  TModal, TFormField, TInput, TSelect, TButton,
 } from '@triton/ui';
 import type {
   Organisation,
@@ -20,20 +20,27 @@ const emit = defineEmits<{
   submit: [payload: CreateLicenceRequest];
 }>();
 
+// Features are all enabled by default during development. product_scope
+// determines which product(s) the licence entitles — fine-grained
+// capability gating (comprehensive profile, diff/trend, custom policy,
+// SSO) can be surfaced when the product is mature enough to price those
+// as upsells. For now, every licence gets the full capability set.
+const ALL_FEATURES_ON = {
+  report: true,
+  manage: true,
+  comprehensive_profile: true,
+  diff_trend: true,
+  custom_policy: true,
+  sso: true,
+} as const;
+
 const orgID = ref('');
 const tier = ref<LicenceTier>('pro');
-const productScope = ref<ProductScope>('legacy');
+const productScope = ref<ProductScope>('bundle');
 const seats = ref<string>('0');
 const scans = ref<string>('0');
 const days = ref<string>('365');
 const notes = ref('');
-
-const fReport = ref(false);
-const fManage = ref(false);
-const fComprehensive = ref(false);
-const fDiffTrend = ref(false);
-const fCustomPolicy = ref(false);
-const fSSO = ref(false);
 
 const submitError = ref('');
 
@@ -64,17 +71,11 @@ watch(
     if (!open) return;
     orgID.value = props.orgs[0]?.id ?? '';
     tier.value = 'pro';
-    productScope.value = 'legacy';
+    productScope.value = 'bundle';
     seats.value = '0';
     scans.value = '0';
     days.value = '365';
     notes.value = '';
-    fReport.value = false;
-    fManage.value = false;
-    fComprehensive.value = false;
-    fDiffTrend.value = false;
-    fCustomPolicy.value = false;
-    fSSO.value = false;
     submitError.value = '';
   },
   { immediate: true },
@@ -91,14 +92,7 @@ function submit() {
     seats: seatsNum.value,
     days: daysNum.value,
     notes: notes.value || undefined,
-    features: {
-      report: fReport.value,
-      manage: fManage.value,
-      comprehensive_profile: fComprehensive.value,
-      diff_trend: fDiffTrend.value,
-      custom_policy: fCustomPolicy.value,
-      sso: fSSO.value,
-    },
+    features: { ...ALL_FEATURES_ON },
     limits: scansNum.value > 0
       ? [{ metric: 'scans', window: 'total', cap: scansNum.value }]
       : [],
@@ -116,37 +110,33 @@ function submit() {
   >
     <div class="form">
       <TFormField label="Organisation" required>
-        <TSelect
-          v-model="orgID"
-          :options="orgs.map(o => ({ value: o.id, label: o.name }))"
-          placeholder="Select organisation"
-        />
+        <TSelect v-model="orgID">
+          <option value="" disabled>Select organisation</option>
+          <option
+            v-for="o in orgs"
+            :key="o.id"
+            :value="o.id"
+          >{{ o.name }}</option>
+        </TSelect>
       </TFormField>
 
       <TFormField label="Tier">
-        <TSelect
-          v-model="tier"
-          :options="[
-            { value: 'free', label: 'Free' },
-            { value: 'pro', label: 'Pro' },
-            { value: 'enterprise', label: 'Enterprise' },
-          ]"
-        />
+        <TSelect v-model="tier">
+          <option value="free">Free</option>
+          <option value="pro">Pro</option>
+          <option value="enterprise">Enterprise</option>
+        </TSelect>
       </TFormField>
 
       <TFormField
         label="Product scope"
         hint="Which product(s) this licence entitles"
       >
-        <TSelect
-          v-model="productScope"
-          :options="[
-            { value: 'legacy', label: 'Legacy (both products)' },
-            { value: 'report', label: 'Report Server only' },
-            { value: 'manage', label: 'Manage Server only' },
-            { value: 'bundle', label: 'Bundle (both, scoped)' },
-          ]"
-        />
+        <TSelect v-model="productScope">
+          <option value="bundle">Bundle (Report + Manage)</option>
+          <option value="report">Report Server only</option>
+          <option value="manage">Manage Server only</option>
+        </TSelect>
       </TFormField>
 
       <div class="row">
@@ -175,17 +165,6 @@ function submit() {
           />
         </TFormField>
       </div>
-
-      <TFormField label="Features">
-        <div class="features">
-          <TCheckbox v-model="fReport">Report server</TCheckbox>
-          <TCheckbox v-model="fManage">Manage server</TCheckbox>
-          <TCheckbox v-model="fComprehensive">Comprehensive profile</TCheckbox>
-          <TCheckbox v-model="fDiffTrend">Diff &amp; trend</TCheckbox>
-          <TCheckbox v-model="fCustomPolicy">Custom policy</TCheckbox>
-          <TCheckbox v-model="fSSO">SSO</TCheckbox>
-        </div>
-      </TFormField>
 
       <TFormField label="Notes">
         <TInput v-model="notes" />
@@ -227,11 +206,6 @@ function submit() {
 <style scoped>
 .form { display: flex; flex-direction: column; gap: var(--space-3); }
 .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
-.features {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-2);
-}
 .err { color: var(--unsafe); font-size: 0.76rem; }
 .hint { color: var(--text-muted); font-size: 0.72rem; }
 </style>

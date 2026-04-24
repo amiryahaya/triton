@@ -282,7 +282,7 @@ func (s *Server) handleCreatePlatformTenant(w http.ResponseWriter, r *http.Reque
 
 	s.writeAudit(r, auditOrgProvision, tenantID, map[string]any{
 		"adminEmail":      req.AdminEmail,
-		"licenceKeyPrefix": req.LicenceKey[:min(8, len(req.LicenceKey))],
+		"licenceKeyPrefix": req.LicenceKey[:min(8, len(req.LicenceKey))] + "…",
 	})
 
 	resp := tenantResponse{

@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/amiryahaya/triton/pkg/store"
@@ -31,6 +32,7 @@ func (s *Server) TenantLicenceGate(next http.Handler) http.Handler {
 				return
 			}
 			// DB error: fail open to avoid blocking legitimate users.
+			log.Printf("licence gate: GetTenantLicence %s: %v (failing open)", orgID, err)
 			next.ServeHTTP(w, r)
 			return
 		}

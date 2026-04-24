@@ -9,7 +9,8 @@ import (
 const (
 	licenceValidatorInterval = 24 * time.Hour
 	licenceGracePeriod       = 30 * 24 * time.Hour
-	licenceWarnBefore        = 14 * 24 * time.Hour
+	// licenceWarnBefore is reserved for expiry warning notifications (not yet wired).
+	licenceWarnBefore = 14 * 24 * time.Hour
 )
 
 // startLicenceValidator launches a goroutine that validates all tenant
@@ -68,6 +69,14 @@ func (s *Server) runLicenceValidation(ctx context.Context) {
 			}
 			now := time.Now().UTC()
 			tl.RenewedAt = &now
+		} else {
+			// Portal has revoked this licence — force expired immediately.
+			log.Printf("licence validator: %s revoked by portal", tl.OrgID)
+			tl.Status = "expired"
+			if err := s.store.UpsertTenantLicence(ctx, &tl); err != nil {
+				log.Printf("licence validator: upsert revoked %s: %v", tl.OrgID, err)
+			}
+			continue
 		}
 
 		tl.Status = computeLicenceStatus(tl.ExpiresAt)

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -352,4 +353,26 @@ func TestTenantLicenceGate_AllowsNilTenant(t *testing.T) {
 	h.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestTenantLicenceGate_FailsOpenOnDBError(t *testing.T) {
+	// Store returns a generic error (not ErrNotFound) — middleware must fail open
+	// with HTTP 200 and no X-Licence-Grace header.
+	ms := &licenceMockStore{
+		getTenantLicenceFn: func(_ context.Context, _ string) (*store.TenantLicence, error) {
+			return nil, fmt.Errorf("connection reset")
+		},
+	}
+	srv := newServerWithMockStore(t, ms)
+	h := srv.TenantLicenceGate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req = withOrgID(req, "org-5")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, rec.Header().Get("X-Licence-Grace"))
 }

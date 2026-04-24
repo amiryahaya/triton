@@ -152,6 +152,12 @@ func (f *fakeStore) CountCompletedSince(_ context.Context, _ uuid.UUID, _ time.T
 	// contract satisfied.
 	return 0, nil
 }
+func (f *fakeStore) CountActive(_ context.Context, _ uuid.UUID) (int64, error) {
+	// Handler-layer tests don't exercise the deactivation-watcher path;
+	// zero is the safe default that keeps the Store interface
+	// contract satisfied.
+	return 0, nil
+}
 
 // --- helpers ----------------------------------------------------------------
 

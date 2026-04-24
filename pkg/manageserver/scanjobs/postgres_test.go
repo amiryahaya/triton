@@ -265,3 +265,62 @@ func TestScanJobs_Fail_RecordsError(t *testing.T) {
 	assert.Equal(t, "scan panicked", got.ErrorMessage)
 	require.NotNil(t, got.FinishedAt)
 }
+
+func TestCountActive(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := scanjobs.NewPostgresStore(pool)
+	tenantID := uuid.Must(uuid.NewV7())
+
+	// No jobs — count must be zero.
+	n, err := s.CountActive(ctx, tenantID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+
+	// Enqueue two jobs for this tenant (each needs its own host).
+	zoneID1, _ := seedZoneAndHost(t, pool, "active-host-1")
+	zoneID2, _ := seedZoneAndHost(t, pool, "active-host-2")
+
+	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{
+		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID1}, Profile: scanjobs.ProfileQuick,
+	})
+	require.NoError(t, err)
+	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{
+		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID2}, Profile: scanjobs.ProfileQuick,
+	})
+	require.NoError(t, err)
+
+	// Both are queued — both count as active.
+	n, err = s.CountActive(ctx, tenantID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n)
+
+	// Claim one → it becomes running, still active.
+	claimed, ok, err := s.ClaimNext(ctx, "worker-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	n, err = s.CountActive(ctx, tenantID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n, "one queued + one running = 2 active")
+
+	// Complete the running job → active drops to 1.
+	require.NoError(t, s.Complete(ctx, claimed.ID))
+	n, err = s.CountActive(ctx, tenantID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+
+	// Cancel the remaining queued job → active drops to 0.
+	remaining, ok2, err := s.ClaimNext(ctx, "worker-2")
+	require.NoError(t, err)
+	require.True(t, ok2)
+	require.NoError(t, s.Cancel(ctx, remaining.ID))
+	n, err = s.CountActive(ctx, tenantID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+
+	// Different tenant — must not be visible.
+	otherTenant := uuid.Must(uuid.NewV7())
+	n, err = s.CountActive(ctx, otherTenant)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+}

@@ -13,12 +13,19 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: [web]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Download built portals
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-dist
+          path: pkg/
 
       - uses: golangci/golangci-lint-action@v7
         with:

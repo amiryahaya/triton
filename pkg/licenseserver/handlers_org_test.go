@@ -5,6 +5,7 @@ package licenseserver_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
@@ -13,27 +14,25 @@ import (
 )
 
 func TestHandleSuspendOrg_Success(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SuspendCo")
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SuspendCo")
 
 	// Suspend
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost,
-		"/api/v1/admin/orgs/"+orgID+"/suspend",
+	resp := adminReq(t, jwt, http.MethodPost,
+		ts.URL+"/api/v1/admin/orgs/"+orgID+"/suspend",
 		map[string]any{"suspended": true})
-	assert.Equal(t, http.StatusNoContent, resp.Code)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-	// Verify org is suspended by listing orgs
-	listReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/orgs", nil)
-	require.NoError(t, err)
-	listReq.Header.Set("X-Triton-Admin-Key", adminKey)
-	listRes, err := http.DefaultClient.Do(listReq)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, listRes.StatusCode)
+	// Verify org is suspended by listing orgs.
+	listResp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/orgs", nil)
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
 	var orgs []map[string]any
-	require.NoError(t, json.NewDecoder(listRes.Body).Decode(&orgs))
-	listRes.Body.Close()
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&orgs))
+	listResp.Body.Close()
 
 	var found map[string]any
 	for _, o := range orgs {
@@ -45,51 +44,58 @@ func TestHandleSuspendOrg_Success(t *testing.T) {
 	assert.Equal(t, true, found["suspended"])
 
 	// Unsuspend
-	resp2 := adminDo(t, ts.URL, adminKey, http.MethodPost,
-		"/api/v1/admin/orgs/"+orgID+"/suspend",
+	resp2 := adminReq(t, jwt, http.MethodPost,
+		ts.URL+"/api/v1/admin/orgs/"+orgID+"/suspend",
 		map[string]any{"suspended": false})
-	assert.Equal(t, http.StatusNoContent, resp2.Code)
+	io.Copy(io.Discard, resp2.Body)
+	resp2.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp2.StatusCode)
 }
 
 func TestHandleSuspendOrg_NotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost,
-		"/api/v1/admin/orgs/00000000-0000-0000-0000-000000000000/suspend",
+	resp := adminReq(t, jwt, http.MethodPost,
+		ts.URL+"/api/v1/admin/orgs/00000000-0000-0000-0000-000000000000/suspend",
 		map[string]any{"suspended": true})
-	assert.Equal(t, http.StatusNotFound, resp.Code)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestHandleSuspendOrg_BadBody(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "BadBodyCo")
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "BadBodyCo")
 
 	req, _ := http.NewRequest(http.MethodPost,
 		ts.URL+"/api/v1/admin/orgs/"+orgID+"/suspend",
 		bytes.NewBufferString("not-json"))
-	req.Header.Set("X-Triton-Admin-Key", adminKey)
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
+	io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, res.StatusCode)
 }
 
-func TestHandleSuspendOrg_RequiresAdminKey(t *testing.T) {
-	ts, _ := setupTestServer(t)
+func TestHandleSuspendOrg_RequiresAuth(t *testing.T) {
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgID := createOrgViaAPI(t, ts.URL, "test-admin-key", "AuthTestCo")
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "AuthTestCo")
 
 	req, _ := http.NewRequest(http.MethodPost,
 		ts.URL+"/api/v1/admin/orgs/"+orgID+"/suspend",
 		bytes.NewBufferString(`{"suspended":true}`))
 	req.Header.Set("Content-Type", "application/json")
-	// No admin key header
+	// No Authorization header — must be rejected.
 	res, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
+	io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, res.StatusCode)
 }

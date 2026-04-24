@@ -5,6 +5,7 @@ package licenseserver_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
@@ -12,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func seedOrgAndLicense(t *testing.T, tsURL, adminKey, orgName string) (orgID, licID string) {
+func seedOrgAndLicense(t *testing.T, tsURL, jwt, orgName string) (orgID, licID string) {
 	t.Helper()
-	orgID = createOrgViaAPI(t, tsURL, adminKey, orgName)
-	licID = createLicenseViaAPIWithFields(t, tsURL, adminKey, orgID, map[string]any{
+	orgID = createOrgViaAPI(t, tsURL, jwt, orgName)
+	licID = createLicenseViaAPIWithFields(t, tsURL, jwt, orgID, map[string]any{
 		"tier":  "pro",
 		"seats": 5,
 		"days":  365,
@@ -30,18 +31,20 @@ func seedOrgAndLicense(t *testing.T, tsURL, adminKey, orgName string) (orgID, li
 }
 
 func TestHandleActivate_OrgSuspended(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgID, licID := seedOrgAndLicense(t, ts.URL, adminKey, "SuspendActivateCo")
+	orgID, licID := seedOrgAndLicense(t, ts.URL, jwt, "SuspendActivateCo")
 
-	// Suspend the org
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost,
-		"/api/v1/admin/orgs/"+orgID+"/suspend",
+	// Suspend the org.
+	suspResp := adminReq(t, jwt, http.MethodPost,
+		ts.URL+"/api/v1/admin/orgs/"+orgID+"/suspend",
 		map[string]any{"suspended": true})
-	require.Equal(t, http.StatusNoContent, resp.Code)
+	io.Copy(io.Discard, suspResp.Body)
+	suspResp.Body.Close()
+	require.Equal(t, http.StatusNoContent, suspResp.StatusCode)
 
-	// Attempt to activate — must be rejected with 403
+	// Attempt to activate — must be rejected with 403.
 	body, _ := json.Marshal(map[string]any{
 		"licenseID": licID,
 		"machineID": "machine-abc",
@@ -54,17 +57,18 @@ func TestHandleActivate_OrgSuspended(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
+	io.Copy(io.Discard, res.Body)
 	res.Body.Close()
 	assert.Equal(t, http.StatusForbidden, res.StatusCode)
 }
 
 func TestHandleValidate_OrgSuspended(t *testing.T) {
 	ts, store := setupTestServer(t)
-	const adminKey = "test-admin-key"
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgID, licID := seedOrgAndLicense(t, ts.URL, adminKey, "SuspendValidateCo")
+	orgID, licID := seedOrgAndLicense(t, ts.URL, jwt, "SuspendValidateCo")
 
-	// Activate a machine while the org is still active
+	// Activate a machine while the org is still active.
 	activateBody, _ := json.Marshal(map[string]any{
 		"licenseID": licID,
 		"machineID": "machine-xyz",
@@ -84,10 +88,10 @@ func TestHandleValidate_OrgSuspended(t *testing.T) {
 	token, ok := activateResp["token"].(string)
 	require.True(t, ok, "token should be a string")
 
-	// Suspend the org via the store directly
+	// Suspend the org via the store directly.
 	require.NoError(t, store.SuspendOrg(t.Context(), orgID, true))
 
-	// Attempt to validate — must be rejected with 403
+	// Attempt to validate — must be rejected with 403.
 	validateBody, _ := json.Marshal(map[string]any{
 		"licenseID": licID,
 		"machineID": "machine-xyz",
@@ -98,10 +102,11 @@ func TestHandleValidate_OrgSuspended(t *testing.T) {
 	validateReq.Header.Set("Content-Type", "application/json")
 	validateRes, err := http.DefaultClient.Do(validateReq)
 	require.NoError(t, err)
+	io.Copy(io.Discard, validateRes.Body)
 	validateRes.Body.Close()
 	assert.Equal(t, http.StatusForbidden, validateRes.StatusCode)
 
-	// Unsuspend — validate should succeed again
+	// Unsuspend — validate should succeed again.
 	require.NoError(t, store.SuspendOrg(t.Context(), orgID, false))
 	validateReq2, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/license/validate",
 		bytes.NewReader(validateBody))

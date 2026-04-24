@@ -12,7 +12,7 @@ export const nav: NavSection[] = [
     label: 'Admin',
     items: [
       { href: '#/audit',       label: 'Audit log' },
-      { href: '#/superadmins', label: 'Superadmins' },
+      { href: '#/admin/users', label: 'Users' },
     ],
   },
 ];

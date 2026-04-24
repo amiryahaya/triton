@@ -29,6 +29,7 @@ jobs:
           if grep -rE "X-Triton-Admin-Key|AdminKeyAuth|TRITON_LICENSE_SERVER_ADMIN_KEY" \
               pkg/licenseserver/ cmd/licenseserver/ \
               --include="*.go" \
+              --exclude="*_test.go" \
               --exclude-dir=node_modules; then
             echo "Admin-key references found in production Go code — must be removed."
             exit 1

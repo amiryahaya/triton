@@ -18,6 +18,11 @@ export const router = createRouter({
   routes,
 });
 
+// setupChecked is reset on hard refresh. After logout, a new
+// /setup/status probe happens on next SPA load (page refresh).
+// Resetting it in-process would re-probe on every navigation after
+// logout which is unnecessary — logout always triggers a full
+// redirect to '/' which resets state via page reload.
 let setupChecked = false;
 
 router.beforeEach(async (to) => {

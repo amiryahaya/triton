@@ -262,8 +262,9 @@ func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) 
 	// Build a UserUpdate. The struct has no Role/OrgID field by design —
 	// the type system enforces the immutability invariant.
 	update := licensestore.UserUpdate{
-		ID:   id,
-		Name: existing.Name, // default to current
+		ID:                 id,
+		Name:               existing.Name, // default to current
+		MustChangePassword: existing.MustChangePassword,
 	}
 
 	if req.Name != "" {
@@ -332,6 +333,11 @@ func (s *Server) handleDeleteSuperadmin(w http.ResponseWriter, r *http.Request) 
 	if len(admins) <= 1 {
 		writeError(w, http.StatusConflict, "cannot delete the last superadmin")
 		return
+	}
+
+	// Revoke all sessions so a deleted user's tokens stop immediately.
+	if err := s.store.DeleteSessionsForUser(r.Context(), id); err != nil {
+		log.Printf("delete superadmin: revoke sessions: %v (non-fatal)", err)
 	}
 
 	if err := s.store.DeleteUser(r.Context(), id); err != nil {

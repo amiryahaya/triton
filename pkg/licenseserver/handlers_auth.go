@@ -76,10 +76,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	auth.LogSuccessfulLogin("license", email, r.RemoteAddr)
 
 	claims := &auth.UserClaims{
-		Sub:  user.ID,
-		Org:  user.OrgID,
-		Role: user.Role,
-		Name: user.Name,
+		Sub:                user.ID,
+		Org:                user.OrgID,
+		Role:               user.Role,
+		Name:               user.Name,
+		MustChangePassword: user.MustChangePassword,
 	}
 	token, err := auth.SignJWT(claims, s.config.SigningKey, jwtTTL)
 	if err != nil {
@@ -179,10 +180,11 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// Issue new token with freshly-fetched user state.
 	newClaims := &auth.UserClaims{
-		Sub:  user.ID,
-		Org:  user.OrgID,
-		Role: user.Role,
-		Name: user.Name,
+		Sub:                user.ID,
+		Org:                user.OrgID,
+		Role:               user.Role,
+		Name:               user.Name,
+		MustChangePassword: user.MustChangePassword,
 	}
 	newToken, err := auth.SignJWT(newClaims, s.config.SigningKey, jwtTTL)
 	if err != nil {

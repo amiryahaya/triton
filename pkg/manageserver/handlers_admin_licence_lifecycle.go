@@ -149,8 +149,3 @@ func (s *Server) handleCancelDeactivation(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
-
-// runDeactivationWatcher is a stub — the real implementation is in
-// licence_watcher.go (Task 8). This placeholder allows the package to
-// compile while Tasks 6–7 are being assembled.
-func (s *Server) runDeactivationWatcher(_ context.Context) {}

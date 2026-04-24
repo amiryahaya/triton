@@ -168,4 +168,9 @@ var migrations = []string{
 		END IF;
 		ALTER TABLE licenses ADD CONSTRAINT licenses_seats_check CHECK (seats >= 0);
 	END$$;`,
+
+	// Version 8: Add suspended column to organizations.
+	// suspended=true blocks new activations and validation for all machines
+	// on any licence belonging to this org (hard suspend).
+	`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended BOOLEAN NOT NULL DEFAULT FALSE;`,
 }

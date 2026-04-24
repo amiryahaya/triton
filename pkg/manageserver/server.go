@@ -266,11 +266,18 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.injectInstanceOrg)
 		r.Route("/zones", func(r chi.Router) { zones.MountAdminRoutes(r, s.zonesAdmin) })
 		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
-		r.Route("/scan-jobs", func(r chi.Router) { scanjobs.MountAdminRoutes(r, s.scanjobsAdmin) })
+		r.Route("/scan-jobs", func(r chi.Router) {
+			r.Use(s.rejectWhenDeactivationPending)
+			scanjobs.MountAdminRoutes(r, s.scanjobsAdmin)
+		})
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
 		r.Get("/gateway-health", s.handleGatewayHealth)
 		r.Get("/licence", s.handleLicenceSummary)
+		r.Post("/licence/refresh", s.handleLicenceRefresh)
+		r.Post("/licence/replace", s.handleLicenceReplace)
+		r.Post("/licence/deactivate", s.handleLicenceDeactivate)
+		r.Delete("/licence/deactivation", s.handleCancelDeactivation)
 		r.Get("/settings", s.handleSettings)
 
 		// Admin-only subtree (user CRUD, agent enrol). Role check is
@@ -321,6 +328,11 @@ func (s *Server) Run(ctx context.Context) error {
 	// stopScannerPipeline waits for graceful exit. CA bootstrap rides
 	// on the same instance_id resolution.
 	pipelineWG := s.startScannerPipeline(ctx)
+
+	// Resume pending deactivation watcher if server was restarted mid-deactivation.
+	if setup, err := s.store.GetSetup(ctx); err == nil && setup.PendingDeactivation {
+		go s.runDeactivationWatcher(ctx)
+	}
 
 	// Gateway listener runs concurrently with admin. Spawn it AFTER
 	// startScannerPipeline (which bootstraps the CA) so the retry loop
@@ -609,6 +621,20 @@ func (s *Server) bootstrapCA(ctx context.Context, instanceID string) {
 	if _, err := s.caStore.Bootstrap(ctx, instanceID); err != nil {
 		log.Printf("manageserver: bootstrap CA: %v (gateway will be disabled)", err)
 	}
+}
+
+// rejectWhenDeactivationPending blocks new scan job creation (POST) when
+// a deactivation is scheduled.
+func (s *Server) rejectWhenDeactivationPending(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			if state, err := s.store.GetSetup(r.Context()); err == nil && state.PendingDeactivation {
+				writeError(w, http.StatusConflict, "deactivation pending; no new scan jobs accepted")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // manageSecurityHeaders adds baseline security headers to every response.

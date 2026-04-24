@@ -36,6 +36,8 @@ export function createLicenseApi(http: Http) {
     createOrg: (req: CreateOrgRequest) =>
       http.post<Organisation>('/v1/admin/orgs', req),
     deleteOrg: (id: string) => http.del<void>(`/v1/admin/orgs/${id}`),
+    suspendOrg: (id: string, suspended: boolean) =>
+      http.post<void>(`/v1/admin/orgs/${id}/suspend`, { suspended }),
     licences: (filter?: { org?: string }) => {
       const qs = filter?.org
         ? `?org=${encodeURIComponent(filter.org)}`

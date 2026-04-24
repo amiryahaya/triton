@@ -50,6 +50,20 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject activations for suspended organisations.
+	if lic.OrgID != "" {
+		org, orgErr := s.store.GetOrg(r.Context(), lic.OrgID)
+		if orgErr != nil {
+			log.Printf("activate: org lookup failed for %s: %v", lic.OrgID, orgErr)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+		if org.Suspended {
+			writeError(w, http.StatusForbidden, "organisation suspended")
+			return
+		}
+	}
+
 	// Pre-sign a token for this machine.
 	// The store.Activate transaction is the authoritative check for revoked/expired/seats.
 	token, err := s.signToken(lic, req.MachineID)
@@ -200,6 +214,14 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 	if time.Now().After(lic.ExpiresAt) {
 		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "reason": "validation failed"})
 		return
+	}
+
+	// Hard-block validation for suspended organisations.
+	if lic.OrgID != "" {
+		if org, err := s.store.GetOrg(r.Context(), lic.OrgID); err == nil && org.Suspended {
+			writeError(w, http.StatusForbidden, "organisation suspended")
+			return
+		}
 	}
 
 	// Check activation

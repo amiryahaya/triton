@@ -281,8 +281,8 @@ func (s *Server) handleCreatePlatformTenant(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.writeAudit(r, auditOrgProvision, tenantID, map[string]any{
-		"adminEmail": req.AdminEmail,
-		"licenceKey": req.LicenceKey,
+		"adminEmail":      req.AdminEmail,
+		"licenceKeyPrefix": req.LicenceKey[:min(8, len(req.LicenceKey))],
 	})
 
 	resp := tenantResponse{
@@ -303,6 +303,17 @@ func (s *Server) handleRenewTenantLicence(w http.ResponseWriter, r *http.Request
 	}
 
 	id := chi.URLParam(r, "id")
+
+	if _, err := s.store.GetOrg(r.Context(), id); err != nil {
+		var nf *store.ErrNotFound
+		if errors.As(err, &nf) {
+			writeError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		log.Printf("renew tenant licence %s: get org: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
@@ -330,6 +341,13 @@ func (s *Server) handleRenewTenantLicence(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		status, msg := classifyActivationError(err)
 		writeError(w, status, msg)
+		return
+	}
+
+	// Validate product scope — only "report", "bundle", or empty (pre-v2) allowed.
+	if activation.ProductScope != "report" && activation.ProductScope != "bundle" && activation.ProductScope != "" {
+		_ = s.licencePortalClient.DeactivateForTenant(req.LicenceKey, machineID)
+		writeError(w, http.StatusUnprocessableEntity, "licence not valid for Report Portal")
 		return
 	}
 
@@ -365,9 +383,16 @@ func (s *Server) handleRenewTenantLicence(w http.ResponseWriter, r *http.Request
 	}
 	if err := s.store.UpsertTenantLicence(r.Context(), tl); err != nil {
 		log.Printf("renew tenant licence %s: upsert: %v", id, err)
+		if deactErr := s.licencePortalClient.DeactivateForTenant(req.LicenceKey, machineID); deactErr != nil {
+			log.Printf("renew tenant licence %s: cleanup deactivate after upsert failure: %v", id, deactErr)
+		}
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+
+	s.writeAudit(r, auditLicenceRenew, id, map[string]any{
+		"licenceKeyPrefix": req.LicenceKey[:min(8, len(req.LicenceKey))] + "…",
+	})
 
 	writeJSON(w, http.StatusOK, tl)
 }
@@ -403,6 +428,8 @@ func (s *Server) handleDeletePlatformTenant(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+
+	s.writeAudit(r, auditOrgDelete, id, nil)
 
 	w.WriteHeader(http.StatusNoContent)
 }

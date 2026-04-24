@@ -18,6 +18,8 @@ const (
 	auditUserResendInvite = "user.resend_invite"
 	auditScanDelete       = "scan.delete"
 	auditOrgProvision     = "org.provision"
+	auditOrgDelete        = "org.delete"
+	auditLicenceRenew     = "licence.renew"
 	auditAuthChangePW     = "auth.change_password" // successful change, not failed
 )
 

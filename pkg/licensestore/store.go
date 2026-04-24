@@ -59,6 +59,15 @@ type Store interface {
 	DeleteUser(ctx context.Context, id string) error
 	CountUsers(ctx context.Context) (int, error)
 
+	// CountPlatformAdmins returns the count of users with role =
+	// 'platform_admin'. Used to block last-platform-admin deletion.
+	CountPlatformAdmins(ctx context.Context) (int, error)
+
+	// DeleteSessionsForUser revokes every session belonging to the given
+	// user. Called on password change, resend-invite, and delete-user so
+	// stolen tokens stop working immediately.
+	DeleteSessionsForUser(ctx context.Context, userID string) error
+
 	// Sessions
 	CreateSession(ctx context.Context, session *Session) error
 	GetSessionByHash(ctx context.Context, tokenHash string) (*Session, error)
@@ -172,15 +181,16 @@ type DashboardStats struct {
 
 // User represents a platform or organization user.
 type User struct {
-	ID        string    `json:"id"`
-	OrgID     string    `json:"orgID,omitempty"` // empty = platform admin
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"` // platform_admin, org_admin, org_user
-	Password  string    `json:"-"`    // bcrypt hash, never serialized
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	OrgName   string    `json:"orgName,omitempty"` // populated by joins
+	ID                 string    `json:"id"`
+	OrgID              string    `json:"orgID,omitempty"` // empty = platform admin
+	Email              string    `json:"email"`
+	Name               string    `json:"name"`
+	Role               string    `json:"role"` // platform_admin, org_admin, org_user
+	Password           string    `json:"-"`    // bcrypt hash, never serialized
+	MustChangePassword bool      `json:"mustChangePassword"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+	OrgName            string    `json:"orgName,omitempty"` // populated by joins
 }
 
 // Session represents an active user session.
@@ -206,10 +216,13 @@ type UserFilter struct {
 // exist on this struct.
 //
 // Password is optional: an empty string means "leave unchanged".
+// MustChangePassword is always written — callers that do not intend to change
+// it should read the current value first and pass it through unchanged.
 type UserUpdate struct {
-	ID       string
-	Name     string
-	Password string // empty = unchanged
+	ID                 string
+	Name               string
+	Password           string // empty = unchanged
+	MustChangePassword bool
 }
 
 // LicenseFilter filters license listings.

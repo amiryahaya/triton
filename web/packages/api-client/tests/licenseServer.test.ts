@@ -110,4 +110,69 @@ describe('licenseApi', () => {
     createLicenseApi(http).audit(5);
     expect(http.get).toHaveBeenCalledWith('/v1/admin/audit?page=5');
   });
+
+  it('login POSTs to /v1/auth/login', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).login({ email: 'a@b', password: 'pw' });
+    expect(http.post).toHaveBeenCalledWith('/v1/auth/login',
+      { email: 'a@b', password: 'pw' });
+  });
+
+  it('logout POSTs to /v1/auth/logout', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).logout();
+    expect(http.post).toHaveBeenCalledWith('/v1/auth/logout', {});
+  });
+
+  it('refresh POSTs to /v1/auth/refresh', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).refresh();
+    expect(http.post).toHaveBeenCalledWith('/v1/auth/refresh', {});
+  });
+
+  it('changePassword POSTs to /v1/auth/change-password', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).changePassword({ current: 'o', next: 'new-pw-12' });
+    expect(http.post).toHaveBeenCalledWith('/v1/auth/change-password',
+      { current: 'o', next: 'new-pw-12' });
+  });
+
+  it('setupStatus GETs /v1/setup/status', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).setupStatus();
+    expect(http.get).toHaveBeenCalledWith('/v1/setup/status');
+  });
+
+  it('setupFirstAdmin POSTs to /v1/setup/first-admin', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).setupFirstAdmin({ name: 'A', email: 'a@b' });
+    expect(http.post).toHaveBeenCalledWith('/v1/setup/first-admin',
+      { name: 'A', email: 'a@b' });
+  });
+
+  it('listUsers GETs /v1/admin/superadmins/', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).listUsers();
+    expect(http.get).toHaveBeenCalledWith('/v1/admin/superadmins/');
+  });
+
+  it('createUser POSTs to /v1/admin/superadmins/', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).createUser({ name: 'B', email: 'b@c' });
+    expect(http.post).toHaveBeenCalledWith('/v1/admin/superadmins/',
+      { name: 'B', email: 'b@c' });
+  });
+
+  it('deleteUser DELETEs /v1/admin/superadmins/:id', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).deleteUser('U1');
+    expect(http.del).toHaveBeenCalledWith('/v1/admin/superadmins/U1');
+  });
+
+  it('resendInvite POSTs to /v1/admin/superadmins/:id/resend-invite', () => {
+    const http = fakeHttp();
+    createLicenseApi(http).resendInvite('U1');
+    expect(http.post).toHaveBeenCalledWith(
+      '/v1/admin/superadmins/U1/resend-invite', {});
+  });
 });

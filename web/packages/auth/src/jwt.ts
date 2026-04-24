@@ -71,7 +71,7 @@ export function useJwt(): UseJwt {
   });
   const isAdmin = computed<boolean>(() => {
     const role = claims.value?.role ?? '';
-    return role === 'org_admin' || role === 'super_admin';
+    return role === 'org_admin' || role === 'super_admin' || role === 'platform_admin';
   });
 
   function setToken(t: string): void {

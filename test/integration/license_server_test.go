@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	urlpkg "net/url"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
@@ -42,16 +44,89 @@ func requireLicenseStore(t *testing.T) *licensestore.PostgresStore {
 	return s
 }
 
-// requireLicenseServer creates a real TCP httptest.Server backed by PostgreSQL.
+// licAdminTokenCache caches the JWT per httptest server base URL so each
+// test only logs in once. Evicted on t.Cleanup in requireLicenseServer.
+var licAdminTokenCache sync.Map // baseURL → jwt string
+var licAdminCredsMap sync.Map   // baseURL → [2]string{email, password}
+
+// requireLicenseServer creates a real TCP httptest.Server backed by PostgreSQL
+// and seeds a platform_admin user for use by licAdminReq.
 func requireLicenseServer(t *testing.T) (string, *licensestore.PostgresStore, ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
-	return requireLicenseServerWithKeys(t, []string{"integration-test-key"})
+	store := requireLicenseStore(t)
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	cfg := &licenseserver.Config{
+		ListenAddr:  ":0",
+		SigningKey:  priv,
+		PublicKey:   pub,
+		BinariesDir: t.TempDir(),
+	}
+	srv := licenseserver.New(cfg, store)
+	ts := httptest.NewServer(srv.Router())
+
+	email, password := "inttest-admin@example.com", "IntTestPass123!"
+	seedLicenseAdmin(t, store, email, password)
+	licAdminCredsMap.Store(ts.URL, [2]string{email, password})
+	t.Cleanup(func() {
+		licAdminTokenCache.Delete(ts.URL)
+		licAdminCredsMap.Delete(ts.URL)
+		ts.Close()
+	})
+	return ts.URL, store, pub, priv
 }
 
-// licAdminReq makes an admin request to the license server using the default integration-test-key.
+// seedLicenseAdmin inserts a platform_admin user directly into the store.
+// Uses bcrypt.MinCost to keep integration tests fast.
+func seedLicenseAdmin(t *testing.T, store *licensestore.PostgresStore, email, password string) {
+	t.Helper()
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	u := &licensestore.User{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Email:     email,
+		Name:      "Integration Test Admin",
+		Role:      "platform_admin",
+		Password:  string(hashed),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	require.NoError(t, store.CreateUser(context.Background(), u))
+}
+
+// licGetJWT returns a cached JWT for the given server base URL, logging in on
+// first call.
+func licGetJWT(t *testing.T, baseURL string) string {
+	t.Helper()
+	if v, ok := licAdminTokenCache.Load(baseURL); ok {
+		return v.(string)
+	}
+	v, ok := licAdminCredsMap.Load(baseURL)
+	require.True(t, ok, "no admin credentials registered for %s — call requireLicenseServer first", baseURL)
+	creds := v.([2]string)
+	b, _ := json.Marshal(map[string]string{"email": creds[0], "password": creds[1]})
+	resp, err := http.Post(baseURL+"/api/v1/auth/login", "application/json", bytes.NewReader(b))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "login must succeed for integration test admin")
+	var result map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	token, ok := result["token"].(string)
+	require.True(t, ok, "login response must contain token string")
+	licAdminTokenCache.Store(baseURL, token)
+	return token
+}
+
+// licAdminReq makes an authenticated admin request to the license server.
 func licAdminReq(t *testing.T, method, url string, body any) *http.Response {
 	t.Helper()
-	return licAdminReqWithKey(t, method, url, "integration-test-key", body)
+	parsed, err := urlpkg.Parse(url)
+	require.NoError(t, err)
+	baseURL := parsed.Scheme + "://" + parsed.Host
+	return licAdminReqWithJWT(t, method, url, licGetJWT(t, baseURL), body)
 }
 
 // createTestOrgAndLicense creates an org and license via the admin API.
@@ -380,27 +455,6 @@ func TestLicenseServer_Health(t *testing.T) {
 	require.NoError(t, client.Health())
 }
 
-// --- New Helpers ---
-
-// requireLicenseServerWithKeys creates a license server with custom admin keys.
-func requireLicenseServerWithKeys(t *testing.T, keys []string) (string, *licensestore.PostgresStore, ed25519.PublicKey, ed25519.PrivateKey) {
-	t.Helper()
-	store := requireLicenseStore(t)
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	cfg := &licenseserver.Config{
-		ListenAddr: ":0",
-		AdminKeys:  keys,
-		SigningKey: priv,
-		PublicKey:  pub,
-	}
-	srv := licenseserver.New(cfg, store)
-	ts := httptest.NewServer(srv.Router())
-	t.Cleanup(ts.Close)
-	return ts.URL, store, pub, priv
-}
 
 // decodeJSONArray asserts 200 OK and decodes a JSON array response body.
 func decodeJSONArray(t *testing.T, resp *http.Response) []map[string]any {
@@ -412,8 +466,8 @@ func decodeJSONArray(t *testing.T, resp *http.Response) []map[string]any {
 	return result
 }
 
-// licAdminReqWithKey makes an admin request with a specific key.
-func licAdminReqWithKey(t *testing.T, method, url, key string, body any) *http.Response {
+// licAdminReqWithJWT makes an admin request authenticated with a Bearer JWT.
+func licAdminReqWithJWT(t *testing.T, method, url, jwt string, body any) *http.Response {
 	t.Helper()
 	var bodyReader *bytes.Reader
 	if body != nil {
@@ -430,7 +484,7 @@ func licAdminReqWithKey(t *testing.T, method, url, key string, body any) *http.R
 	}
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", key)
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -1073,25 +1127,22 @@ func TestLicenseServer_GuardCacheMeta_SaveLoadRoundTrip(t *testing.T) {
 	assert.False(t, reloaded.IsFresh())
 }
 
-// --- Group I: Multi-Key Auth & Stats ---
+// --- Group I: JWT Auth & Stats ---
 
-func TestLicenseServer_MultipleAdminKeys(t *testing.T) {
-	keys := []string{"key-alpha", "key-beta", "key-gamma"}
-	serverURL, _, _, _ := requireLicenseServerWithKeys(t, keys)
+func TestLicenseServer_JWTAuthRequired(t *testing.T) {
+	serverURL, _, _, _ := requireLicenseServer(t)
 
-	// Each key should succeed
-	for _, key := range keys {
-		resp := licAdminReqWithKey(t, "GET", serverURL+"/api/v1/admin/orgs", key, nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode, "key %s should succeed", key)
-		resp.Body.Close()
-	}
-
-	// Wrong key should fail
-	resp := licAdminReqWithKey(t, "GET", serverURL+"/api/v1/admin/orgs", "wrong-key", nil)
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	// Valid JWT must succeed.
+	resp := licAdminReq(t, "GET", serverURL+"/api/v1/admin/orgs", nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// Empty key should fail
+	// Invalid token must be rejected.
+	resp = licAdminReqWithJWT(t, "GET", serverURL+"/api/v1/admin/orgs", "invalid.jwt.token", nil)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	resp.Body.Close()
+
+	// No Authorization header must be rejected.
 	req, _ := http.NewRequest("GET", serverURL+"/api/v1/admin/orgs", nil)
 	resp2, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

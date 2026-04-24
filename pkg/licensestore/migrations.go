@@ -169,7 +169,13 @@ var migrations = []string{
 		ALTER TABLE licenses ADD CONSTRAINT licenses_seats_check CHECK (seats >= 0);
 	END$$;`,
 
-	// Version 8: Add suspended column to organizations.
+	// Version 8: Add must_change_password flag to users for the invite
+	// flow. New users created via setup or resend-invite start with
+	// true; change-password clears it.
+	`ALTER TABLE users
+	  ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;`,
+
+	// Version 9: Add suspended column to organizations.
 	// suspended=true blocks new activations and validation for all machines
 	// on any licence belonging to this org (hard suspend).
 	`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended BOOLEAN NOT NULL DEFAULT FALSE;`,

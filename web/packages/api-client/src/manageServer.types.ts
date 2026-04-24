@@ -166,6 +166,8 @@ export interface LicenceSummary {
   last_pushed_at: string | null;
   last_push_error: string;
   consecutive_failures: number;
+  pending_deactivation: boolean;
+  active_scans: number;
 }
 
 // SettingsSummary mirrors pkg/manageserver.SettingsSummary — the
@@ -206,4 +208,25 @@ export interface Lockout {
 // SecurityEventsResponse mirrors the body of GET /v1/admin/security-events.
 export interface SecurityEventsResponse {
   active_lockouts: Lockout[];
+}
+
+// LicenceLifecycleResp mirrors the response from licence lifecycle endpoints
+// (refreshLicence, replaceLicenceKey). Includes tier and expiry info.
+export interface LicenceLifecycleResp {
+  ok: boolean;
+  tier?: string;
+  expires_at?: string;
+}
+
+// ReplaceLicenceKeyReq mirrors the request body for replaceLicenceKey endpoint.
+export interface ReplaceLicenceKeyReq {
+  license_key: string;
+}
+
+// DeactivateLicenceResp mirrors the response from deactivateLicence endpoint.
+// Includes pending flag and active scans count for UI feedback.
+export interface DeactivateLicenceResp {
+  ok?: boolean;
+  pending?: boolean;
+  active_scans?: number;
 }

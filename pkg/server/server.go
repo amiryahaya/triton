@@ -325,6 +325,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	if cfg.LicencePortalURL != "" {
 		srv.licencePortalClient = license.NewServerClient(cfg.LicencePortalURL)
 	}
+	srv.licenceValidatorDone = make(chan struct{})
 
 	// Start licence usage pusher when a LicenseServer URL and a real
 	// licence token are both present. Free-tier / no-token deployments

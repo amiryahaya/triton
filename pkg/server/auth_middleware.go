@@ -287,11 +287,11 @@ func RequirePlatformAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := ClaimsFromContext(r.Context())
 		if claims == nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		if claims.Role != "platform_admin" {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
 		next.ServeHTTP(w, r)

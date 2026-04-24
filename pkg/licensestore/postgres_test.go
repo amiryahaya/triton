@@ -167,6 +167,74 @@ func TestDeleteOrg_WithLicenses(t *testing.T) {
 	assert.ErrorAs(t, err, &conflict)
 }
 
+func TestSuspendOrg(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	// Suspend
+	require.NoError(t, s.SuspendOrg(ctx, org.ID, true))
+	got, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.True(t, got.Suspended)
+
+	// Unsuspend
+	require.NoError(t, s.SuspendOrg(ctx, org.ID, false))
+	got, err = s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Suspended)
+
+	// Not found
+	err = s.SuspendOrg(ctx, nonExistentUUID, true)
+	var nf *licensestore.ErrNotFound
+	assert.ErrorAs(t, err, &nf)
+}
+
+func TestListOrgs_ComputedFields(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	// Before any licence: has_seated_licenses=false, active_activations=0.
+	orgs, err := s.ListOrgs(ctx)
+	require.NoError(t, err)
+	require.Len(t, orgs, 1)
+	assert.False(t, orgs[0].HasSeatedLicenses)
+	assert.Equal(t, 0, orgs[0].ActiveActivations)
+
+	// Add a seated licence and one active activation.
+	lic := makeLicense(t, org.ID) // seats=5
+	require.NoError(t, s.CreateLicense(ctx, lic))
+	act := makeActivation(t, lic.ID)
+	require.NoError(t, s.Activate(ctx, act))
+
+	orgs, err = s.ListOrgs(ctx)
+	require.NoError(t, err)
+	require.Len(t, orgs, 1)
+	assert.True(t, orgs[0].HasSeatedLicenses)
+	assert.Equal(t, 1, orgs[0].ActiveActivations)
+
+	// Deactivate — count drops to zero.
+	require.NoError(t, s.Deactivate(ctx, lic.ID, act.MachineID))
+	orgs, err = s.ListOrgs(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, orgs[0].ActiveActivations)
+
+	// Unlimited licence (seats=0) does not count toward has_seated_licenses or active_activations.
+	unlimitedLic := makeLicense(t, org.ID)
+	unlimitedLic.ID = uuid.Must(uuid.NewV7()).String()
+	unlimitedLic.Seats = 0
+	require.NoError(t, s.CreateLicense(ctx, unlimitedLic))
+	orgs, err = s.ListOrgs(ctx)
+	require.NoError(t, err)
+	// Still has the seated lic from above, so has_seated_licenses stays true.
+	assert.True(t, orgs[0].HasSeatedLicenses)
+}
+
 // --- License Tests ---
 
 func TestCreateLicense(t *testing.T) {

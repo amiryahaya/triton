@@ -154,7 +154,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, status := s.loadOrgUserByEmail(r.Context(), email)
+	user, status := s.loadUserByEmail(r.Context(), email)
 	if status != 0 {
 		// Generic 401 to prevent user enumeration. Don't surface the
 		// helper's 404 directly. Still record the failure so attackers
@@ -270,7 +270,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// Re-fetch the user from the DB so role/name/org changes propagate
 	// and deleted users cannot refresh (H2 lesson from license server).
-	user, status := s.loadOrgUserByID(r.Context(), claims.Sub)
+	user, status := s.loadUserByID(r.Context(), claims.Sub)
 	if status != 0 {
 		writeError(w, http.StatusUnauthorized, "invalid or expired token")
 		return
@@ -359,7 +359,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, status := s.loadOrgUserByID(r.Context(), claims.Sub)
+	user, status := s.loadUserByID(r.Context(), claims.Sub)
 	if status != 0 {
 		writeError(w, http.StatusUnauthorized, "invalid or expired token")
 		return
@@ -392,7 +392,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Re-fetch so the new JWT reflects mustChangePassword=false.
-	updated, status := s.loadOrgUserByID(r.Context(), user.ID)
+	updated, status := s.loadUserByID(r.Context(), user.ID)
 	if status != 0 {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return

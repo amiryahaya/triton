@@ -280,6 +280,24 @@ func RequireOrgAdmin(next http.Handler) http.Handler {
 	})
 }
 
+// RequirePlatformAdmin enforces that the authenticated user has
+// role=platform_admin. Returns 401 if no claims are present (JWTAuth
+// not in middleware chain) and 403 if the role does not match.
+func RequirePlatformAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := ClaimsFromContext(r.Context())
+		if claims == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if claims.Role != "platform_admin" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RequireAnyOrgRole enforces that the authenticated user has either
 // role=org_admin OR role=org_user. Both can read scan data, run policy
 // evaluations, and view their org's dashboard — they only diverge on

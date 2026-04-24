@@ -104,6 +104,11 @@ type Config struct {
 	// Manage supply this via cmd/server.go; plain Report-only deployments
 	// leave it nil and the endpoint reports "not configured".
 	ManageEnrolHandlers *manage_enrol.EnrolHandlers
+
+	// LicencePortalURL is the base URL of the Licence Portal used to
+	// activate/validate/deactivate tenant licences. When empty, tenant
+	// creation returns 503.
+	LicencePortalURL string
 }
 
 // Server is the Triton REST API server.
@@ -165,6 +170,11 @@ type Server struct {
 	// manageEnrolHandlers serves the real /api/v1/admin/enrol/manage flow
 	// when configured. Nil → handleEnrolManage returns 501. Batch G.
 	manageEnrolHandlers *manage_enrol.EnrolHandlers
+
+	// licencePortalClient communicates with the Licence Portal for tenant
+	// licence activation/validation/deactivation. Nil when LicencePortalURL
+	// is not configured.
+	licencePortalClient *license.ServerClient
 }
 
 // BackfillInProgress exposes the atomic flag so cmd/server.go can flip
@@ -308,6 +318,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		manageEnrolHandlers: cfg.ManageEnrolHandlers,
 	}
 	srv.pipeline = store.NewPipeline(s)
+
+	if cfg.LicencePortalURL != "" {
+		srv.licencePortalClient = license.NewServerClient(cfg.LicencePortalURL)
+	}
 
 	// Start licence usage pusher when a LicenseServer URL and a real
 	// licence token are both present. Free-tier / no-token deployments

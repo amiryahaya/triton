@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  TPanel, TDataTable, TPill, useToast, type Column, type PillVariant,
+  TPanel, TDataTable, TPill, TButton, useToast, type Column, type PillVariant,
 } from '@triton/ui';
 import type { Organisation, Licence } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
@@ -74,6 +74,18 @@ onMounted(async () => {
 function onLicenceClick(row: Record<string, unknown>) {
   window.location.hash = `#/licenses/${String(row.id)}`;
 }
+
+async function toggleSuspend() {
+  if (!org.value) return;
+  const next = !org.value.suspended;
+  try {
+    await api.get().suspendOrg(org.value.id, next);
+    org.value = { ...org.value, suspended: next };
+    toast.success({ title: next ? 'Organisation suspended' : 'Organisation unsuspended' });
+  } catch (err) {
+    toast.error({ title: 'Action failed', description: String(err) });
+  }
+}
 </script>
 
 <template>
@@ -82,10 +94,26 @@ function onLicenceClick(row: Record<string, unknown>) {
     class="view"
   >
     <TPanel :title="org.name">
+      <template #action>
+        <TButton
+          variant="secondary"
+          size="sm"
+          data-test="org-detail-suspend"
+          @click="toggleSuspend"
+        >
+          {{ org.suspended ? 'Unsuspend' : 'Suspend' }}
+        </TButton>
+      </template>
       <dl class="kv">
         <dt>ID</dt><dd class="mono">{{ org.id }}</dd>
         <dt>Contact</dt><dd>{{ org.contact || '—' }}</dd>
         <dt>Notes</dt><dd>{{ org.notes || '—' }}</dd>
+        <dt>Status</dt>
+        <dd>
+          <TPill :variant="org.suspended ? 'unsafe' : 'safe'">
+            {{ org.suspended ? 'Suspended' : 'Active' }}
+          </TPill>
+        </dd>
         <dt>Created</dt><dd>{{ org.createdAt }}</dd>
         <dt>Updated</dt><dd>{{ org.updatedAt }}</dd>
       </dl>

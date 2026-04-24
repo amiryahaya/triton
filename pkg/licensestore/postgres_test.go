@@ -222,17 +222,19 @@ func TestListOrgs_ComputedFields(t *testing.T) {
 	require.NoError(t, s.Deactivate(ctx, lic.ID, act.MachineID))
 	orgs, err = s.ListOrgs(ctx)
 	require.NoError(t, err)
+	require.Len(t, orgs, 1)
 	assert.Equal(t, 0, orgs[0].ActiveActivations)
 
 	// Unlimited licence (seats=0) does not count toward has_seated_licenses or active_activations.
 	unlimitedLic := makeLicense(t, org.ID)
-	unlimitedLic.ID = uuid.Must(uuid.NewV7()).String()
 	unlimitedLic.Seats = 0
 	require.NoError(t, s.CreateLicense(ctx, unlimitedLic))
 	orgs, err = s.ListOrgs(ctx)
 	require.NoError(t, err)
-	// Still has the seated lic from above, so has_seated_licenses stays true.
+	require.Len(t, orgs, 1)
+	// Seated licence still present — has_seated_licenses stays true; unlimited licence adds no activations.
 	assert.True(t, orgs[0].HasSeatedLicenses)
+	assert.Equal(t, 0, orgs[0].ActiveActivations)
 }
 
 // --- License Tests ---

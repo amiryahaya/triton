@@ -21,9 +21,11 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 		org.UpdatedAt = now
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO organizations (id, name, executive_target_percent, executive_deadline_year, created_at, updated_at)
-		 VALUES ($1, $2, COALESCE(NULLIF($3::numeric, 0), 80.0), COALESCE(NULLIF($4::integer, 0), 2030), $5, $6)`,
-		org.ID, org.Name, org.ExecutiveTargetPercent, org.ExecutiveDeadlineYear, org.CreatedAt, org.UpdatedAt,
+		`INSERT INTO organizations (id, name, licence_id, executive_target_percent, executive_deadline_year, created_at, updated_at)
+		 VALUES ($1, $2, $3, COALESCE(NULLIF($4::numeric, 0), 80.0), COALESCE(NULLIF($5::integer, 0), 2030), $6, $7)`,
+		org.ID, org.Name, org.LicenceID,
+		org.ExecutiveTargetPercent, org.ExecutiveDeadlineYear,
+		org.CreatedAt, org.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -38,9 +40,10 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, error) {
 	var org Organization
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, executive_target_percent, executive_deadline_year, created_at, updated_at
+		`SELECT id, name, licence_id, executive_target_percent, executive_deadline_year, created_at, updated_at
 		 FROM organizations WHERE id = $1`, id,
-	).Scan(&org.ID, &org.Name, &org.ExecutiveTargetPercent, &org.ExecutiveDeadlineYear, &org.CreatedAt, &org.UpdatedAt)
+	).Scan(&org.ID, &org.Name, &org.LicenceID, &org.ExecutiveTargetPercent,
+		&org.ExecutiveDeadlineYear, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "organization", ID: id}
@@ -52,7 +55,7 @@ func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, e
 
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, executive_target_percent, executive_deadline_year, created_at, updated_at
+		`SELECT id, name, licence_id, executive_target_percent, executive_deadline_year, created_at, updated_at
 		 FROM organizations ORDER BY name LIMIT 1000`)
 	if err != nil {
 		return nil, fmt.Errorf("listing organizations: %w", err)
@@ -62,7 +65,8 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	orgs := []Organization{} // never return nil
 	for rows.Next() {
 		var o Organization
-		if err := rows.Scan(&o.ID, &o.Name, &o.ExecutiveTargetPercent, &o.ExecutiveDeadlineYear, &o.CreatedAt, &o.UpdatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.LicenceID, &o.ExecutiveTargetPercent,
+			&o.ExecutiveDeadlineYear, &o.CreatedAt, &o.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning organization: %w", err)
 		}
 		orgs = append(orgs, o)
@@ -114,10 +118,14 @@ func (s *PostgresStore) CreateUser(ctx context.Context, user *User) error {
 		// can backdate invitations.
 		user.InvitedAt = now
 	}
+	var orgIDParam *string
+	if user.OrgID != "" {
+		orgIDParam = &user.OrgID
+	}
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, invited_at, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		user.ID, user.OrgID, user.Email, user.Name, user.Role, user.Password,
+		user.ID, orgIDParam, user.Email, user.Name, user.Role, user.Password,
 		user.MustChangePassword, user.InvitedAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
@@ -134,10 +142,14 @@ const userSelectColumns = `id, org_id, email, name, role, password, must_change_
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.OrgID, &u.Email, &u.Name, &u.Role, &u.Password,
+	var orgID *string
+	err := row.Scan(&u.ID, &orgID, &u.Email, &u.Name, &u.Role, &u.Password,
 		&u.MustChangePassword, &u.InvitedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if orgID != nil {
+		u.OrgID = *orgID
 	}
 	return &u, nil
 }
@@ -172,7 +184,9 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 	query := `SELECT ` + userSelectColumns + ` FROM users WHERE 1=1`
 	args := []any{}
 	idx := 0
-	if filter.OrgID != "" {
+	if filter.OrgID == "platform" {
+		query += ` AND role = 'platform_admin'`
+	} else if filter.OrgID != "" {
 		idx++
 		query += fmt.Sprintf(" AND org_id = $%d", idx)
 		args = append(args, filter.OrgID)

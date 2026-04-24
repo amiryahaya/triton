@@ -241,6 +241,36 @@ func (s *Server) onUsagePushFailure(ctx context.Context, reason string) {
 	}
 }
 
+// refreshGuard swaps the in-memory guard for a new one parsed from token
+// without interrupting the running usage pusher.
+func (s *Server) refreshGuard(token string) {
+	g := license.NewGuardFromToken(token, s.cfg.PublicKey)
+	s.mu.Lock()
+	s.licenceGuard = g
+	s.mu.Unlock()
+}
+
+// deactivateNow calls the License Server to release the seat, clears all
+// local activation state, and stops the usage pusher + guard. After this
+// returns the server is in setup mode.
+func (s *Server) deactivateNow(ctx context.Context) error {
+	state, err := s.store.GetSetup(ctx)
+	if err != nil {
+		return fmt.Errorf("deactivate: read setup: %w", err)
+	}
+	client := license.NewServerClient(state.LicenseServerURL)
+	if err := client.Deactivate(state.LicenseKey); err != nil {
+		// Non-fatal: log and continue. The orphaned seat can be cleaned up
+		// via the License Portal admin UI.
+		log.Printf("licence: remote deactivate failed (clearing local anyway): %v", err)
+	}
+	if err := s.store.ClearLicenseActivation(ctx); err != nil {
+		return fmt.Errorf("deactivate: clear activation: %w", err)
+	}
+	s.stopLicence()
+	return nil
+}
+
 // stopLicence cancels any running usage pusher and clears all licence fields.
 // Called during Server.Run shutdown. Safe to call when no pusher is running.
 //

@@ -92,6 +92,13 @@ type Server struct {
 	agentStore    agents.Store
 	agentsAdmin   *agents.AdminHandlers
 	agentsGateway *agents.GatewayHandlers
+
+	// watcherRunning guards the single-watcher invariant for the
+	// deactivation watcher goroutine. CompareAndSwap ensures at most
+	// one goroutine is running at any time, preventing TOCTOU races
+	// from concurrent handleLicenceDeactivate calls or a boot-time
+	// resume racing a concurrent request.
+	watcherRunning atomic.Bool
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
@@ -274,15 +281,13 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
 		r.Get("/gateway-health", s.handleGatewayHealth)
 		r.Get("/licence", s.handleLicenceSummary)
-		r.Post("/licence/refresh", s.handleLicenceRefresh)
-		r.Post("/licence/replace", s.handleLicenceReplace)
-		r.Post("/licence/deactivate", s.handleLicenceDeactivate)
-		r.Delete("/licence/deactivation", s.handleCancelDeactivation)
 		r.Get("/settings", s.handleSettings)
 
-		// Admin-only subtree (user CRUD, agent enrol). Role check is
-		// chained in addition to jwtAuth so a network_engineer session
-		// hits 403 rather than silently producing licence-seat output.
+		// Admin-only subtree (user CRUD, agent enrol, licence lifecycle).
+		// Role check is chained in addition to jwtAuth so a
+		// network_engineer session hits 403 rather than silently
+		// producing licence-seat output. Licence lifecycle routes are
+		// destructive operations and require admin role.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireRole("admin"))
 			r.Route("/users", func(r chi.Router) {
@@ -293,6 +298,11 @@ func (s *Server) buildRouter() chi.Router {
 			r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
 			r.Get("/security-events", s.handleListSecurityEvents)
 			r.Delete("/security-events", s.handleClearSecurityEvent)
+			// Licence lifecycle — destructive operations restricted to admin role.
+			r.Post("/licence/refresh", s.handleLicenceRefresh)
+			r.Post("/licence/replace", s.handleLicenceReplace)
+			r.Post("/licence/deactivate", s.handleLicenceDeactivate)
+			r.Delete("/licence/deactivation", s.handleCancelDeactivation)
 		})
 	})
 
@@ -331,7 +341,12 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Resume pending deactivation watcher if server was restarted mid-deactivation.
 	if setup, err := s.store.GetSetup(ctx); err == nil && setup.PendingDeactivation {
-		go s.runDeactivationWatcher(ctx)
+		if s.watcherRunning.CompareAndSwap(false, true) {
+			go func() {
+				defer s.watcherRunning.Store(false)
+				s.runDeactivationWatcher(ctx)
+			}()
+		}
 	}
 
 	// Gateway listener runs concurrently with admin. Spawn it AFTER

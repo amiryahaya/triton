@@ -134,7 +134,12 @@ func (s *Server) handleLicenceDeactivate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	go s.runDeactivationWatcher(context.WithoutCancel(r.Context()))
+	if s.watcherRunning.CompareAndSwap(false, true) {
+		go func() {
+			defer s.watcherRunning.Store(false)
+			s.runDeactivationWatcher(context.WithoutCancel(r.Context()))
+		}()
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"pending":      true,
 		"active_scans": activeScans,

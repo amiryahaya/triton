@@ -115,12 +115,13 @@ func run() error {
 	}
 
 	var mailer licenseserver.Mailer
-	if resendAPIKey != "" && resendFromEmail != "" {
+	switch {
+	case resendAPIKey != "" && resendFromEmail != "":
 		mailer = licenseserver.NewResendMailer(resendAPIKey, resendFromEmail, resendFromName)
 		log.Printf("Resend mailer enabled (from=%s)", resendFromEmail)
-	} else if resendAPIKey != "" || resendFromEmail != "" {
+	case resendAPIKey != "" || resendFromEmail != "":
 		log.Printf("WARNING: TRITON_LICENSE_SERVER_RESEND_API_KEY and TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL must both be set to enable invite emails; email delivery is DISABLED")
-	} else {
+	default:
 		log.Printf("Resend mailer not configured; invites will return temp password in response body")
 	}
 

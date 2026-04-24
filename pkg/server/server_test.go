@@ -152,6 +152,40 @@ func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
 	return srv, db
 }
 
+// testServerWithLicencePortal builds a server like testServerWithJWT but with
+// a LicencePortalURL pointing at the provided base URL (typically a
+// httptest.Server URL). This lets tenant handlers make real HTTP calls to a
+// mock Licence Portal without any special wiring.
+func testServerWithLicencePortal(t *testing.T, licencePortalURL string) (*Server, *store.PostgresStore) {
+	t.Helper()
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cfg := &Config{
+		ListenAddr:       ":0",
+		JWTSigningKey:    priv,
+		JWTPublicKey:     pub,
+		LicencePortalURL: licencePortalURL,
+	}
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
+	return srv, db
+}
+
 // createTestUserInOrg adds a user to an EXISTING org. Use when a test
 // needs multiple users in the same org (e.g., peer-admin scenarios).
 // For a fresh-org-plus-user, use createOrgUser instead.

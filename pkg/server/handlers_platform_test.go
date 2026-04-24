@@ -21,6 +21,20 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
+// mockLicencePortal starts a lightweight httptest.Server that mimics the
+// Licence Portal /api/v1/license/activate endpoint, returning the given
+// status code and JSON body for every request.
+func mockLicencePortal(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // withChiParam injects a chi URL parameter into the request context so
 // handler tests can call handlers directly without going through the
 // router (routes aren't wired until Task 11).
@@ -138,4 +152,90 @@ func TestHandlePlatformAdmins_RequiresValidInput(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code,
 		"empty email must return 400, body: %s", rr.Body.String())
+}
+
+// TestHandleListPlatformTenants verifies that the list endpoint returns 200
+// with an empty JSON array when no tenants have been provisioned yet.
+func TestHandleListPlatformTenants(t *testing.T) {
+	srv, _ := testServerWithJWT(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/platform/tenants", nil)
+	rr := httptest.NewRecorder()
+	srv.handleListPlatformTenants(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+	var result []tenantResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&result))
+	assert.NotNil(t, result, "result must not be nil (must be empty array, not null)")
+	assert.Empty(t, result)
+}
+
+// TestHandleCreatePlatformTenant_ValidLicence verifies that when the Licence
+// Portal returns a successful activation, the handler provisions the tenant
+// org and returns 201 with the tenant's licence status.
+func TestHandleCreatePlatformTenant_ValidLicence(t *testing.T) {
+	// Mock Licence Portal that returns a successful activation response.
+	activationJSON := `{
+		"token":        "tok-test-123",
+		"activationID": "act-001",
+		"tier":         "enterprise",
+		"seats":        5,
+		"seatsUsed":    1,
+		"expiresAt":    "` + time.Now().UTC().Add(365*24*time.Hour).Format(time.RFC3339) + `",
+		"product_scope": "report"
+	}`
+	portal := mockLicencePortal(t, http.StatusCreated, activationJSON)
+
+	srv, db := testServerWithLicencePortal(t, portal.URL)
+
+	// Ensure the report_instance row is pre-created so GetOrCreateInstance
+	// works in the handler without additional privileges.
+	_, err := db.GetOrCreateInstance(context.Background())
+	require.NoError(t, err)
+
+	body := map[string]string{
+		"licenceKey": "LIC-VALID-001",
+		"adminName":  "Alice Admin",
+		"adminEmail": "alice.admin@example.com",
+	}
+	var buf bytes.Buffer
+	require.NoError(t, json.NewEncoder(&buf).Encode(body))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/platform/tenants", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.handleCreatePlatformTenant(rr, req)
+
+	require.Equal(t, http.StatusCreated, rr.Code, "body: %s", rr.Body.String())
+	var resp tenantResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(t, "active", resp.LicenceStatus)
+	assert.NotEmpty(t, resp.ID, "response must include the new tenant's org ID")
+	assert.NotNil(t, resp.ExpiresAt, "response must include expiresAt")
+}
+
+// TestHandleCreatePlatformTenant_LicencePortalUnreachable verifies that when
+// the Licence Portal is unreachable, the handler returns 503.
+func TestHandleCreatePlatformTenant_LicencePortalUnreachable(t *testing.T) {
+	// Use a port that is guaranteed to be closed.
+	srv, db := testServerWithLicencePortal(t, "http://127.0.0.1:1")
+
+	_, err := db.GetOrCreateInstance(context.Background())
+	require.NoError(t, err)
+
+	body := map[string]string{
+		"licenceKey": "LIC-BAD",
+		"adminName":  "Bob Admin",
+		"adminEmail": "bob.admin@example.com",
+	}
+	var buf bytes.Buffer
+	require.NoError(t, json.NewEncoder(&buf).Encode(body))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/platform/tenants", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.handleCreatePlatformTenant(rr, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code,
+		"unreachable licence portal must return 503, body: %s", rr.Body.String())
 }

@@ -1038,7 +1038,31 @@ func (s *PostgresStore) DeleteUser(ctx context.Context, id string) error {
 func (s *PostgresStore) CountUsers(ctx context.Context) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
-	return count, err
+	if err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return count, nil
+}
+
+// CountPlatformAdmins returns the count of users with role = 'platform_admin'.
+func (s *PostgresStore) CountPlatformAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM users WHERE role = 'platform_admin'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count platform admins: %w", err)
+	}
+	return count, nil
+}
+
+// DeleteSessionsForUser revokes every session belonging to userID.
+func (s *PostgresStore) DeleteSessionsForUser(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("delete sessions for user %s: %w", userID, err)
+	}
+	return nil
 }
 
 // --- Sessions ---

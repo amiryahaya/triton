@@ -24,7 +24,7 @@ func (s *Server) SetupGuard(next http.Handler) http.Handler {
 			return
 		}
 		if len(users) == 0 {
-			http.Redirect(w, r, "/api/v1/setup/status", http.StatusTemporaryRedirect)
+			http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -37,6 +37,7 @@ func (s *Server) SetupGuard(next http.Handler) http.Handler {
 func isSetupPath(path string) bool {
 	return path == "/api/v1/setup/status" ||
 		path == "/api/v1/setup" ||
-		path == "/api/v1/health" ||
-		strings.HasPrefix(path, "/ui/")
+		strings.HasPrefix(path, "/ui/") ||
+		strings.HasPrefix(path, "/api/v1/auth/") ||
+		strings.HasPrefix(path, "/api/v1/health")
 }

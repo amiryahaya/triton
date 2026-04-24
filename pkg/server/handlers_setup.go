@@ -28,6 +28,10 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"needsSetup": len(users) == 0})
 }
 
+// setupMaxBody is the maximum request body size for the unauthenticated setup
+// endpoint. 4 KiB is more than sufficient for a name + email payload.
+const setupMaxBody = 4 << 10 // 4 KiB
+
 // handleFirstSetup creates the first platform_admin. Returns 409 if already done.
 // POST /api/v1/setup — public, blocked after first use.
 // Body: {"name": "Alice", "email": "alice@example.com"}
@@ -43,7 +47,7 @@ func (s *Server) handleFirstSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	r.Body = http.MaxBytesReader(w, r.Body, setupMaxBody)
 	var req struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
@@ -56,6 +60,10 @@ func (s *Server) handleFirstSetup(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(req.Name)
 	if email == "" || name == "" {
 		writeError(w, http.StatusBadRequest, "name and email are required")
+		return
+	}
+	if err := validUserEmail(email); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid email address")
 		return
 	}
 
@@ -95,6 +103,11 @@ func (s *Server) handleFirstSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+
+	s.writeAudit(r, auditUserCreate, user.ID, map[string]any{
+		"email": user.Email,
+		"role":  user.Role,
+	})
 
 	if s.config.Mailer != nil {
 		if mailErr := s.config.Mailer.SendInviteEmail(r.Context(), mailer.InviteEmailData{

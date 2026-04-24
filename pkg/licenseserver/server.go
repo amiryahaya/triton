@@ -108,6 +108,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/login", srv.handleLogin)
 		r.Post("/logout", srv.handleLogout)
 		r.Post("/refresh", srv.handleRefresh)
+		r.With(srv.JWTAuth()).Post("/change-password", srv.handleChangePassword)
 	})
 
 	// Setup API (public, guarded by empty-DB check inside the handler).

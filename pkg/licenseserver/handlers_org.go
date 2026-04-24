@@ -279,7 +279,7 @@ func (s *Server) handleSuspendOrg(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.SuspendOrg(r.Context(), id, req.Suspended); err != nil {
 		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "organisation not found")
+			writeError(w, http.StatusNotFound, "organization not found")
 			return
 		}
 		log.Printf("suspend org error: %v", err)

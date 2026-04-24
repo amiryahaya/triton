@@ -216,11 +216,18 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hard-block validation for suspended organisations.
+	// Look up org for suspension check and orgName in the response.
+	// Non-fatal: a transient DB error here does not block valid machines.
+	var orgName string
 	if lic.OrgID != "" {
-		if org, err := s.store.GetOrg(r.Context(), lic.OrgID); err == nil && org.Suspended {
-			writeError(w, http.StatusForbidden, "organisation suspended")
-			return
+		if org, err := s.store.GetOrg(r.Context(), lic.OrgID); err == nil {
+			if org.Suspended {
+				writeError(w, http.StatusForbidden, "organisation suspended")
+				return
+			}
+			orgName = org.Name
+		} else {
+			log.Printf("validate: org lookup failed for %s: %v", lic.OrgID, err)
 		}
 	}
 
@@ -239,19 +246,6 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 
 	// Update last_seen
 	_ = s.store.UpdateLastSeen(r.Context(), act.ID)
-
-	// Look up the org name so the report server's validation cache (Phase 2.1)
-	// can populate org context without a second round-trip. The license is
-	// already known-valid above, so an org-fetch failure here is non-fatal —
-	// fall back to an empty name and let the caller decide how to handle it.
-	var orgName string
-	if lic.OrgID != "" {
-		if org, err := s.store.GetOrg(r.Context(), lic.OrgID); err == nil {
-			orgName = org.Name
-		} else {
-			log.Printf("validate: org lookup failed for %s: %v", lic.OrgID, err)
-		}
-	}
 
 	features := licensestore.ResolveFeatures(lic)
 	limits := licensestore.ResolveLimits(lic)

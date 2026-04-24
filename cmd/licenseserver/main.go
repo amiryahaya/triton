@@ -101,9 +101,10 @@ func run() error {
 	// back to REPORT_URL with a log warning at first use.
 	reportServerPublicURL := envOr("TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL", "")
 	publicURL := envOr("TRITON_LICENSE_SERVER_PUBLIC_URL", "")
-	resendAPIKey := envOr("RESEND_API_KEY", "")
-	resendFromEmail := envOr("RESEND_FROM_EMAIL", "")
-	resendFromName := envOr("RESEND_FROM_NAME", "Triton Reports")
+	resendAPIKey := envOr("TRITON_LICENSE_SERVER_RESEND_API_KEY", "")
+	resendFromEmail := envOr("TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL", "")
+	resendFromName := envOr("TRITON_LICENSE_SERVER_RESEND_FROM_NAME", "Triton License")
+	loginURL := envOr("TRITON_LICENSE_SERVER_LOGIN_URL", "")
 	reportInviteURL := envOr("REPORT_SERVER_INVITE_URL_BASE", "")
 
 	// Fail loud on partial report server config — either both URL and
@@ -116,9 +117,11 @@ func run() error {
 	var mailer licenseserver.Mailer
 	if resendAPIKey != "" && resendFromEmail != "" {
 		mailer = licenseserver.NewResendMailer(resendAPIKey, resendFromEmail, resendFromName)
-		log.Printf("Resend mailer configured: from=%s", resendFromEmail)
+		log.Printf("Resend mailer enabled (from=%s)", resendFromEmail)
 	} else if resendAPIKey != "" || resendFromEmail != "" {
-		log.Printf("WARNING: RESEND_API_KEY and RESEND_FROM_EMAIL must both be set to enable invite emails; email delivery is DISABLED")
+		log.Printf("WARNING: TRITON_LICENSE_SERVER_RESEND_API_KEY and TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL must both be set to enable invite emails; email delivery is DISABLED")
+	} else {
+		log.Printf("Resend mailer not configured; invites will return temp password in response body")
 	}
 
 	cfg := &licenseserver.Config{
@@ -135,6 +138,7 @@ func run() error {
 		PublicURL:                publicURL,
 		Mailer:                   mailer,
 		ReportServerInviteURL:    reportInviteURL,
+		InviteLoginURL:           loginURL,
 		StaleActivationThreshold: staleThreshold,
 	}
 

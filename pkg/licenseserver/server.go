@@ -117,9 +117,9 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Get("/agent-yaml", srv.handleInstallAgentYAML)
 	})
 
-	// Admin API (requires admin key — always applies auth middleware).
+	// Admin API (requires platform_admin JWT — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
-		r.Use(AdminKeyAuth(cfg.AdminKeys))
+		r.Use(srv.JWTAuth())
 
 		// Organizations
 		r.Post("/orgs", srv.handleCreateOrg)

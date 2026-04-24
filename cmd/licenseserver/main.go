@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +24,6 @@ func main() {
 func run() error {
 	listen := envOr("TRITON_LICENSE_SERVER_LISTEN", ":8081")
 	dbURL := envOr("TRITON_LICENSE_SERVER_DB_URL", "")
-	adminKey := envOr("TRITON_LICENSE_SERVER_ADMIN_KEY", "")
 	signingKeyHex := envOr("TRITON_LICENSE_SERVER_SIGNING_KEY", "")
 	tlsCert := envOr("TRITON_LICENSE_SERVER_TLS_CERT", "")
 	tlsKey := envOr("TRITON_LICENSE_SERVER_TLS_KEY", "")
@@ -34,9 +32,6 @@ func run() error {
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_DB_URL is required")
-	}
-	if adminKey == "" {
-		return fmt.Errorf("TRITON_LICENSE_SERVER_ADMIN_KEY is required (protects admin API)")
 	}
 	if signingKeyHex == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_SIGNING_KEY is required (Ed25519 private key as hex)")
@@ -62,20 +57,6 @@ func run() error {
 	}
 	if staleThreshold < 24*time.Hour {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_STALE_THRESHOLD must be at least 24h (got %s)", staleThreshold)
-	}
-
-	adminKeys := strings.Split(adminKey, ",")
-	// Filter out empty keys that result from trailing/consecutive commas.
-	filtered := adminKeys[:0]
-	for _, k := range adminKeys {
-		k = strings.TrimSpace(k)
-		if k != "" {
-			filtered = append(filtered, k)
-		}
-	}
-	adminKeys = filtered
-	if len(adminKeys) == 0 {
-		return fmt.Errorf("TRITON_LICENSE_SERVER_ADMIN_KEY contains no valid keys after parsing")
 	}
 
 	ctx := context.Background()
@@ -143,7 +124,6 @@ func run() error {
 	cfg := &licenseserver.Config{
 		ListenAddr:               listen,
 		DBUrl:                    dbURL,
-		AdminKeys:                adminKeys,
 		TLSCert:                  tlsCert,
 		TLSKey:                   tlsKey,
 		SigningKey:               privKey,

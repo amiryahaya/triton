@@ -232,7 +232,6 @@ func setupTestServerWithPublicURL(t *testing.T) (*httptest.Server, string) {
 	binDir := t.TempDir()
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
-		AdminKeys:   []string{"test-admin-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: binDir,

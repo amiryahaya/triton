@@ -66,7 +66,6 @@ func setupTestServerWithFastLimiter(t *testing.T) (*httptest.Server, *licensesto
 	}
 	cfg := &licenseserver.Config{
 		ListenAddr:             ":0",
-		AdminKeys:              []string{"test-admin-key"},
 		SigningKey:             priv,
 		PublicKey:              pub,
 		BinariesDir:            t.TempDir(),
@@ -104,7 +103,6 @@ func setupTestServerWithReport(t *testing.T, reportHandler http.HandlerFunc) (*h
 
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
-		AdminKeys:   []string{"test-admin-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: t.TempDir(),
@@ -388,7 +386,6 @@ func setupTestServerWithMailer(t *testing.T, mailer licenseserver.Mailer) (*http
 
 	cfg := &licenseserver.Config{
 		ListenAddr:             ":0",
-		AdminKeys:              []string{"test-admin-key"},
 		SigningKey:             priv,
 		PublicKey:              pub,
 		BinariesDir:            t.TempDir(),
@@ -1079,7 +1076,6 @@ func TestAdminAuth_EmptyKeys(t *testing.T) {
 	// Empty AdminKeys — should deny all admin requests
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
-		AdminKeys:   []string{},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: t.TempDir(),

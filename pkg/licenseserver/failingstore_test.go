@@ -28,7 +28,6 @@ func setupTestServerWithStore(t *testing.T, store licensestore.Store) *httptest.
 	require.NoError(t, err)
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
-		AdminKeys:   []string{"test-admin-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: t.TempDir(),

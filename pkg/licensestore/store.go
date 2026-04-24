@@ -15,6 +15,7 @@ type Store interface {
 	ListOrgs(ctx context.Context) ([]Organization, error)
 	UpdateOrg(ctx context.Context, org *Organization) error
 	DeleteOrg(ctx context.Context, id string) error
+	SuspendOrg(ctx context.Context, id string, suspended bool) error
 
 	// Licenses
 	CreateLicense(ctx context.Context, lic *LicenseRecord) error
@@ -80,12 +81,17 @@ type Store interface {
 
 // Organization represents a customer organization.
 type Organization struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Contact   string    `json:"contact"`
-	Notes     string    `json:"notes"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Contact   string `json:"contact"`
+	Notes     string `json:"notes"`
+	Suspended bool   `json:"suspended"`
+	// ActiveActivations and HasSeatedLicenses are read-only computed fields
+	// populated by ListOrgs — never written to the database directly.
+	ActiveActivations int       `json:"activeActivations"`
+	HasSeatedLicenses bool      `json:"hasSeatedLicenses"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 // LicenseRecord represents a license in the server database.

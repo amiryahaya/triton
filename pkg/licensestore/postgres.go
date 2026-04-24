@@ -167,22 +167,38 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, error) {
 	var org Organization
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, contact, notes, created_at, updated_at
+		`SELECT id, name, contact, notes, suspended, created_at, updated_at
 		 FROM organizations WHERE id = $1`, id,
-	).Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.CreatedAt, &org.UpdatedAt)
+	).Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
+		&org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "organization", ID: id}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("getting organization: %w", err)
 	}
+	// ActiveActivations and HasSeatedLicenses are zero here — only ListOrgs
+	// populates them via subquery. Callers that need accurate counts must use ListOrgs.
 	return &org, nil
 }
 
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, contact, notes, created_at, updated_at
-		 FROM organizations ORDER BY name LIMIT 1000`)
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			o.id, o.name, o.contact, o.notes, o.suspended,
+			o.created_at, o.updated_at,
+			EXISTS (
+				SELECT 1 FROM licenses l WHERE l.org_id = o.id AND l.seats > 0
+			) AS has_seated_licenses,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM activations a
+				JOIN licenses l ON a.license_id = l.id
+				WHERE l.org_id = o.id AND a.active = TRUE AND l.seats > 0
+			), 0) AS active_activations
+		FROM organizations o
+		ORDER BY o.name
+		LIMIT 1000`)
 	if err != nil {
 		return nil, fmt.Errorf("listing organizations: %w", err)
 	}
@@ -191,7 +207,11 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	orgs := make([]Organization, 0)
 	for rows.Next() {
 		var org Organization
-		if err := rows.Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.CreatedAt, &org.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
+			&org.CreatedAt, &org.UpdatedAt,
+			&org.HasSeatedLicenses, &org.ActiveActivations,
+		); err != nil {
 			return nil, fmt.Errorf("scanning organization: %w", err)
 		}
 		orgs = append(orgs, org)
@@ -228,6 +248,20 @@ func (s *PostgresStore) DeleteOrg(ctx context.Context, id string) error {
 			return &ErrConflict{Message: "cannot delete organization with existing licenses"}
 		}
 		return fmt.Errorf("deleting organization: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "organization", ID: id}
+	}
+	return nil
+}
+
+func (s *PostgresStore) SuspendOrg(ctx context.Context, id string, suspended bool) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE organizations SET suspended = $2, updated_at = NOW() WHERE id = $1`,
+		id, suspended,
+	)
+	if err != nil {
+		return fmt.Errorf("updating organization suspended state: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return &ErrNotFound{Resource: "organization", ID: id}

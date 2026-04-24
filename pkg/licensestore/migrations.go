@@ -174,4 +174,9 @@ var migrations = []string{
 	// true; change-password clears it.
 	`ALTER TABLE users
 	  ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;`,
+
+	// Version 9: Add suspended column to organizations.
+	// suspended=true blocks new activations and validation for all machines
+	// on any licence belonging to this org (hard suspend).
+	`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended BOOLEAN NOT NULL DEFAULT FALSE;`,
 }

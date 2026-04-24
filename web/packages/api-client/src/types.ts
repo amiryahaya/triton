@@ -3,6 +3,9 @@ export interface Organisation {
   name: string;
   contact: string;
   notes: string;
+  suspended: boolean;
+  activeActivations: number;
+  hasSeatedLicenses: boolean;
   createdAt: string;
   updatedAt: string;
 }

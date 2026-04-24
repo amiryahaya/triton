@@ -133,5 +133,7 @@ func (s *Server) handleDeletePlatformAdmin(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	s.sessionCache.DeleteByUserID(id)
+	s.writeAudit(r, auditUserDelete, id, map[string]any{"role": "platform_admin"})
 	w.WriteHeader(http.StatusNoContent)
 }

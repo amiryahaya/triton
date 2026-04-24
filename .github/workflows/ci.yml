@@ -24,6 +24,17 @@ jobs:
         with:
           version: v2.10.1
 
+      - name: Ensure admin-key is gone from production code
+        run: |
+          if grep -rE "X-Triton-Admin-Key|AdminKeyAuth|TRITON_LICENSE_SERVER_ADMIN_KEY" \
+              pkg/licenseserver/ cmd/licenseserver/ \
+              --include="*.go" \
+              --exclude-dir=node_modules; then
+            echo "Admin-key references found in production Go code — must be removed."
+            exit 1
+          fi
+          echo "Admin-key guard clean."
+
   web:
     name: Web build + test
     runs-on: ubuntu-latest

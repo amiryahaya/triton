@@ -167,22 +167,38 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, error) {
 	var org Organization
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, contact, notes, created_at, updated_at
+		`SELECT id, name, contact, notes, suspended, created_at, updated_at
 		 FROM organizations WHERE id = $1`, id,
-	).Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.CreatedAt, &org.UpdatedAt)
+	).Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
+		&org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "organization", ID: id}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("getting organization: %w", err)
 	}
+	// ActiveActivations and HasSeatedLicenses are zero here — only ListOrgs
+	// populates them via subquery. Callers that need accurate counts must use ListOrgs.
 	return &org, nil
 }
 
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, contact, notes, created_at, updated_at
-		 FROM organizations ORDER BY name LIMIT 1000`)
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			o.id, o.name, o.contact, o.notes, o.suspended,
+			o.created_at, o.updated_at,
+			EXISTS (
+				SELECT 1 FROM licenses l WHERE l.org_id = o.id AND l.seats > 0
+			) AS has_seated_licenses,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM activations a
+				JOIN licenses l ON a.license_id = l.id
+				WHERE l.org_id = o.id AND a.active = TRUE AND l.seats > 0
+			), 0) AS active_activations
+		FROM organizations o
+		ORDER BY o.name
+		LIMIT 1000`)
 	if err != nil {
 		return nil, fmt.Errorf("listing organizations: %w", err)
 	}
@@ -191,7 +207,11 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	orgs := make([]Organization, 0)
 	for rows.Next() {
 		var org Organization
-		if err := rows.Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.CreatedAt, &org.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
+			&org.CreatedAt, &org.UpdatedAt,
+			&org.HasSeatedLicenses, &org.ActiveActivations,
+		); err != nil {
 			return nil, fmt.Errorf("scanning organization: %w", err)
 		}
 		orgs = append(orgs, org)
@@ -228,6 +248,20 @@ func (s *PostgresStore) DeleteOrg(ctx context.Context, id string) error {
 			return &ErrConflict{Message: "cannot delete organization with existing licenses"}
 		}
 		return fmt.Errorf("deleting organization: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "organization", ID: id}
+	}
+	return nil
+}
+
+func (s *PostgresStore) SuspendOrg(ctx context.Context, id string, suspended bool) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE organizations SET suspended = $2, updated_at = NOW() WHERE id = $1`,
+		id, suspended,
+	)
+	if err != nil {
+		return fmt.Errorf("updating organization suspended state: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return &ErrNotFound{Resource: "organization", ID: id}
@@ -892,10 +926,10 @@ func (s *PostgresStore) DashboardStats(ctx context.Context) (*DashboardStats, er
 
 func (s *PostgresStore) CreateUser(ctx context.Context, user *User) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO users (id, org_id, email, name, role, password, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		user.ID, nilIfEmpty(user.OrgID), user.Email, user.Name, user.Role, user.Password,
-		time.Now(), time.Now(),
+		user.MustChangePassword, time.Now(), time.Now(),
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -911,12 +945,12 @@ func (s *PostgresStore) GetUser(ctx context.Context, id string) (*User, error) {
 	var user User
 	var orgID *string
 	err := s.pool.QueryRow(ctx,
-		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.created_at, u.updated_at,
-		        COALESCE(o.name, '') AS org_name
+		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.must_change_password,
+		        u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 		 FROM users u LEFT JOIN organizations o ON u.org_id = o.id
 		 WHERE u.id = $1`, id,
 	).Scan(&user.ID, &orgID, &user.Email, &user.Name, &user.Role, &user.Password,
-		&user.CreatedAt, &user.UpdatedAt, &user.OrgName)
+		&user.MustChangePassword, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "user", ID: id}
@@ -933,12 +967,12 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*User
 	var user User
 	var orgID *string
 	err := s.pool.QueryRow(ctx,
-		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.created_at, u.updated_at,
-		        COALESCE(o.name, '') AS org_name
+		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.must_change_password,
+		        u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 		 FROM users u LEFT JOIN organizations o ON u.org_id = o.id
 		 WHERE u.email = $1`, email,
 	).Scan(&user.ID, &orgID, &user.Email, &user.Name, &user.Role, &user.Password,
-		&user.CreatedAt, &user.UpdatedAt, &user.OrgName)
+		&user.MustChangePassword, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "user", ID: email}
@@ -952,8 +986,8 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*User
 }
 
 func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]User, error) {
-	query := `SELECT u.id, u.org_id, u.email, u.name, u.role, u.created_at, u.updated_at,
-	                 COALESCE(o.name, '') AS org_name
+	query := `SELECT u.id, u.org_id, u.email, u.name, u.role, u.must_change_password,
+	                 u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 	          FROM users u LEFT JOIN organizations o ON u.org_id = o.id WHERE 1=1`
 	args := []any{}
 	paramIdx := 0
@@ -980,7 +1014,7 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 	for rows.Next() {
 		var u User
 		var orgID *string
-		if err := rows.Scan(&u.ID, &orgID, &u.Email, &u.Name, &u.Role,
+		if err := rows.Scan(&u.ID, &orgID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword,
 			&u.CreatedAt, &u.UpdatedAt, &u.OrgName); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}
@@ -1006,13 +1040,13 @@ func (s *PostgresStore) UpdateUser(ctx context.Context, update UserUpdate) error
 	)
 	if update.Password == "" {
 		tag, err = s.pool.Exec(ctx,
-			`UPDATE users SET name = $2, updated_at = $3 WHERE id = $1`,
-			update.ID, update.Name, time.Now(),
+			`UPDATE users SET name = $2, must_change_password = $3, updated_at = $4 WHERE id = $1`,
+			update.ID, update.Name, update.MustChangePassword, time.Now(),
 		)
 	} else {
 		tag, err = s.pool.Exec(ctx,
-			`UPDATE users SET name = $2, password = $3, updated_at = $4 WHERE id = $1`,
-			update.ID, update.Name, update.Password, time.Now(),
+			`UPDATE users SET name = $2, password = $3, must_change_password = $4, updated_at = $5 WHERE id = $1`,
+			update.ID, update.Name, update.Password, update.MustChangePassword, time.Now(),
 		)
 	}
 	if err != nil {
@@ -1038,7 +1072,31 @@ func (s *PostgresStore) DeleteUser(ctx context.Context, id string) error {
 func (s *PostgresStore) CountUsers(ctx context.Context) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
-	return count, err
+	if err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return count, nil
+}
+
+// CountPlatformAdmins returns the count of users with role = 'platform_admin'.
+func (s *PostgresStore) CountPlatformAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM users WHERE role = 'platform_admin'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count platform admins: %w", err)
+	}
+	return count, nil
+}
+
+// DeleteSessionsForUser revokes every session belonging to userID.
+func (s *PostgresStore) DeleteSessionsForUser(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("delete sessions for user %s: %w", userID, err)
+	}
+	return nil
 }
 
 // --- Sessions ---

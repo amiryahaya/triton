@@ -3,6 +3,9 @@ export interface Organisation {
   name: string;
   contact: string;
   notes: string;
+  suspended: boolean;
+  activeActivations: number;
+  hasSeatedLicenses: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,4 +87,15 @@ export interface DashboardStats {
   expiredLicenses: number;
   totalActivations: number;
   activeSeats: number;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'platform_admin';
+  mustChangePassword: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
 }

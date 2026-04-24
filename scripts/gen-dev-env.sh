@@ -56,9 +56,6 @@ service_key=$(openssl rand -hex 32)
 # Report server JWT signing seed (32 bytes hex — Go will derive the pub half).
 jwt_signing_key=$(openssl rand -hex 32)
 
-# Admin bearer key for the license server's admin API.
-admin_api_key=$(openssl rand -hex 32)
-
 # First-time superadmin password.
 admin_password=$(openssl rand -base64 24)
 
@@ -90,7 +87,6 @@ cat <<EOF
 
 # ---- License server ----
 TRITON_LICENSE_SERVER_SIGNING_KEY=$license_signing_key_hex
-TRITON_LICENSE_SERVER_ADMIN_KEY=$admin_api_key
 TRITON_LICENSE_SERVER_ADMIN_EMAIL=admin@triton.local
 TRITON_LICENSE_SERVER_ADMIN_PASSWORD=$admin_password
 TRITON_LICENSE_SERVER_REPORT_KEY=$service_key
@@ -103,10 +99,13 @@ REPORT_SERVER_TENANT_PUBKEY=$ed25519_pub_hex
 # ---- Agent license token (enterprise tier) ----
 TRITON_LICENSE_KEY=$license_token
 
-# ---- Resend mailer (optional — leave blank to fall back to body-return) ----
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=
-RESEND_FROM_NAME=Triton Reports
+# ---- License portal invite emails (optional — leave blank to return temp password in body) ----
+TRITON_LICENSE_SERVER_RESEND_API_KEY=
+TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL=
+TRITON_LICENSE_SERVER_RESEND_FROM_NAME=
+TRITON_LICENSE_SERVER_LOGIN_URL=http://localhost:8081/ui/#/login
+
+# ---- Report server invite emails (optional) ----
 REPORT_SERVER_RESEND_API_KEY=
 REPORT_SERVER_RESEND_FROM_EMAIL=
 REPORT_SERVER_RESEND_FROM_NAME=Triton Reports

@@ -153,4 +153,3 @@ func listZones(t *testing.T, baseURL, token string) []map[string]any {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	return out
 }
-

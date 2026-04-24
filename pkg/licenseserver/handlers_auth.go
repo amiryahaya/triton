@@ -76,10 +76,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	auth.LogSuccessfulLogin("license", email, r.RemoteAddr)
 
 	claims := &auth.UserClaims{
-		Sub:  user.ID,
-		Org:  user.OrgID,
-		Role: user.Role,
-		Name: user.Name,
+		Sub:                user.ID,
+		Org:                user.OrgID,
+		Role:               user.Role,
+		Name:               user.Name,
+		MustChangePassword: user.MustChangePassword,
 	}
 	token, err := auth.SignJWT(claims, s.config.SigningKey, jwtTTL)
 	if err != nil {
@@ -101,8 +102,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token":     token,
-		"expiresAt": sess.ExpiresAt.Format(time.RFC3339),
+		"token":              token,
+		"expiresAt":          sess.ExpiresAt.Format(time.RFC3339),
+		"mustChangePassword": user.MustChangePassword,
 	})
 }
 
@@ -178,10 +180,11 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// Issue new token with freshly-fetched user state.
 	newClaims := &auth.UserClaims{
-		Sub:  user.ID,
-		Org:  user.OrgID,
-		Role: user.Role,
-		Name: user.Name,
+		Sub:                user.ID,
+		Org:                user.OrgID,
+		Role:               user.Role,
+		Name:               user.Name,
+		MustChangePassword: user.MustChangePassword,
 	}
 	newToken, err := auth.SignJWT(newClaims, s.config.SigningKey, jwtTTL)
 	if err != nil {
@@ -202,6 +205,102 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
+		"token":     newToken,
+		"expiresAt": sess.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
+// POST /api/v1/auth/change-password (JWT-gated)
+// Verifies the current password via bcrypt, sets the new one, clears
+// the must_change_password flag, and rotates the JWT — old sessions
+// are revoked and a fresh token is returned.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	authed, ok := UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	var req struct {
+		Current string `json:"current"`
+		Next    string `json:"next"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Next) < auth.MinPasswordLength {
+		writeError(w, http.StatusBadRequest, "new password must be at least 12 characters")
+		return
+	}
+
+	user, err := s.store.GetUser(r.Context(), authed.ID)
+	if err != nil {
+		log.Printf("change password: get user: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Current)); err != nil {
+		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Next), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	if err := s.store.UpdateUser(r.Context(), licensestore.UserUpdate{
+		ID:                 user.ID,
+		Name:               user.Name,
+		Password:           string(hashed),
+		MustChangePassword: false,
+	}); err != nil {
+		log.Printf("change password: update user: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	// Revoke all old sessions. For a still-active user (unlike delete-user) there
+	// is no JWTAuth safety net — old tokens remain live until they expire. Treat
+	// failure as fatal so the caller knows their old sessions are still valid.
+	if err := s.store.DeleteSessionsForUser(r.Context(), user.ID); err != nil {
+		log.Printf("change password: revoke sessions: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	claims := &auth.UserClaims{
+		Sub:  user.ID,
+		Org:  user.OrgID,
+		Role: user.Role,
+		Name: user.Name,
+	}
+	newToken, err := auth.SignJWT(claims, s.config.SigningKey, jwtTTL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to sign token")
+		return
+	}
+
+	h := sha256.Sum256([]byte(newToken))
+	sess := &licensestore.Session{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		UserID:    user.ID,
+		TokenHash: hex.EncodeToString(h[:]),
+		ExpiresAt: time.Now().Add(jwtTTL),
+	}
+	if err := s.store.CreateSession(r.Context(), sess); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+
+	s.audit(r, "password_changed", "", "", "", map[string]any{
+		"user_id": user.ID,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{
 		"token":     newToken,
 		"expiresAt": sess.ExpiresAt.Format(time.RFC3339),
 	})

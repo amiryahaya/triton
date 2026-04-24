@@ -108,7 +108,12 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Post("/login", srv.handleLogin)
 		r.Post("/logout", srv.handleLogout)
 		r.Post("/refresh", srv.handleRefresh)
+		r.With(srv.JWTAuth()).Post("/change-password", srv.handleChangePassword)
 	})
+
+	// Setup API (public, guarded by empty-DB check inside the handler).
+	r.Get("/api/v1/setup/status", srv.handleSetupStatus)
+	r.Post("/api/v1/setup/first-admin", srv.handleFirstAdminSetup)
 
 	// Install API (token-authed via HMAC token in URL path — no admin key).
 	r.Route("/api/v1/install/{token}", func(r chi.Router) {
@@ -117,9 +122,9 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Get("/agent-yaml", srv.handleInstallAgentYAML)
 	})
 
-	// Admin API (requires admin key — always applies auth middleware).
+	// Admin API (requires platform_admin JWT — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
-		r.Use(AdminKeyAuth(cfg.AdminKeys))
+		r.Use(srv.JWTAuth())
 
 		// Organizations
 		r.Post("/orgs", srv.handleCreateOrg)
@@ -127,6 +132,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		r.Get("/orgs/{id}", srv.handleGetOrg)
 		r.Put("/orgs/{id}", srv.handleUpdateOrg)
 		r.Delete("/orgs/{id}", srv.handleDeleteOrg)
+		r.Post("/orgs/{id}/suspend", srv.handleSuspendOrg)
 
 		// Licenses
 		r.Post("/licenses", srv.handleCreateLicense)
@@ -166,6 +172,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 			r.Get("/{id}", srv.handleGetSuperadmin)
 			r.Put("/{id}", srv.handleUpdateSuperadmin)
 			r.Delete("/{id}", srv.handleDeleteSuperadmin)
+			r.Post("/{id}/resend-invite", srv.handleResendInvite)
 		})
 	})
 

@@ -66,7 +66,6 @@ func setupTestServerWithFastLimiter(t *testing.T) (*httptest.Server, *licensesto
 	}
 	cfg := &licenseserver.Config{
 		ListenAddr:             ":0",
-		AdminKeys:              []string{"test-admin-key"},
 		SigningKey:             priv,
 		PublicKey:              pub,
 		BinariesDir:            t.TempDir(),
@@ -104,7 +103,6 @@ func setupTestServerWithReport(t *testing.T, reportHandler http.HandlerFunc) (*h
 
 	cfg := &licenseserver.Config{
 		ListenAddr:  ":0",
-		AdminKeys:   []string{"test-admin-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: t.TempDir(),
@@ -133,7 +131,16 @@ func setupTestServerWithReport(t *testing.T, reportHandler http.HandlerFunc) (*h
 	return ts, store, reportTS
 }
 
-func adminReq(t *testing.T, method, url string, body any) *http.Response {
+// quickAdminJWT creates a platform_admin user in the store and logs in,
+// returning a short-lived JWT. Call once per test at the top alongside
+// setupTestServer.
+func quickAdminJWT(t *testing.T, ts *httptest.Server, store *licensestore.PostgresStore) string {
+	t.Helper()
+	email, password := setupAdminUser(t, store)
+	return loginViaAPI(t, ts.URL, email, password)
+}
+
+func adminReq(t *testing.T, jwt, method, url string, body any) *http.Response {
 	t.Helper()
 	var bodyReader io.Reader
 	if body != nil {
@@ -144,7 +151,7 @@ func adminReq(t *testing.T, method, url string, body any) *http.Response {
 	req, err := http.NewRequest(method, url, bodyReader)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", "test-admin-key")
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
@@ -207,21 +214,22 @@ func TestAdminAuth_MissingKey(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func TestAdminAuth_InvalidKey(t *testing.T) {
+func TestAdminAuth_InvalidToken(t *testing.T) {
 	ts, _ := setupTestServer(t)
 	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/admin/orgs", nil)
-	req.Header.Set("X-Triton-Admin-Key", "wrong-key")
+	req.Header.Set("Authorization", "Bearer not-a-valid-jwt")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 // --- Org CRUD ---
 
 func TestCreateOrg(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
 		"name": "Acme Corp", "contact": "admin@acme.com",
 	})
 	defer resp.Body.Close()
@@ -237,8 +245,9 @@ func TestCreateOrg(t *testing.T) {
 }
 
 func TestCreateOrg_MissingName(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{})
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -263,8 +272,9 @@ func TestCreateOrg_WithAdminProvisionsReportServer(t *testing.T) {
 		})
 	}
 	ts, store, _ := setupTestServerWithReport(t, reportHandler)
+	jwt := quickAdminJWT(t, ts, store)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name":        "Acme Corp",
 		"admin_email": "alice@acme.com",
 		"admin_name":  "Alice Admin",
@@ -311,9 +321,10 @@ func TestCreateOrg_WithoutAdminSkipsProvisioning(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusCreated)
 	}
-	ts, _, _ := setupTestServerWithReport(t, reportHandler)
+	ts, store, _ := setupTestServerWithReport(t, reportHandler)
+	jwt := quickAdminJWT(t, ts, store)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name": "Legacy Org",
 	})
 	defer resp.Body.Close()
@@ -324,8 +335,9 @@ func TestCreateOrg_WithoutAdminSkipsProvisioning(t *testing.T) {
 // TestCreateOrg_AdminEmailWithoutName verifies partial admin fields are
 // rejected — either both or neither must be supplied.
 func TestCreateOrg_AdminEmailWithoutName(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name":        "Partial Org",
 		"admin_email": "alice@acme.com",
 		// admin_name omitted
@@ -338,8 +350,9 @@ func TestCreateOrg_AdminEmailWithoutName(t *testing.T) {
 // if the caller requests provisioning but no report server is configured,
 // the request is rejected with 503 (not a generic 500).
 func TestCreateOrg_ProvisioningWithoutReportServerConfigured(t *testing.T) {
-	ts, _ := setupTestServer(t) // no report server
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	ts, store := setupTestServer(t) // no report server
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name":        "Acme",
 		"admin_email": "alice@acme.com",
 		"admin_name":  "Alice",
@@ -388,7 +401,6 @@ func setupTestServerWithMailer(t *testing.T, mailer licenseserver.Mailer) (*http
 
 	cfg := &licenseserver.Config{
 		ListenAddr:             ":0",
-		AdminKeys:              []string{"test-admin-key"},
 		SigningKey:             priv,
 		PublicKey:              pub,
 		BinariesDir:            t.TempDir(),
@@ -414,9 +426,10 @@ func setupTestServerWithMailer(t *testing.T, mailer licenseserver.Mailer) (*http
 // and the response's admin.email_delivered flag reflects success.
 func TestCreateOrg_SendsInviteEmail(t *testing.T) {
 	mailer := &recordingMailer{}
-	ts, _ := setupTestServerWithMailer(t, mailer)
+	ts, store := setupTestServerWithMailer(t, mailer)
+	jwt := quickAdminJWT(t, ts, store)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name":        "Acme Corp",
 		"admin_email": "alice@acme.com",
 		"admin_name":  "Alice Admin",
@@ -451,8 +464,9 @@ func TestCreateOrg_SendsInviteEmail(t *testing.T) {
 func TestCreateOrg_EmailFailureIsNonFatal(t *testing.T) {
 	mailer := &recordingMailer{failWith: errors.New("resend down")}
 	ts, store := setupTestServerWithMailer(t, mailer)
+	jwt := quickAdminJWT(t, ts, store)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name":        "Acme Corp",
 		"admin_email": "alice@acme.com",
 		"admin_name":  "Alice Admin",
@@ -483,8 +497,9 @@ func TestCreateOrg_RollsBackOnProvisioningFailure(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"user with this email already exists"}`))
 	}
 	ts, store, _ := setupTestServerWithReport(t, reportHandler)
+	jwt := quickAdminJWT(t, ts, store)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
 		"name":        "Will Rollback",
 		"admin_email": "alice@acme.com",
 		"admin_name":  "Alice",
@@ -511,11 +526,12 @@ func TestCreateOrg_RollsBackOnProvisioningFailure(t *testing.T) {
 }
 
 func TestListOrgs(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org1"}).Body.Close()
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org2"}).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org1"}).Body.Close()
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org2"}).Body.Close()
 
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs", nil)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/orgs", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var orgs []map[string]any
@@ -524,21 +540,22 @@ func TestListOrgs(t *testing.T) {
 }
 
 func TestDeleteOrg_WithLicenses(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
 	// Create org
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "CantDelete"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "CantDelete"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
 	// Create license
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "pro", "seats": 5,
 	}).Body.Close()
 
 	// Delete should fail
-	resp := adminReq(t, "DELETE", ts.URL+"/api/v1/admin/orgs/"+orgID, nil)
+	resp := adminReq(t, jwt, "DELETE", ts.URL+"/api/v1/admin/orgs/"+orgID, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
@@ -546,14 +563,15 @@ func TestDeleteOrg_WithLicenses(t *testing.T) {
 // --- License CRUD ---
 
 func TestCreateLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "TestOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "TestOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "enterprise", "seats": 10, "days": 90,
 	})
 	defer resp.Body.Close()
@@ -564,13 +582,14 @@ func TestCreateLicense(t *testing.T) {
 }
 
 func TestCreateLicense_InvalidTier(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "BadTierOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "BadTierOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgIDOf(orgResult), "tier": "invalid", "seats": 5,
 	})
 	defer resp.Body.Close()
@@ -578,20 +597,21 @@ func TestCreateLicense_InvalidTier(t *testing.T) {
 }
 
 func TestRevokeLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 5,
 	})
 	defer licResp.Body.Close()
 	licResult := decodeJSON(t, licResp)
 	licID := licResult["id"].(string)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", map[string]string{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", map[string]string{
 		"reason": "testing",
 	})
 	defer resp.Body.Close()
@@ -600,14 +620,14 @@ func TestRevokeLicense(t *testing.T) {
 
 // --- Activation Flow ---
 
-func createOrgAndLicense(t *testing.T, tsURL string) (orgID, licID string) {
+func createOrgAndLicense(t *testing.T, tsURL, jwt string) (orgID, licID string) {
 	t.Helper()
-	orgResp := adminReq(t, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "ActivOrg" + t.Name()})
+	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "ActivOrg" + t.Name()})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID = orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "pro", "seats": 3,
 	})
 	defer licResp.Body.Close()
@@ -617,8 +637,9 @@ func createOrgAndLicense(t *testing.T, tsURL string) (orgID, licID string) {
 }
 
 func TestActivate(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	resp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "machine-abc", "hostname": "host1", "os": "linux", "arch": "amd64",
@@ -633,13 +654,14 @@ func TestActivate(t *testing.T) {
 }
 
 func TestActivate_SeatsFull(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "SmallOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "SmallOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 1,
 	})
 	defer licResp.Body.Close()
@@ -660,10 +682,11 @@ func TestActivate_SeatsFull(t *testing.T) {
 }
 
 func TestActivate_RevokedLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil).Body.Close()
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil).Body.Close()
 
 	resp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -673,8 +696,9 @@ func TestActivate_RevokedLicense(t *testing.T) {
 }
 
 func TestDeactivate(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -688,8 +712,9 @@ func TestDeactivate(t *testing.T) {
 }
 
 func TestValidate_Active(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -708,8 +733,9 @@ func TestValidate_Active(t *testing.T) {
 }
 
 func TestValidate_AfterRevoke(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -718,7 +744,7 @@ func TestValidate_AfterRevoke(t *testing.T) {
 	actResult := decodeJSON(t, actResp)
 	token := actResult["token"].(string)
 
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil).Body.Close()
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil).Body.Close()
 
 	resp := clientReq(t, "POST", ts.URL+"/api/v1/license/validate", map[string]string{
 		"licenseID": licID, "machineID": "m1", "token": token,
@@ -730,8 +756,9 @@ func TestValidate_AfterRevoke(t *testing.T) {
 }
 
 func TestValidate_WrongToken(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -747,8 +774,9 @@ func TestValidate_WrongToken(t *testing.T) {
 }
 
 func TestValidate_MissingToken(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -768,8 +796,9 @@ func TestValidate_MissingToken(t *testing.T) {
 // will honor as the maximum cache age. Centralizes the trust window in
 // the license server rather than scattering it across clients.
 func TestValidate_IncludesCacheTTL(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -793,8 +822,9 @@ func TestValidate_IncludesCacheTTL(t *testing.T) {
 // orgID and orgName fields that the report server's validation cache will
 // consume (Phase 2.1). Added under Task 1.6 amendment.
 func TestValidate_ReturnsOrgInfo(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	orgID, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	orgID, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
@@ -819,8 +849,9 @@ func TestValidate_ReturnsOrgInfo(t *testing.T) {
 // a JSON array (`[]`) and not `null` when the table is empty. JS clients
 // commonly assume `Array.isArray(response)` and crash on `null`.
 func TestListOrgsEmptyReturnsArray(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/orgs", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -832,8 +863,9 @@ func TestListOrgsEmptyReturnsArray(t *testing.T) {
 // TestListLicensesEmptyReturnsArray — same as TestListOrgsEmptyReturnsArray
 // but for the licenses list endpoint.
 func TestListLicensesEmptyReturnsArray(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/licenses", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/licenses", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -845,14 +877,15 @@ func TestListLicensesEmptyReturnsArray(t *testing.T) {
 // --- Audit ---
 
 func TestAuditEntries(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
 	}).Body.Close()
 
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/audit?limit=10", nil)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/audit?limit=10", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var entries []map[string]any
@@ -864,14 +897,15 @@ func TestAuditEntries(t *testing.T) {
 // --- Stats ---
 
 func TestDashboardStats(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1",
 	}).Body.Close()
 
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/stats", nil)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/stats", nil)
 	defer resp.Body.Close()
 	result := decodeJSON(t, resp)
 	assert.Equal(t, float64(1), result["totalOrgs"])
@@ -882,14 +916,15 @@ func TestDashboardStats(t *testing.T) {
 // --- License Detail ---
 
 func TestGetLicenseDetail(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "m1", "hostname": "h1",
 	}).Body.Close()
 
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/licenses/"+licID, nil)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/licenses/"+licID, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var result map[string]any
@@ -901,8 +936,9 @@ func TestGetLicenseDetail(t *testing.T) {
 // --- Reactivation ---
 
 func TestReactivation(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	// Activate
 	clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
@@ -927,15 +963,16 @@ func TestReactivation(t *testing.T) {
 // --- Org CRUD (additional) ---
 
 func TestGetOrg(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	createResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	createResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
 		"name": "GetMeOrg", "contact": "get@me.org",
 	})
 	defer createResp.Body.Close()
 	orgResult := decodeJSON(t, createResp)
 	orgID := orgIDOf(orgResult)
 
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs/"+orgID, nil)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/orgs/"+orgID, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	result := decodeJSON(t, resp)
@@ -944,19 +981,21 @@ func TestGetOrg(t *testing.T) {
 }
 
 func TestGetOrg_NotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/orgs/00000000-0000-0000-0000-000000000000", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/orgs/00000000-0000-0000-0000-000000000000", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestCreateOrg_DuplicateName(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
 		"name": "UniqueOrg",
 	}).Body.Close()
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
 		"name": "UniqueOrg",
 	})
 	defer resp.Body.Close()
@@ -964,15 +1003,16 @@ func TestCreateOrg_DuplicateName(t *testing.T) {
 }
 
 func TestUpdateOrg(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	createResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	createResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
 		"name": "OriginalName",
 	})
 	defer createResp.Body.Close()
 	orgResult := decodeJSON(t, createResp)
 	orgID := orgIDOf(orgResult)
 
-	resp := adminReq(t, "PUT", ts.URL+"/api/v1/admin/orgs/"+orgID, map[string]string{
+	resp := adminReq(t, jwt, "PUT", ts.URL+"/api/v1/admin/orgs/"+orgID, map[string]string{
 		"name": "UpdatedName", "contact": "new@contact.com",
 	})
 	defer resp.Body.Close()
@@ -985,12 +1025,13 @@ func TestUpdateOrg(t *testing.T) {
 // --- License CRUD (additional) ---
 
 func TestCreateLicense_NegativeDays(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NegDayOrg"})
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NegDayOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 5, "days": -30,
 	})
 	defer resp.Body.Close()
@@ -998,12 +1039,13 @@ func TestCreateLicense_NegativeDays(t *testing.T) {
 }
 
 func TestCreateLicense_PastExpiresAt(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "PastExpOrg"})
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "PastExpOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgIDOf(orgResult), "tier": "pro", "seats": 5,
 		"expiresAt": "2020-01-01T00:00:00Z",
 	})
@@ -1012,16 +1054,17 @@ func TestCreateLicense_PastExpiresAt(t *testing.T) {
 }
 
 func TestRevokeLicense_AlreadyRevoked(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	// First revoke
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Second revoke should return conflict
-	resp = adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
+	resp = adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
@@ -1029,8 +1072,9 @@ func TestRevokeLicense_AlreadyRevoked(t *testing.T) {
 // --- Admin Deactivation ---
 
 func TestAdminDeactivate(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	// Activate
 	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
@@ -1041,7 +1085,7 @@ func TestAdminDeactivate(t *testing.T) {
 	actID := actResult["activationID"].(string)
 
 	// Admin deactivate
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/activations/"+actID+"/deactivate", nil)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/activations/"+actID+"/deactivate", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	result := decodeJSON(t, resp)
@@ -1049,57 +1093,32 @@ func TestAdminDeactivate(t *testing.T) {
 }
 
 func TestAdminDeactivate_NotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/activations/00000000-0000-0000-0000-000000000000/deactivate", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/activations/00000000-0000-0000-0000-000000000000/deactivate", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 // --- Auth edge case ---
 
-func TestAdminAuth_EmptyKeys(t *testing.T) {
-	dbURL := os.Getenv("TRITON_TEST_DB_URL")
-	if dbURL == "" {
-		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
-	}
-	ctx := context.Background()
-	schema := fmt.Sprintf("test_server_%d", serverTestSeq.Add(1))
-	store, err := licensestore.NewPostgresStoreInSchema(ctx, dbURL, schema)
-	if err != nil {
-		t.Skipf("PostgreSQL unavailable: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.DropSchema(ctx)
-		store.Close()
-	})
+// TestAdminAuth_NoUsersInStore verifies that admin routes are inaccessible
+// when no users exist in the store (i.e., before bootstrapping). A request
+// without a JWT must receive 401; a request with a forged/unknown JWT must
+// receive 401 (session not found).
+func TestAdminAuth_NoUsersInStore(t *testing.T) {
+	ts, _ := setupTestServer(t)
 
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	// Empty AdminKeys — should deny all admin requests
-	cfg := &licenseserver.Config{
-		ListenAddr:  ":0",
-		AdminKeys:   []string{},
-		SigningKey:  priv,
-		PublicKey:   pub,
-		BinariesDir: t.TempDir(),
-	}
-	srv := licenseserver.New(cfg, store)
-	ts := httptest.NewServer(srv.Router())
-	defer ts.Close()
-
-	// Even with a key header, should be denied when server has empty keys
-	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/admin/orgs", nil)
-	req.Header.Set("X-Triton-Admin-Key", "any-key")
-	resp, err := http.DefaultClient.Do(req)
+	// No JWT at all — must be 401.
+	resp, err := http.Get(ts.URL + "/api/v1/admin/orgs")
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 // --- Binary Management ---
 
-func uploadBinary(t *testing.T, tsURL, version, goos, goarch string, content []byte) *http.Response {
+func uploadBinary(t *testing.T, tsURL, jwt, version, goos, goarch string, content []byte) *http.Response {
 	t.Helper()
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -1115,16 +1134,17 @@ func uploadBinary(t *testing.T, tsURL, version, goos, goarch string, content []b
 	req, err := http.NewRequest("POST", tsURL+"/api/v1/admin/binaries", &buf)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("X-Triton-Admin-Key", "test-admin-key")
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
 }
 
 func TestUploadBinary(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	content := []byte("fake-binary-content")
-	resp := uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", content)
+	resp := uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", content)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	result := decodeJSON(t, resp)
@@ -1136,7 +1156,8 @@ func TestUploadBinary(t *testing.T) {
 }
 
 func TestUploadBinary_MissingFields(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("version", "1.0.0")
@@ -1146,7 +1167,7 @@ func TestUploadBinary_MissingFields(t *testing.T) {
 	req, err := http.NewRequest("POST", ts.URL+"/api/v1/admin/binaries", &buf)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("X-Triton-Admin-Key", "test-admin-key")
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -1169,11 +1190,12 @@ func TestUploadBinary_NoAuth(t *testing.T) {
 }
 
 func TestListBinaries(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin1")).Body.Close()
-	uploadBinary(t, ts.URL, "1.0.0", "darwin", "arm64", []byte("bin2")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin1")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "darwin", "arm64", []byte("bin2")).Body.Close()
 
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/binaries", nil)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/binaries", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var binaries []map[string]any
@@ -1182,15 +1204,16 @@ func TestListBinaries(t *testing.T) {
 }
 
 func TestDeleteBinary(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 
-	resp := adminReq(t, "DELETE", ts.URL+"/api/v1/admin/binaries/1.0.0/linux/amd64", nil)
+	resp := adminReq(t, jwt, "DELETE", ts.URL+"/api/v1/admin/binaries/1.0.0/linux/amd64", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Verify deleted
-	listResp := adminReq(t, "GET", ts.URL+"/api/v1/admin/binaries", nil)
+	listResp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/binaries", nil)
 	defer listResp.Body.Close()
 	var binaries []map[string]any
 	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&binaries))
@@ -1198,17 +1221,19 @@ func TestDeleteBinary(t *testing.T) {
 }
 
 func TestDeleteBinary_NotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "DELETE", ts.URL+"/api/v1/admin/binaries/9.9.9/linux/amd64", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "DELETE", ts.URL+"/api/v1/admin/binaries/9.9.9/linux/amd64", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
 func TestLatestVersion(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("v1")).Body.Close()
-	uploadBinary(t, ts.URL, "2.0.0", "linux", "amd64", []byte("v2")).Body.Close()
-	uploadBinary(t, ts.URL, "2.0.0", "darwin", "arm64", []byte("v2d")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("v1")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "2.0.0", "linux", "amd64", []byte("v2")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "2.0.0", "darwin", "arm64", []byte("v2d")).Body.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/license/download/latest-version")
 	require.NoError(t, err)
@@ -1229,10 +1254,11 @@ func TestLatestVersion_Empty(t *testing.T) {
 }
 
 func TestDownloadBinary_ValidLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 	binaryContent := []byte("\x7fELF\x02\x01\x01\x00binary-content") // ELF-like header to avoid text sniffing
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", binaryContent).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", binaryContent).Body.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=%s", ts.URL, licID))
 	require.NoError(t, err)
@@ -1246,8 +1272,9 @@ func TestDownloadBinary_ValidLicense(t *testing.T) {
 }
 
 func TestDownloadBinary_MissingLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/license/download/1.0.0/linux/amd64")
 	require.NoError(t, err)
@@ -1256,8 +1283,9 @@ func TestDownloadBinary_MissingLicense(t *testing.T) {
 }
 
 func TestDownloadBinary_InvalidLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/license/download/1.0.0/linux/amd64?license_id=00000000-0000-0000-0000-000000000000")
 	require.NoError(t, err)
@@ -1266,12 +1294,13 @@ func TestDownloadBinary_InvalidLicense(t *testing.T) {
 }
 
 func TestDownloadBinary_RevokedLicense(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 
 	// Revoke the license
-	adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil).Body.Close()
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil).Body.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=%s", ts.URL, licID))
 	require.NoError(t, err)
@@ -1280,8 +1309,9 @@ func TestDownloadBinary_RevokedLicense(t *testing.T) {
 }
 
 func TestDownloadBinary_NotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/9.9.9/linux/amd64?license_id=%s", ts.URL, licID))
 	require.NoError(t, err)
@@ -1290,9 +1320,10 @@ func TestDownloadBinary_NotFound(t *testing.T) {
 }
 
 func TestDownloadBinary_AuditTrail(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 
 	// Download
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=%s", ts.URL, licID))
@@ -1300,7 +1331,7 @@ func TestDownloadBinary_AuditTrail(t *testing.T) {
 	resp.Body.Close()
 
 	// Check audit trail
-	auditResp := adminReq(t, "GET", ts.URL+"/api/v1/admin/audit?event=binary_download&limit=10", nil)
+	auditResp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/audit?event=binary_download&limit=10", nil)
 	defer auditResp.Body.Close()
 	var entries []map[string]any
 	require.NoError(t, json.NewDecoder(auditResp.Body).Decode(&entries))
@@ -1308,7 +1339,8 @@ func TestDownloadBinary_AuditTrail(t *testing.T) {
 }
 
 func TestUploadBinary_PathTraversal(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	tests := []struct {
 		version, os, arch string
 	}{
@@ -1318,32 +1350,35 @@ func TestUploadBinary_PathTraversal(t *testing.T) {
 		{"v1/../../etc", "linux", "amd64"},
 	}
 	for _, tc := range tests {
-		resp := uploadBinary(t, ts.URL, tc.version, tc.os, tc.arch, []byte("x"))
+		resp := uploadBinary(t, ts.URL, jwt, tc.version, tc.os, tc.arch, []byte("x"))
 		resp.Body.Close()
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "expected 400 for %s/%s/%s", tc.version, tc.os, tc.arch)
 	}
 }
 
 func TestUploadBinary_InvalidOS(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := uploadBinary(t, ts.URL, "1.0.0", "freebsd", "amd64", []byte("x"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := uploadBinary(t, ts.URL, jwt, "1.0.0", "freebsd", "amd64", []byte("x"))
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestUploadBinary_InvalidArch(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := uploadBinary(t, ts.URL, "1.0.0", "linux", "mips", []byte("x"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "mips", []byte("x"))
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestUploadBinary_Overwrite(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("original")).Body.Close()
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("original")).Body.Close()
 
 	// Upload same version/os/arch with different content — should succeed (overwrite).
-	resp := uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("updated"))
+	resp := uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("updated"))
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	result := decodeJSON(t, resp)
@@ -1351,8 +1386,9 @@ func TestUploadBinary_Overwrite(t *testing.T) {
 }
 
 func TestUploadBinary_WindowsFilename(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := uploadBinary(t, ts.URL, "1.0.0", "windows", "amd64", []byte("winbin"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := uploadBinary(t, ts.URL, jwt, "1.0.0", "windows", "amd64", []byte("winbin"))
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	result := decodeJSON(t, resp)
@@ -1361,10 +1397,11 @@ func TestUploadBinary_WindowsFilename(t *testing.T) {
 
 func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	ctx := context.Background()
 
 	// Create org via API.
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "ExpiredOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "ExpiredOrg"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
@@ -1382,7 +1419,7 @@ func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 	}
 	require.NoError(t, store.CreateLicense(ctx, expiredLic))
 
-	uploadBinary(t, ts.URL, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.0.0", "linux", "amd64", []byte("bin")).Body.Close()
 	resp, err := http.Get(fmt.Sprintf("%s/api/v1/license/download/1.0.0/linux/amd64?license_id=%s", ts.URL, expiredLicID))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -1393,11 +1430,12 @@ func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 }
 
 func TestLatestVersion_SemverOrdering(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	// Upload versions where lexicographic sort gives wrong answer.
-	uploadBinary(t, ts.URL, "1.9.0", "linux", "amd64", []byte("v190")).Body.Close()
-	uploadBinary(t, ts.URL, "1.10.0", "linux", "amd64", []byte("v1100")).Body.Close()
-	uploadBinary(t, ts.URL, "2.0.0", "linux", "amd64", []byte("v200")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.9.0", "linux", "amd64", []byte("v190")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.10.0", "linux", "amd64", []byte("v1100")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "2.0.0", "linux", "amd64", []byte("v200")).Body.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/license/download/latest-version")
 	require.NoError(t, err)
@@ -1408,10 +1446,11 @@ func TestLatestVersion_SemverOrdering(t *testing.T) {
 }
 
 func TestLatestVersion_SemverMultiDigit(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	// 1.10.0 should be later than 1.9.0 (numeric, not lexicographic).
-	uploadBinary(t, ts.URL, "1.9.0", "linux", "amd64", []byte("v190")).Body.Close()
-	uploadBinary(t, ts.URL, "1.10.0", "linux", "amd64", []byte("v1100")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.9.0", "linux", "amd64", []byte("v190")).Body.Close()
+	uploadBinary(t, ts.URL, jwt, "1.10.0", "linux", "amd64", []byte("v1100")).Body.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/license/download/latest-version")
 	require.NoError(t, err)
@@ -1421,8 +1460,9 @@ func TestLatestVersion_SemverMultiDigit(t *testing.T) {
 }
 
 func TestListBinaries_Empty(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, "GET", ts.URL+"/api/v1/admin/binaries", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/binaries", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var binaries []map[string]any

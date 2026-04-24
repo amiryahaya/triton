@@ -259,3 +259,39 @@ func (s *Server) handleDeleteOrg(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "org_delete", "", id, "", nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
+// POST /api/v1/admin/orgs/{id}/suspend
+//
+// Toggles the suspended flag on an organisation. Suspended organisations
+// are immediately rejected on both activate and validate requests.
+// Body: {"suspended": true|false}
+func (s *Server) handleSuspendOrg(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Suspended bool `json:"suspended"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := s.store.SuspendOrg(r.Context(), id, req.Suspended); err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "organization not found")
+			return
+		}
+		log.Printf("suspend org error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	event := "org_unsuspended"
+	if req.Suspended {
+		event = "org_suspended"
+	}
+	s.audit(r, event, "", id, "", nil)
+
+	w.WriteHeader(http.StatusNoContent)
+}

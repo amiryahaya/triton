@@ -4,24 +4,67 @@ package licenseserver_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/amiryahaya/triton/pkg/licensestore"
 )
+
+// --- shared JWT test helpers ---
+
+// setupAdminUser creates a platform_admin user directly in the store
+// and returns its email + plaintext password.
+func setupAdminUser(t *testing.T, store *licensestore.PostgresStore) (email, password string) {
+	t.Helper()
+	email = "admin+" + uuid.Must(uuid.NewV7()).String() + "@test.local"
+	password = "TestPassword123!"
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	u := &licensestore.User{
+		ID:       uuid.Must(uuid.NewV7()).String(),
+		Email:    email,
+		Name:     "Test Admin",
+		Role:     "platform_admin",
+		Password: string(hashed),
+	}
+	require.NoError(t, store.CreateUser(context.Background(), u))
+	return email, password
+}
+
+// loginViaAPI POSTs to /api/v1/auth/login and returns the JWT.
+func loginViaAPI(t *testing.T, tsURL, email, password string) string {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"email": email, "password": password})
+	req, _ := http.NewRequest(http.MethodPost, tsURL+"/api/v1/auth/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "login failed")
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	token, ok := body["token"].(string)
+	require.True(t, ok, "login response missing token: %v", body)
+	return token
+}
 
 // --- helpers specific to license-schedule tests ---
 
 // createOrgViaAPI creates an org and returns its ID.
-func createOrgViaAPI(t *testing.T, tsURL, adminKey, name string) string {
+func createOrgViaAPI(t *testing.T, tsURL, jwt, name string) string {
 	t.Helper()
 	b, _ := json.Marshal(map[string]string{"name": name})
 	req, _ := http.NewRequest(http.MethodPost, tsURL+"/api/v1/admin/orgs", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", adminKey)
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -33,7 +76,7 @@ func createOrgViaAPI(t *testing.T, tsURL, adminKey, name string) string {
 
 // createLicenseViaAPIWithFields creates a license with arbitrary extra fields
 // and returns its ID.
-func createLicenseViaAPIWithFields(t *testing.T, tsURL, adminKey, orgID string, extra map[string]any) string {
+func createLicenseViaAPIWithFields(t *testing.T, tsURL, jwt, orgID string, extra map[string]any) string {
 	t.Helper()
 	body := map[string]any{
 		"orgID": orgID,
@@ -47,7 +90,7 @@ func createLicenseViaAPIWithFields(t *testing.T, tsURL, adminKey, orgID string, 
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, tsURL+"/api/v1/admin/licenses", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", adminKey)
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -63,7 +106,7 @@ type adminResponse struct {
 	Body map[string]any
 }
 
-func adminDo(t *testing.T, tsURL, adminKey, method, path string, body any) adminResponse {
+func adminDo(t *testing.T, tsURL, jwt, method, path string, body any) adminResponse {
 	t.Helper()
 	var b []byte
 	if body != nil {
@@ -74,7 +117,7 @@ func adminDo(t *testing.T, tsURL, adminKey, method, path string, body any) admin
 	req, err := http.NewRequest(method, tsURL+path, bytes.NewReader(b))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Triton-Admin-Key", adminKey)
+	req.Header.Set("Authorization", "Bearer "+jwt)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -86,11 +129,12 @@ func adminDo(t *testing.T, tsURL, adminKey, method, path string, body any) admin
 // --- POST /api/v1/admin/licenses — cron validation ---
 
 func TestCreateLicense_InvalidCronRejected(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SchedCo")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SchedCo")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID":                 orgID,
 		"tier":                  "pro",
 		"seats":                 1,
@@ -106,11 +150,12 @@ func TestCreateLicense_InvalidCronRejected(t *testing.T) {
 }
 
 func TestCreateLicense_ValidCronAccepted(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SchedCo")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SchedCo")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID":                 orgID,
 		"tier":                  "pro",
 		"seats":                 1,
@@ -126,11 +171,12 @@ func TestCreateLicense_ValidCronAccepted(t *testing.T) {
 }
 
 func TestCreateLicense_NegativeJitterRejected(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SchedCo")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SchedCo")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID":                 orgID,
 		"tier":                  "pro",
 		"seats":                 1,
@@ -145,18 +191,19 @@ func TestCreateLicense_NegativeJitterRejected(t *testing.T) {
 // --- PATCH /api/v1/admin/licenses/{id} ---
 
 func TestUpdateLicense_SetAndClearSchedule(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SchedCo")
-	licID := createLicenseViaAPIWithFields(t, ts.URL, adminKey, orgID, nil)
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SchedCo")
+	licID := createLicenseViaAPIWithFields(t, ts.URL, jwt, orgID, nil)
 
 	// Set schedule.
-	setResp := adminDo(t, ts.URL, adminKey, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
+	setResp := adminDo(t, ts.URL, jwt, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
 		map[string]any{"schedule": "0 2 * * 0", "scheduleJitterSeconds": 30})
 	require.Equal(t, http.StatusOK, setResp.Code)
 
 	// GET and verify.
-	got := adminDo(t, ts.URL, adminKey, http.MethodGet, "/api/v1/admin/licenses/"+licID, nil)
+	got := adminDo(t, ts.URL, jwt, http.MethodGet, "/api/v1/admin/licenses/"+licID, nil)
 	require.Equal(t, http.StatusOK, got.Code)
 	assert.Equal(t, "0 2 * * 0", got.Body["schedule"])
 	jitter, ok := got.Body["scheduleJitterSeconds"].(float64)
@@ -164,11 +211,11 @@ func TestUpdateLicense_SetAndClearSchedule(t *testing.T) {
 	assert.Equal(t, 30, int(jitter))
 
 	// Clear via empty string + zero.
-	clr := adminDo(t, ts.URL, adminKey, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
+	clr := adminDo(t, ts.URL, jwt, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
 		map[string]any{"schedule": "", "scheduleJitterSeconds": 0})
 	require.Equal(t, http.StatusOK, clr.Code)
 
-	got = adminDo(t, ts.URL, adminKey, http.MethodGet, "/api/v1/admin/licenses/"+licID, nil)
+	got = adminDo(t, ts.URL, jwt, http.MethodGet, "/api/v1/admin/licenses/"+licID, nil)
 	require.Equal(t, http.StatusOK, got.Code)
 	sched := got.Body["schedule"]
 	if sched != "" && sched != nil {
@@ -177,12 +224,13 @@ func TestUpdateLicense_SetAndClearSchedule(t *testing.T) {
 }
 
 func TestUpdateLicense_InvalidCronRejected(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SchedCo")
-	licID := createLicenseViaAPIWithFields(t, ts.URL, adminKey, orgID, nil)
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SchedCo")
+	licID := createLicenseViaAPIWithFields(t, ts.URL, jwt, orgID, nil)
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
+	resp := adminDo(t, ts.URL, jwt, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
 		map[string]any{"schedule": "nope"})
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 	msg, _ := resp.Body["error"].(string)
@@ -192,31 +240,34 @@ func TestUpdateLicense_InvalidCronRejected(t *testing.T) {
 }
 
 func TestUpdateLicense_NegativeJitterRejected(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SchedCo")
-	licID := createLicenseViaAPIWithFields(t, ts.URL, adminKey, orgID, nil)
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SchedCo")
+	licID := createLicenseViaAPIWithFields(t, ts.URL, jwt, orgID, nil)
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
+	resp := adminDo(t, ts.URL, jwt, http.MethodPatch, "/api/v1/admin/licenses/"+licID,
 		map[string]any{"scheduleJitterSeconds": -5})
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 }
 
 func TestUpdateLicense_NotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPatch,
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	resp := adminDo(t, ts.URL, jwt, http.MethodPatch,
 		"/api/v1/admin/licenses/00000000-0000-0000-0000-000000000000",
 		map[string]any{"schedule": "0 2 * * *"})
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
 
 func TestCreateLicense_SeatsZeroScansZero_Rejected(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "ZeroZero")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "ZeroZero")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID,
 		"tier":  "pro",
 		"seats": 0,
@@ -228,11 +279,12 @@ func TestCreateLicense_SeatsZeroScansZero_Rejected(t *testing.T) {
 }
 
 func TestCreateLicense_SeatsZeroScansSet_Accepted(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "ScansOnly")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "ScansOnly")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID,
 		"tier":  "pro",
 		"seats": 0,
@@ -245,11 +297,12 @@ func TestCreateLicense_SeatsZeroScansSet_Accepted(t *testing.T) {
 }
 
 func TestCreateLicense_SeatsSetScansZero_Accepted(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "SeatsOnly")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "SeatsOnly")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID,
 		"tier":  "pro",
 		"seats": 5,
@@ -259,11 +312,12 @@ func TestCreateLicense_SeatsSetScansZero_Accepted(t *testing.T) {
 }
 
 func TestCreateLicense_ReportsGeneratedStripped(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	const adminKey = "test-admin-key"
-	orgID := createOrgViaAPI(t, ts.URL, adminKey, "StripRG")
+	ts, store := setupTestServer(t)
+	email, password := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, email, password)
+	orgID := createOrgViaAPI(t, ts.URL, jwt, "StripRG")
 
-	resp := adminDo(t, ts.URL, adminKey, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
+	resp := adminDo(t, ts.URL, jwt, http.MethodPost, "/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID,
 		"tier":  "pro",
 		"seats": 1,
@@ -276,7 +330,7 @@ func TestCreateLicense_ReportsGeneratedStripped(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 
 	licenceID := resp.Body["id"].(string)
-	get := adminDo(t, ts.URL, adminKey, http.MethodGet, "/api/v1/admin/licenses/"+licenceID, nil)
+	get := adminDo(t, ts.URL, jwt, http.MethodGet, "/api/v1/admin/licenses/"+licenceID, nil)
 	require.Equal(t, http.StatusOK, get.Code)
 
 	limits, ok := get.Body["limits"].([]any)

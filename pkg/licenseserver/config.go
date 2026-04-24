@@ -11,7 +11,6 @@ import (
 type Config struct {
 	ListenAddr  string
 	DBUrl       string
-	AdminKeys   []string
 	TLSCert     string
 	TLSKey      string
 	SigningKey  ed25519.PrivateKey // Ed25519 private key for signing tokens
@@ -53,6 +52,12 @@ type Config struct {
 	// ReportServerInviteURL is included as the login link in invite
 	// emails. Typically "https://reports.example.com/login".
 	ReportServerInviteURL string
+
+	// InviteLoginURL is the URL embedded in invite emails pointing at the
+	// portal login page. Empty means emails still send but without a
+	// clickable link. Wired from TRITON_LICENSE_SERVER_LOGIN_URL env in
+	// cmd/licenseserver/main.go (Task 8).
+	InviteLoginURL string
 
 	// LoginRateLimiterConfig tunes the per-email login rate limit. When
 	// zero, DefaultLoginRateLimiterConfig (5 attempts per 15min window,

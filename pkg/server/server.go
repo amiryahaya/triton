@@ -326,6 +326,11 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		srv.licencePortalClient = license.NewServerClient(cfg.LicencePortalURL)
 	}
 	srv.licenceValidatorDone = make(chan struct{})
+	// Start the background licence validator. It runs every 24 h,
+	// re-validating all tenant licences against the Licence Portal.
+	// If licencePortalClient is nil (no LicencePortalURL configured),
+	// startLicenceValidator is a no-op.
+	srv.startLicenceValidator(ctx)
 
 	// Start licence usage pusher when a LicenseServer URL and a real
 	// licence token are both present. Free-tier / no-token deployments
@@ -425,6 +430,10 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 		// than by IP. Unauthenticated requests fall back to
 		// IP-based keying to still get DoS protection.
 		r.Use(RequestRateLimit(srv.requestLimiter))
+		// Tenant licence gate — enforces active/grace/expired status
+		// for tenant-scoped routes. Passes through when orgID is empty
+		// (platform_admin or unauthenticated paths) for backward compat.
+		r.Use(srv.TenantLicenceGate)
 		srv.registerAPIRoutes(r)
 	})
 
@@ -532,7 +541,35 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 			r.Use(RequestRateLimitByUser(srv.requestLimiter))
 			r.Get("/", srv.handleOnboardingMetrics)
 		})
+
+		// Platform admin routes — manage platform-level admins and tenant
+		// organisations. Requires JWT + platform_admin role. These sit outside
+		// the /api/v1 UnifiedAuth group intentionally; TenantLicenceGate on
+		// that group passes through when orgID is empty (platform_admin has
+		// no org), but having them as a separate peer group makes the
+		// security boundary explicit.
+		r.Route("/api/v1/platform", func(r chi.Router) {
+			r.Use(JWTAuth(cfg.JWTPublicKey, s, srv.sessionCache))
+			r.Use(BlockUntilPasswordChanged)
+			r.Use(RequirePlatformAdmin)
+			r.Use(RequestRateLimitByUser(srv.requestLimiter))
+
+			r.Get("/admins", srv.handleListPlatformAdmins)
+			r.Post("/admins", srv.handleInvitePlatformAdmin)
+			r.Delete("/admins/{id}", srv.handleDeletePlatformAdmin)
+
+			r.Get("/tenants", srv.handleListPlatformTenants)
+			r.Post("/tenants", srv.handleCreatePlatformTenant)
+			r.Get("/tenants/{id}", srv.handleGetPlatformTenant)
+			r.Post("/tenants/{id}/renew", srv.handleRenewTenantLicence)
+			r.Delete("/tenants/{id}", srv.handleDeletePlatformTenant)
+		})
 	}
+
+	// First-run setup routes — public, no auth. Always registered so the UI
+	// can detect whether setup is needed before any JWT is available.
+	r.Get("/api/v1/setup/status", srv.handleSetupStatus)
+	r.Post("/api/v1/setup", srv.handleFirstSetup)
 
 	// Health check — intentionally outside the auth group so it remains public.
 	// It returns no sensitive data (only {"status":"ok"}).
@@ -708,11 +745,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-backfillDone:
-		return nil
+		// continue to licence validator drain
 	case <-ctx.Done():
 		log.Printf("shutdown: backfill drain deadline exceeded; goroutine will finish against a closing pool")
 		return ctx.Err()
 	}
+
+	// Wait for the background licence validator to stop. s.cancel() above
+	// already cancelled s.ctx, so the goroutine is unwinding. Guard with
+	// a nil check: if licencePortalClient is nil, startLicenceValidator is
+	// a no-op and licenceValidatorDone is never closed.
+	if s.licencePortalClient != nil {
+		select {
+		case <-s.licenceValidatorDone:
+		case <-ctx.Done():
+			log.Printf("shutdown: licence validator drain deadline exceeded")
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // Router returns the chi router (for testing).

@@ -296,7 +296,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"token":     newToken,
-		"expiresAt": time.Now().Add(jwtTTL).Format(time.RFC3339),
+		"expiresAt": sess.ExpiresAt.Format(time.RFC3339),
 	})
 }
 

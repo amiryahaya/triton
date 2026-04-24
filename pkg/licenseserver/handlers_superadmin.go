@@ -27,9 +27,8 @@ const (
 )
 
 type createSuperadminRequest struct {
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Password string `json:"password"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
 }
 
 type updateSuperadminRequest struct {
@@ -69,20 +68,23 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Name == "" {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if tooLong(req.Name, maxNameLen) {
+	if tooLong(name, maxNameLen) {
 		writeError(w, http.StatusBadRequest, "name exceeds maximum length")
 		return
 	}
-	if len(req.Password) < minPasswordLen {
-		writeError(w, http.StatusBadRequest, "password must be at least 12 characters")
+
+	tempPassword, err := auth.GenerateTempPassword(24)
+	if err != nil {
+		log.Printf("create superadmin: gen temp password: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-
-	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("bcrypt error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -91,13 +93,14 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 
 	now := time.Now().UTC()
 	user := &licensestore.User{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		Email:     email,
-		Name:      req.Name,
-		Role:      "platform_admin", // forced — request body role ignored
-		Password:  string(hashed),
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:                 uuid.Must(uuid.NewV7()).String(),
+		Email:              email,
+		Name:               name,
+		Role:               "platform_admin", // forced — request body role ignored
+		Password:           string(hashed),
+		MustChangePassword: true,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := s.store.CreateUser(r.Context(), user); err != nil {
@@ -111,11 +114,101 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	emailSent := false
+	if s.config.Mailer != nil {
+		mErr := s.config.Mailer.SendInviteEmail(r.Context(), InviteEmailData{
+			ToEmail:      user.Email,
+			ToName:       user.Name,
+			OrgName:      "Triton License Server",
+			TempPassword: tempPassword,
+			LoginURL:     s.config.InviteLoginURL,
+		})
+		if mErr != nil {
+			log.Printf("create superadmin: mailer error: %v (non-fatal)", mErr)
+		} else {
+			emailSent = true
+		}
+	}
+
 	s.audit(r, "superadmin_create", "", "", "", map[string]any{
-		"user_id": user.ID,
-		"email":   user.Email,
+		"user_id":    user.ID,
+		"email":      user.Email,
+		"email_sent": emailSent,
 	})
-	writeJSON(w, http.StatusCreated, user)
+
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"user":         user,
+		"tempPassword": tempPassword,
+		"emailSent":    emailSent,
+	})
+}
+
+// POST /api/v1/admin/superadmins/{id}/resend-invite
+func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	user, status, msg := s.loadPlatformAdminByID(r.Context(), id)
+	if status != 0 {
+		writeError(w, status, msg)
+		return
+	}
+
+	tempPassword, err := auth.GenerateTempPassword(24)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	// Rotate password + flag must-change.
+	update := licensestore.UserUpdate{
+		ID:                 user.ID,
+		Name:               user.Name,
+		Password:           string(hashed),
+		MustChangePassword: true,
+	}
+	if err := s.store.UpdateUser(r.Context(), update); err != nil {
+		log.Printf("resend invite: update user: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	// Revoke all existing sessions — stolen tokens stop immediately.
+	if err := s.store.DeleteSessionsForUser(r.Context(), user.ID); err != nil {
+		log.Printf("resend invite: delete sessions: %v (non-fatal)", err)
+	}
+
+	emailSent := false
+	if s.config.Mailer != nil {
+		mErr := s.config.Mailer.SendInviteEmail(r.Context(), InviteEmailData{
+			ToEmail:      user.Email,
+			ToName:       user.Name,
+			OrgName:      "Triton License Server",
+			TempPassword: tempPassword,
+			LoginURL:     s.config.InviteLoginURL,
+		})
+		if mErr == nil {
+			emailSent = true
+		} else {
+			log.Printf("resend invite: mailer: %v", mErr)
+		}
+	}
+
+	s.audit(r, "superadmin_resend_invite", "", "", "", map[string]any{
+		"user_id":    user.ID,
+		"email":      user.Email,
+		"email_sent": emailSent,
+	})
+
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tempPassword": tempPassword,
+		"emailSent":    emailSent,
+	})
 }
 
 // GET /api/v1/admin/superadmins
@@ -217,6 +310,13 @@ func (s *Server) handleDeleteSuperadmin(w http.ResponseWriter, r *http.Request) 
 
 	if _, status, msg := s.getSuperadminByID(r, id); status != 0 {
 		writeError(w, status, msg)
+		return
+	}
+
+	// Self-delete guard — prevents an operator from accidentally locking
+	// themselves out via a typo or script error.
+	if authed, ok := UserFromContext(r.Context()); ok && authed.ID == id {
+		writeError(w, http.StatusConflict, "cannot delete your own account")
 		return
 	}
 

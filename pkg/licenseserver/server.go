@@ -170,6 +170,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 			r.Get("/{id}", srv.handleGetSuperadmin)
 			r.Put("/{id}", srv.handleUpdateSuperadmin)
 			r.Delete("/{id}", srv.handleDeleteSuperadmin)
+			r.Post("/{id}/resend-invite", srv.handleResendInvite)
 		})
 	})
 

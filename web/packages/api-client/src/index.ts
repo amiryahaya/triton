@@ -5,6 +5,14 @@ export type {
   LicenseApi,
   CreateOrgRequest,
   CreateLicenceRequest,
+  LoginResponse as LicenseLoginResponse,
+  ChangePasswordRequest as LicenseChangePasswordRequest,
+  ChangePasswordResponse as LicenseChangePasswordResponse,
+  SetupStatus as LicenseSetupStatus,
+  SetupFirstAdminRequest,
+  CreateUserRequest,
+  UserWithTempPassword,
+  ResendInviteResponse,
 } from './licenseServer';
 export { createReportApi } from './reportServer';
 export type {
@@ -67,4 +75,5 @@ export type {
   Activation,
   AuditEntry,
   DashboardStats,
+  User,
 } from './types';

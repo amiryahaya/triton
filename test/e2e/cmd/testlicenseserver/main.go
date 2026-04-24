@@ -59,7 +59,6 @@ func run() error {
 
 	cfg := &licenseserver.Config{
 		ListenAddr:  listen,
-		AdminKeys:   []string{"e2e-test-key"},
 		SigningKey:  priv,
 		PublicKey:   pub,
 		BinariesDir: binDir,

@@ -139,7 +139,6 @@ services:
     environment:
       TRITON_LICENSE_SERVER_DB_URL: "${TRITON_LICENSE_SERVER_DB_URL:-postgres://triton:triton@postgres:5432/triton_license?sslmode=disable}"
       TRITON_LICENSE_SERVER_LISTEN: "${TRITON_LICENSE_SERVER_LISTEN:-:8081}"
-      TRITON_LICENSE_SERVER_ADMIN_KEY: "${TRITON_LICENSE_SERVER_ADMIN_KEY:?set TRITON_LICENSE_SERVER_ADMIN_KEY in .env — openssl rand -hex 32}"
       TRITON_LICENSE_SERVER_SIGNING_KEY: "${TRITON_LICENSE_SERVER_SIGNING_KEY:?set TRITON_LICENSE_SERVER_SIGNING_KEY in .env — Ed25519 64-byte private key, hex-encoded (generate with scripts/gen-dev-env.sh)}"
       TRITON_LICENSE_SERVER_BINARIES_DIR: "${TRITON_LICENSE_SERVER_BINARIES_DIR:-/tmp/binaries}"
       # TLS (optional — leave unset for plaintext local dev)
@@ -166,14 +165,14 @@ services:
       # Required for one-liner install links. When unset, the
       # "Copy install command" button in the admin UI is disabled.
       TRITON_LICENSE_SERVER_PUBLIC_URL: "${TRITON_LICENSE_SERVER_PUBLIC_URL:-http://localhost:8081}"
-      # Resend mailer for first-org-admin invites. When unset,
-      # provisioning returns the temp password in the API response
-      # body for manual delivery.
-      RESEND_API_KEY: "${RESEND_API_KEY:-}"
-      RESEND_FROM_EMAIL: "${RESEND_FROM_EMAIL:-}"
-      RESEND_FROM_NAME: "${RESEND_FROM_NAME:-Triton Reports}"
-      # Login link embedded in invite emails. Points at the report
-      # server's login page.
+      # Resend mailer for invite emails. When unset, provisioning
+      # returns the temp password in the API response body for
+      # manual delivery.
+      TRITON_LICENSE_SERVER_RESEND_API_KEY: "${TRITON_LICENSE_SERVER_RESEND_API_KEY:-}"
+      TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL: "${TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL:-}"
+      TRITON_LICENSE_SERVER_RESEND_FROM_NAME: "${TRITON_LICENSE_SERVER_RESEND_FROM_NAME:-Triton License}"
+      TRITON_LICENSE_SERVER_LOGIN_URL: "${TRITON_LICENSE_SERVER_LOGIN_URL:-http://localhost:8081/ui/#/login}"
+      # Login link embedded in report-server invite emails.
       REPORT_SERVER_INVITE_URL_BASE: "${REPORT_SERVER_INVITE_URL_BASE:-http://localhost:8090/ui/#/login}"
     ports:
       - "8081:8081"

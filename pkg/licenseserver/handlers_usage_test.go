@@ -38,8 +38,9 @@ func decodeUsageResponse(t *testing.T, resp *http.Response) licenseserver.UsageR
 }
 
 func TestUsage_UpsertsAndReturnsRemaining(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true, Manage: true},
 		licensestore.Limits{
 			{Metric: "seats", Window: "total", Cap: 50},
@@ -64,8 +65,9 @@ func TestUsage_UpsertsAndReturnsRemaining(t *testing.T) {
 
 func TestUsage_OverCapFlagged(t *testing.T) {
 	// cap=10, buffer=10% → ceiling=11; value=12 → over cap AND over buffer → over_cap
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true},
 		licensestore.Limits{
 			{Metric: "seats", Window: "total", Cap: 10},
@@ -90,8 +92,9 @@ func TestUsage_OverCapFlagged(t *testing.T) {
 
 func TestUsage_InBufferFlagged(t *testing.T) {
 	// cap=10, buffer=10% → ceiling=11; value=11 → over cap (10) but NOT over ceiling (11 > 11 is false) → in_buffer
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true},
 		licensestore.Limits{
 			{Metric: "seats", Window: "total", Cap: 10},
@@ -115,8 +118,9 @@ func TestUsage_InBufferFlagged(t *testing.T) {
 func TestUsage_Upsert_IdempotentOnSameInstance(t *testing.T) {
 	// The same instance reporting the same metric twice should replace,
 	// not accumulate.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true},
 		licensestore.Limits{{Metric: "seats", Window: "total", Cap: 50}},
 	)
@@ -142,8 +146,9 @@ func TestUsage_Upsert_IdempotentOnSameInstance(t *testing.T) {
 
 func TestUsage_MultipleInstances_SummedInSummary(t *testing.T) {
 	// Two different instances reporting seats — summary should sum both.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true},
 		licensestore.Limits{{Metric: "seats", Window: "total", Cap: 50}},
 	)
@@ -189,8 +194,9 @@ func TestUsage_MissingInstanceID_Returns400(t *testing.T) {
 }
 
 func TestUsage_EmptyMetrics_Returns400(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt)
 	body, _ := json.Marshal(map[string]any{
 		"licenseID":  licID,
 		"instanceID": "inst-1",
@@ -214,8 +220,9 @@ func TestUsage_UnknownLicenseID_Returns404(t *testing.T) {
 func TestUsage_LegacyLicense_CompatLimitsApplied(t *testing.T) {
 	// A legacy (tier-only) licence without explicit limits should get
 	// CompatLimits applied. "pro" tier → seats/total cap=50.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL) // "pro", seats=3, no v2 limits
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt) // "pro", seats=3, no v2 limits
 
 	inst := uuid.NewString()
 	resp := postUsage(t, ts.URL, licID, inst, []map[string]any{

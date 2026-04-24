@@ -32,9 +32,9 @@ func decodeBase64URL(t *testing.T, s string) []byte {
 }
 
 // createOrgAndLicenseV2 creates an org + v2 licence with explicit features and limits.
-func createOrgAndLicenseV2(t *testing.T, tsURL string, features licensestore.Features, limits licensestore.Limits) (orgID, licID string) {
+func createOrgAndLicenseV2(t *testing.T, tsURL, jwt string, features licensestore.Features, limits licensestore.Limits) (orgID, licID string) {
 	t.Helper()
-	orgResp := adminReq(t, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "V2Org" + t.Name()})
+	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "V2Org" + t.Name()})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID = orgIDOf(orgResult)
@@ -46,7 +46,7 @@ func createOrgAndLicenseV2(t *testing.T, tsURL string, features licensestore.Fea
 		"soft_buffer_pct": 10,
 		"product_scope":   "bundle",
 	}
-	licResp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses", body)
+	licResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses", body)
 	defer licResp.Body.Close()
 	licResult := decodeJSON(t, licResp)
 	licID = licResult["id"].(string)
@@ -54,8 +54,9 @@ func createOrgAndLicenseV2(t *testing.T, tsURL string, features licensestore.Fea
 }
 
 func TestActivate_V2FieldsInResponse(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{
 			Report:               true,
 			Manage:               true,
@@ -113,8 +114,9 @@ func TestActivate_V2FieldsInResponse(t *testing.T) {
 func TestActivate_V2LegacyLicense_CompatFeaturesInResponse(t *testing.T) {
 	// A licence created without explicit v2 features (legacy tier-only) should
 	// still produce compat-derived features in the activate response.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL) // uses "pro", seats=3, no v2 fields
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt) // uses "pro", seats=3, no v2 fields
 
 	resp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "machine-legacy", "hostname": "host2", "os": "linux", "arch": "amd64",
@@ -137,8 +139,9 @@ func TestActivate_V2LegacyLicense_CompatFeaturesInResponse(t *testing.T) {
 
 func TestActivate_V2TokenCarriesV2Claims(t *testing.T) {
 	// Verify that the signed token returned by /activate carries v2 claims.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true, Manage: true},
 		licensestore.Limits{{Metric: "seats", Window: "total", Cap: 50}},
 	)

@@ -85,3 +85,14 @@ export interface DashboardStats {
   totalActivations: number;
   activeSeats: number;
 }
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'platform_admin';
+  mustChangePassword: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+}

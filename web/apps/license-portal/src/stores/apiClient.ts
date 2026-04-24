@@ -13,12 +13,13 @@ export const useApiClient = defineStore('apiClient', () => {
     const http = createHttp({
       baseUrl: '/api',
       authHeader: (): Record<string, string> =>
-        auth.key ? { 'X-Triton-Admin-Key': auth.key } : {},
+        auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
       onUnauthorized: () => {
         auth.clear();
+        cached = null;
         toast.error({
           title: 'Session expired',
-          description: 'Please re-enter the admin key.',
+          description: 'Please sign in again.',
         });
       },
     });

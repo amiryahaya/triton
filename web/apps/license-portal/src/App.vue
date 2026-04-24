@@ -1,25 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
-  TAppShell,
-  TSidebar,
-  TThemeToggle,
-  TAppSwitcher,
-  TCrumbBar,
-  TUserMenu,
-  TToastHost,
-  useTheme,
-  type Crumb,
+  TAppShell, TSidebar, TThemeToggle, TAppSwitcher, TCrumbBar, TUserMenu,
+  TToastHost, useTheme, useToast, type Crumb,
 } from '@triton/ui';
 import { TAuthGate } from '@triton/auth';
 import { nav, apps, PORTAL_ACCENT } from './nav';
 import { useAuthStore } from './stores/auth';
+import { useApiClient } from './stores/apiClient';
 
 useTheme();
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const api = useApiClient();
+const toast = useToast();
 
 const currentHref = computed(() => `#${route.path}`);
 
@@ -31,7 +27,10 @@ const crumbs = computed<Crumb[]>(() => {
     orgs: 'Organisations',
     licenses: 'Licences',
     audit: 'Audit log',
-    superadmins: 'Superadmins',
+    admin: 'Admin',
+    users: 'Users',
+    setup: 'Setup',
+    'change-password': 'Change password',
   };
   const parent = labels[first] ?? first;
   if (segments.length === 1) return [{ label: parent }];
@@ -41,14 +40,46 @@ const crumbs = computed<Crumb[]>(() => {
   ];
 });
 
-function signOut() {
+const userName = computed(() => auth.claims?.name || auth.claims?.sub || '');
+const userRole = computed(() => 'Platform admin');
+
+const loginError = ref<string>('');
+const loginBusy = ref<boolean>(false);
+
+async function onLogin(creds: { email: string; password: string }) {
+  loginError.value = '';
+  loginBusy.value = true;
+  try {
+    const resp = await api.get().login(creds);
+    auth.setToken(resp.token);
+    auth.setMustChange(resp.mustChangePassword);
+    if (resp.mustChangePassword) {
+      await router.replace('/change-password');
+    }
+  } catch (err) {
+    loginError.value = err instanceof Error ? err.message : 'Sign-in failed';
+  } finally {
+    loginBusy.value = false;
+  }
+}
+
+async function signOut() {
+  try { await api.get().logout(); } catch { /* best-effort */ }
   auth.clear();
-  router.replace('/');
+  toast.info({ title: 'Signed out' });
+  await router.replace('/');
 }
 </script>
 
 <template>
-  <TAuthGate type="adminKey">
+  <TAuthGate
+    type="jwt"
+    title="Triton License Server"
+    subtitle="Sign in to continue."
+    :error="loginError"
+    :busy="loginBusy"
+    @login="onLogin"
+  >
     <TAppShell :portal-accent="PORTAL_ACCENT">
       <template #sidebar>
         <TSidebar
@@ -56,32 +87,20 @@ function signOut() {
           portal-title="Triton"
           portal-subtitle="Licence"
           :current-href="currentHref"
-        >
-          <template #footer>
-            <div class="foot">
-              <strong>Superadmin</strong>
-              <span>ops@triton</span>
-            </div>
-          </template>
-        </TSidebar>
+        />
       </template>
-
       <template #topbar>
         <TCrumbBar :crumbs="crumbs" />
         <div class="top-right">
-          <TAppSwitcher
-            :apps="apps"
-            current-id="license"
-          />
+          <TAppSwitcher :apps="apps" current-id="license" />
           <TThemeToggle />
           <TUserMenu
-            name="ops@triton"
-            role="Superadmin"
+            :name="userName"
+            :role="userRole"
             @sign-out="signOut"
           />
         </div>
       </template>
-
       <router-view />
     </TAppShell>
   </TAuthGate>
@@ -89,18 +108,6 @@ function signOut() {
 </template>
 
 <style scoped>
-.foot {
-  display: flex;
-  flex-direction: column;
-  font-size: 0.7rem;
-  color: var(--text-muted);
-}
-.foot strong {
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 0.78rem;
-}
 .top-right {
   margin-left: auto;
   display: flex;

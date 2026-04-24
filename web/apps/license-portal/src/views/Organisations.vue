@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import {
-  TDataTable, TPanel, TButton, TConfirmDialog, useToast, type Column,
+  TDataTable, TPanel, TButton, TConfirmDialog, TPill, useToast, type Column,
 } from '@triton/ui';
 import type { Organisation } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
@@ -23,9 +23,10 @@ const columns: Column<OrgRow>[] = [
   { key: 'name', label: 'Name', width: '1.5fr' },
   { key: 'contact', label: 'Contact', width: '1.2fr' },
   { key: 'notes', label: 'Notes', width: '1.5fr' },
+  { key: 'activeActivations', label: 'Activations', width: '0.9fr' },
   { key: 'createdAt', label: 'Created', width: '1fr' },
   { key: 'updatedAt', label: 'Updated', width: '1fr' },
-  { key: 'id', label: '', width: '120px', align: 'right' },
+  { key: 'id', label: '', width: '220px', align: 'right' },
 ];
 
 async function load() {
@@ -68,14 +69,23 @@ async function confirmDelete() {
 async function onSubmit(payload: { name: string; contact?: string; notes?: string }) {
   try {
     const o = await api.get().createOrg(payload);
-    // Backend sorts organisations alphabetically by name. Refetch
-    // so the new row lands in the correct slot rather than at the
-    // end of the list (where push would put it).
     await load();
     formOpen.value = false;
     toast.success({ title: 'Organisation created', description: o.name });
   } catch (err) {
     toast.error({ title: 'Create failed', description: String(err) });
+  }
+}
+
+async function toggleSuspend(o: Organisation) {
+  const next = !o.suspended;
+  try {
+    await api.get().suspendOrg(o.id, next);
+    const idx = items.value.findIndex((x) => x.id === o.id);
+    if (idx !== -1) items.value[idx] = { ...items.value[idx], suspended: next };
+    toast.success({ title: next ? 'Organisation suspended' : 'Organisation unsuspended' });
+  } catch (err) {
+    toast.error({ title: 'Action failed', description: String(err) });
   }
 }
 </script>
@@ -102,15 +112,37 @@ async function onSubmit(payload: { name: string; contact?: string; notes?: strin
       :empty-text="loading ? 'Loading…' : 'No organisations yet.'"
       @row-click="onRowClick"
     >
+      <template #[`cell:name`]="{ row }">
+        <span class="name-cell">
+          {{ String(row.name) }}
+          <TPill
+            v-if="row.suspended"
+            variant="unsafe"
+          >Suspended</TPill>
+        </span>
+      </template>
+      <template #[`cell:activeActivations`]="{ row }">
+        {{ row.hasSeatedLicenses ? String(row.activeActivations) : '—' }}
+      </template>
       <template #[`cell:id`]="{ row }">
-        <TButton
-          variant="danger"
-          size="sm"
-          :data-test="`org-delete-${String(row.id)}`"
-          @click.stop="askDelete(row as unknown as Organisation)"
-        >
-          Delete
-        </TButton>
+        <span class="actions">
+          <TButton
+            variant="secondary"
+            size="sm"
+            :data-test="`org-suspend-${String(row.id)}`"
+            @click.stop="toggleSuspend(row as unknown as Organisation)"
+          >
+            {{ row.suspended ? 'Unsuspend' : 'Suspend' }}
+          </TButton>
+          <TButton
+            variant="danger"
+            size="sm"
+            :data-test="`org-delete-${String(row.id)}`"
+            @click.stop="askDelete(row as unknown as Organisation)"
+          >
+            Delete
+          </TButton>
+        </span>
       </template>
     </TDataTable>
   </TPanel>
@@ -133,3 +165,8 @@ async function onSubmit(payload: { name: string; contact?: string; notes?: strin
     @cancel="confirmOpen = false; pendingDelete = null"
   />
 </template>
+
+<style scoped>
+.name-cell { display: flex; align-items: center; gap: var(--space-2); }
+.actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+</style>

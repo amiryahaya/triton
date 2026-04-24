@@ -370,6 +370,22 @@ func (s *PostgresStore) CountCompletedSince(ctx context.Context, tenantID uuid.U
 	return n, nil
 }
 
+// CountActive returns the number of scan jobs in queued or running state
+// for the given tenant. Used by the deactivation watcher to determine
+// whether it is safe to proceed with licence deactivation.
+func (s *PostgresStore) CountActive(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_scan_jobs
+		 WHERE tenant_id = $1 AND status IN ('queued', 'running')`,
+		tenantID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count active scan jobs: %w", err)
+	}
+	return n, nil
+}
+
 // ReapStale reverts running jobs whose heartbeat is older than
 // staleAfter back to queued so another worker can pick them up.
 // Returns the number of rows revived.

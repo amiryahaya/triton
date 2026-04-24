@@ -13,12 +13,19 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: [web]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Download built portals
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-dist
+          path: pkg/
 
       - uses: golangci/golangci-lint-action@v7
         with:
@@ -84,6 +91,7 @@ jobs:
   test:
     name: Unit Test
     runs-on: ubuntu-latest
+    needs: [web]
     services:
       postgres:
         image: postgres:18
@@ -104,6 +112,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Download built portals
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-dist
+          path: pkg/
 
       - name: Generate test fixtures
         run: go run test/fixtures/generate.go
@@ -184,6 +198,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Download built portals
+        uses: actions/download-artifact@v4
+        with:
+          name: portal-dist
+          path: pkg/
 
       - name: Build triton
         run: go build -o bin/triton main.go

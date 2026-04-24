@@ -97,4 +97,9 @@ type Store interface {
 	// UTC in the DB, so callers must supply `since` in UTC (or any zone
 	// — the comparison is timestamp-absolute).
 	CountCompletedSince(ctx context.Context, tenantID uuid.UUID, since time.Time) (int64, error)
+
+	// CountActive returns the number of scan jobs in queued or running
+	// state for the given tenant. Used by the deactivation watcher to
+	// determine whether it is safe to proceed with licence deactivation.
+	CountActive(ctx context.Context, tenantID uuid.UUID) (int64, error)
 }

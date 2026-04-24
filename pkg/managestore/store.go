@@ -30,13 +30,14 @@ type ManageSession struct {
 
 // SetupState is the singleton row tracking Manage Server initialisation.
 type SetupState struct {
-	AdminCreated     bool
-	LicenseActivated bool
-	LicenseServerURL string
-	LicenseKey       string
-	SignedToken      string
-	InstanceID       string
-	UpdatedAt        time.Time
+	AdminCreated        bool
+	LicenseActivated    bool
+	LicenseServerURL    string
+	LicenseKey          string
+	SignedToken         string
+	InstanceID          string
+	PendingDeactivation bool
+	UpdatedAt           time.Time
 }
 
 // Store is the Manage Server's storage surface.
@@ -65,6 +66,14 @@ type Store interface {
 	GetSetup(ctx context.Context) (*SetupState, error)
 	MarkAdminCreated(ctx context.Context) error
 	SaveLicenseActivation(ctx context.Context, serverURL, key, signedToken, instanceID string) error
+	// UpdateLicenseToken replaces only the signed token after a licence refresh.
+	UpdateLicenseToken(ctx context.Context, token string) error
+	// UpdateLicenseKey replaces the licence key and signed token together.
+	UpdateLicenseKey(ctx context.Context, key, token string) error
+	// SetPendingDeactivation sets or clears the pending_deactivation flag.
+	SetPendingDeactivation(ctx context.Context, pending bool) error
+	// ClearLicenseActivation resets all activation fields, entering setup mode.
+	ClearLicenseActivation(ctx context.Context) error
 
 	Close() error
 }

@@ -8,6 +8,7 @@ import type {
   CreateUserReq, CreateUserResp,
   LicenceSummary, SettingsSummary, GatewayHealthResponse,
   SecurityEventsResponse,
+  LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
 } from './manageServer.types';
 
 /**
@@ -93,6 +94,19 @@ export function createManageApi(http: Http) {
 
     // Licence summary (Batch E)
     getLicence: () => http.get<LicenceSummary>('/v1/admin/licence'),
+
+    // Licence lifecycle (Batch E.1 — Task 9)
+    refreshLicence: () =>
+      http.post<LicenceLifecycleResp>('/v1/admin/licence/refresh', {}),
+
+    replaceLicenceKey: (req: ReplaceLicenceKeyReq) =>
+      http.post<LicenceLifecycleResp>('/v1/admin/licence/replace', req),
+
+    deactivateLicence: () =>
+      http.post<DeactivateLicenceResp>('/v1/admin/licence/deactivate', {}),
+
+    cancelDeactivation: () =>
+      http.del<{ ok: boolean }>('/v1/admin/licence/deactivation'),
 
     // Runtime settings (Batch F)
     getSettings: () => http.get<SettingsSummary>('/v1/admin/settings'),

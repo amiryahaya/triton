@@ -3,6 +3,8 @@ package manageserver
 import (
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // LicenceSummary is the JSON body of GET /api/v1/admin/licence.
@@ -20,6 +22,8 @@ type LicenceSummary struct {
 	LastPushedAt        *time.Time      `json:"last_pushed_at"`
 	LastPushError       string          `json:"last_push_error"`
 	ConsecutiveFailures int             `json:"consecutive_failures"`
+	PendingDeactivation bool            `json:"pending_deactivation"`
+	ActiveScans         int             `json:"active_scans"`
 }
 
 // LicenceLimits bundles the four tracked cap/usage pairs.
@@ -90,6 +94,16 @@ func (s *Server) handleLicenceSummary(w http.ResponseWriter, r *http.Request) {
 		LastPushedAt:        state.LastPushedAt,
 		LastPushError:       state.LastPushError,
 		ConsecutiveFailures: state.ConsecutiveFailures,
+		PendingDeactivation: setup.PendingDeactivation,
+	}
+
+	// ActiveScans: non-fatal; defaults to 0 on error or missing instance_id.
+	if setup.InstanceID != "" {
+		if tenantID, err := uuid.Parse(setup.InstanceID); err == nil {
+			if n, err := s.scanjobsStore.CountActive(r.Context(), tenantID); err == nil {
+				resp.ActiveScans = int(n)
+			}
+		}
 	}
 	resp.Limits.Seats = LimitPair{
 		Cap:  guard.LimitCap("seats", "total"),

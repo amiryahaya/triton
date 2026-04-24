@@ -92,6 +92,19 @@ type Server struct {
 	agentStore    agents.Store
 	agentsAdmin   *agents.AdminHandlers
 	agentsGateway *agents.GatewayHandlers
+
+	// watcherRunning guards the single-watcher invariant for the
+	// deactivation watcher goroutine. CompareAndSwap ensures at most
+	// one goroutine is running at any time, preventing TOCTOU races
+	// from concurrent handleLicenceDeactivate calls or a boot-time
+	// resume racing a concurrent request.
+	watcherRunning atomic.Bool
+
+	// runCtx is the context passed to Run(). Set once at Run() entry and
+	// used by goroutines spawned from HTTP handlers that must respect server
+	// shutdown (e.g. the deactivation watcher). Nil until Run() is called
+	// (e.g. in unit tests); callers must use a nil-safe fallback.
+	runCtx context.Context
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
@@ -266,16 +279,21 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.injectInstanceOrg)
 		r.Route("/zones", func(r chi.Router) { zones.MountAdminRoutes(r, s.zonesAdmin) })
 		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
-		r.Route("/scan-jobs", func(r chi.Router) { scanjobs.MountAdminRoutes(r, s.scanjobsAdmin) })
+		r.Route("/scan-jobs", func(r chi.Router) {
+			r.Use(s.rejectWhenDeactivationPending)
+			scanjobs.MountAdminRoutes(r, s.scanjobsAdmin)
+		})
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
 		r.Get("/gateway-health", s.handleGatewayHealth)
 		r.Get("/licence", s.handleLicenceSummary)
 		r.Get("/settings", s.handleSettings)
 
-		// Admin-only subtree (user CRUD, agent enrol). Role check is
-		// chained in addition to jwtAuth so a network_engineer session
-		// hits 403 rather than silently producing licence-seat output.
+		// Admin-only subtree (user CRUD, agent enrol, licence lifecycle).
+		// Role check is chained in addition to jwtAuth so a
+		// network_engineer session hits 403 rather than silently
+		// producing licence-seat output. Licence lifecycle routes are
+		// destructive operations and require admin role.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireRole("admin"))
 			r.Route("/users", func(r chi.Router) {
@@ -286,6 +304,11 @@ func (s *Server) buildRouter() chi.Router {
 			r.Route("/enrol", func(r chi.Router) { agents.MountEnrolRoutes(r, s.agentsAdmin) })
 			r.Get("/security-events", s.handleListSecurityEvents)
 			r.Delete("/security-events", s.handleClearSecurityEvent)
+			// Licence lifecycle — destructive operations restricted to admin role.
+			r.Post("/licence/refresh", s.handleLicenceRefresh)
+			r.Post("/licence/replace", s.handleLicenceReplace)
+			r.Post("/licence/deactivate", s.handleLicenceDeactivate)
+			r.Delete("/licence/deactivation", s.handleCancelDeactivation)
 		})
 	})
 
@@ -315,12 +338,27 @@ func (s *Server) buildRouter() chi.Router {
 // is coupled to ctx but independent of the admin listener — a gateway
 // failure is logged but never crashes the admin plane.
 func (s *Server) Run(ctx context.Context) error {
+	// Store the server context so handler-spawned goroutines (e.g. the
+	// deactivation watcher) can respect server shutdown without holding
+	// a stale request context.
+	s.runCtx = ctx
+
 	// Spawn the Batch E scanner pipeline before the HTTP listener comes
 	// up so we never serve /scan-jobs while the orchestrator is offline.
 	// startScannerPipeline derives a cancellable child context from ctx;
 	// stopScannerPipeline waits for graceful exit. CA bootstrap rides
 	// on the same instance_id resolution.
 	pipelineWG := s.startScannerPipeline(ctx)
+
+	// Resume pending deactivation watcher if server was restarted mid-deactivation.
+	if setup, err := s.store.GetSetup(ctx); err == nil && setup.PendingDeactivation {
+		if s.watcherRunning.CompareAndSwap(false, true) {
+			go func() {
+				defer s.watcherRunning.Store(false)
+				s.runDeactivationWatcher(ctx)
+			}()
+		}
+	}
 
 	// Gateway listener runs concurrently with admin. Spawn it AFTER
 	// startScannerPipeline (which bootstraps the CA) so the retry loop
@@ -609,6 +647,20 @@ func (s *Server) bootstrapCA(ctx context.Context, instanceID string) {
 	if _, err := s.caStore.Bootstrap(ctx, instanceID); err != nil {
 		log.Printf("manageserver: bootstrap CA: %v (gateway will be disabled)", err)
 	}
+}
+
+// rejectWhenDeactivationPending blocks new scan job creation (POST) when
+// a deactivation is scheduled.
+func (s *Server) rejectWhenDeactivationPending(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			if state, err := s.store.GetSetup(r.Context()); err == nil && state.PendingDeactivation {
+				writeError(w, http.StatusConflict, "deactivation pending; no new scan jobs accepted")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // manageSecurityHeaders adds baseline security headers to every response.

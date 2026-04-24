@@ -105,6 +105,50 @@ describe('createManageApi', () => {
   });
 });
 
+describe('licence lifecycle (Task 9)', () => {
+  let fake: ReturnType<typeof mockHttpCapture>;
+  let api: ReturnType<typeof createManageApi>;
+  beforeEach(() => {
+    fake = mockHttpCapture();
+    api = createManageApi(fake.http);
+  });
+
+  it('refreshLicence POSTs /v1/admin/licence/refresh', async () => {
+    await api.refreshLicence();
+    expect(fake.calls[0]).toEqual({
+      method: 'POST',
+      path: '/v1/admin/licence/refresh',
+      body: {},
+    });
+  });
+
+  it('replaceLicenceKey POSTs /v1/admin/licence/replace with license_key', async () => {
+    await api.replaceLicenceKey({ license_key: 'new-key-123' });
+    expect(fake.calls[0]).toEqual({
+      method: 'POST',
+      path: '/v1/admin/licence/replace',
+      body: { license_key: 'new-key-123' },
+    });
+  });
+
+  it('deactivateLicence POSTs /v1/admin/licence/deactivate', async () => {
+    await api.deactivateLicence();
+    expect(fake.calls[0]).toEqual({
+      method: 'POST',
+      path: '/v1/admin/licence/deactivate',
+      body: {},
+    });
+  });
+
+  it('cancelDeactivation DELETEs /v1/admin/licence/deactivation', async () => {
+    await api.cancelDeactivation();
+    expect(fake.calls[0]).toEqual({
+      method: 'DELETE',
+      path: '/v1/admin/licence/deactivation',
+    });
+  });
+});
+
 describe('enrolAgent (direct fetch)', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
 

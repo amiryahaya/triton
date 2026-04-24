@@ -827,4 +827,36 @@ CREATE TABLE IF NOT EXISTS manage_instances (
 		CHECK (status IN ('active','revoked'))
 );
 `,
+
+	// Version 27: Platform admin role + Report Portal licensing schema.
+	//
+	// - users.org_id made nullable so platform_admin users can exist without an org.
+	// - users role CHECK expanded to include 'platform_admin' and 'org_officer'.
+	// - report_instance: stable UUID identifying this Report Portal deployment.
+	// - tenant_licences: caches the activation token + expiry per tenant.
+	// - organizations.licence_id: the licence key used to activate this tenant.
+	`ALTER TABLE users ALTER COLUMN org_id DROP NOT NULL;
+
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check
+    CHECK (role IN ('platform_admin', 'org_admin', 'org_user', 'org_officer'));
+
+CREATE TABLE IF NOT EXISTS report_instance (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tenant_licences (
+    org_id       UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+    licence_id   TEXT NOT NULL,
+    token        TEXT NOT NULL,
+    activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    renewed_at   TIMESTAMPTZ,
+    status       TEXT NOT NULL DEFAULT 'active'
+                 CHECK (status IN ('active', 'grace', 'expired'))
+);
+
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS licence_id TEXT NOT NULL DEFAULT '';`,
 }

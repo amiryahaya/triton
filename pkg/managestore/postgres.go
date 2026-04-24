@@ -452,6 +452,46 @@ func (s *PostgresStore) SaveLicenseActivation(ctx context.Context, serverURL, ke
 	return err
 }
 
+func (s *PostgresStore) UpdateLicenseToken(ctx context.Context, token string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE manage_setup SET signed_token = $1, updated_at = NOW() WHERE id = 1`,
+		token,
+	)
+	return err
+}
+
+func (s *PostgresStore) UpdateLicenseKey(ctx context.Context, key, token string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE manage_setup SET license_key = $1, signed_token = $2, updated_at = NOW()
+		WHERE id = 1`,
+		key, token,
+	)
+	return err
+}
+
+func (s *PostgresStore) SetPendingDeactivation(ctx context.Context, pending bool) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE manage_setup SET pending_deactivation = $1, updated_at = NOW() WHERE id = 1`,
+		pending,
+	)
+	return err
+}
+
+func (s *PostgresStore) ClearLicenseActivation(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE manage_setup
+		SET license_activated    = FALSE,
+		    license_server_url   = '',
+		    license_key          = '',
+		    signed_token         = '',
+		    instance_id          = NULL,
+		    pending_deactivation = FALSE,
+		    updated_at           = NOW()
+		WHERE id = 1`,
+	)
+	return err
+}
+
 // --- Test helpers ----------------------------------------------------------
 
 // ExecForTest exposes the pool's Exec for schema-inspection tests.

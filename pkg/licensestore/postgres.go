@@ -177,6 +177,8 @@ func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, e
 	if err != nil {
 		return nil, fmt.Errorf("getting organization: %w", err)
 	}
+	// ActiveActivations and HasSeatedLicenses are zero here — only ListOrgs
+	// populates them via subquery. Callers that need accurate counts must use ListOrgs.
 	return &org, nil
 }
 
@@ -259,7 +261,7 @@ func (s *PostgresStore) SuspendOrg(ctx context.Context, id string, suspended boo
 		id, suspended,
 	)
 	if err != nil {
-		return fmt.Errorf("suspending organization: %w", err)
+		return fmt.Errorf("updating organization suspended state: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return &ErrNotFound{Resource: "organization", ID: id}

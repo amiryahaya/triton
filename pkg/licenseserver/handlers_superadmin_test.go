@@ -15,9 +15,9 @@ import (
 // --- Helpers ---
 
 // createSuperadmin posts a superadmin and returns the parsed response.
-func createSuperadmin(t *testing.T, tsURL string, body map[string]any) *http.Response {
+func createSuperadmin(t *testing.T, tsURL, jwt string, body map[string]any) *http.Response {
 	t.Helper()
-	return adminReq(t, http.MethodPost, tsURL+"/api/v1/admin/superadmins", body)
+	return adminReq(t, jwt, http.MethodPost, tsURL+"/api/v1/admin/superadmins", body)
 }
 
 // validSuperadminBody returns a body that should always pass validation.
@@ -32,8 +32,9 @@ func validSuperadminBody(email string) map[string]any {
 // --- Happy paths ---
 
 func TestCreateSuperadmin(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("alice@example.com"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("alice@example.com"))
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
@@ -47,31 +48,43 @@ func TestCreateSuperadmin(t *testing.T) {
 }
 
 func TestListSuperadmins(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	for _, email := range []string{"a@example.com", "b@example.com", "c@example.com"} {
-		resp := createSuperadmin(t, ts.URL, validSuperadminBody(email))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	wantEmails := []string{"a@example.com", "b@example.com", "c@example.com"}
+	for _, email := range wantEmails {
+		resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody(email))
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
 		resp.Body.Close()
 	}
 
-	resp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins", nil)
+	resp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var list []map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
-	assert.Len(t, list, 3)
+	// The schema also contains the setup admin user created by quickAdminJWT,
+	// so there is at least len(wantEmails) + 1 entries.
+	assert.GreaterOrEqual(t, len(list), len(wantEmails))
+	gotEmails := make([]string, 0, len(list))
+	for _, u := range list {
+		gotEmails = append(gotEmails, u["email"].(string))
+	}
+	for _, e := range wantEmails {
+		assert.Contains(t, gotEmails, e)
+	}
 }
 
 func TestGetSuperadmin(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("get@example.com"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("get@example.com"))
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	created := decodeJSON(t, resp)
 	resp.Body.Close()
 	id := created["id"].(string)
 
-	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	getResp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer getResp.Body.Close()
 	assert.Equal(t, http.StatusOK, getResp.StatusCode)
 	got := decodeJSON(t, getResp)
@@ -80,14 +93,15 @@ func TestGetSuperadmin(t *testing.T) {
 }
 
 func TestUpdateSuperadminName(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("rename@example.com"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("rename@example.com"))
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	created := decodeJSON(t, resp)
 	resp.Body.Close()
 	id := created["id"].(string)
 
-	updateResp := adminReq(t, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
+	updateResp := adminReq(t, jwt, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
 		"name": "New Name",
 	})
 	defer updateResp.Body.Close()
@@ -98,7 +112,8 @@ func TestUpdateSuperadminName(t *testing.T) {
 
 func TestUpdateSuperadminPassword(t *testing.T) {
 	ts, store := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("pwchange@example.com"))
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("pwchange@example.com"))
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	created := decodeJSON(t, resp)
 	resp.Body.Close()
@@ -109,7 +124,7 @@ func TestUpdateSuperadminPassword(t *testing.T) {
 	require.NoError(t, err)
 	originalHash := original.Password
 
-	updateResp := adminReq(t, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
+	updateResp := adminReq(t, jwt, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
 		"password": "another-strong-passphrase",
 	})
 	defer updateResp.Body.Close()
@@ -122,25 +137,26 @@ func TestUpdateSuperadminPassword(t *testing.T) {
 }
 
 func TestDeleteSuperadmin(t *testing.T) {
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 	// Create two superadmins so deleting one doesn't trip the last-admin guard.
-	resp1 := createSuperadmin(t, ts.URL, validSuperadminBody("keeper@example.com"))
+	resp1 := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("keeper@example.com"))
 	require.Equal(t, http.StatusCreated, resp1.StatusCode)
 	resp1.Body.Close()
 
-	resp2 := createSuperadmin(t, ts.URL, validSuperadminBody("delete@example.com"))
+	resp2 := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("delete@example.com"))
 	require.Equal(t, http.StatusCreated, resp2.StatusCode)
 	created := decodeJSON(t, resp2)
 	resp2.Body.Close()
 	id := created["id"].(string)
 
-	delResp := adminReq(t, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	delResp := adminReq(t, jwt, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer delResp.Body.Close()
 	assert.Equal(t, http.StatusOK, delResp.StatusCode)
 	delBody := decodeJSON(t, delResp)
 	assert.Equal(t, "deleted", delBody["status"])
 
-	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	getResp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer getResp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
 }
@@ -151,20 +167,49 @@ func TestDeleteSuperadmin(t *testing.T) {
 // and then deletes the last would need to directly manipulate the DB to
 // recover.
 func TestDeleteLastSuperadminRefused(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	// Only one superadmin in the table.
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("only@example.com"))
+	ts, store := setupTestServer(t)
+	setupEmail, _ := setupAdminUser(t, store)
+	jwt := loginViaAPI(t, ts.URL, setupEmail, "TestPassword123!")
+
+	// Create a second admin with a known password so we can log in as them later.
+	const onlyPwd = "correct-horse-battery-staple"
+	onlyBody := map[string]any{
+		"email": "only@example.com", "name": "Only Admin", "password": onlyPwd,
+	}
+	resp := createSuperadmin(t, ts.URL, jwt, onlyBody)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	created := decodeJSON(t, resp)
 	resp.Body.Close()
-	id := created["id"].(string)
+	onlyID := created["id"].(string)
 
-	delResp := adminReq(t, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	// Delete the setup admin so that "only@example.com" is the sole admin.
+	listResp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins", nil)
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+	var list []map[string]any
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&list))
+	listResp.Body.Close()
+	var setupAdminID string
+	for _, u := range list {
+		if u["email"].(string) == setupEmail {
+			setupAdminID = u["id"].(string)
+		}
+	}
+	require.NotEmpty(t, setupAdminID, "could not find setup admin in list")
+	delSetup := adminReq(t, jwt, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+setupAdminID, nil)
+	delSetup.Body.Close()
+	require.Equal(t, http.StatusOK, delSetup.StatusCode)
+
+	// The setup admin's JWT is now invalidated (user deleted). Log in as the
+	// sole remaining admin to get a fresh token.
+	onlyJWT := loginViaAPI(t, ts.URL, "only@example.com", onlyPwd)
+
+	// Now only "only@example.com" remains — deleting it must be refused.
+	delResp := adminReq(t, onlyJWT, http.MethodDelete, ts.URL+"/api/v1/admin/superadmins/"+onlyID, nil)
 	defer delResp.Body.Close()
 	assert.Equal(t, http.StatusConflict, delResp.StatusCode)
 
 	// And the user must still exist.
-	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	getResp := adminReq(t, onlyJWT, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+onlyID, nil)
 	defer getResp.Body.Close()
 	assert.Equal(t, http.StatusOK, getResp.StatusCode)
 }
@@ -184,8 +229,9 @@ func errorBody(t *testing.T, resp *http.Response) string {
 }
 
 func TestCreateSuperadminMissingEmail(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, map[string]any{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, map[string]any{
 		"name":     "No Email",
 		"password": "correct-horse-battery-staple",
 	})
@@ -195,8 +241,9 @@ func TestCreateSuperadminMissingEmail(t *testing.T) {
 }
 
 func TestCreateSuperadminMissingPassword(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, map[string]any{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, map[string]any{
 		"email": "nopw@example.com",
 		"name":  "No Password",
 	})
@@ -206,8 +253,9 @@ func TestCreateSuperadminMissingPassword(t *testing.T) {
 }
 
 func TestCreateSuperadminWeakPassword(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, map[string]any{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, map[string]any{
 		"email":    "weak@example.com",
 		"name":     "Weak Pwd",
 		"password": "short",
@@ -218,8 +266,9 @@ func TestCreateSuperadminWeakPassword(t *testing.T) {
 }
 
 func TestCreateSuperadminInvalidEmail(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, map[string]any{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, map[string]any{
 		"email":    "notanemail",
 		"name":     "Bad Email",
 		"password": "correct-horse-battery-staple",
@@ -230,19 +279,21 @@ func TestCreateSuperadminInvalidEmail(t *testing.T) {
 }
 
 func TestCreateSuperadminDuplicateEmail(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp1 := createSuperadmin(t, ts.URL, validSuperadminBody("dup@example.com"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp1 := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("dup@example.com"))
 	require.Equal(t, http.StatusCreated, resp1.StatusCode)
 	resp1.Body.Close()
 
-	resp2 := createSuperadmin(t, ts.URL, validSuperadminBody("dup@example.com"))
+	resp2 := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("dup@example.com"))
 	defer resp2.Body.Close()
 	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
 }
 
 func TestCreateSuperadminIgnoresRole(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, map[string]any{
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, map[string]any{
 		"email":    "sneaky@example.com",
 		"name":     "Sneaky",
 		"password": "correct-horse-battery-staple",
@@ -258,21 +309,23 @@ func TestCreateSuperadminIgnoresRole(t *testing.T) {
 // name nor password fields returns 400, rather than silently touching the
 // row and polluting the audit log with a no-op event.
 func TestUpdateSuperadminEmptyBodyRejected(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("emptyput@example.com"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("emptyput@example.com"))
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	created := decodeJSON(t, resp)
 	resp.Body.Close()
 	id := created["id"].(string)
 
-	updateResp := adminReq(t, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{})
+	updateResp := adminReq(t, jwt, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{})
 	defer updateResp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, updateResp.StatusCode)
 }
 
 func TestGetSuperadminNotFound(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/00000000-0000-0000-0000-000000000000", nil)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/00000000-0000-0000-0000-000000000000", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -292,8 +345,9 @@ func TestSuperadminRoutesRequireAdminKey(t *testing.T) {
 // --- Security ---
 
 func TestPasswordNeverInResponse(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	resp := createSuperadmin(t, ts.URL, validSuperadminBody("pwleak@example.com"))
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	resp := createSuperadmin(t, ts.URL, jwt, validSuperadminBody("pwleak@example.com"))
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	created := decodeJSON(t, resp)
 	resp.Body.Close()
@@ -303,14 +357,14 @@ func TestPasswordNeverInResponse(t *testing.T) {
 	assert.False(t, hasPwdCreate, "password must not appear in create response")
 
 	// GET single
-	getResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
+	getResp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins/"+id, nil)
 	defer getResp.Body.Close()
 	got := decodeJSON(t, getResp)
 	_, hasPwdGet := got["password"]
 	assert.False(t, hasPwdGet, "password must not appear in get response")
 
 	// LIST — must not leak password on any element
-	listResp := adminReq(t, http.MethodGet, ts.URL+"/api/v1/admin/superadmins", nil)
+	listResp := adminReq(t, jwt, http.MethodGet, ts.URL+"/api/v1/admin/superadmins", nil)
 	defer listResp.Body.Close()
 	var listBody []map[string]any
 	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listBody))
@@ -321,7 +375,7 @@ func TestPasswordNeverInResponse(t *testing.T) {
 	}
 
 	// UPDATE — response is the updated user, must not leak password
-	updateResp := adminReq(t, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
+	updateResp := adminReq(t, jwt, http.MethodPut, ts.URL+"/api/v1/admin/superadmins/"+id, map[string]any{
 		"name": "Renamed",
 	})
 	defer updateResp.Body.Close()

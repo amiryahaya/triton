@@ -15,8 +15,9 @@ import (
 )
 
 func TestValidate_V2FieldsInResponse(t *testing.T) {
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{
 			Report:               true,
 			Manage:               true,
@@ -80,8 +81,9 @@ func TestValidate_V2FieldsInResponse(t *testing.T) {
 func TestValidate_V2LegacyLicense_CompatFeaturesInResponse(t *testing.T) {
 	// A legacy licence (tier-only, no v2 features) should still include
 	// compat-derived features in the validate response.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicense(t, ts.URL) // "pro", no v2 fields
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicense(t, ts.URL, jwt) // "pro", no v2 fields
 
 	actResp := clientReq(t, "POST", ts.URL+"/api/v1/license/activate", map[string]string{
 		"licenseID": licID, "machineID": "machine-legacy-val",
@@ -110,8 +112,9 @@ func TestValidate_V2LegacyLicense_CompatFeaturesInResponse(t *testing.T) {
 
 func TestValidate_V2UsageReflectedAfterPush(t *testing.T) {
 	// Push usage via /usage, then verify /validate response reflects current usage.
-	ts, _ := setupTestServer(t)
-	_, licID := createOrgAndLicenseV2(t, ts.URL,
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
+	_, licID := createOrgAndLicenseV2(t, ts.URL, jwt,
 		licensestore.Features{Report: true},
 		licensestore.Limits{{Metric: "seats", Window: "total", Cap: 50}},
 	)

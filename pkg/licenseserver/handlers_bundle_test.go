@@ -17,18 +17,19 @@ import (
 )
 
 // createLicenseForBundle is a helper that creates an org + license and returns
-// (ts.URL, licenseID). Reuses the setupTestServerWithPublicURL helper from
+// (tsURL, jwt, licID, binDir). Reuses the setupTestServerWithPublicURL helper from
 // handlers_install_test.go which provides PublicURL + BinariesDir.
-func createLicenseForBundle(t *testing.T) (tsURL string, licID string, binDir string) {
+func createLicenseForBundle(t *testing.T) (tsURL string, jwt string, licID string, binDir string) {
 	t.Helper()
-	ts, bd := setupTestServerWithPublicURL(t)
+	ts, store, bd := setupTestServerWithPublicURL(t)
+	jwt = quickAdminJWT(t, ts, store)
 	tsURL = ts.URL
 
-	orgResp := adminReq(t, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "BundleOrg"})
+	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "BundleOrg"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "enterprise", "seats": 5, "days": 365,
 	})
 	licResult := decodeJSON(t, licResp)
@@ -38,12 +39,12 @@ func createLicenseForBundle(t *testing.T) (tsURL string, licID string, binDir st
 }
 
 func TestHandleDownloadBundle_LinuxTarGz(t *testing.T) {
-	tsURL, licID, binDir := createLicenseForBundle(t)
+	tsURL, jwt, licID, binDir := createLicenseForBundle(t)
 
 	// Seed a linux/amd64 binary.
 	seedBinary(t, binDir, "1.0.0", "linux", "amd64", "fake-triton-linux")
 
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "linux", "arch": "amd64", "profile": "comprehensive",
 	})
 	defer resp.Body.Close()
@@ -93,12 +94,12 @@ func TestHandleDownloadBundle_LinuxTarGz(t *testing.T) {
 }
 
 func TestHandleDownloadBundle_WindowsZip(t *testing.T) {
-	tsURL, licID, binDir := createLicenseForBundle(t)
+	tsURL, jwt, licID, binDir := createLicenseForBundle(t)
 
 	// Seed a windows/amd64 binary.
 	seedBinary(t, binDir, "1.0.0", "windows", "amd64", "fake-triton-windows")
 
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "windows", "arch": "amd64",
 	})
 	defer resp.Body.Close()
@@ -135,10 +136,10 @@ func TestHandleDownloadBundle_WindowsZip(t *testing.T) {
 }
 
 func TestHandleDownloadBundle_NoBinaryAvailable(t *testing.T) {
-	tsURL, licID, _ := createLicenseForBundle(t)
+	tsURL, jwt, licID, _ := createLicenseForBundle(t)
 
 	// No binaries seeded — request darwin/arm64.
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "darwin", "arch": "arm64",
 	})
 	defer resp.Body.Close()
@@ -150,15 +151,15 @@ func TestHandleDownloadBundle_NoBinaryAvailable(t *testing.T) {
 }
 
 func TestHandleDownloadBundle_RevokedLicense(t *testing.T) {
-	tsURL, licID, binDir := createLicenseForBundle(t)
+	tsURL, jwt, licID, binDir := createLicenseForBundle(t)
 
 	seedBinary(t, binDir, "1.0.0", "linux", "amd64", "fake-triton")
 
 	// Revoke the license.
-	revokeResp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
+	revokeResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
 	revokeResp.Body.Close()
 
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "linux", "arch": "amd64",
 	})
 	defer resp.Body.Close()
@@ -166,9 +167,9 @@ func TestHandleDownloadBundle_RevokedLicense(t *testing.T) {
 }
 
 func TestHandleDownloadBundle_InvalidOS(t *testing.T) {
-	tsURL, licID, _ := createLicenseForBundle(t)
+	tsURL, jwt, licID, _ := createLicenseForBundle(t)
 
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "freebsd", "arch": "amd64",
 	})
 	defer resp.Body.Close()
@@ -176,9 +177,9 @@ func TestHandleDownloadBundle_InvalidOS(t *testing.T) {
 }
 
 func TestHandleDownloadBundle_WindowsArm64Unsupported(t *testing.T) {
-	tsURL, licID, _ := createLicenseForBundle(t)
+	tsURL, jwt, licID, _ := createLicenseForBundle(t)
 
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "windows", "arch": "arm64",
 	})
 	defer resp.Body.Close()
@@ -186,12 +187,12 @@ func TestHandleDownloadBundle_WindowsArm64Unsupported(t *testing.T) {
 }
 
 func TestHandleDownloadBundle_DefaultProfile(t *testing.T) {
-	tsURL, licID, binDir := createLicenseForBundle(t)
+	tsURL, jwt, licID, binDir := createLicenseForBundle(t)
 
 	seedBinary(t, binDir, "1.0.0", "linux", "amd64", "fake-triton")
 
 	// Empty profile should default to "comprehensive".
-	resp := adminReq(t, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
+	resp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/licenses/"+licID+"/bundle", map[string]any{
 		"os": "linux", "arch": "amd64",
 	})
 	defer resp.Body.Close()

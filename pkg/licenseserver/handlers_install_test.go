@@ -25,21 +25,22 @@ import (
 // --- Install Token Generation ---
 
 func TestHandleInstallToken_Success(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
 
 	// Create org + license.
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallOrg"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "enterprise", "seats": 5, "days": 365,
 	})
 	licResult := decodeJSON(t, licResp)
 	licID := licResult["id"].(string)
 
 	// Generate install token.
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -56,50 +57,53 @@ func TestHandleInstallToken_Success(t *testing.T) {
 
 func TestHandleInstallToken_NoPublicURL(t *testing.T) {
 	// setupTestServer does NOT set PublicURL.
-	ts, _ := setupTestServer(t)
+	ts, store := setupTestServer(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NoURLOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NoURLOrg"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "pro", "seats": 1, "days": 30,
 	})
 	licResult := decodeJSON(t, licResp)
 	licID := licResult["id"].(string)
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestHandleInstallToken_RevokedLicense(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokedOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokedOrg"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "pro", "seats": 1, "days": 30,
 	})
 	licResult := decodeJSON(t, licResp)
 	licID := licResult["id"].(string)
 
 	// Revoke
-	revokeResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
+	revokeResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
 	revokeResp.Body.Close()
 
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestHandleInstallToken_NotFound(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
 
 	// Use a valid UUID format that doesn't exist in the database.
-	resp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/00000000-0000-0000-0000-000000000000/install-token", nil)
+	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/00000000-0000-0000-0000-000000000000/install-token", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -107,8 +111,9 @@ func TestHandleInstallToken_NotFound(t *testing.T) {
 // --- Install Script ---
 
 func TestHandleInstallScript_Bash(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
-	token := generateInstallToken(t, ts)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
+	token := generateInstallToken(t, ts, jwt)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/" + token)
 	require.NoError(t, err)
@@ -122,8 +127,9 @@ func TestHandleInstallScript_Bash(t *testing.T) {
 }
 
 func TestHandleInstallScript_Ps1(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
-	token := generateInstallToken(t, ts)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
+	token := generateInstallToken(t, ts, jwt)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/" + token + "?shell=ps1")
 	require.NoError(t, err)
@@ -136,7 +142,7 @@ func TestHandleInstallScript_Ps1(t *testing.T) {
 }
 
 func TestHandleInstallScript_InvalidToken(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
+	ts, _, _ := setupTestServerWithPublicURL(t)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/invalid-token")
 	require.NoError(t, err)
@@ -147,8 +153,9 @@ func TestHandleInstallScript_InvalidToken(t *testing.T) {
 // --- Install Binary ---
 
 func TestHandleInstallBinary_Success(t *testing.T) {
-	ts, binDir := setupTestServerWithPublicURL(t)
-	token := generateInstallToken(t, ts)
+	ts, store, binDir := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
+	token := generateInstallToken(t, ts, jwt)
 
 	// Seed a fake binary.
 	seedBinary(t, binDir, "1.0.0", "linux", "amd64", "fake-triton-binary")
@@ -163,8 +170,9 @@ func TestHandleInstallBinary_Success(t *testing.T) {
 }
 
 func TestHandleInstallBinary_NotFound(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
-	token := generateInstallToken(t, ts)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
+	token := generateInstallToken(t, ts, jwt)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/" + token + "/binary/linux/arm64")
 	require.NoError(t, err)
@@ -173,7 +181,7 @@ func TestHandleInstallBinary_NotFound(t *testing.T) {
 }
 
 func TestHandleInstallBinary_InvalidToken(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
+	ts, _, _ := setupTestServerWithPublicURL(t)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/bad-token/binary/linux/amd64")
 	require.NoError(t, err)
@@ -184,8 +192,9 @@ func TestHandleInstallBinary_InvalidToken(t *testing.T) {
 // --- Install Agent YAML ---
 
 func TestHandleInstallAgentYAML_Success(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
-	token := generateInstallToken(t, ts)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
+	token := generateInstallToken(t, ts, jwt)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/" + token + "/agent-yaml")
 	require.NoError(t, err)
@@ -199,8 +208,9 @@ func TestHandleInstallAgentYAML_Success(t *testing.T) {
 }
 
 func TestHandleInstallAgentYAML_RevokedLicense(t *testing.T) {
-	ts, _ := setupTestServerWithPublicURL(t)
-	token := generateInstallTokenForRevoked(t, ts)
+	ts, store, _ := setupTestServerWithPublicURL(t)
+	jwt := quickAdminJWT(t, ts, store)
+	token := generateInstallTokenForRevoked(t, ts, jwt)
 
 	resp, err := http.Get(ts.URL + "/api/v1/install/" + token + "/agent-yaml")
 	require.NoError(t, err)
@@ -211,8 +221,8 @@ func TestHandleInstallAgentYAML_RevokedLicense(t *testing.T) {
 // --- Helpers ---
 
 // setupTestServerWithPublicURL creates a test server with PublicURL set.
-// Returns (ts, binariesDir).
-func setupTestServerWithPublicURL(t *testing.T) (*httptest.Server, string) {
+// Returns (ts, store, binariesDir).
+func setupTestServerWithPublicURL(t *testing.T) (*httptest.Server, *licensestore.PostgresStore, string) {
 	t.Helper()
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
 	if dbURL == "" {
@@ -245,23 +255,23 @@ func setupTestServerWithPublicURL(t *testing.T) (*httptest.Server, string) {
 		_ = store.DropSchema(ctx)
 		store.Close()
 	})
-	return ts, binDir
+	return ts, store, binDir
 }
 
 // generateInstallToken creates an org+license and generates an install token.
-func generateInstallToken(t *testing.T, ts *httptest.Server) string {
+func generateInstallToken(t *testing.T, ts *httptest.Server, jwt string) string {
 	t.Helper()
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallTestOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallTestOrg"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "enterprise", "seats": 5, "days": 365,
 	})
 	licResult := decodeJSON(t, licResp)
 	licID := licResult["id"].(string)
 
-	tokenResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
+	tokenResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
 	tokenResult := decodeJSON(t, tokenResp)
 	require.Equal(t, http.StatusOK, tokenResp.StatusCode, "expected 200 for install-token generation")
 	return tokenResult["token"].(string)
@@ -270,24 +280,24 @@ func generateInstallToken(t *testing.T, ts *httptest.Server) string {
 // generateInstallTokenForRevoked creates an org+license, generates an
 // install token, then revokes the license. The HMAC token is still valid
 // but the license is revoked so agent-yaml should fail.
-func generateInstallTokenForRevoked(t *testing.T, ts *httptest.Server) string {
+func generateInstallTokenForRevoked(t *testing.T, ts *httptest.Server, jwt string) string {
 	t.Helper()
-	orgResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeTestOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeTestOrg"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
-	licResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
+	licResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "enterprise", "seats": 5, "days": 365,
 	})
 	licResult := decodeJSON(t, licResp)
 	licID := licResult["id"].(string)
 
-	tokenResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
+	tokenResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/install-token", nil)
 	tokenResult := decodeJSON(t, tokenResp)
 	token := tokenResult["token"].(string)
 
 	// Now revoke.
-	revokeResp := adminReq(t, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
+	revokeResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
 	revokeResp.Body.Close()
 
 	return token

@@ -835,7 +835,10 @@ CREATE TABLE IF NOT EXISTS manage_instances (
 	// - report_instance: stable UUID identifying this Report Portal deployment.
 	// - tenant_licences: caches the activation token + expiry per tenant.
 	// - organizations.licence_id: the licence key used to activate this tenant.
-	`ALTER TABLE users ALTER COLUMN org_id DROP NOT NULL;
+	`DO $$ BEGIN
+    ALTER TABLE users ALTER COLUMN org_id DROP NOT NULL;
+EXCEPTION WHEN others THEN NULL;
+END $$;
 
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check
@@ -858,5 +861,9 @@ CREATE TABLE IF NOT EXISTS tenant_licences (
 );
 
 ALTER TABLE organizations
-    ADD COLUMN IF NOT EXISTS licence_id TEXT NOT NULL DEFAULT '';`,
+    ADD COLUMN IF NOT EXISTS licence_id TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_tenant_licences_active
+    ON tenant_licences (expires_at)
+    WHERE status IN ('active', 'grace');`,
 }

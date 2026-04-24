@@ -268,6 +268,10 @@ func (s *Server) deactivateNow(ctx context.Context) error {
 		return fmt.Errorf("deactivate: clear activation: %w", err)
 	}
 	s.stopLicence()
+	// Re-read setup state so s.setupMode reflects the cleared licence.
+	// This unblocks POST /setup/license and prevents admin routes from
+	// remaining accessible after deactivation.
+	s.RefreshSetupMode(ctx)
 	return nil
 }
 

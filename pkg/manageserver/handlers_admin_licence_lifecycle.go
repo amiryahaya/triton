@@ -135,9 +135,13 @@ func (s *Server) handleLicenceDeactivate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if s.watcherRunning.CompareAndSwap(false, true) {
+		watcherCtx := s.runCtx
+		if watcherCtx == nil {
+			watcherCtx = context.Background() // fallback for tests that don't call Run()
+		}
 		go func() {
 			defer s.watcherRunning.Store(false)
-			s.runDeactivationWatcher(context.WithoutCancel(r.Context()))
+			s.runDeactivationWatcher(watcherCtx)
 		}()
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{

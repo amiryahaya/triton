@@ -99,6 +99,12 @@ type Server struct {
 	// from concurrent handleLicenceDeactivate calls or a boot-time
 	// resume racing a concurrent request.
 	watcherRunning atomic.Bool
+
+	// runCtx is the context passed to Run(). Set once at Run() entry and
+	// used by goroutines spawned from HTTP handlers that must respect server
+	// shutdown (e.g. the deactivation watcher). Nil until Run() is called
+	// (e.g. in unit tests); callers must use a nil-safe fallback.
+	runCtx context.Context
 }
 
 // New constructs the Server, probes setup state from the DB, and wires the
@@ -332,6 +338,11 @@ func (s *Server) buildRouter() chi.Router {
 // is coupled to ctx but independent of the admin listener — a gateway
 // failure is logged but never crashes the admin plane.
 func (s *Server) Run(ctx context.Context) error {
+	// Store the server context so handler-spawned goroutines (e.g. the
+	// deactivation watcher) can respect server shutdown without holding
+	// a stale request context.
+	s.runCtx = ctx
+
 	// Spawn the Batch E scanner pipeline before the HTTP listener comes
 	// up so we never serve /scan-jobs while the orchestrator is offline.
 	// startScannerPipeline derives a cancellable child context from ctx;

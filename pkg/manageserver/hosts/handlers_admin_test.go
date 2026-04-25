@@ -391,12 +391,10 @@ func TestHostsAdmin_BulkCreate_Success(t *testing.T) {
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var out struct {
-		Hosts []hosts.Host `json:"hosts"`
-	}
+	var out []hosts.Host
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	resp.Body.Close()
-	assert.Len(t, out.Hosts, 3)
+	assert.Len(t, out, 3)
 
 	// All three persisted.
 	count, err := store.Count(context.Background())

@@ -36,7 +36,7 @@ func isUniqueViolation(err error) bool {
 // agentSelectCols keeps the SELECT list consistent across single-row
 // lookups. Status is TEXT-typed in the DB; Scan into a string then
 // caller casts to AgentStatus.
-const agentSelectCols = `id, name, zone_id, cert_serial, cert_expires_at,
+const agentSelectCols = `id, name, cert_serial, cert_expires_at,
 	status, last_seen_at, created_at, updated_at`
 
 // scanAgent reads the agent columns from a pgx.Row into an Agent.
@@ -45,7 +45,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 	var a Agent
 	var status string
 	err := row.Scan(
-		&a.ID, &a.Name, &a.ZoneID, &a.CertSerial, &a.CertExpiresAt,
+		&a.ID, &a.Name, &a.CertSerial, &a.CertExpiresAt,
 		&status, &a.LastSeenAt, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
@@ -66,10 +66,10 @@ func (s *PostgresStore) Create(ctx context.Context, a Agent) (Agent, error) {
 	}
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO manage_agents
-		   (id, name, zone_id, cert_serial, cert_expires_at, status)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		   (id, name, cert_serial, cert_expires_at, status)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING created_at, updated_at`,
-		a.ID, a.Name, a.ZoneID, a.CertSerial, a.CertExpiresAt, string(a.Status),
+		a.ID, a.Name, a.CertSerial, a.CertExpiresAt, string(a.Status),
 	).Scan(&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {

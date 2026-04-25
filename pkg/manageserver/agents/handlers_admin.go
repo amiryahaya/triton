@@ -83,8 +83,7 @@ func (h *AdminHandlers) guard() AgentCapGuard {
 
 // enrolRequest is the body shape of POST /api/v1/admin/enrol/agent.
 type enrolRequest struct {
-	Name   string     `json:"name"`
-	ZoneID *uuid.UUID `json:"zone_id,omitempty"`
+	Name string `json:"name"`
 }
 
 // Enrol is the admin-triggered agent onboarding flow. It:
@@ -165,7 +164,6 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 	agent := Agent{
 		ID:            agentID,
 		Name:          body.Name,
-		ZoneID:        body.ZoneID,
 		CertSerial:    serial,
 		CertExpiresAt: expiresAt,
 		Status:        StatusPending,

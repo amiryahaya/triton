@@ -24,12 +24,10 @@ const (
 	StatusRevoked AgentStatus = "revoked"
 )
 
-// Agent is a row in manage_agents. ZoneID is optional — agents can be
-// enrolled without a zone and assigned later.
+// Agent is a row in manage_agents.
 type Agent struct {
 	ID            uuid.UUID   `json:"id"`
 	Name          string      `json:"name"`
-	ZoneID        *uuid.UUID  `json:"zone_id,omitempty"`
 	CertSerial    string      `json:"cert_serial"`
 	CertExpiresAt time.Time   `json:"cert_expires_at"`
 	Status        AgentStatus `json:"status"`

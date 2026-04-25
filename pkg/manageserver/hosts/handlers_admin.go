@@ -348,7 +348,9 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set tags for each host that supplied them.
+	// Set tags for each host that supplied them, then reload so response
+	// includes the populated Tags field (SetTags modifies DB but not the
+	// in-memory slice).
 	for i, row := range body.Hosts {
 		var tagIDs []uuid.UUID
 		if len(row.TagIDs) > 0 {
@@ -364,11 +366,16 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		if len(tagIDs) > 0 {
 			if err := h.Store.SetTags(r.Context(), out[i].ID, tagIDs); err != nil {
 				log.Printf("manageserver/hosts: set tags for bulk host %d: %v", i, err)
+				continue
+			}
+			// Reload host so Tags field reflects what was just persisted.
+			if reloaded, err := h.Store.Get(r.Context(), out[i].ID); err == nil {
+				out[i] = reloaded
 			}
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"hosts": out})
+	writeJSON(w, http.StatusCreated, out)
 }
 
 // SetTags replaces the full tag set for a host.
@@ -389,6 +396,15 @@ func (h *AdminHandlers) SetTags(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TagIDs == nil {
 		body.TagIDs = []uuid.UUID{}
+	}
+	// Verify host exists before calling SetTags — an FK violation on
+	// a non-existent host would surface as a 500 instead of 404.
+	if _, err := h.Store.Get(r.Context(), id); errors.Is(err, ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "host not found")
+		return
+	} else if err != nil {
+		internalErr(w, r, err, "get host before set-tags")
+		return
 	}
 	if err := h.Store.SetTags(r.Context(), id, body.TagIDs); err != nil {
 		internalErr(w, r, err, "set host tags")

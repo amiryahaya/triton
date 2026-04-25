@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import {
   TButton,
   TDataTable,
@@ -11,12 +11,12 @@ import {
 } from '@triton/ui';
 import type { CreateHostReq, Host } from '@triton/api-client';
 import { useHostsStore } from '../stores/hosts';
-import { useZonesStore } from '../stores/zones';
+import { useTagsStore } from '../stores/tags';
 import HostForm from './modals/HostForm.vue';
 import HostBulkForm from './modals/HostBulkForm.vue';
 
 const hosts = useHostsStore();
-const zones = useZonesStore();
+const tags = useTagsStore();
 const toast = useToast();
 
 const formOpen = ref(false);
@@ -28,36 +28,25 @@ const pendingDelete = ref<Host | null>(null);
 const columns: Column<Host>[] = [
   { key: 'hostname', label: 'Hostname' },
   { key: 'ip', label: 'IP' },
-  { key: 'zone_id', label: 'Zone' },
+  { key: 'tags', label: 'Tags' },
   { key: 'os', label: 'OS' },
   { key: 'last_seen_at', label: 'Last seen' },
   { key: 'id', label: '', width: '160px', align: 'right' },
 ];
 
-const zoneNameByID = computed(() => {
-  const m = new Map<string, string>();
-  for (const z of zones.items) m.set(z.id, z.name);
-  return m;
-});
-
-// TSelect requires a defined string modelValue; the store keeps zoneID
+// TSelect requires a defined string modelValue; the store keeps tagID
 // optional. Normalise around an empty string for the dropdown.
-const filterZoneID = computed<string>({
-  get: () => hosts.filter.zoneID ?? '',
-  set: (v: string) => { hosts.filter.zoneID = v || undefined; },
+const filterTagID = ref(hosts.filter.tagID ?? '');
+
+watch(filterTagID, (v) => {
+  hosts.filter.tagID = v || undefined;
+  void hosts.fetch();
 });
 
 onMounted(async () => {
-  // Load zones first so the filter dropdown + zone-name cell have data.
-  await Promise.all([zones.fetch(), hosts.fetch()]);
+  // Load tags first so the filter dropdown + tag chips have data.
+  await Promise.all([tags.fetch(), hosts.fetch()]);
 });
-
-// Trigger a refetch whenever the zone filter changes. The store persists
-// the filter to localStorage on its own via a deep watcher.
-watch(
-  () => hosts.filter.zoneID,
-  () => { void hosts.fetch(); }
-);
 
 function openNew() {
   editing.value = null;
@@ -144,17 +133,17 @@ async function onConfirmDelete() {
     </header>
 
     <div class="hosts-filter">
-      <TFormField label="Filter by zone">
-        <TSelect v-model="filterZoneID">
+      <TFormField label="Filter by tag">
+        <TSelect v-model="filterTagID">
           <option value="">
-            All zones
+            All tags
           </option>
           <option
-            v-for="z in zones.items"
-            :key="z.id"
-            :value="z.id"
+            v-for="t in tags.items"
+            :key="t.id"
+            :value="t.id"
           >
-            {{ z.name }}
+            {{ t.name }}
           </option>
         </TSelect>
       </TFormField>
@@ -166,8 +155,19 @@ async function onConfirmDelete() {
       row-key="id"
       :empty-text="hosts.loading ? 'Loading…' : 'No hosts yet.'"
     >
-      <template #[`cell:zone_id`]="{ row }">
-        {{ row.zone_id ? (zoneNameByID.get(row.zone_id) ?? row.zone_id) : '—' }}
+      <template #[`cell:tags`]="{ row }">
+        <div class="tag-chips">
+          <span
+            v-for="tag in row.tags"
+            :key="tag.id"
+            class="tag-chip"
+            :style="{ background: tag.color }"
+          >{{ tag.name }}</span>
+          <span
+            v-if="!row.tags.length"
+            class="muted"
+          >—</span>
+        </div>
       </template>
       <template #[`cell:id`]="{ row }">
         <div class="hosts-actions">
@@ -193,7 +193,7 @@ async function onConfirmDelete() {
     <HostForm
       :open="formOpen"
       :editing="editing"
-      :zones="zones.items"
+      :tags="tags.items"
       @close="formOpen = false; editing = null"
       @submit="onSubmit"
     />
@@ -256,5 +256,24 @@ async function onConfirmDelete() {
   gap: var(--space-2);
   justify-content: flex-end;
   width: 100%;
+}
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+}
+.muted {
+  color: var(--text-muted);
 }
 </style>

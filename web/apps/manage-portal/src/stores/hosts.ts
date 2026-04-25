@@ -6,22 +6,28 @@ import { useApiClient } from './apiClient';
 
 const FILTER_KEY = 'manage-portal.hosts.filter';
 
-function loadFilter(): { zoneID?: string } {
-  try { return JSON.parse(localStorage.getItem(FILTER_KEY) ?? '{}'); }
-  catch { return {}; }
+function loadFilter(): { tagID?: string } {
+  try {
+    const raw = localStorage.getItem(FILTER_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return { tagID: parsed.tagID };
+  } catch {
+    return {};
+  }
 }
 
 export const useHostsStore = defineStore('hosts', () => {
   const items = ref<Host[]>([]);
   const loading = ref(false);
-  const filter = ref<{ zoneID?: string }>(loadFilter());
+  const filter = ref<{ tagID?: string }>(loadFilter());
 
   watch(filter, (v) => localStorage.setItem(FILTER_KEY, JSON.stringify(v)), { deep: true });
 
   async function fetch() {
     const api = useApiClient().get();
     loading.value = true;
-    try { items.value = await api.listHosts(filter.value.zoneID); }
+    try { items.value = await api.listHosts(filter.value.tagID); }
     catch (e) { useToast().error({ title: 'Failed to load hosts', description: String(e) }); }
     finally { loading.value = false; }
   }

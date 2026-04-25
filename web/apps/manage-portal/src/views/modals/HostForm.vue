@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { TModal, TFormField, TInput, TSelect, TButton } from '@triton/ui';
-import type { Host, Zone, CreateHostReq } from '@triton/api-client';
+import { TModal, TFormField, TInput, TButton } from '@triton/ui';
+import type { Host, Tag, CreateHostReq } from '@triton/api-client';
 
 const props = defineProps<{
   open: boolean;
   editing?: Host | null;
-  zones: Zone[];
+  tags: Tag[];
 }>();
 
 const emit = defineEmits<{
@@ -16,8 +16,8 @@ const emit = defineEmits<{
 
 const hostname = ref('');
 const ip = ref('');
-const zoneID = ref('');
 const os = ref('');
+const selectedTagIDs = ref<string[]>([]);
 const error = ref('');
 
 watch(
@@ -26,8 +26,8 @@ watch(
     if (!props.open) return;
     hostname.value = props.editing?.hostname ?? '';
     ip.value = props.editing?.ip ?? '';
-    zoneID.value = props.editing?.zone_id ?? '';
     os.value = props.editing?.os ?? '';
+    selectedTagIDs.value = props.editing?.tags.map(t => t.id) ?? [];
     error.value = '';
   },
   { immediate: true }
@@ -41,8 +41,8 @@ function submit() {
   emit('submit', {
     hostname: hostname.value.trim(),
     ip: ip.value.trim() || undefined,
-    zone_id: zoneID.value || undefined,
     os: os.value.trim() || undefined,
+    tag_ids: selectedTagIDs.value,
   });
 }
 </script>
@@ -64,22 +64,31 @@ function submit() {
       <TFormField label="IP address">
         <TInput v-model="ip" />
       </TFormField>
-      <TFormField label="Zone">
-        <TSelect v-model="zoneID">
-          <option value="">
-            — None —
-          </option>
-          <option
-            v-for="z in zones"
-            :key="z.id"
-            :value="z.id"
-          >
-            {{ z.name }}
-          </option>
-        </TSelect>
-      </TFormField>
       <TFormField label="OS">
         <TInput v-model="os" />
+      </TFormField>
+      <TFormField label="Tags">
+        <div class="tag-multi-select">
+          <label
+            v-for="tag in tags"
+            :key="tag.id"
+            class="tag-checkbox"
+          >
+            <input
+              type="checkbox"
+              :value="tag.id"
+              v-model="selectedTagIDs"
+            />
+            <span
+              class="tag-chip"
+              :style="{ background: tag.color }"
+            >{{ tag.name }}</span>
+          </label>
+          <span
+            v-if="!tags.length"
+            class="no-tags"
+          >No tags defined yet.</span>
+        </div>
       </TFormField>
     </div>
     <template #footer>
@@ -106,5 +115,35 @@ function submit() {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+.tag-multi-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+.tag-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+.tag-checkbox input[type='checkbox'] {
+  accent-color: var(--accent-strong);
+  cursor: pointer;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+}
+.no-tags {
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 </style>

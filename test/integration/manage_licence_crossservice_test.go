@@ -395,3 +395,50 @@ func TestCSLicence_ReplaceKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, licResp.StatusCode,
 		"GET /admin/licence must return 200 after replace: %s", licBody)
 }
+
+// TestCSLicence_Deactivate_Immediate verifies that POST /admin/licence/deactivate
+// with no active scan jobs calls the real License Portal Deactivate endpoint,
+// clears local activation state, and puts the Manage Server into setup mode.
+func TestCSLicence_Deactivate_Immediate(t *testing.T) {
+	f := newCSFixture(t)
+
+	// No scan jobs seeded — deactivation must be immediate (200, not 202).
+	resp := csManageReq(t, f, http.MethodPost, "/api/v1/admin/licence/deactivate", nil)
+	body := csReadBody(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"immediate deactivate must return 200: %s", body)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.Equal(t, true, out["ok"], "immediate deactivate: ok must be true, got %v", out)
+
+	// License Portal: activation for LicIDA must now have deactivated_at set.
+	acts := csActivationsForLicense(t, f, f.LicIDA)
+	require.NotEmpty(t, acts, "License Portal must have an activation for LicIDA")
+	deactivated := 0
+	for _, a := range acts {
+		if csDeactivatedAt(a) != "" {
+			deactivated++
+		}
+	}
+	require.Greater(t, deactivated, 0,
+		"at least one activation for LicIDA must have deactivated_at set")
+
+	// Manage Server must be in setup mode (503) after deactivation.
+	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
+	licBody := csReadBody(licResp)
+	require.Equal(t, http.StatusServiceUnavailable, licResp.StatusCode,
+		"GET /admin/licence after deactivation must return 503: %s", licBody)
+	var licOut map[string]any
+	require.NoError(t, json.Unmarshal([]byte(licBody), &licOut))
+	require.Equal(t, true, licOut["setup_required"],
+		"response must include setup_required:true, got %v", licOut)
+
+	// Manage Store: activation state must be cleared.
+	ctx := context.Background()
+	state, err := f.ManageStore.GetSetup(ctx)
+	require.NoError(t, err)
+	require.False(t, state.LicenseActivated, "LicenseActivated must be false after deactivation")
+	require.Empty(t, state.LicenseKey, "LicenseKey must be empty after deactivation")
+	require.Empty(t, state.SignedToken, "SignedToken must be empty after deactivation")
+}

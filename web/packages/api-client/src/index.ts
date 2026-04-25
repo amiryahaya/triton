@@ -56,13 +56,15 @@ export type {
   SetupStatus, CreateAdminReq, CreateAdminResp,
   ActivateLicenseReq, ActivateLicenseResp,
   LoginResp as ManageLoginResp, ManageUser,
-  Zone, Host, CreateHostReq, UpdateHostReq,
+  Tag, CreateTagReq, UpdateTagReq,
+  Host, CreateHostReq, UpdateHostReq,
   Agent, AgentStatus,
   ScanJob, ScanJobStatus, ScanJobProfile, EnqueueReq,
   PushStatus, CreateUserReq, CreateUserResp,
   LimitPair, ScansLimitPair, LicenceSummary,
   SettingsSummary, GatewayHealthResponse,
   Lockout, SecurityEventsResponse,
+  LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
 } from './manageServer.types';
 export type {
   Organisation,

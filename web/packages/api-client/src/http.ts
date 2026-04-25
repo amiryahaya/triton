@@ -5,10 +5,11 @@ export interface HttpConfig {
 }
 
 export interface Http {
-  get:  <T>(path: string) => Promise<T>;
-  post: <T>(path: string, body?: unknown) => Promise<T>;
-  put:  <T>(path: string, body?: unknown) => Promise<T>;
-  del:  <T>(path: string) => Promise<T>;
+  get:   <T>(path: string) => Promise<T>;
+  post:  <T>(path: string, body?: unknown) => Promise<T>;
+  put:   <T>(path: string, body?: unknown) => Promise<T>;
+  patch: <T>(path: string, body?: unknown) => Promise<T>;
+  del:   <T>(path: string) => Promise<T>;
 }
 
 export function createHttp(cfg: HttpConfig): Http {
@@ -41,9 +42,10 @@ export function createHttp(cfg: HttpConfig): Http {
   }
 
   return {
-    get:  (path)       => request('GET',    path),
-    post: (path, body) => request('POST',   path, body),
-    put:  (path, body) => request('PUT',    path, body),
-    del:  (path)       => request('DELETE', path),
+    get:   (path)       => request('GET',    path),
+    post:  (path, body) => request('POST',   path, body),
+    put:   (path, body) => request('PUT',    path, body),
+    patch: (path, body) => request('PATCH',  path, body),
+    del:   (path)       => request('DELETE', path),
   };
 }

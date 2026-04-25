@@ -3,7 +3,8 @@ import type {
   SetupStatus, CreateAdminReq, CreateAdminResp,
   ActivateLicenseReq, ActivateLicenseResp,
   LoginResp, ManageUser,
-  Zone, Host, CreateHostReq, UpdateHostReq,
+  Tag, CreateTagReq, UpdateTagReq,
+  Host, CreateHostReq, UpdateHostReq,
   Agent, ScanJob, EnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
   LicenceSummary, SettingsSummary, GatewayHealthResponse,
@@ -33,15 +34,17 @@ export function createManageApi(http: Http) {
       http.post<LoginResp>('/v1/auth/change-password', req),
     me: () => http.get<ManageUser>('/v1/me'),
 
-    // Zones
-    listZones: () => http.get<Zone[]>('/v1/admin/zones/'),
-    createZone: (req: { name: string; description?: string }) => http.post<Zone>('/v1/admin/zones/', req),
-    updateZone: (id: string, req: { name: string; description?: string }) => http.put<Zone>(`/v1/admin/zones/${id}`, req),
-    deleteZone: (id: string) => http.del<void>(`/v1/admin/zones/${id}`),
+    // Tags
+    listTags: () => http.get<Tag[]>('/v1/admin/tags/'),
+    createTag: (req: CreateTagReq) => http.post<Tag>('/v1/admin/tags/', req),
+    updateTag: (id: string, req: UpdateTagReq) => http.patch<Tag>(`/v1/admin/tags/${id}`, req),
+    deleteTag: (id: string) => http.del<void>(`/v1/admin/tags/${id}`),
+    setHostTags: (hostID: string, tagIDs: string[]) =>
+      http.put<Host>(`/v1/admin/hosts/${hostID}/tags`, { tag_ids: tagIDs }),
 
     // Hosts
-    listHosts: (zoneID?: string) => {
-      const qs = zoneID ? `?zone_id=${encodeURIComponent(zoneID)}` : '';
+    listHosts: (tagID?: string) => {
+      const qs = tagID ? `?tag_id=${encodeURIComponent(tagID)}` : '';
       return http.get<Host[]>(`/v1/admin/hosts/${qs}`);
     },
     createHost: (req: CreateHostReq) => http.post<Host>('/v1/admin/hosts/', req),
@@ -51,7 +54,7 @@ export function createManageApi(http: Http) {
 
     // Agents
     listAgents: () => http.get<Agent[]>('/v1/admin/agents/'),
-    enrolAgent: async (req: { name: string; zone_id?: string }): Promise<Blob> => {
+    enrolAgent: async (req: { name: string }): Promise<Blob> => {
       // enrolAgent returns a tar.gz stream; the shared Http client only
       // reads JSON/text. Call fetch() directly here so we get the Blob.
       const res = await fetch('/api/v1/admin/enrol/agent', {

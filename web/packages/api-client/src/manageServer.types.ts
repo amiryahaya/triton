@@ -47,19 +47,29 @@ export interface ManageUser {
   updated_at: string;
 }
 
-export interface Zone {
+export interface Tag {
   id: string;
   name: string;
-  description: string;
+  color: string;
+  host_count?: number;
   created_at: string;
-  updated_at: string;
+}
+
+export interface CreateTagReq {
+  name: string;
+  color: string;
+}
+
+export interface UpdateTagReq {
+  name: string;
+  color: string;
 }
 
 export interface Host {
   id: string;
   hostname: string;
   ip?: string;
-  zone_id?: string;
+  tags: Tag[];
   os: string;
   last_seen_at?: string;
   created_at: string;
@@ -69,14 +79,14 @@ export interface Host {
 export interface CreateHostReq {
   hostname: string;
   ip?: string;
-  zone_id?: string;
   os?: string;
+  tag_ids?: string[];
+  tags?: string[];  // name-based form for CSV import
 }
 
 export interface UpdateHostReq {
   hostname: string;
   ip?: string;
-  zone_id?: string;
   os?: string;
 }
 
@@ -85,7 +95,6 @@ export type AgentStatus = 'pending' | 'active' | 'revoked';
 export interface Agent {
   id: string;
   name: string;
-  zone_id?: string;
   cert_serial: string;
   cert_expires_at: string;
   status: AgentStatus;
@@ -100,7 +109,6 @@ export type ScanJobProfile = 'quick' | 'standard' | 'comprehensive';
 export interface ScanJob {
   id: string;
   tenant_id: string;
-  zone_id?: string;
   host_id?: string;
   profile: ScanJobProfile;
   credentials_ref?: string;
@@ -116,8 +124,8 @@ export interface ScanJob {
 }
 
 export interface EnqueueReq {
-  zones: string[];
-  target_filter?: string;
+  tags: string[];  // tag UUIDs
+  host_filter?: string;
   profile: ScanJobProfile;
   credentials_ref?: string;
 }

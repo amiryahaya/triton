@@ -135,7 +135,9 @@ func (s *Server) handleLicenceDeactivate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if s.watcherRunning.CompareAndSwap(false, true) {
+		s.mu.RLock()
 		watcherCtx := s.runCtx
+		s.mu.RUnlock()
 		if watcherCtx == nil {
 			watcherCtx = context.Background() // fallback for tests that don't call Run()
 		}

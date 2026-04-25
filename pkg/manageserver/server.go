@@ -349,8 +349,11 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) RunOnListener(ctx context.Context, ln net.Listener) error {
 	// Store the server context so handler-spawned goroutines (e.g. the
 	// deactivation watcher) can respect server shutdown without holding
-	// a stale request context.
+	// a stale request context. Protected by s.mu because request handlers
+	// may race to read it while this goroutine sets it.
+	s.mu.Lock()
 	s.runCtx = ctx
+	s.mu.Unlock()
 
 	// Spawn the Batch E scanner pipeline before the HTTP listener comes
 	// up so we never serve /scan-jobs while the orchestrator is offline.

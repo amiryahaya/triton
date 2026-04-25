@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/licenseserver"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 	"github.com/amiryahaya/triton/pkg/manageserver"
@@ -284,6 +285,15 @@ func TestCSLicence_Refresh(t *testing.T) {
 	tokenBefore := stateBefore.SignedToken
 	require.NotEmpty(t, tokenBefore, "setup must have stored a signed token")
 
+	// Capture activation count before refresh so we can confirm Activate was called.
+	actsBefore := csActivationsForLicense(t, f, f.LicIDA)
+	activeBefore := 0
+	for _, a := range actsBefore {
+		if csDeactivatedAt(a) == "" {
+			activeBefore++
+		}
+	}
+
 	resp := csManageReq(t, f, http.MethodPost, "/api/v1/admin/licence/refresh", nil)
 	body := csReadBody(resp)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "refresh: %s", body)
@@ -296,20 +306,23 @@ func TestCSLicence_Refresh(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, tokenBefore, stateAfter.SignedToken,
 		"signed_token must change after refresh")
+	// Verify the new token is a valid ed25519-signed token from the real License Portal.
+	_, err = license.Parse(stateAfter.SignedToken, f.LSPub)
+	require.NoError(t, err, "new signed_token must be parseable and valid against LSPub")
 
 	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
 	licBody := csReadBody(licResp)
 	require.Equal(t, http.StatusOK, licResp.StatusCode,
 		"GET /admin/licence must return 200 after refresh: %s", licBody)
 
-	acts := csActivationsForLicense(t, f, f.LicIDA)
-	require.NotEmpty(t, acts, "License Portal must have at least one activation for LicIDA")
-	active := 0
-	for _, a := range acts {
+	// Confirm refresh called Activate: activation count must have increased.
+	actsAfter := csActivationsForLicense(t, f, f.LicIDA)
+	activeAfter := 0
+	for _, a := range actsAfter {
 		if csDeactivatedAt(a) == "" {
-			active++
+			activeAfter++
 		}
 	}
-	require.Greater(t, active, 0,
-		"License Portal must have at least one non-deactivated activation for LicIDA")
+	require.Greater(t, activeAfter, activeBefore,
+		"activation count must increase after refresh (Activate was called)")
 }

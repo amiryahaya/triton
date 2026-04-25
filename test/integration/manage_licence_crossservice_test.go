@@ -471,7 +471,8 @@ func TestCSLicence_Deactivate_Queued(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
 	require.Equal(t, true, out["pending"], "pending must be true: %v", out)
-	activeScans, _ := out["active_scans"].(float64) // JSON numbers decode as float64
+	activeScans, ok := out["active_scans"].(float64) // JSON numbers decode as float64
+	require.True(t, ok, "active_scans field missing or wrong type: %v", out)
 	require.Equal(t, float64(1), activeScans, "active_scans must be 1: %v", out)
 
 	// Manage Server: licence still live while deactivation is pending.

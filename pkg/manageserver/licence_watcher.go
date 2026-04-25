@@ -42,7 +42,8 @@ func (s *Server) runDeactivationWatcher(ctx context.Context) {
 			}
 
 			if err := s.deactivateNow(ctx); err != nil {
-				log.Printf("deactivation watcher: deactivateNow: %v", err)
+				log.Printf("deactivation watcher: deactivateNow failed, will retry: %v", err)
+				continue
 			}
 			return
 		}

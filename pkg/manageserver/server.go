@@ -662,11 +662,17 @@ func (s *Server) bootstrapCA(ctx context.Context, instanceID string) {
 }
 
 // rejectWhenDeactivationPending blocks new scan job creation (POST) when
-// a deactivation is scheduled.
+// a deactivation is scheduled. Fails closed on DB error to avoid accepting
+// new jobs while deactivation state is uncertain.
 func (s *Server) rejectWhenDeactivationPending(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			if state, err := s.store.GetSetup(r.Context()); err == nil && state.PendingDeactivation {
+			state, err := s.store.GetSetup(r.Context())
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "could not verify deactivation state")
+				return
+			}
+			if state.PendingDeactivation {
 				writeError(w, http.StatusConflict, "deactivation pending; no new scan jobs accepted")
 				return
 			}

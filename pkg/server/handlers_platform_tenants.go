@@ -394,7 +394,7 @@ func (s *Server) handleRenewTenantLicence(w http.ResponseWriter, r *http.Request
 		"licenceKeyPrefix": req.LicenceKey[:min(8, len(req.LicenceKey))] + "…",
 	})
 
-	writeJSON(w, http.StatusOK, tl)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "renewed"})
 }
 
 // handleDeletePlatformTenant removes a tenant org and releases its licence seat.

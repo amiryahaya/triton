@@ -96,23 +96,25 @@ func (s *Server) handleInvitePlatformAdmin(w http.ResponseWriter, r *http.Reques
 		"role":  "platform_admin",
 	})
 
+	w.Header().Set("Cache-Control", "no-store")
+
+	resp := map[string]string{"id": user.ID}
 	if s.config.Mailer != nil {
-		if mailErr := s.config.Mailer.SendInviteEmail(r.Context(), mailer.InviteEmailData{
+		mailErr := s.config.Mailer.SendInviteEmail(r.Context(), mailer.InviteEmailData{
 			ToEmail:      email,
 			ToName:       name,
 			OrgName:      "Report Portal",
 			TempPassword: tempPassword,
 			LoginURL:     s.config.InviteLoginURL,
-		}); mailErr != nil {
+		})
+		if mailErr != nil {
 			log.Printf("invite platform admin: mailer: %v", mailErr)
-			// Non-fatal: admin receives the temp password in the response body.
+			resp["tempPassword"] = tempPassword
 		}
+	} else {
+		resp["tempPassword"] = tempPassword
 	}
-
-	writeJSON(w, http.StatusCreated, map[string]string{
-		"id":           user.ID,
-		"tempPassword": tempPassword,
-	})
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // DELETE /api/v1/platform/admins/{id}

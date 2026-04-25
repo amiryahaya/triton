@@ -109,21 +109,24 @@ func (s *Server) handleFirstSetup(w http.ResponseWriter, r *http.Request) {
 		"role":  user.Role,
 	})
 
+	w.Header().Set("Cache-Control", "no-store")
+
+	resp := map[string]string{"id": user.ID}
 	if s.config.Mailer != nil {
-		if mailErr := s.config.Mailer.SendInviteEmail(r.Context(), mailer.InviteEmailData{
+		mailErr := s.config.Mailer.SendInviteEmail(r.Context(), mailer.InviteEmailData{
 			ToEmail:      email,
 			ToName:       name,
 			OrgName:      "Report Portal",
 			TempPassword: tempPassword,
 			LoginURL:     s.config.InviteLoginURL,
-		}); mailErr != nil {
+		})
+		if mailErr != nil {
 			log.Printf("setup: mailer: %v", mailErr)
-			// Non-fatal: admin receives the temp password in the response body.
+			resp["tempPassword"] = tempPassword // email failed, include as fallback
 		}
+		// email delivered — do not include tempPassword in response body
+	} else {
+		resp["tempPassword"] = tempPassword // no mailer configured
 	}
-
-	writeJSON(w, http.StatusCreated, map[string]string{
-		"id":           user.ID,
-		"tempPassword": tempPassword,
-	})
+	writeJSON(w, http.StatusCreated, resp)
 }

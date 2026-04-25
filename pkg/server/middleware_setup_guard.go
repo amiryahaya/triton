@@ -8,8 +8,10 @@ import (
 	"github.com/amiryahaya/triton/pkg/store"
 )
 
-// SetupGuard blocks all requests with 307→/api/v1/setup/status when no
-// platform_admin exists, except for the setup endpoints and static assets.
+// SetupGuard blocks all non-setup requests with 307→/ui/ when no
+// platform_admin exists, allowing the browser to reach the first-run
+// setup wizard. Setup endpoints, auth paths, and health checks bypass
+// the guard via isSetupPath.
 func (s *Server) SetupGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isSetupPath(r.URL.Path) {

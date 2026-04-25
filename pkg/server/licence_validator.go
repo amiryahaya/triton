@@ -67,8 +67,6 @@ func (s *Server) runLicenceValidation(ctx context.Context) {
 			if parseErr == nil && !expiresAt.IsZero() {
 				tl.ExpiresAt = expiresAt
 			}
-			now := time.Now().UTC()
-			tl.RenewedAt = &now
 		} else {
 			// Portal has revoked this licence — force expired immediately.
 			log.Printf("licence validator: %s revoked by portal", tl.OrgID)

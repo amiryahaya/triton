@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { TModal, TFormField, TButton } from '@triton/ui';
 import type { CreateHostReq } from '@triton/api-client';
 
@@ -114,6 +114,7 @@ function splitCSVLine(line: string): string[] {
 function parseCSV(raw: string): void {
   csvParseError.value = '';
   preview.value = [];
+  if (!raw.trim()) return;
 
   const lines = raw.split('\n').map(l => l.trimEnd());
   const nonEmpty = lines.filter(l => l.trim());
@@ -154,9 +155,7 @@ function onCSVInput(): void {
   parseCSV(csvInput.value);
 }
 
-function validRows(): CsvRow[] {
-  return preview.value.filter(r => !r._error);
-}
+const validRows = computed(() => preview.value.filter(r => !r._error));
 
 // ── shared ───────────────────────────────────────────────────────────────────
 watch(
@@ -176,7 +175,7 @@ watch(
 function onSubmit(): void {
   if (activeTab.value === 'csv') {
     csvParseError.value = '';
-    const rows = validRows();
+    const rows = validRows.value;
     if (!rows.length) {
       csvParseError.value = preview.value.length
         ? 'No valid rows to import (fix errors above).'
@@ -274,8 +273,8 @@ function onSubmit(): void {
             </span>
           </div>
           <p class="preview-summary">
-            {{ validRows().length }} valid /
-            {{ preview.length - validRows().length }} error{{ preview.length - validRows().length === 1 ? '' : 's' }}
+            {{ validRows.length }} valid /
+            {{ preview.length - validRows.length }} error{{ preview.length - validRows.length === 1 ? '' : 's' }}
           </p>
         </div>
       </div>
@@ -317,11 +316,11 @@ function onSubmit(): void {
       <TButton
         variant="primary"
         size="sm"
-        :disabled="activeTab === 'csv' && validRows().length === 0"
+        :disabled="activeTab === 'csv' && validRows.length === 0"
         @click="onSubmit"
       >
-        <template v-if="activeTab === 'csv' && validRows().length > 0">
-          Import {{ validRows().length }} host{{ validRows().length === 1 ? '' : 's' }}
+        <template v-if="activeTab === 'csv' && validRows.length > 0">
+          Import {{ validRows.length }} host{{ validRows.length === 1 ? '' : 's' }}
         </template>
         <template v-else>Import</template>
       </TButton>

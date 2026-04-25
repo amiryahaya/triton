@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import type { Host, CreateHostReq } from '@triton/api-client';
+import type { Host, CreateHostReq, UpdateHostReq } from '@triton/api-client';
 import { useToast } from '@triton/ui';
 import { useApiClient } from './apiClient';
 
@@ -39,8 +39,13 @@ export const useHostsStore = defineStore('hosts', () => {
     const out = await useApiClient().get().bulkCreateHosts({ hosts });
     items.value.push(...out); return out;
   }
-  async function update(id: string, req: CreateHostReq) {
-    const h = await useApiClient().get().updateHost(id, req);
+  async function update(id: string, req: UpdateHostReq & { tag_ids?: string[] }) {
+    const api = useApiClient().get();
+    const { tag_ids, ...hostFields } = req;
+    let h = await api.updateHost(id, hostFields);
+    if (tag_ids !== undefined) {
+      h = await api.setHostTags(id, tag_ids);
+    }
     const i = items.value.findIndex(x => x.id === id);
     if (i >= 0) items.value[i] = h;
     return h;

@@ -25,7 +25,7 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
-	"github.com/amiryahaya/triton/pkg/manageserver/zones"
+	"github.com/amiryahaya/triton/pkg/manageserver/tags"
 	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
@@ -71,7 +71,7 @@ type Server struct {
 
 	// Admin-API handler packages (Batch C). Constructed in New() against
 	// the shared pool and mounted under /api/v1/admin/*.
-	zonesAdmin *zones.AdminHandlers
+	tagsAdmin  *tags.AdminHandlers
 	hostsAdmin *hosts.AdminHandlers
 
 	// Batch E admin handlers + the scanner pipeline stores. Orchestrator
@@ -161,7 +161,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		cfg:             cfg,
 		store:           store,
 		loginLimiter:    newLoginRateLimiter(),
-		zonesAdmin:      zones.NewAdminHandlers(zones.NewPostgresStore(pool)),
+		tagsAdmin:       tags.NewAdminHandlers(tags.NewPostgresStore(pool)),
 		pushStatusAdmin: scanresults.NewAdminHandlers(resultsStore),
 		scanjobsStore:   scanjobsStore,
 		resultsStore:    resultsStore,
@@ -281,7 +281,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.requireOperational)
 		r.Use(s.jwtAuth)
 		r.Use(s.injectInstanceOrg)
-		r.Route("/zones", func(r chi.Router) { zones.MountAdminRoutes(r, s.zonesAdmin) })
+		r.Route("/tags", func(r chi.Router) { tags.MountAdminRoutes(r, s.tagsAdmin) })
 		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
 		r.Route("/scan-jobs", func(r chi.Router) {
 			r.Use(s.rejectWhenDeactivationPending)

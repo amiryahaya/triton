@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	urlpkg "net/url"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,10 +29,23 @@ import (
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
+// licenseTestDBURL returns the PostgreSQL URL for the license store test DB.
+// Uses TRITON_LICENSE_TEST_DB_URL if set, otherwise substitutes "triton_test"
+// with "triton_license_test" in the standard test URL. The license store has
+// its own schema (organizations, licenses, activations, …) that conflicts with
+// the main store's organizations table when sharing the same database.
+func licenseTestDBURL() string {
+	if u := os.Getenv("TRITON_LICENSE_TEST_DB_URL"); u != "" {
+		return u
+	}
+	base := testDBURL()
+	return strings.ReplaceAll(base, "/triton_test", "/triton_license_test")
+}
+
 // requireLicenseStore creates a PostgresStore for the license server.
 func requireLicenseStore(t *testing.T) *licensestore.PostgresStore {
 	t.Helper()
-	dbURL := testDBURL()
+	dbURL := licenseTestDBURL()
 	ctx := context.Background()
 	s, err := licensestore.NewPostgresStore(ctx, dbURL)
 	if err != nil {
@@ -138,7 +153,9 @@ func createTestOrgAndLicense(t *testing.T, serverURL string, seats int) (orgID, 
 	var orgResult map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgResult))
 	resp.Body.Close()
-	orgID = orgResult["id"].(string)
+	orgObj, ok := orgResult["org"].(map[string]any)
+	require.True(t, ok, "org creation response missing 'org' key: %v", orgResult)
+	orgID = orgObj["id"].(string)
 
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": "pro", "seats": seats, "days": 365,
@@ -289,7 +306,9 @@ func TestLicenseServer_AdminCRUD(t *testing.T) {
 	var org map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
 	resp.Body.Close()
-	orgID := org["id"].(string)
+	orgData, ok := org["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response")
+	orgID := orgData["id"].(string)
 
 	// Update org
 	resp = licAdminReq(t, "PUT", serverURL+"/api/v1/admin/orgs/"+orgID, map[string]string{
@@ -429,12 +448,14 @@ func TestLicenseServer_ExpiredLicense(t *testing.T) {
 	var org map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
 	resp.Body.Close()
+	orgData, ok := org["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response")
 
 	now := time.Now().UTC()
 	expiredLicID := uuid.Must(uuid.NewV7()).String()
 	lic := &licensestore.LicenseRecord{
 		ID:        expiredLicID,
-		OrgID:     org["id"].(string),
+		OrgID:     orgData["id"].(string),
 		Tier:      "pro",
 		Seats:     5,
 		IssuedAt:  now.Add(-400 * 24 * time.Hour),
@@ -498,7 +519,9 @@ func createTestOrg(t *testing.T, serverURL, name string) string {
 	var org map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
 	resp.Body.Close()
-	return org["id"].(string)
+	orgData, ok := org["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response")
+	return orgData["id"].(string)
 }
 
 // --- Group A: Organization Lifecycle ---
@@ -514,7 +537,9 @@ func TestLicenseServer_DeleteOrg_NoLicenses(t *testing.T) {
 	var org map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
 	resp.Body.Close()
-	orgID := org["id"].(string)
+	orgData, ok := org["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response")
+	orgID := orgData["id"].(string)
 
 	// Delete org
 	resp = licAdminReq(t, "DELETE", serverURL+"/api/v1/admin/orgs/"+orgID, nil)
@@ -538,7 +563,9 @@ func TestLicenseServer_DuplicateOrgName(t *testing.T) {
 	var org1 map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org1))
 	resp.Body.Close()
-	org1ID := org1["id"].(string)
+	org1Data, ok := org1["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response")
+	org1ID := org1Data["id"].(string)
 
 	// Create same name again → 409
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
@@ -573,26 +600,32 @@ func TestLicenseServer_LicenseFilter_ByOrg(t *testing.T) {
 	var org1 map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org1))
 	resp.Body.Close()
+	org1Data, ok := org1["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response for FilterOrg1")
+	org1ID := org1Data["id"].(string)
 
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{"name": "FilterOrg2"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org2 map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org2))
 	resp.Body.Close()
+	org2Data, ok := org2["org"].(map[string]any)
+	require.True(t, ok, "expected 'org' key in POST /orgs response for FilterOrg2")
+	org2ID := org2Data["id"].(string)
 
 	// Create 1 license for each org
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": org1["id"], "tier": "pro", "seats": 5,
+		"orgID": org1ID, "tier": "pro", "seats": 5,
 	})
 	resp.Body.Close()
 
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/licenses", map[string]any{
-		"orgID": org2["id"], "tier": "enterprise", "seats": 3,
+		"orgID": org2ID, "tier": "enterprise", "seats": 3,
 	})
 	resp.Body.Close()
 
 	// Filter by org1
-	resp = licAdminReq(t, "GET", serverURL+"/api/v1/admin/licenses?org="+org1["id"].(string), nil)
+	resp = licAdminReq(t, "GET", serverURL+"/api/v1/admin/licenses?org="+org1ID, nil)
 	lics := decodeJSONArray(t, resp)
 	assert.Len(t, lics, 1)
 	assert.Equal(t, "pro", lics[0]["tier"])

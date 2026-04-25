@@ -346,6 +346,9 @@ func (s *Server) handleAdminDeactivate(w http.ResponseWriter, r *http.Request) {
 // signToken creates an Ed25519-signed license token for a machine.
 // It includes v2 claims (features, limits, soft_buffer_pct, product_scope)
 // resolved via compat so legacy licences get synthesised values.
+// IssuedAt is set to now so that each call (activate / refresh) produces a
+// distinct token with a fresh mint time — enabling the caller to detect that
+// a refresh actually occurred.
 func (s *Server) signToken(lic *licensestore.LicenseRecord, machineID string) (string, error) {
 	l := &license.License{
 		ID:        lic.ID,
@@ -353,7 +356,7 @@ func (s *Server) signToken(lic *licensestore.LicenseRecord, machineID string) (s
 		OrgID:     lic.OrgID,
 		Org:       lic.OrgName,
 		Seats:     lic.Seats,
-		IssuedAt:  lic.IssuedAt.Unix(),
+		IssuedAt:  time.Now().Unix(),
 		ExpiresAt: lic.ExpiresAt.Unix(),
 		MachineID: machineID,
 		// v2 claims — resolved via compat so legacy licences get synthesised values.

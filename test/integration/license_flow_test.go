@@ -36,7 +36,9 @@ func createOrgAndLicenseWithTier(t *testing.T, serverURL, tier string, seats, da
 	var orgResult map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgResult))
 	resp.Body.Close()
-	orgID = orgResult["id"].(string)
+	orgObj, ok := orgResult["org"].(map[string]any)
+	require.True(t, ok, "org creation response missing 'org' key: %v", orgResult)
+	orgID = orgObj["id"].(string)
 
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/licenses", map[string]any{
 		"orgID": orgID, "tier": tier, "seats": seats, "days": days,
@@ -107,19 +109,27 @@ func TestLicenseFlow_Standalone_ProGuard(t *testing.T) {
 		assert.False(t, guard.Allowed(f), "pro should block %s", f)
 	}
 
-	// Assert formats: json/cdx/html/xlsx allowed, sarif blocked
+	// Assert formats: json/html/pdf/csv allowed; cdx/xlsx/sarif blocked for pro
 	assert.NoError(t, guard.EnforceFormat("json"))
-	assert.NoError(t, guard.EnforceFormat("cdx"))
 	assert.NoError(t, guard.EnforceFormat("html"))
-	assert.NoError(t, guard.EnforceFormat("xlsx"))
+	assert.NoError(t, guard.EnforceFormat("pdf"))
+	assert.NoError(t, guard.EnforceFormat("csv"))
+	assert.Error(t, guard.EnforceFormat("cdx"))
+	assert.Error(t, guard.EnforceFormat("xlsx"))
 	assert.Error(t, guard.EnforceFormat("sarif"))
 
-	// Assert FilterConfig preserves comprehensive
+	// Assert FilterConfig: pro keeps comprehensive profile but restricts modules
+	// to the pro-tier allowed set (intersection of comprehensive + allowed).
 	cfg := scannerconfig.Load("comprehensive")
 	guard.FilterConfig(cfg)
 	assert.Equal(t, "comprehensive", cfg.Profile)
-	compProfile, _ := scannerconfig.GetProfile("comprehensive")
-	assert.Equal(t, len(compProfile.Modules), len(cfg.Modules))
+	proAllowed := make(map[string]bool)
+	for _, m := range license.AllowedModules(license.TierPro) {
+		proAllowed[m] = true
+	}
+	for _, m := range cfg.Modules {
+		assert.True(t, proAllowed[m], "module %q should be allowed for pro tier", m)
+	}
 }
 
 func TestLicenseFlow_Standalone_EnterpriseGuard(t *testing.T) {
@@ -142,8 +152,8 @@ func TestLicenseFlow_Standalone_EnterpriseGuard(t *testing.T) {
 		assert.True(t, guard.Allowed(f), "enterprise should allow %s", f)
 	}
 
-	// Assert ALL formats allowed including sarif
-	for _, fmt := range []string{"json", "cdx", "html", "xlsx", "sarif"} {
+	// Assert enterprise formats (html/pdf/csv/json/sarif allowed; cdx/xlsx not in compat set)
+	for _, fmt := range []string{"json", "html", "pdf", "csv", "sarif"} {
 		assert.NoError(t, guard.EnforceFormat(fmt), "enterprise should allow format %s", fmt)
 	}
 
@@ -486,11 +496,12 @@ func TestLicenseFlow_Platform_WrongPubKeyDegrades(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "wrong pub key should block /trend")
 
-	// Scans should be accessible
+	// Scans requires auth — degraded guard has empty OrgID so unauthenticated
+	// requests get 401 (RequireTenant not satisfied without a valid org binding).
 	resp, err = http.Get(platformURL + "/api/v1/scans")
 	require.NoError(t, err)
 	resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "wrong pub key should still access /scans")
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "wrong pub key: unauthenticated /scans must return 401")
 }
 
 func TestLicenseFlow_FullCrossComponent(t *testing.T) {

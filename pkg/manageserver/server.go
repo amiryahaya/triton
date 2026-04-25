@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -143,6 +144,9 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	}
 	if cfg.GatewayRetryInterval == 0 {
 		cfg.GatewayRetryInterval = 5 * time.Second
+	}
+	if cfg.WatcherTickInterval == 0 {
+		cfg.WatcherTickInterval = 10 * time.Second
 	}
 
 	hostsStore := hosts.NewPostgresStore(pool)
@@ -329,19 +333,27 @@ func (s *Server) buildRouter() chi.Router {
 	return r
 }
 
-// Run starts the HTTP listener and blocks until ctx is cancelled.
-// On shutdown, blocks up to 10s for in-flight requests to complete
-// and waits for the orchestrator + drain goroutines to exit.
-//
-// In addition to the admin listener, Run spawns a :8443 gateway
-// listener if the CA is (or can be) bootstrapped. Gateway lifecycle
-// is coupled to ctx but independent of the admin listener — a gateway
-// failure is logged but never crashes the admin plane.
+// Run creates a TCP listener on cfg.Listen then calls RunOnListener.
+// This is the production entry point; cmd/manageserver calls this.
 func (s *Server) Run(ctx context.Context) error {
+	ln, err := net.Listen("tcp", s.cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("manage server: listen %s: %w", s.cfg.Listen, err)
+	}
+	return s.RunOnListener(ctx, ln)
+}
+
+// RunOnListener runs the server on an already-bound listener. Tests call
+// this after pre-creating a :0 listener to know the URL before the server
+// starts accepting connections.
+func (s *Server) RunOnListener(ctx context.Context, ln net.Listener) error {
 	// Store the server context so handler-spawned goroutines (e.g. the
 	// deactivation watcher) can respect server shutdown without holding
-	// a stale request context.
+	// a stale request context. Protected by s.mu because request handlers
+	// may race to read it while this goroutine sets it.
+	s.mu.Lock()
 	s.runCtx = ctx
+	s.mu.Unlock()
 
 	// Spawn the Batch E scanner pipeline before the HTTP listener comes
 	// up so we never serve /scan-jobs while the orchestrator is offline.
@@ -375,13 +387,13 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	s.http = &http.Server{
-		Addr:              s.cfg.Listen,
+		Addr:              ln.Addr().String(),
 		Handler:           s.router,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		err := s.http.ListenAndServe()
+		err := s.http.Serve(ln)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -650,11 +662,17 @@ func (s *Server) bootstrapCA(ctx context.Context, instanceID string) {
 }
 
 // rejectWhenDeactivationPending blocks new scan job creation (POST) when
-// a deactivation is scheduled.
+// a deactivation is scheduled. Fails closed on DB error to avoid accepting
+// new jobs while deactivation state is uncertain.
 func (s *Server) rejectWhenDeactivationPending(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			if state, err := s.store.GetSetup(r.Context()); err == nil && state.PendingDeactivation {
+			state, err := s.store.GetSetup(r.Context())
+			if err != nil {
+				writeError(w, http.StatusServiceUnavailable, "could not verify deactivation state")
+				return
+			}
+			if state.PendingDeactivation {
 				writeError(w, http.StatusConflict, "deactivation pending; no new scan jobs accepted")
 				return
 			}

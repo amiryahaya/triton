@@ -48,4 +48,9 @@ type Config struct {
 	// ServiceKey configured on the Report server's admin API. Empty skips
 	// auto-enrol even when ReportServer is set. Batch G.
 	ReportServiceKey string
+
+	// WatcherTickInterval is the polling interval for the pending-deactivation
+	// watcher goroutine. Zero defaults to 10s. Tests set this to ~100ms for
+	// deterministic fast-path coverage.
+	WatcherTickInterval time.Duration
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -332,15 +333,20 @@ func (s *Server) buildRouter() chi.Router {
 	return r
 }
 
-// Run starts the HTTP listener and blocks until ctx is cancelled.
-// On shutdown, blocks up to 10s for in-flight requests to complete
-// and waits for the orchestrator + drain goroutines to exit.
-//
-// In addition to the admin listener, Run spawns a :8443 gateway
-// listener if the CA is (or can be) bootstrapped. Gateway lifecycle
-// is coupled to ctx but independent of the admin listener — a gateway
-// failure is logged but never crashes the admin plane.
+// Run creates a TCP listener on cfg.Listen then calls RunOnListener.
+// This is the production entry point; cmd/manageserver calls this.
 func (s *Server) Run(ctx context.Context) error {
+	ln, err := net.Listen("tcp", s.cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("manage server: listen %s: %w", s.cfg.Listen, err)
+	}
+	return s.RunOnListener(ctx, ln)
+}
+
+// RunOnListener runs the server on an already-bound listener. Tests call
+// this after pre-creating a :0 listener to know the URL before the server
+// starts accepting connections.
+func (s *Server) RunOnListener(ctx context.Context, ln net.Listener) error {
 	// Store the server context so handler-spawned goroutines (e.g. the
 	// deactivation watcher) can respect server shutdown without holding
 	// a stale request context.
@@ -378,13 +384,13 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	s.http = &http.Server{
-		Addr:              s.cfg.Listen,
+		Addr:              ln.Addr().String(),
 		Handler:           s.router,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		err := s.http.ListenAndServe()
+		err := s.http.Serve(ln)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

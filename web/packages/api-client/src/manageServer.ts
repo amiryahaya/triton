@@ -10,6 +10,7 @@ import type {
   LicenceSummary, SettingsSummary, GatewayHealthResponse,
   SecurityEventsResponse,
   LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
+  DiscoveryJob, DiscoveryStatus, DiscoveryImportReq, DiscoveryImportResp,
 } from './manageServer.types';
 
 /**
@@ -123,6 +124,16 @@ export function createManageApi(http: Http) {
       http.del<void>(
         `/v1/admin/security-events?email=${encodeURIComponent(email)}&ip=${encodeURIComponent(ip)}`,
       ),
+
+    // Discovery
+    startDiscovery: (req: { cidr: string; ports?: number[] }) =>
+      http.post<DiscoveryJob>('/v1/admin/discovery/', req),
+    getDiscovery: () =>
+      http.get<DiscoveryStatus>('/v1/admin/discovery/'),
+    cancelDiscovery: () =>
+      http.post<void>('/v1/admin/discovery/cancel', {}),
+    importDiscovery: (req: DiscoveryImportReq) =>
+      http.post<DiscoveryImportResp>('/v1/admin/discovery/import', req),
   };
 }
 

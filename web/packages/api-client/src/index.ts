@@ -65,6 +65,8 @@ export type {
   SettingsSummary, GatewayHealthResponse,
   Lockout, SecurityEventsResponse,
   LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
+  DiscoveryJob, DiscoveryCandidate, DiscoveryStatus,
+  DiscoveryImportReq, DiscoveryImportResp,
 } from './manageServer.types';
 export type {
   Organisation,

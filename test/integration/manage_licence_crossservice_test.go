@@ -411,8 +411,9 @@ func TestCSLicence_Deactivate_Immediate(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
 	require.Equal(t, true, out["ok"], "immediate deactivate: ok must be true, got %v", out)
+	require.Equal(t, false, out["pending"], "immediate deactivate: pending must be false, got %v", out)
 
-	// License Portal: activation for LicIDA must now have deactivated_at set.
+	// License Portal: the single activation created during setup must have deactivated_at set.
 	acts := csActivationsForLicense(t, f, f.LicIDA)
 	require.NotEmpty(t, acts, "License Portal must have an activation for LicIDA")
 	deactivated := 0
@@ -421,8 +422,8 @@ func TestCSLicence_Deactivate_Immediate(t *testing.T) {
 			deactivated++
 		}
 	}
-	require.Greater(t, deactivated, 0,
-		"at least one activation for LicIDA must have deactivated_at set")
+	require.Equal(t, 1, deactivated,
+		"exactly one activation for LicIDA must have deactivated_at set")
 
 	// Manage Server must be in setup mode (503) after deactivation.
 	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)

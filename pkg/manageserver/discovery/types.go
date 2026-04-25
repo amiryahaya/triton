@@ -36,8 +36,9 @@ type Candidate struct {
 
 // EnqueueReq is the request to enqueue a new discovery job.
 type EnqueueReq struct {
-	CIDR  string `json:"cidr"`
-	Ports []int  `json:"ports"`
+	CIDR     string `json:"cidr"`
+	Ports    []int  `json:"ports"`
+	TotalIPs int    `json:"total_ips"`
 }
 
 // ImportItem represents a candidate selected for import.

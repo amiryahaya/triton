@@ -83,9 +83,9 @@ func (s *PostgresStore) CreateJob(ctx context.Context, req EnqueueReq, tenantID 
 	// Insert the new job row.
 	row := tx.QueryRow(ctx,
 		`INSERT INTO manage_discovery_jobs (tenant_id, cidr, ports, status, total_ips)
-		 VALUES ($1, $2, $3, 'queued', 0)
+		 VALUES ($1, $2, $3, 'queued', $4)
 		 RETURNING `+jobSelectCols,
-		tenantID, req.CIDR, toInt32Array(req.Ports),
+		tenantID, req.CIDR, toInt32Array(req.Ports), req.TotalIPs,
 	)
 	j, err := scanJob(row)
 	if err != nil {

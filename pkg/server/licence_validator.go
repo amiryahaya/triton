@@ -58,14 +58,15 @@ func (s *Server) runLicenceValidation(ctx context.Context) {
 
 		machineID := inst.ID + "/" + tl.OrgID
 		resp, err := s.licencePortalClient.ValidateForTenant(tl.LicenceID, tl.Token, machineID)
-		if err != nil {
+		switch {
+		case err != nil:
 			log.Printf("licence validator: validate %s: %v (using cached expires_at)", tl.OrgID, err)
-		} else if resp.Valid {
+		case resp.Valid:
 			expiresAt, parseErr := time.Parse(time.RFC3339, resp.ExpiresAt)
 			if parseErr == nil && !expiresAt.IsZero() {
 				tl.ExpiresAt = expiresAt
 			}
-		} else {
+		default:
 			// Portal has revoked this licence — force expired immediately.
 			log.Printf("licence validator: %s revoked by portal", tl.OrgID)
 			tl.Status = "expired"

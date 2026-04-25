@@ -108,9 +108,9 @@ func (s *Server) handleCreatePlatformTenant(w http.ResponseWriter, r *http.Reque
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
-		LicenceKey  string `json:"licenceKey"`
-		AdminName   string `json:"adminName"`
-		AdminEmail  string `json:"adminEmail"`
+		LicenceKey string `json:"licenceKey"`
+		AdminName  string `json:"adminName"`
+		AdminEmail string `json:"adminEmail"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -281,7 +281,7 @@ func (s *Server) handleCreatePlatformTenant(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.writeAudit(r, auditOrgProvision, tenantID, map[string]any{
-		"adminEmail":      req.AdminEmail,
+		"adminEmail":       req.AdminEmail,
 		"licenceKeyPrefix": req.LicenceKey[:min(8, len(req.LicenceKey))] + "…",
 	})
 
@@ -436,21 +436,21 @@ func (s *Server) handleDeletePlatformTenant(w http.ResponseWriter, r *http.Reque
 
 // classifyActivationError maps Licence Portal client errors to HTTP status
 // codes and human-readable messages suitable for API responses.
-func classifyActivationError(err error) (int, string) {
-	msg := err.Error()
+func classifyActivationError(err error) (status int, msg string) {
+	raw := err.Error()
 	switch {
-	case strings.Contains(msg, "licence not found"):
+	case strings.Contains(raw, "licence not found"):
 		return http.StatusNotFound, "licence not found"
-	case strings.Contains(msg, "no seats available"):
+	case strings.Contains(raw, "no seats available"):
 		return http.StatusUnprocessableEntity, "no seats available"
-	case strings.Contains(msg, "activation denied"):
-		if strings.Contains(msg, "revoked") {
+	case strings.Contains(raw, "activation denied"):
+		if strings.Contains(raw, "revoked") {
 			return http.StatusUnprocessableEntity, "licence revoked"
 		}
-		if strings.Contains(msg, "expired") {
+		if strings.Contains(raw, "expired") {
 			return http.StatusUnprocessableEntity, "licence expired"
 		}
-		// Return a generic message; do NOT echo msg here — it may contain
+		// Return a generic message; do NOT echo raw here — it may contain
 		// internal error details from the Licence Portal. Fix D2.
 		return http.StatusUnprocessableEntity, "licence activation denied"
 	default:

@@ -6,9 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/server"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRequirePlatformAdmin_AcceptsPlatformAdmin(t *testing.T) {

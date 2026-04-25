@@ -17,21 +17,23 @@ export const useTagsStore = defineStore('tags', () => {
   }
 
   async function create(req: CreateTagReq): Promise<Tag> {
-    const tag = await useApiClient().get().createTag(req);
+    const api = useApiClient().get();
+    const tag = await api.createTag(req);
     items.value.push(tag);
-    items.value.sort((a, b) => a.name.localeCompare(b.name));
     return tag;
   }
 
   async function update(id: string, req: UpdateTagReq): Promise<Tag> {
-    const tag = await useApiClient().get().updateTag(id, req);
+    const api = useApiClient().get();
+    const tag = await api.updateTag(id, req);
     const idx = items.value.findIndex(t => t.id === id);
     if (idx !== -1) items.value[idx] = tag;
     return tag;
   }
 
   async function remove(id: string): Promise<void> {
-    await useApiClient().get().deleteTag(id);
+    const api = useApiClient().get();
+    await api.deleteTag(id);
     items.value = items.value.filter(t => t.id !== id);
   }
 

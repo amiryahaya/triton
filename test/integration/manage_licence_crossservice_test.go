@@ -271,3 +271,45 @@ func csDeactivatedAt(act map[string]any) string {
 	}
 	return ""
 }
+
+// TestCSLicence_Refresh verifies that POST /admin/licence/refresh calls the
+// real License Portal Activate endpoint, stores a new signed token, and keeps
+// the guard live.
+func TestCSLicence_Refresh(t *testing.T) {
+	f := newCSFixture(t)
+
+	ctx := context.Background()
+	stateBefore, err := f.ManageStore.GetSetup(ctx)
+	require.NoError(t, err)
+	tokenBefore := stateBefore.SignedToken
+	require.NotEmpty(t, tokenBefore, "setup must have stored a signed token")
+
+	resp := csManageReq(t, f, http.MethodPost, "/api/v1/admin/licence/refresh", nil)
+	body := csReadBody(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "refresh: %s", body)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.Equal(t, true, out["ok"], "refresh must return ok:true, got %v", out)
+
+	stateAfter, err := f.ManageStore.GetSetup(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, tokenBefore, stateAfter.SignedToken,
+		"signed_token must change after refresh")
+
+	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
+	licBody := csReadBody(licResp)
+	require.Equal(t, http.StatusOK, licResp.StatusCode,
+		"GET /admin/licence must return 200 after refresh: %s", licBody)
+
+	acts := csActivationsForLicense(t, f, f.LicIDA)
+	require.NotEmpty(t, acts, "License Portal must have at least one activation for LicIDA")
+	active := 0
+	for _, a := range acts {
+		if csDeactivatedAt(a) == "" {
+			active++
+		}
+	}
+	require.Greater(t, active, 0,
+		"License Portal must have at least one non-deactivated activation for LicIDA")
+}

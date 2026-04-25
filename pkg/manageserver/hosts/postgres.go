@@ -9,49 +9,37 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/amiryahaya/triton/pkg/manageserver/tags"
 )
 
-// PostgresStore implements Store against a pgx connection pool. The
-// pool's lifetime is owned by the caller.
 type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewPostgresStore wraps an externally-owned pgxpool.Pool. The caller
-// must have already run managestore.Migrate so manage_hosts exists.
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-// Compile-time interface satisfaction assertion.
 var _ Store = (*PostgresStore)(nil)
 
-// hostSelectCols matches the column order expected by scanHost.
-const hostSelectCols = `id, hostname, host(ip)::text, zone_id, os, last_seen_at, created_at, updated_at`
+// hostSelectCols selects host columns only (no tags). Tags are loaded
+// separately via loadTagsForHosts and attached by the caller.
+const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at`
 
-// scanHost decodes a single row into a Host. Nullable columns (ip,
-// zone_id, last_seen_at) are scanned via pointers and translated to
-// the Host struct's zero values / pointer types.
-func scanHost(scanner pgx.Row) (Host, error) {
+func scanHost(row pgx.Row) (Host, error) {
 	var h Host
 	var ip *string
-	var zoneID *uuid.UUID
-	if err := scanner.Scan(
-		&h.ID, &h.Hostname, &ip, &zoneID, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt,
-	); err != nil {
+	if err := row.Scan(&h.ID, &h.Hostname, &ip, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		return Host{}, err
 	}
 	if ip != nil {
 		h.IP = *ip
 	}
-	h.ZoneID = zoneID
+	h.Tags = []tags.Tag{}
 	return h, nil
 }
 
-// ipArg translates our empty-string-means-NULL convention into a
-// driver-safe value. Passing a non-nil `any("")` value to pgx would
-// produce the text "" and then fail INET parsing, so we return an
-// untyped nil when empty.
 func ipArg(ip string) any {
 	if ip == "" {
 		return nil
@@ -59,37 +47,53 @@ func ipArg(ip string) any {
 	return ip
 }
 
-// zoneArg converts a *uuid.UUID to a driver-safe value. nil pointer
-// becomes untyped nil so the INSERT picks up NULL.
-func zoneArg(z *uuid.UUID) any {
-	if z == nil {
-		return nil
-	}
-	return *z
-}
-
-// isUniqueViolation reports whether err wraps a Postgres unique_violation (23505).
 func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	var e *pgconn.PgError
+	return errors.As(err, &e) && e.Code == "23505"
 }
 
-// isInvalidTextRepresentation reports whether err wraps SQLSTATE 22P02.
-// This triggers when Postgres cannot parse a literal for the target
-// column's type — most commonly a non-IP string cast to INET.
 func isInvalidTextRepresentation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
+	var e *pgconn.PgError
+	return errors.As(err, &e) && e.Code == "22P02"
 }
 
-// Create inserts a new host. Empty IP and nil ZoneID insert NULL.
-// Returns ErrConflict if the hostname collides.
+// loadTagsForHosts fetches all tags for the given host IDs in one query
+// and returns a map from host ID → tag slice.
+func (s *PostgresStore) loadTagsForHosts(ctx context.Context, hostIDs []uuid.UUID) (map[uuid.UUID][]tags.Tag, error) {
+	if len(hostIDs) == 0 {
+		return map[uuid.UUID][]tags.Tag{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT ht.host_id, t.id, t.name, t.color, t.created_at
+		 FROM manage_host_tags ht
+		 JOIN manage_tags t ON t.id = ht.tag_id
+		 WHERE ht.host_id = ANY($1)
+		 ORDER BY t.name`,
+		hostIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load tags for hosts: %w", err)
+	}
+	defer rows.Close()
+
+	result := map[uuid.UUID][]tags.Tag{}
+	for rows.Next() {
+		var hostID uuid.UUID
+		var tag tags.Tag
+		if err := rows.Scan(&hostID, &tag.ID, &tag.Name, &tag.Color, &tag.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan host tag: %w", err)
+		}
+		result[hostID] = append(result[hostID], tag)
+	}
+	return result, rows.Err()
+}
+
 func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO manage_hosts (hostname, ip, zone_id, os, last_seen_at)
-		 VALUES ($1, $2::inet, $3, $4, $5)
+		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
+		 VALUES ($1, $2::inet, $3, $4)
 		 RETURNING id, created_at, updated_at`,
-		h.Hostname, ipArg(h.IP), zoneArg(h.ZoneID), h.OS, h.LastSeenAt,
+		h.Hostname, ipArg(h.IP), h.OS, h.LastSeenAt,
 	)
 	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
@@ -100,26 +104,30 @@ func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
 		}
 		return Host{}, fmt.Errorf("create host: %w", err)
 	}
+	h.Tags = []tags.Tag{}
 	return h, nil
 }
 
-// Get fetches a host by id.
 func (s *PostgresStore) Get(ctx context.Context, id uuid.UUID) (Host, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT `+hostSelectCols+` FROM manage_hosts WHERE id = $1`,
-		id,
-	)
-	h, err := scanHost(row)
+	h, err := scanHost(s.pool.QueryRow(ctx,
+		`SELECT `+hostSelectCols+` FROM manage_hosts WHERE id = $1`, id,
+	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Host{}, ErrNotFound
 	}
 	if err != nil {
 		return Host{}, fmt.Errorf("get host: %w", err)
 	}
+	tagMap, err := s.loadTagsForHosts(ctx, []uuid.UUID{h.ID})
+	if err != nil {
+		return Host{}, err
+	}
+	if t, ok := tagMap[h.ID]; ok {
+		h.Tags = t
+	}
 	return h, nil
 }
 
-// List returns every host ordered by hostname.
 func (s *PostgresStore) List(ctx context.Context) ([]Host, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+hostSelectCols+` FROM manage_hosts ORDER BY hostname`,
@@ -129,26 +137,41 @@ func (s *PostgresStore) List(ctx context.Context) ([]Host, error) {
 	}
 	defer rows.Close()
 
-	out := []Host{}
+	var out []Host
+	var ids []uuid.UUID
 	for rows.Next() {
 		h, err := scanHost(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		out = append(out, h)
+		ids = append(ids, h.ID)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	tagMap, err := s.loadTagsForHosts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if t, ok := tagMap[out[i].ID]; ok {
+			out[i].Tags = t
+		}
+	}
+	if out == nil {
+		out = []Host{}
+	}
+	return out, nil
 }
 
-// Update changes hostname/ip/zone/os/last_seen on an existing host.
-// Returns ErrConflict if the new hostname collides with another row.
 func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_hosts
-		 SET hostname = $1, ip = $2::inet, zone_id = $3, os = $4, last_seen_at = $5, updated_at = NOW()
-		 WHERE id = $6
+		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4, updated_at = NOW()
+		 WHERE id = $5
 		 RETURNING id, created_at, updated_at`,
-		h.Hostname, ipArg(h.IP), zoneArg(h.ZoneID), h.OS, h.LastSeenAt, h.ID,
+		h.Hostname, ipArg(h.IP), h.OS, h.LastSeenAt, h.ID,
 	)
 	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -162,10 +185,18 @@ func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
 		}
 		return Host{}, fmt.Errorf("update host: %w", err)
 	}
+	tagMap, err := s.loadTagsForHosts(ctx, []uuid.UUID{h.ID})
+	if err != nil {
+		return Host{}, err
+	}
+	if t, ok := tagMap[h.ID]; ok {
+		h.Tags = t
+	} else {
+		h.Tags = []tags.Tag{}
+	}
 	return h, nil
 }
 
-// Delete removes the host and returns ErrNotFound if no row matched.
 func (s *PostgresStore) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM manage_hosts WHERE id = $1`, id)
 	if err != nil {
@@ -177,53 +208,100 @@ func (s *PostgresStore) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// Count returns the total number of hosts.
 func (s *PostgresStore) Count(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM manage_hosts`).Scan(&n)
-	if err != nil {
-		return 0, fmt.Errorf("count hosts: %w", err)
-	}
-	return n, nil
+	return n, err
 }
 
-// ListByZone returns hosts whose zone_id matches, ordered by hostname.
-func (s *PostgresStore) ListByZone(ctx context.Context, zoneID uuid.UUID) ([]Host, error) {
+func (s *PostgresStore) SetTags(ctx context.Context, hostID uuid.UUID, tagIDs []uuid.UUID) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin set-tags tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `DELETE FROM manage_host_tags WHERE host_id = $1`, hostID); err != nil {
+		return fmt.Errorf("clear host tags: %w", err)
+	}
+	for _, tid := range tagIDs {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO manage_host_tags (host_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			hostID, tid,
+		); err != nil {
+			return fmt.Errorf("insert host tag: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresStore) ResolveTagNames(ctx context.Context, names []string, defaultColor string) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, 0, len(names))
+	for _, name := range names {
+		var id uuid.UUID
+		err := s.pool.QueryRow(ctx,
+			`INSERT INTO manage_tags (name, color) VALUES ($1, $2)
+			 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+			 RETURNING id`,
+			name, defaultColor,
+		).Scan(&id)
+		if err != nil {
+			return nil, fmt.Errorf("resolve tag %q: %w", name, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+hostSelectCols+` FROM manage_hosts WHERE zone_id = $1 ORDER BY hostname`,
-		zoneID,
+		`SELECT `+hostSelectCols+` FROM manage_hosts h
+		 JOIN manage_host_tags ht ON ht.host_id = h.id
+		 WHERE ht.tag_id = $1
+		 ORDER BY h.hostname`,
+		tagID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list hosts by zone: %w", err)
+		return nil, fmt.Errorf("list hosts by tag: %w", err)
 	}
 	defer rows.Close()
 
-	out := []Host{}
+	var out []Host
+	var ids []uuid.UUID
 	for rows.Next() {
 		h, err := scanHost(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		out = append(out, h)
+		ids = append(ids, h.ID)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	tagMap, err := s.loadTagsForHosts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if t, ok := tagMap[out[i].ID]; ok {
+			out[i].Tags = t
+		}
+	}
+	if out == nil {
+		out = []Host{}
+	}
+	return out, nil
 }
 
-// CountByZone returns the number of hosts in the given zone.
-func (s *PostgresStore) CountByZone(ctx context.Context, zoneID uuid.UUID) (int64, error) {
+func (s *PostgresStore) CountByTag(ctx context.Context, tagID uuid.UUID) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM manage_hosts WHERE zone_id = $1`,
-		zoneID,
+		`SELECT COUNT(*) FROM manage_host_tags WHERE tag_id = $1`, tagID,
 	).Scan(&n)
-	if err != nil {
-		return 0, fmt.Errorf("count hosts by zone: %w", err)
-	}
-	return n, nil
+	return n, err
 }
 
-// ListByHostnames returns hosts whose hostname is in names. An empty
-// or nil slice returns an empty result without querying.
 func (s *PostgresStore) ListByHostnames(ctx context.Context, names []string) ([]Host, error) {
 	if len(names) == 0 {
 		return []Host{}, nil
@@ -237,21 +315,34 @@ func (s *PostgresStore) ListByHostnames(ctx context.Context, names []string) ([]
 	}
 	defer rows.Close()
 
-	out := []Host{}
+	var out []Host
+	var ids []uuid.UUID
 	for rows.Next() {
 		h, err := scanHost(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		out = append(out, h)
+		ids = append(ids, h.ID)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	tagMap, err := s.loadTagsForHosts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if t, ok := tagMap[out[i].ID]; ok {
+			out[i].Tags = t
+		}
+	}
+	if out == nil {
+		out = []Host{}
+	}
+	return out, nil
 }
 
-// BulkCreate inserts a batch of hosts in a single transaction. Any
-// error — including a hostname conflict — rolls back the entire batch.
-// The returned slice mirrors the input order with DB-populated fields
-// filled in.
 func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, error) {
 	if len(hosts) == 0 {
 		return []Host{}, nil
@@ -260,17 +351,16 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 	if err != nil {
 		return nil, fmt.Errorf("begin bulk-create tx: %w", err)
 	}
-	// Rollback is a no-op after Commit; safe to defer unconditionally.
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	out := make([]Host, len(hosts))
 	for i := range hosts {
 		src := &hosts[i]
 		row := tx.QueryRow(ctx,
-			`INSERT INTO manage_hosts (hostname, ip, zone_id, os, last_seen_at)
-			 VALUES ($1, $2::inet, $3, $4, $5)
+			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
+			 VALUES ($1, $2::inet, $3, $4)
 			 RETURNING id, created_at, updated_at`,
-			src.Hostname, ipArg(src.IP), zoneArg(src.ZoneID), src.OS, src.LastSeenAt,
+			src.Hostname, ipArg(src.IP), src.OS, src.LastSeenAt,
 		)
 		dst := *src
 		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt); err != nil {
@@ -282,6 +372,7 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 			}
 			return nil, fmt.Errorf("bulk create host %q (index %d): %w", src.Hostname, i, err)
 		}
+		dst.Tags = []tags.Tag{}
 		out[i] = dst
 	}
 	if err := tx.Commit(ctx); err != nil {

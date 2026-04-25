@@ -59,9 +59,12 @@ const crumbs = computed<Crumb[]>(() => {
 const userName = computed(() => auth.claims?.name || auth.claims?.sub || '');
 const userRole = computed(() => {
   const role = auth.claims?.role ?? '';
-  if (role === 'super_admin') return 'Super admin';
+  if (role === 'platform_admin') return 'Platform admin';
   if (role === 'org_admin') return 'Admin';
-  if (role === 'viewer') return 'Viewer';
+  if (role === 'org_user') return 'User';
+  if (role === 'org_officer') return 'Officer';
+  // 'super_admin' was dead code; kept as fallback for any legacy tokens.
+  if (role === 'super_admin') return 'Super admin';
   return role;
 });
 const orgName = computed(() => auth.claims?.orgName ?? '');

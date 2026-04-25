@@ -39,3 +39,14 @@ router.beforeEach((to) => {
     return { name: 'change-password' };
   }
 });
+
+// Guard /platform/* routes: only platform_admin may access them.
+// Any other authenticated role (org_admin, org_user, etc.) is redirected
+// to the root overview. Unauthenticated users fall through to TAuthGate.
+router.beforeEach((to) => {
+  if (!to.path.startsWith('/platform')) return;
+  const auth = useAuthStore();
+  if (auth.claims && auth.claims.role !== 'platform_admin') {
+    return { path: '/' };
+  }
+});

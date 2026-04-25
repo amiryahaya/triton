@@ -16,6 +16,7 @@ const error = ref('');
 const renewKey = ref('');
 const renewBusy = ref(false);
 const renewError = ref('');
+const deleteBusy = ref(false);
 
 onMounted(async () => {
   try {
@@ -44,11 +45,14 @@ async function renew() {
 
 async function remove() {
   if (!confirm('Delete this tenant? This action cannot be undone.')) return;
+  deleteBusy.value = true;
   try {
     await api.get().deletePlatformTenant(id);
     await router.push('/platform/tenants');
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Delete failed';
+  } finally {
+    deleteBusy.value = false;
   }
 }
 </script>
@@ -79,7 +83,7 @@ async function remove() {
 
       <section class="danger-zone">
         <h2>Danger zone</h2>
-        <button class="danger" @click="remove">Delete tenant</button>
+        <button class="danger" @click="remove" :disabled="deleteBusy">Delete tenant</button>
       </section>
     </template>
   </div>

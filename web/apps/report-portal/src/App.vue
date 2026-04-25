@@ -75,8 +75,6 @@ async function onLogin(creds: { email: string; password: string }) {
   try {
     const resp = await api.get().login(creds);
     auth.setToken(resp.token);
-    // Future phase: if resp.mustChangePassword, push to a change-password
-    // view. Phase 1 has no such view; admins reset via the API directly.
   } catch (err) {
     loginError.value = err instanceof Error ? err.message : 'Sign-in failed';
   } finally {
@@ -87,6 +85,7 @@ async function onLogin(creds: { email: string; password: string }) {
 // First-run setup guard: if the server hasn't been set up yet, redirect to
 // the Setup view. Silently ignored if the API is unreachable.
 onMounted(async () => {
+  if (auth.token) return;
   try {
     const status = await api.get().setupStatus();
     if (status.needsSetup && router.currentRoute.value.name !== 'setup') {

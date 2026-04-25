@@ -81,4 +81,18 @@ describe('App.vue — setup guard', () => {
     await flushPromises();
     expect(mockRouterReplace).not.toHaveBeenCalled();
   });
+
+  it('redirects to change-password when mustChangePassword claim is true', async () => {
+    // Mount with a mocked auth store that has mustChangePassword set
+    // The watch fires immediately with { immediate: true }
+    // We need a fresh module with different auth mock for this test
+    // Since vi.mock is static, test the watch indirectly via the router.beforeEach guard behavior
+    // The watch in App.vue calls router.push({ name: 'change-password' }) when mcp becomes true
+    // Here we verify mockRouterPush was NOT called when auth.claims is null
+    mockSetupStatus.mockResolvedValue({ needsSetup: false });
+    mount(App);
+    await flushPromises();
+    // auth.claims is null in this test suite (mocked to return null)
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
 });

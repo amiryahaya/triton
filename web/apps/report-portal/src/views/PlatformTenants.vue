@@ -58,8 +58,8 @@ async function create() {
       <button @click="showCreate = true">Add tenant</button>
     </div>
 
-    <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading">Loading…</p>
+    <p v-else-if="error" class="error">{{ error }}</p>
 
     <table v-else>
       <thead>

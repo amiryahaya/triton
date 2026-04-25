@@ -50,7 +50,6 @@ const labels: Record<string, string> = {
   inventory: 'Inventory',
   operations: 'Operations',
   admin: 'Admin',
-  zones: 'Zones',
   hosts: 'Hosts',
   tags: 'Tags',
   agents: 'Agents',

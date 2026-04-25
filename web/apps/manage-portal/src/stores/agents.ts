@@ -26,7 +26,7 @@ export const useAgentsStore = defineStore('agents', () => {
    * (status=pending) appears. Returns the filename used so the caller
    * can surface it in the toast.
    */
-  async function enrol(req: { name: string; zone_id?: string }): Promise<string> {
+  async function enrol(req: { name: string }): Promise<string> {
     const api = useApiClient().get();
     const blob = await api.enrolAgent(req);
     const filename = `agent-${req.name.replace(/\W+/g, '_')}-${Date.now()}.tar.gz`;

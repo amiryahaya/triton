@@ -60,7 +60,7 @@ describe('PlatformTenants view', () => {
     await flushPromises();
     expect(wrapper.html()).toContain('db error');
 
-    await (wrapper.vm as any).load();
+    await (wrapper.vm as { load: () => Promise<void> }).load();
     await flushPromises();
     expect(wrapper.html()).not.toContain('db error');
   });

@@ -76,7 +76,7 @@ describe('PlatformAdmins view', () => {
     expect(wrapper.html()).toContain('network error');
 
     // Reload succeeds — error should be cleared
-    await (wrapper.vm as any).load();
+    await (wrapper.vm as { load: () => Promise<void> }).load();
     await flushPromises();
     expect(wrapper.html()).not.toContain('network error');
   });

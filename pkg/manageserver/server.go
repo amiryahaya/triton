@@ -144,6 +144,9 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	if cfg.GatewayRetryInterval == 0 {
 		cfg.GatewayRetryInterval = 5 * time.Second
 	}
+	if cfg.WatcherTickInterval == 0 {
+		cfg.WatcherTickInterval = 10 * time.Second
+	}
 
 	hostsStore := hosts.NewPostgresStore(pool)
 	resultsStore := scanresults.NewPostgresStore(pool)

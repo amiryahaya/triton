@@ -1171,8 +1171,9 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 	guard := license.NewGuardFromToken(token, pub)
 
 	cfg := &Config{
-		ListenAddr: ":0",
-		Guard:      guard,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)

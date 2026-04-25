@@ -163,9 +163,10 @@ func requireTenantServer(t *testing.T) (platformURL, tokenA, tokenB string) {
 
 	db := requireDB(t)
 	cfg := &server.Config{
-		ListenAddr:   ":0",
-		Guard:        guard,
-		TenantPubKey: pub,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		TenantPubKey:      pub,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)

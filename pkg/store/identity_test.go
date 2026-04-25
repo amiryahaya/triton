@@ -201,10 +201,28 @@ func TestCreateUserOrgRequired(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	user := makeReportUser(t, "")
-	user.OrgID = "" // explicit
+	user.OrgID = "" // explicit — org_user without org_id must be rejected
 
 	err := s.CreateUser(ctx, user)
-	require.Error(t, err, "user with NULL/empty org_id must be rejected")
+	require.Error(t, err, "org_user with NULL org_id must be rejected by CHECK constraint")
+}
+
+func TestCreatePlatformAdminNoOrgRequired(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	user := &User{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:     "", // platform_admin has no org
+		Email:     uuid.Must(uuid.NewV7()).String() + "@test.com",
+		Name:      "Platform Admin",
+		Role:      "platform_admin",
+		Password:  "$2a$10$bcrypthashplaceholder",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	err := s.CreateUser(ctx, user)
+	require.NoError(t, err, "platform_admin with NULL org_id must be allowed")
 }
 
 func TestCreateUserInvalidRole(t *testing.T) {
@@ -213,10 +231,10 @@ func TestCreateUserInvalidRole(t *testing.T) {
 	org := makeReportOrg(t)
 	require.NoError(t, s.CreateOrg(ctx, org))
 	user := makeReportUser(t, org.ID)
-	user.Role = "platform_admin" // not allowed in report server
+	user.Role = "hacker" // not a valid role
 
 	err := s.CreateUser(ctx, user)
-	require.Error(t, err, "platform_admin role must be rejected by CHECK constraint")
+	require.Error(t, err, "unknown role must be rejected by CHECK constraint")
 }
 
 func TestCreateUserDuplicateEmail(t *testing.T) {

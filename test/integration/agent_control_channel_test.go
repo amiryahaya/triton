@@ -165,10 +165,11 @@ func setupAgentControlIntegration(t *testing.T) (*httptest.Server, string, strin
 	}))
 
 	cfg := &server.Config{
-		ListenAddr:    ":0",
-		JWTSigningKey: jwtPriv,
-		JWTPublicKey:  jwtPub,
-		TenantPubKey:  licPub,
+		ListenAddr:        ":0",
+		JWTSigningKey:     jwtPriv,
+		JWTPublicKey:      jwtPub,
+		TenantPubKey:      licPub,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)

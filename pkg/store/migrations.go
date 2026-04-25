@@ -844,6 +844,10 @@ ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check
     CHECK (role IN ('platform_admin', 'org_admin', 'org_user', 'org_officer'));
 
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_org_required_check;
+ALTER TABLE users ADD CONSTRAINT users_org_required_check
+    CHECK (role = 'platform_admin' OR org_id IS NOT NULL);
+
 CREATE TABLE IF NOT EXISTS report_instance (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

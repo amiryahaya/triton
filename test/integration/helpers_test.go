@@ -100,8 +100,9 @@ func requireServer(t *testing.T) (string, *store.PostgresStore) {
 	guard := license.NewGuardFromToken(token, pub)
 
 	cfg := &server.Config{
-		ListenAddr: ":0",
-		Guard:      guard,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)
@@ -140,8 +141,9 @@ func requireServerWithGuard(t *testing.T, tier license.Tier) (string, *store.Pos
 	guard := license.NewGuardFromToken(token, pub)
 
 	cfg := &server.Config{
-		ListenAddr: ":0",
-		Guard:      guard,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)

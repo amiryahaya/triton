@@ -99,6 +99,7 @@ func buildWiredServer(t *testing.T, validator *stubLicenseValidator) (*server.Se
 		ListenAddr:          ":0",
 		ServiceKey:          serviceKey,
 		ManageEnrolHandlers: handlers,
+		DisableSetupGuard:   true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)

@@ -269,7 +269,7 @@ func TestScans_SubmitRejectsBodyOrgInSingleTenant(t *testing.T) {
 		db.Close()
 	})
 
-	srv, err := New(&Config{ListenAddr: ":0"}, db)
+	srv, err := New(&Config{ListenAddr: ":0", DisableSetupGuard: true}, db)
 	require.NoError(t, err)
 
 	scan := testScanResult(uuid.Must(uuid.NewV7()).String(), "single-tenant-host")

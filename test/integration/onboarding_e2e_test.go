@@ -105,10 +105,11 @@ func TestOnboarding_PortalJourney_ZeroToFirstScan(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &server.Config{
-		ListenAddr:    ":0",
-		Guard:         guard,
-		JWTSigningKey: jwtPriv,
-		JWTPublicKey:  jwtPub,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		JWTSigningKey:     jwtPriv,
+		JWTPublicKey:      jwtPub,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)

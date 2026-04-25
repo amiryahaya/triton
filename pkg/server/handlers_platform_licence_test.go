@@ -216,17 +216,12 @@ func TestIntegration_PlatformAdminLogin(t *testing.T) {
 // a valid activation, the handler provisions the tenant org and persists the
 // licence record so that subsequent list/get calls reflect the correct status.
 //
-// Note: the /api/v1/platform/* route group applies JWTAuth with a roleRank
-// check that is scoped to org-level roles (org_admin, org_user, org_officer).
-// platform_admin is intentionally excluded from roleRank — the platform routes
-// use their own JWTAuth → BlockUntilPasswordChanged → RequirePlatformAdmin
-// chain, but the roleRank gate inside JWTAuth runs first and rejects
-// platform_admin tokens before RequirePlatformAdmin can inspect them.
-// The existing handler-level tests (handlers_platform_test.go) call handlers
-// directly to bypass this middleware gate, so we follow the same established
-// pattern here to test the handler logic in isolation while keeping the
-// broader database lifecycle (create org → store licence → list licence)
-// as the integration concern.
+// Note: the /api/v1/platform/* route group applies JWTAuth + RequirePlatformAdmin.
+// JWTAuth includes a platform_admin carve-out so it doesn't block platform_admin
+// tokens. However, it also enforces a session-table check (GetSessionByHash) that
+// requires a live sessions row — which integration tests do not seed. We call
+// handlers directly to bypass the session check while keeping the DB lifecycle
+// (create org → store licence → list licence) as the integration concern.
 func TestIntegration_TenantCreation(t *testing.T) {
 	// Start a mock Licence Portal that returns a successful activation.
 	activationJSON := `{
@@ -247,9 +242,9 @@ func TestIntegration_TenantCreation(t *testing.T) {
 	require.NoError(t, err)
 
 	// POST /api/v1/platform/tenants — call the handler directly to bypass
-	// the JWTAuth roleRank gate (which is scoped to org-level roles and
-	// does not include platform_admin). This matches the pattern used by
-	// TestHandleCreatePlatformTenant_ValidLicence in handlers_platform_test.go.
+	// the session-table check in JWTAuth (no live sessions row in this test).
+	// This matches the pattern used by TestHandleCreatePlatformTenant_ValidLicence
+	// in handlers_platform_test.go.
 	body := map[string]string{
 		"licenceKey": "LIC-INTEGRATION-001",
 		"adminName":  "Tenant Admin",

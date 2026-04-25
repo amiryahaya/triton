@@ -123,6 +123,21 @@ func (s *Server) handleDeletePlatformAdmin(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "cannot delete yourself")
 		return
 	}
+	target, err := s.store.GetUser(r.Context(), id)
+	if err != nil {
+		var nf *store.ErrNotFound
+		if errors.As(err, &nf) {
+			writeError(w, http.StatusNotFound, "admin not found")
+			return
+		}
+		log.Printf("delete platform admin get: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if target.Role != "platform_admin" {
+		writeError(w, http.StatusNotFound, "admin not found")
+		return
+	}
 	if err := s.store.DeleteUser(r.Context(), id); err != nil {
 		var nf *store.ErrNotFound
 		if errors.As(err, &nf) {

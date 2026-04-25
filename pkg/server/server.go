@@ -377,6 +377,7 @@ func New(cfg *Config, s store.Store) (*Server, error) {
 	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(securityHeaders)
 	r.Use(middleware.Throttle(100))
+	r.Use(srv.SetupGuard)
 
 	// Resolve tenant Ed25519 pubkey for license token verification. If
 	// TenantPubKey is nil, fall back to the embedded default. UnifiedAuth

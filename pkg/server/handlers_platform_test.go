@@ -140,6 +140,26 @@ func TestHandleDeletePlatformAdmin_CannotDeleteSelf(t *testing.T) {
 		"deleting yourself must return 400, body: %s", rr.Body.String())
 }
 
+// TestHandleDeletePlatformAdmin_RejectsNonPlatformAdmin verifies that trying
+// to delete a user that is not a platform_admin via the platform admin DELETE
+// endpoint returns 404 (not 204 or 500), preventing cross-role deletion.
+func TestHandleDeletePlatformAdmin_RejectsNonPlatformAdmin(t *testing.T) {
+	srv, db := testServerWithJWT(t)
+
+	// Create an org and an org_admin user (not a platform_admin).
+	org, orgUser := createOrgUser(t, db, "org_admin", "test-password-1234", false)
+	_ = org // used only to satisfy createOrgUser return value
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/platform/admins/"+orgUser.ID, nil)
+	req = withChiParam(req, "id", orgUser.ID)
+
+	rr := httptest.NewRecorder()
+	srv.handleDeletePlatformAdmin(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code,
+		"deleting a non-platform-admin via platform admin endpoint must return 404, body: %s", rr.Body.String())
+}
+
 // TestHandlePlatformAdmins_RequiresValidInput verifies that an empty email
 // in the invite request returns 400.
 func TestHandlePlatformAdmins_RequiresValidInput(t *testing.T) {

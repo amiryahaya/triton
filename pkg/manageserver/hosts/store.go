@@ -24,8 +24,6 @@ var ErrConflict = errors.New("hosts: conflict")
 var ErrInvalidInput = errors.New("hosts: invalid input")
 
 // Store is the persistence boundary for the hosts bounded context.
-// The ListByZone / ListByHostnames / CountByZone helpers exist to
-// support Batch D's scanjobs.Enqueue target-expansion logic.
 type Store interface {
 	Create(ctx context.Context, h Host) (Host, error)
 	Get(ctx context.Context, id uuid.UUID) (Host, error)
@@ -34,19 +32,22 @@ type Store interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	Count(ctx context.Context) (int64, error)
 
-	// ListByZone returns all hosts whose zone_id matches the given zone.
-	ListByZone(ctx context.Context, zoneID uuid.UUID) ([]Host, error)
+	// SetTags replaces the full tag set for a host (idempotent).
+	SetTags(ctx context.Context, hostID uuid.UUID, tagIDs []uuid.UUID) error
 
-	// CountByZone returns the number of hosts in the given zone.
-	CountByZone(ctx context.Context, zoneID uuid.UUID) (int64, error)
+	// ResolveTagNames returns tag IDs for the given names, creating
+	// tags with defaultColor for names that do not yet exist.
+	ResolveTagNames(ctx context.Context, names []string, defaultColor string) ([]uuid.UUID, error)
+
+	// ListByTag returns all hosts that have the given tag.
+	ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host, error)
+
+	// CountByTag returns the number of hosts with the given tag.
+	CountByTag(ctx context.Context, tagID uuid.UUID) (int64, error)
 
 	// ListByHostnames returns hosts whose hostname is in names.
-	// Used by the scanjobs orchestrator to resolve user-supplied
-	// hostname lists into Host rows.
 	ListByHostnames(ctx context.Context, names []string) ([]Host, error)
 
 	// BulkCreate inserts a batch of hosts in a single transaction.
-	// Any error (including a hostname conflict) rolls back the entire
-	// batch — all-or-nothing semantics.
 	BulkCreate(ctx context.Context, hosts []Host) ([]Host, error)
 }

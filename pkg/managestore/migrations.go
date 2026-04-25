@@ -218,4 +218,46 @@ var migrations = []string{
 	// (e.g. server unreachable). Cleared on successful deactivation.
 	`ALTER TABLE manage_setup
 		ADD COLUMN IF NOT EXISTS pending_deactivation BOOLEAN NOT NULL DEFAULT FALSE;`,
+
+	// Version 9: Replace single-zone host grouping with a flexible multi-tag
+	// system. Creates manage_tags + manage_host_tags, migrates existing zone
+	// data, then drops the now-redundant zone_id columns and manage_zones table.
+	// Also cleans up zone_id from manage_agents (added in v5) which would
+	// otherwise block the DROP TABLE manage_zones.
+	`CREATE TABLE manage_tags (
+		id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		name       TEXT        NOT NULL UNIQUE,
+		color      TEXT        NOT NULL DEFAULT '#6366F1',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE manage_host_tags (
+		host_id UUID NOT NULL REFERENCES manage_hosts(id) ON DELETE CASCADE,
+		tag_id  UUID NOT NULL REFERENCES manage_tags(id)  ON DELETE CASCADE,
+		PRIMARY KEY (host_id, tag_id)
+	);
+
+	INSERT INTO manage_tags (name, color)
+	SELECT name, '#6366F1' FROM manage_zones
+	ON CONFLICT (name) DO NOTHING;
+
+	INSERT INTO manage_host_tags (host_id, tag_id)
+	SELECT h.id, t.id
+	FROM manage_hosts h
+	JOIN manage_zones z ON z.id = h.zone_id
+	JOIN manage_tags  t ON t.name = z.name
+	WHERE h.zone_id IS NOT NULL
+	ON CONFLICT DO NOTHING;
+
+	ALTER TABLE manage_scan_jobs DROP CONSTRAINT IF EXISTS manage_scan_jobs_zone_id_fkey;
+	ALTER TABLE manage_scan_jobs DROP COLUMN IF EXISTS zone_id;
+
+	ALTER TABLE manage_agents DROP CONSTRAINT IF EXISTS manage_agents_zone_id_fkey;
+	ALTER TABLE manage_agents DROP COLUMN IF EXISTS zone_id;
+
+	DROP INDEX IF EXISTS idx_manage_hosts_zone;
+	ALTER TABLE manage_hosts DROP COLUMN zone_id;
+
+	DROP TABLE IF EXISTS manage_zone_memberships;
+	DROP TABLE manage_zones;`,
 }

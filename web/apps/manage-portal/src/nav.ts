@@ -9,6 +9,7 @@ export const nav: NavSection[] = [
       { href: '#/inventory/zones',  label: 'Zones' },
       { href: '#/inventory/hosts',  label: 'Hosts' },
       { href: '#/inventory/agents', label: 'Agents' },
+      { href: '#/inventory/tags',   label: 'Tags' },
     ],
   },
   {

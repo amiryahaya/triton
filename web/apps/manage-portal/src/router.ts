@@ -10,6 +10,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/change-password',         name: 'changePassword', component: () => import('./views/ChangePassword.vue') },
   { path: '/inventory/zones',              name: 'zones',       component: () => import('./views/Zones.vue') },
   { path: '/inventory/hosts',              name: 'hosts',       component: () => import('./views/Hosts.vue') },
+  { path: '/inventory/tags',               name: 'tags',        component: () => import('./views/Tags.vue') },
   { path: '/inventory/agents',             name: 'agents',      component: () => import('./views/Agents.vue') },
   { path: '/operations/scan-jobs',         name: 'scanJobs',    component: () => import('./views/ScanJobs.vue') },
   { path: '/operations/scan-jobs/:id',     name: 'scanJob',     component: () => import('./views/ScanJobs.vue') },

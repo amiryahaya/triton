@@ -224,14 +224,14 @@ var migrations = []string{
 	// data, then drops the now-redundant zone_id columns and manage_zones table.
 	// Also cleans up zone_id from manage_agents (added in v5) which would
 	// otherwise block the DROP TABLE manage_zones.
-	`CREATE TABLE manage_tags (
+	`CREATE TABLE IF NOT EXISTS manage_tags (
 		id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 		name       TEXT        NOT NULL UNIQUE,
 		color      TEXT        NOT NULL DEFAULT '#6366F1',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 
-	CREATE TABLE manage_host_tags (
+	CREATE TABLE IF NOT EXISTS manage_host_tags (
 		host_id UUID NOT NULL REFERENCES manage_hosts(id) ON DELETE CASCADE,
 		tag_id  UUID NOT NULL REFERENCES manage_tags(id)  ON DELETE CASCADE,
 		PRIMARY KEY (host_id, tag_id)
@@ -247,7 +247,7 @@ var migrations = []string{
 	JOIN manage_zones z ON z.id = h.zone_id
 	JOIN manage_tags  t ON t.name = z.name
 	WHERE h.zone_id IS NOT NULL
-	ON CONFLICT DO NOTHING;
+	ON CONFLICT (host_id, tag_id) DO NOTHING;
 
 	ALTER TABLE manage_scan_jobs DROP CONSTRAINT IF EXISTS manage_scan_jobs_zone_id_fkey;
 	ALTER TABLE manage_scan_jobs DROP COLUMN IF EXISTS zone_id;
@@ -256,8 +256,8 @@ var migrations = []string{
 	ALTER TABLE manage_agents DROP COLUMN IF EXISTS zone_id;
 
 	DROP INDEX IF EXISTS idx_manage_hosts_zone;
-	ALTER TABLE manage_hosts DROP COLUMN zone_id;
+	ALTER TABLE manage_hosts DROP COLUMN IF EXISTS zone_id;
 
 	DROP TABLE IF EXISTS manage_zone_memberships;
-	DROP TABLE manage_zones;`,
+	DROP TABLE IF EXISTS manage_zones;`,
 }

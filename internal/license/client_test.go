@@ -269,3 +269,25 @@ func TestValidateResponse_ScheduleAbsent(t *testing.T) {
 	assert.Equal(t, "", vr.Schedule, "absent key should unmarshal to empty string")
 	assert.Equal(t, 0, vr.ScheduleJitterSeconds, "absent key should unmarshal to zero")
 }
+
+func TestActivateForTenant_SendsCustomMachineID(t *testing.T) {
+	var captured map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token": "tok", "activationID": "aid", "tier": "enterprise",
+			"expiresAt": "2027-01-01T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	c := NewServerClient(srv.URL)
+	_, err := c.ActivateForTenant("lic-123", "inst-abc/tenant-xyz")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured["machineID"] != "inst-abc/tenant-xyz" {
+		t.Errorf("expected machineID=inst-abc/tenant-xyz, got %q", captured["machineID"])
+	}
+}

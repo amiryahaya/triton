@@ -183,3 +183,65 @@ describe('reportApi — data methods', () => {
     expect(http.get).toHaveBeenCalledWith('/v1/admin/audit/?limit=100&actor_id=u-1');
   });
 });
+
+describe('reportApi — setup and platform', () => {
+  it('setupStatus GETs /v1/setup/status', () => {
+    const http = fakeHttp();
+    createReportApi(http).setupStatus();
+    expect(http.get).toHaveBeenCalledWith('/v1/setup/status');
+  });
+
+  it('firstSetup POSTs to /v1/setup', () => {
+    const http = fakeHttp();
+    createReportApi(http).firstSetup({ name: 'Admin', email: 'admin@example.com' });
+    expect(http.post).toHaveBeenCalledWith('/v1/setup', { name: 'Admin', email: 'admin@example.com' });
+  });
+
+  it('listPlatformAdmins GETs /v1/platform/admins', () => {
+    const http = fakeHttp();
+    createReportApi(http).listPlatformAdmins();
+    expect(http.get).toHaveBeenCalledWith('/v1/platform/admins');
+  });
+
+  it('invitePlatformAdmin POSTs to /v1/platform/admins', () => {
+    const http = fakeHttp();
+    createReportApi(http).invitePlatformAdmin({ name: 'Bob', email: 'bob@example.com' });
+    expect(http.post).toHaveBeenCalledWith('/v1/platform/admins', { name: 'Bob', email: 'bob@example.com' });
+  });
+
+  it('deletePlatformAdmin DELs /v1/platform/admins/:id (URL-encoded)', () => {
+    const http = fakeHttp();
+    createReportApi(http).deletePlatformAdmin('admin-123');
+    expect(http.del).toHaveBeenCalledWith('/v1/platform/admins/admin-123');
+  });
+
+  it('listPlatformTenants GETs /v1/platform/tenants', () => {
+    const http = fakeHttp();
+    createReportApi(http).listPlatformTenants();
+    expect(http.get).toHaveBeenCalledWith('/v1/platform/tenants');
+  });
+
+  it('createPlatformTenant POSTs to /v1/platform/tenants', () => {
+    const http = fakeHttp();
+    createReportApi(http).createPlatformTenant({ licenceKey: 'lk-1', adminName: 'Alice', adminEmail: 'alice@example.com' });
+    expect(http.post).toHaveBeenCalledWith('/v1/platform/tenants', { licenceKey: 'lk-1', adminName: 'Alice', adminEmail: 'alice@example.com' });
+  });
+
+  it('getPlatformTenant GETs /v1/platform/tenants/:id', () => {
+    const http = fakeHttp();
+    createReportApi(http).getPlatformTenant('t-1');
+    expect(http.get).toHaveBeenCalledWith('/v1/platform/tenants/t-1');
+  });
+
+  it('renewTenantLicence POSTs to /v1/platform/tenants/:id/renew', () => {
+    const http = fakeHttp();
+    createReportApi(http).renewTenantLicence('t-1', 'new-key');
+    expect(http.post).toHaveBeenCalledWith('/v1/platform/tenants/t-1/renew', { licenceKey: 'new-key' });
+  });
+
+  it('deletePlatformTenant DELs /v1/platform/tenants/:id', () => {
+    const http = fakeHttp();
+    createReportApi(http).deletePlatformTenant('t-1');
+    expect(http.del).toHaveBeenCalledWith('/v1/platform/tenants/t-1');
+  });
+});

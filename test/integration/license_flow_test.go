@@ -67,8 +67,9 @@ func requireServerWithExternalGuard(t *testing.T, guard *license.Guard) (string,
 	t.Helper()
 	db := requireDB(t)
 	cfg := &server.Config{
-		ListenAddr: ":0",
-		Guard:      guard,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	require.NoError(t, err)

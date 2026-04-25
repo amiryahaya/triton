@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   TAppShell,
@@ -59,9 +59,12 @@ const crumbs = computed<Crumb[]>(() => {
 const userName = computed(() => auth.claims?.name || auth.claims?.sub || '');
 const userRole = computed(() => {
   const role = auth.claims?.role ?? '';
-  if (role === 'super_admin') return 'Super admin';
+  if (role === 'platform_admin') return 'Platform admin';
   if (role === 'org_admin') return 'Admin';
-  if (role === 'viewer') return 'Viewer';
+  if (role === 'org_user') return 'User';
+  if (role === 'org_officer') return 'Officer';
+  // 'super_admin' was dead code; kept as fallback for any legacy tokens.
+  if (role === 'super_admin') return 'Super admin';
   return role;
 });
 const orgName = computed(() => auth.claims?.orgName ?? '');
@@ -75,14 +78,37 @@ async function onLogin(creds: { email: string; password: string }) {
   try {
     const resp = await api.get().login(creds);
     auth.setToken(resp.token);
-    // Future phase: if resp.mustChangePassword, push to a change-password
-    // view. Phase 1 has no such view; admins reset via the API directly.
   } catch (err) {
     loginError.value = err instanceof Error ? err.message : 'Sign-in failed';
   } finally {
     loginBusy.value = false;
   }
 }
+
+// First-run setup guard: if the server hasn't been set up yet, redirect to
+// the Setup view. Silently ignored if the API is unreachable.
+onMounted(async () => {
+  if (auth.token) return;
+  try {
+    const status = await api.get().setupStatus();
+    if (status.needsSetup && router.currentRoute.value.name !== 'setup') {
+      await router.replace({ name: 'setup' });
+    }
+  } catch {
+    // API unreachable — proceed normally
+  }
+});
+
+// Force password-change redirect whenever the JWT claim flips on.
+watch(
+  () => auth.claims?.mustChangePassword,
+  (mcp) => {
+    if (mcp && router.currentRoute.value.name !== 'change-password') {
+      void router.push({ name: 'change-password' });
+    }
+  },
+  { immediate: true },
+);
 
 async function signOut() {
   try {
@@ -97,7 +123,11 @@ async function signOut() {
 </script>
 
 <template>
+  <template v-if="route.meta?.public">
+    <router-view />
+  </template>
   <TAuthGate
+    v-else
     type="jwt"
     title="Triton Report Server"
     subtitle="Sign in to review cryptographic compliance."

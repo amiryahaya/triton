@@ -76,10 +76,11 @@ func newAgentControlServer(t *testing.T) (*Server, *store.PostgresStore, string,
 	}))
 
 	cfg := &Config{
-		ListenAddr:    ":0",
-		JWTSigningKey: jwtPriv,
-		JWTPublicKey:  jwtPub,
-		TenantPubKey:  licPub,
+		ListenAddr:        ":0",
+		JWTSigningKey:     jwtPriv,
+		JWTPublicKey:      jwtPub,
+		TenantPubKey:      licPub,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)

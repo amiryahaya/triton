@@ -48,6 +48,29 @@ type HashStore interface {
 	FileHashStats(ctx context.Context) (count int, oldest, newest time.Time, err error)
 }
 
+// TenantLicenceStore manages per-tenant licence records and the stable
+// Report Portal instance identity.
+type TenantLicenceStore interface {
+	// GetOrCreateInstance returns the single report_instance row,
+	// creating it if it doesn't exist (via INSERT ... ON CONFLICT DO NOTHING).
+	GetOrCreateInstance(ctx context.Context) (*ReportInstance, error)
+
+	// GetTenantLicence returns the licence record for the given org.
+	// Returns *ErrNotFound if no row exists.
+	GetTenantLicence(ctx context.Context, orgID string) (*TenantLicence, error)
+
+	// UpsertTenantLicence inserts or updates the licence record.
+	UpsertTenantLicence(ctx context.Context, tl *TenantLicence) error
+
+	// ListTenantLicences returns all tenant_licences rows, ordered by
+	// activated_at DESC.
+	ListTenantLicences(ctx context.Context) ([]TenantLicence, error)
+
+	// DeleteTenantLicence removes the licence record for the given org.
+	// Returns *ErrNotFound if no row exists.
+	DeleteTenantLicence(ctx context.Context, orgID string) error
+}
+
 // OrgStore is the persistence interface for organizations on the report
 // server. The report server's organizations table mirrors the license
 // server's authoritative one — provisioning happens via Phase 1.5b's
@@ -103,6 +126,7 @@ type Store interface {
 	SessionStore
 	AuditStore
 	AgentStore
+	TenantLicenceStore
 
 	// SaveScanWithFindings atomically stores a scan and inserts its
 	// extracted crypto findings. Marks the scan as backfilled on success
@@ -368,10 +392,30 @@ func (e *ErrConflict) Error() string {
 type Organization struct {
 	ID                     string    `json:"id"`
 	Name                   string    `json:"name"`
+	LicenceID              string    `json:"licenceId,omitempty"`
 	ExecutiveTargetPercent float64   `json:"executiveTargetPercent"`
 	ExecutiveDeadlineYear  int       `json:"executiveDeadlineYear"`
 	CreatedAt              time.Time `json:"createdAt"`
 	UpdatedAt              time.Time `json:"updatedAt"`
+}
+
+// ReportInstance is the stable identity of this Report Portal deployment.
+// One row exists in the report_instance table; created on first call to
+// GetOrCreateInstance.
+type ReportInstance struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// TenantLicence caches the Licence Portal activation for a tenant.
+type TenantLicence struct {
+	OrgID       string     `json:"orgId"`
+	LicenceID   string     `json:"licenceId"`
+	Token       string     `json:"-"`
+	ActivatedAt time.Time  `json:"activatedAt"`
+	ExpiresAt   time.Time  `json:"expiresAt"`
+	RenewedAt   *time.Time `json:"renewedAt,omitempty"`
+	Status      string     `json:"status"` // active | grace | expired
 }
 
 // User is a report-server org user. Distinct from licensestore.User by
@@ -413,7 +457,14 @@ type UserUpdate struct {
 	MustChangePassword *bool  // nil = unchanged
 }
 
+// PlatformOrgFilter is the sentinel value for UserFilter.OrgID that
+// selects platform_admin users (who have no org). Using a constant
+// prevents callers from passing a magic string literal.
+const PlatformOrgFilter = "platform"
+
 // UserFilter controls user listing.
+// When OrgID is PlatformOrgFilter, all platform_admin users are returned
+// regardless of the Role field (which is ignored in that case).
 type UserFilter struct {
 	OrgID string
 	Role  string

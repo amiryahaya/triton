@@ -226,6 +226,16 @@ export interface ReportUserUpdate {
   role?: UserRole;
 }
 
+export interface TenantResponse {
+  id: string;
+  name: string;
+  licenceId: string;
+  licenceStatus: 'active' | 'grace' | 'expired';
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * createReportApi wraps an Http client with the Report Server's v1 REST
  * surface. Paths begin with `/v1/` — the caller's baseUrl is expected to
@@ -289,6 +299,29 @@ export function createReportApi(http: Http) {
     // Admin audit (Phase 4)
     listAudit: (filter?: { limit?: number; offset?: number; actor_id?: string }) =>
       http.get<AuditEvent[]>(`/v1/admin/audit/${buildQS(filter)}`),
+
+    // Setup (superadmin first-run)
+    setupStatus: () => http.get<{ needsSetup: boolean }>('/v1/setup/status'),
+    firstSetup: (req: { name: string; email: string }) =>
+      http.post<{ id: string; tempPassword: string }>('/v1/setup', req),
+
+    // Platform admin management
+    listPlatformAdmins: () => http.get<ReportUser[]>('/v1/platform/admins'),
+    invitePlatformAdmin: (req: { name: string; email: string }) =>
+      http.post<{ id: string; tempPassword: string }>('/v1/platform/admins', req),
+    deletePlatformAdmin: (id: string) =>
+      http.del<void>(`/v1/platform/admins/${encodeURIComponent(id)}`),
+
+    // Platform tenant management
+    listPlatformTenants: () => http.get<TenantResponse[]>('/v1/platform/tenants'),
+    createPlatformTenant: (req: { licenceKey: string; adminName: string; adminEmail: string }) =>
+      http.post<TenantResponse>('/v1/platform/tenants', req),
+    getPlatformTenant: (id: string) =>
+      http.get<TenantResponse>(`/v1/platform/tenants/${encodeURIComponent(id)}`),
+    renewTenantLicence: (id: string, licenceKey: string) =>
+      http.post<{ status: string }>(`/v1/platform/tenants/${encodeURIComponent(id)}/renew`, { licenceKey }),
+    deletePlatformTenant: (id: string) =>
+      http.del<void>(`/v1/platform/tenants/${encodeURIComponent(id)}`),
   };
 }
 

@@ -53,9 +53,10 @@ func setupServerWithFailingStore(t *testing.T) (*Server, *store.PostgresStore, *
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	cfg := &Config{
-		ListenAddr:    ":0",
-		JWTSigningKey: priv,
-		JWTPublicKey:  pub,
+		ListenAddr:        ":0",
+		JWTSigningKey:     priv,
+		JWTPublicKey:      pub,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, wrap)
 	require.NoError(t, err)

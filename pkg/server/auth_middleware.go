@@ -190,7 +190,16 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore, cache *sessioncach
 			// Cache fast path. On hit we have everything the
 			// handler chain needs; on miss we fall through to
 			// the DB lookups below and Put the result.
-			if entry, ok := cache.Get(tokenHash); ok {
+			//
+			// Security exception: platform_admin has the highest
+			// privilege level (can provision unlimited tenants) and
+			// is therefore excluded from the cache fast-path. A
+			// platform_admin hit always falls through to the full
+			// GetSessionByHash check so that admin session revocation
+			// (via logout, admin flush, or direct DB mutation) takes
+			// effect immediately rather than within the cache TTL.
+			// All other roles use the cache normally.
+			if entry, ok := cache.Get(tokenHash); ok && entry.Role != "platform_admin" {
 				user := &store.User{
 					ID:                 entry.UserID,
 					OrgID:              entry.OrgID,
@@ -231,13 +240,10 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore, cache *sessioncach
 				return
 			}
 			// Defense in depth: a JWT only validates if the user still
-			// has a known org-level role. Anything else (e.g., a stale
-			// token from a deleted-then-recreated user with an unknown
-			// role) is rejected. Uses roleRank so adding a new role in
-			// rbac.go automatically admits it here too — previously
-			// hardcoding "org_admin" || "org_user" blocked org_officer
-			// with a 401 before RequireRole ever ran.
-			if roleRank[user.Role] == 0 {
+			// has a known role. Org-level roles are checked via roleRank;
+			// platform_admin is checked explicitly (it has no org rank since
+			// it must not inherit access to org-scoped routes via RequireRole).
+			if user.Role != "platform_admin" && roleRank[user.Role] == 0 {
 				writeError(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
@@ -274,6 +280,24 @@ func RequireOrgAdmin(next http.Handler) http.Handler {
 		}
 		if user.Role != "org_admin" {
 			writeError(w, http.StatusForbidden, "org_admin role required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequirePlatformAdmin enforces that the authenticated user has
+// role=platform_admin. Returns 401 if no claims are present (JWTAuth
+// not in middleware chain) and 403 if the role does not match.
+func RequirePlatformAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := ClaimsFromContext(r.Context())
+		if claims == nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if claims.Role != "platform_admin" {
+			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
 		next.ServeHTTP(w, r)

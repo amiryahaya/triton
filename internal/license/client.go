@@ -181,6 +181,104 @@ func (c *ServerClient) Validate(licenseID, token string) (*ValidateResponse, err
 	return &result, nil
 }
 
+// ActivateForTenant activates a licence with a custom machineID.
+// The Report Portal uses machineID = instanceID + "/" + tenantID so that
+// each (deployment, tenant) pair occupies a unique activation seat.
+func (c *ServerClient) ActivateForTenant(licenceKey, machineID string) (*ActivateResponse, error) {
+	body := map[string]string{
+		"licenseID": licenceKey,
+		"machineID": machineID,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling request: %w", err)
+	}
+	resp, err := c.httpClient.Post(c.baseURL+"/api/v1/license/activate",
+		"application/json", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("connecting to licence server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	switch resp.StatusCode {
+	case http.StatusConflict:
+		return nil, fmt.Errorf("no seats available")
+	case http.StatusForbidden:
+		var e map[string]string
+		_ = json.Unmarshal(respBody, &e)
+		return nil, fmt.Errorf("activation denied: %s", e["error"])
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("licence not found")
+	case http.StatusCreated:
+		// ok
+	default:
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, respBody)
+	}
+	var result ActivateResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return &result, nil
+}
+
+// DeactivateForTenant releases a tenant activation seat using a custom machineID.
+func (c *ServerClient) DeactivateForTenant(licenceKey, machineID string) error {
+	body := map[string]string{"licenseID": licenceKey, "machineID": machineID}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshalling request: %w", err)
+	}
+	resp, err := c.httpClient.Post(c.baseURL+"/api/v1/license/deactivate",
+		"application/json", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("connecting to licence server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	// Read the body BEFORE the status check so non-2xx error messages
+	// are captured in the returned error. Previously the body was drained
+	// unconditionally first, making the error opaque. Fix D1.
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return fmt.Errorf("deactivation failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+// ValidateForTenant validates a cached activation token with a custom machineID.
+func (c *ServerClient) ValidateForTenant(licenceID, token, machineID string) (*ValidateResponse, error) {
+	body := map[string]string{
+		"licenseID": licenceID,
+		"machineID": machineID,
+		"token":     token,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling request: %w", err)
+	}
+	resp, err := c.httpClient.Post(c.baseURL+"/api/v1/license/validate",
+		"application/json", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("connecting to licence server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("validate failed (status %d): %s", resp.StatusCode, respBody)
+	}
+	var result ValidateResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return &result, nil
+}
+
 // Health checks if the license server is reachable.
 func (c *ServerClient) Health() error {
 	resp, err := c.httpClient.Get(c.baseURL + "/api/v1/health")

@@ -83,7 +83,8 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 		// is satisfied via the Guard fallback path. testScanResult also
 		// stamps OrgID = testOrgID, so seeded scans are visible through
 		// the test server's tenant filter.
-		Guard: testGuardForOrg(t, testOrgID),
+		Guard:             testGuardForOrg(t, testOrgID),
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)
@@ -112,8 +113,9 @@ func testServerWithServiceKey(t *testing.T) (*Server, *store.PostgresStore, stri
 
 	const serviceKey = "test-service-key-shared-secret"
 	cfg := &Config{
-		ListenAddr: ":0",
-		ServiceKey: serviceKey,
+		ListenAddr:        ":0",
+		ServiceKey:        serviceKey,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)
@@ -143,9 +145,45 @@ func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	cfg := &Config{
-		ListenAddr:    ":0",
-		JWTSigningKey: priv,
-		JWTPublicKey:  pub,
+		ListenAddr:        ":0",
+		JWTSigningKey:     priv,
+		JWTPublicKey:      pub,
+		DisableSetupGuard: true,
+	}
+	srv, err := New(cfg, db)
+	require.NoError(t, err)
+	return srv, db
+}
+
+// testServerWithLicencePortal builds a server like testServerWithJWT but with
+// a LicencePortalURL pointing at the provided base URL (typically a
+// httptest.Server URL). This lets tenant handlers make real HTTP calls to a
+// mock Licence Portal without any special wiring.
+func testServerWithLicencePortal(t *testing.T, licencePortalURL string) (*Server, *store.PostgresStore) {
+	t.Helper()
+	dbUrl := os.Getenv("TRITON_TEST_DB_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+	}
+	ctx := context.Background()
+	db, err := store.NewPostgresStore(ctx, dbUrl)
+	if err != nil {
+		t.Skipf("PostgreSQL unavailable: %v", err)
+	}
+	require.NoError(t, db.TruncateAll(ctx))
+	t.Cleanup(func() {
+		_ = db.TruncateAll(ctx)
+		db.Close()
+	})
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cfg := &Config{
+		ListenAddr:        ":0",
+		JWTSigningKey:     priv,
+		JWTPublicKey:      pub,
+		LicencePortalURL:  licencePortalURL,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)
@@ -1133,8 +1171,9 @@ func testServerWithGuard(t *testing.T, tier license.Tier) (*Server, *store.Postg
 	guard := license.NewGuardFromToken(token, pub)
 
 	cfg := &Config{
-		ListenAddr: ":0",
-		Guard:      guard,
+		ListenAddr:        ":0",
+		Guard:             guard,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)

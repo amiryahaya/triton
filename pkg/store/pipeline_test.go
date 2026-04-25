@@ -229,6 +229,24 @@ func (m *pipelineMockStore) ExpireStaleAgentCommands(_ context.Context) (int, er
 	panic("not implemented")
 }
 
+// --- TenantLicenceStore stubs ---
+
+func (m *pipelineMockStore) GetOrCreateInstance(_ context.Context) (*ReportInstance, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) GetTenantLicence(_ context.Context, _ string) (*TenantLicence, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) UpsertTenantLicence(_ context.Context, _ *TenantLicence) error {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListTenantLicences(_ context.Context) ([]TenantLicence, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) DeleteTenantLicence(_ context.Context, _ string) error {
+	panic("not implemented")
+}
+
 // Compile-time assertion: pipelineMockStore must satisfy Store.
 var _ Store = (*pipelineMockStore)(nil)
 

@@ -260,4 +260,33 @@ var migrations = []string{
 
 	DROP TABLE IF EXISTS manage_zone_memberships;
 	DROP TABLE IF EXISTS manage_zones;`,
+
+	// Version 10: Network discovery — singleton job + discovered candidates.
+	`CREATE TABLE IF NOT EXISTS manage_discovery_jobs (
+		id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id        UUID        NOT NULL REFERENCES manage_orgs(id) ON DELETE CASCADE,
+		cidr             TEXT        NOT NULL,
+		ports            INT[]       NOT NULL,
+		status           TEXT        NOT NULL DEFAULT 'queued'
+		                             CHECK (status IN ('queued','running','completed','failed','cancelled')),
+		total_ips        INT         NOT NULL DEFAULT 0,
+		scanned_ips      INT         NOT NULL DEFAULT 0,
+		cancel_requested BOOLEAN     NOT NULL DEFAULT FALSE,
+		started_at       TIMESTAMPTZ,
+		finished_at      TIMESTAMPTZ,
+		error_message    TEXT        NOT NULL DEFAULT '',
+		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS manage_discovery_candidates (
+		id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		job_id           UUID        NOT NULL REFERENCES manage_discovery_jobs(id) ON DELETE CASCADE,
+		ip               TEXT        NOT NULL,
+		hostname         TEXT,
+		open_ports       INT[]       NOT NULL DEFAULT '{}',
+		existing_host_id UUID        REFERENCES manage_hosts(id) ON DELETE SET NULL,
+		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_discovery_candidates_job ON manage_discovery_candidates(job_id);`,
 }

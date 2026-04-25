@@ -108,11 +108,12 @@ func run() error {
 	}
 
 	cfg := &server.Config{
-		ListenAddr:    listen,
-		DBUrl:         dbURL,
-		Guard:         guard,
-		JWTSigningKey: jwtPriv,
-		JWTPublicKey:  jwtPub,
+		ListenAddr:        listen,
+		DBUrl:             dbURL,
+		Guard:             guard,
+		JWTSigningKey:     jwtPriv,
+		JWTPublicKey:      jwtPub,
+		DisableSetupGuard: true,
 	}
 	srv, err := server.New(cfg, db)
 	if err != nil {

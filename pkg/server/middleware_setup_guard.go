@@ -19,7 +19,7 @@ import (
 // flag is never cleared. Fix D4/C1.
 func (s *Server) SetupGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isSetupPath(r.URL.Path) {
+		if s.config.DisableSetupGuard || isSetupPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

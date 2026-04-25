@@ -83,7 +83,8 @@ func testServer(t *testing.T) (*Server, *store.PostgresStore) {
 		// is satisfied via the Guard fallback path. testScanResult also
 		// stamps OrgID = testOrgID, so seeded scans are visible through
 		// the test server's tenant filter.
-		Guard: testGuardForOrg(t, testOrgID),
+		Guard:             testGuardForOrg(t, testOrgID),
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)
@@ -112,8 +113,9 @@ func testServerWithServiceKey(t *testing.T) (*Server, *store.PostgresStore, stri
 
 	const serviceKey = "test-service-key-shared-secret"
 	cfg := &Config{
-		ListenAddr: ":0",
-		ServiceKey: serviceKey,
+		ListenAddr:        ":0",
+		ServiceKey:        serviceKey,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)
@@ -143,9 +145,10 @@ func testServerWithJWT(t *testing.T) (*Server, *store.PostgresStore) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	cfg := &Config{
-		ListenAddr:    ":0",
-		JWTSigningKey: priv,
-		JWTPublicKey:  pub,
+		ListenAddr:        ":0",
+		JWTSigningKey:     priv,
+		JWTPublicKey:      pub,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)
@@ -176,10 +179,11 @@ func testServerWithLicencePortal(t *testing.T, licencePortalURL string) (*Server
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	cfg := &Config{
-		ListenAddr:       ":0",
-		JWTSigningKey:    priv,
-		JWTPublicKey:     pub,
-		LicencePortalURL: licencePortalURL,
+		ListenAddr:        ":0",
+		JWTSigningKey:     priv,
+		JWTPublicKey:      pub,
+		LicencePortalURL:  licencePortalURL,
+		DisableSetupGuard: true,
 	}
 	srv, err := New(cfg, db)
 	require.NoError(t, err)

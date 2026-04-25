@@ -109,6 +109,11 @@ type Config struct {
 	// activate/validate/deactivate tenant licences. When empty, tenant
 	// creation returns 503.
 	LicencePortalURL string
+
+	// DisableSetupGuard skips the first-run redirect entirely. Set to true
+	// in integration test servers that truncate the DB before each test —
+	// those servers have no platform_admin and should not redirect everything.
+	DisableSetupGuard bool
 }
 
 // Server is the Triton REST API server.

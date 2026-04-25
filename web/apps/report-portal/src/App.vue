@@ -121,7 +121,11 @@ async function signOut() {
 </script>
 
 <template>
+  <template v-if="route.meta?.public">
+    <router-view />
+  </template>
   <TAuthGate
+    v-else
     type="jwt"
     title="Triton Report Server"
     subtitle="Sign in to review cryptographic compliance."

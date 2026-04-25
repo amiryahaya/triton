@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useApiClient } from '../stores/apiClient';
+import { useAuthStore } from '../stores/auth';
 import type { ReportUser } from '@triton/api-client';
 
 const api = useApiClient();
+const auth = useAuthStore();
 const admins = ref<ReportUser[]>([]);
 const loading = ref(true);
 const error = ref('');
@@ -19,6 +21,7 @@ onMounted(async () => {
 });
 
 async function load() {
+  error.value = '';
   loading.value = true;
   try {
     admins.value = await api.get().listPlatformAdmins();
@@ -78,7 +81,7 @@ async function remove(id: string) {
         <tr v-for="admin in admins" :key="admin.id">
           <td>{{ admin.name }}</td>
           <td>{{ admin.email }}</td>
-          <td><button class="danger" @click="remove(admin.id)">Delete</button></td>
+          <td><button class="danger" @click="remove(admin.id)" :disabled="admin.id === auth.claims?.sub">Delete</button></td>
         </tr>
       </tbody>
     </table>

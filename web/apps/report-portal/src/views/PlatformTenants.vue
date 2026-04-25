@@ -16,6 +16,7 @@ const createError = ref('');
 onMounted(async () => { await load(); });
 
 async function load() {
+  error.value = '';
   loading.value = true;
   try {
     tenants.value = await api.get().listPlatformTenants();

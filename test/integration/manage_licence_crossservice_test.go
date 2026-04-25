@@ -326,3 +326,57 @@ func TestCSLicence_Refresh(t *testing.T) {
 	require.Greater(t, activeAfter, activeBefore,
 		"activation count must increase after refresh (Activate was called)")
 }
+
+// TestCSLicence_ReplaceKey verifies that POST /admin/licence/replace activates
+// a new key against the real License Portal and stores the new key in the DB.
+// The old key's activation is intentionally NOT deactivated by replace.
+func TestCSLicence_ReplaceKey(t *testing.T) {
+	f := newCSFixture(t)
+	ctx := context.Background()
+
+	resp := csManageReq(t, f, http.MethodPost, "/api/v1/admin/licence/replace",
+		map[string]string{"license_key": f.LicIDB})
+	body := csReadBody(resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "replace: %s", body)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.Equal(t, true, out["ok"], "replace must return ok:true, got %v", out)
+
+	// DB: license_key must now be LicIDB.
+	state, err := f.ManageStore.GetSetup(ctx)
+	require.NoError(t, err)
+	require.Equal(t, f.LicIDB, state.LicenseKey,
+		"license_key in DB must be LicIDB after replace")
+	// New token must be valid and signed by the real License Portal.
+	_, err = license.Parse(state.SignedToken, f.LSPub)
+	require.NoError(t, err, "signed_token after replace must be parseable with LSPub")
+
+	// License Portal: LicIDB must have an active activation.
+	actsB := csActivationsForLicense(t, f, f.LicIDB)
+	require.NotEmpty(t, actsB, "License Portal must have an activation for LicIDB")
+	activeB := 0
+	for _, a := range actsB {
+		if csDeactivatedAt(a) == "" {
+			activeB++
+		}
+	}
+	require.Greater(t, activeB, 0, "LicIDB must have a non-deactivated activation")
+
+	// License Portal: LicIDA activation is still active (replace does NOT deactivate old key).
+	actsA := csActivationsForLicense(t, f, f.LicIDA)
+	require.NotEmpty(t, actsA, "LicIDA must still have activations after replace")
+	activeA := 0
+	for _, a := range actsA {
+		if csDeactivatedAt(a) == "" {
+			activeA++
+		}
+	}
+	require.Greater(t, activeA, 0, "LicIDA activation must remain active after replace")
+
+	// Guard still live.
+	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
+	licBody := csReadBody(licResp)
+	require.Equal(t, http.StatusOK, licResp.StatusCode,
+		"GET /admin/licence must return 200 after replace: %s", licBody)
+}

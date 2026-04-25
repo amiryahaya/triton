@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import {
   TButton,
   TDataTable,
@@ -11,11 +11,9 @@ import {
 } from '@triton/ui';
 import type { Agent, AgentStatus } from '@triton/api-client';
 import { useAgentsStore } from '../stores/agents';
-import { useZonesStore } from '../stores/zones';
 import AgentEnrolForm from './modals/AgentEnrolForm.vue';
 
 const agents = useAgentsStore();
-const zones = useZonesStore();
 const toast = useToast();
 
 const enrolOpen = ref(false);
@@ -24,7 +22,6 @@ const pendingRevoke = ref<Agent | null>(null);
 
 const columns: Column<Agent>[] = [
   { key: 'name', label: 'Name' },
-  { key: 'zone_id', label: 'Zone' },
   { key: 'status', label: 'Status' },
   { key: 'cert_expires_at', label: 'Cert expires' },
   { key: 'last_seen_at', label: 'Last seen' },
@@ -41,14 +38,8 @@ const statusVariant: Record<AgentStatus, PillVariant> = {
   revoked: 'unsafe',
 };
 
-const zoneNameByID = computed(() => {
-  const m = new Map<string, string>();
-  for (const z of zones.items) m.set(z.id, z.name);
-  return m;
-});
-
 onMounted(async () => {
-  await Promise.all([zones.fetch(), agents.fetch()]);
+  await agents.fetch();
 });
 
 function askRevoke(a: Agent) {
@@ -56,7 +47,7 @@ function askRevoke(a: Agent) {
   confirmOpen.value = true;
 }
 
-async function onEnrolSubmit(payload: { name: string; zone_id?: string }) {
+async function onEnrolSubmit(payload: { name: string }) {
   try {
     const filename = await agents.enrol(payload);
     toast.success({
@@ -106,9 +97,6 @@ async function onConfirmRevoke() {
       row-key="id"
       :empty-text="agents.loading ? 'Loading…' : 'No agents enrolled yet.'"
     >
-      <template #[`cell:zone_id`]="{ row }">
-        {{ row.zone_id ? (zoneNameByID.get(row.zone_id) ?? row.zone_id) : '—' }}
-      </template>
       <template #[`cell:status`]="{ row }">
         <TPill :variant="statusVariant[row.status]">
           {{ row.status }}
@@ -130,7 +118,6 @@ async function onConfirmRevoke() {
 
     <AgentEnrolForm
       :open="enrolOpen"
-      :zones="zones.items"
       @close="enrolOpen = false"
       @submit="onEnrolSubmit"
     />

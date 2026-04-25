@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { TModal, TSelect, TFormField, TInput, TButton } from '@triton/ui';
-import type { Zone, EnqueueReq, ScanJobProfile } from '@triton/api-client';
+import type { Tag, EnqueueReq, ScanJobProfile } from '@triton/api-client';
 
-const props = defineProps<{ open: boolean; zones: Zone[] }>();
+const props = defineProps<{ open: boolean; tags: Tag[] }>();
 const emit = defineEmits<{ close: []; submit: [req: EnqueueReq] }>();
 
-const selectedZones = ref<string[]>([]);
+const selectedTags = ref<string[]>([]);
 const profile = ref<ScanJobProfile>('standard');
 const filter = ref('');
 const busy = ref(false);
@@ -15,7 +15,7 @@ watch(
   () => props.open,
   (o) => {
     if (!o) return;
-    selectedZones.value = [];
+    selectedTags.value = [];
     profile.value = 'standard';
     filter.value = '';
     busy.value = false;
@@ -23,13 +23,13 @@ watch(
 );
 
 function onSubmit() {
-  if (selectedZones.value.length === 0) return;
+  if (selectedTags.value.length === 0) return;
   busy.value = true;
   try {
     emit('submit', {
-      zones: selectedZones.value,
+      tags: selectedTags.value,
       profile: profile.value,
-      target_filter: filter.value.trim() || undefined,
+      host_filter: filter.value.trim() || undefined,
     });
   } finally {
     // Parent controls modal close + toast; reset busy so the button
@@ -48,21 +48,21 @@ function onSubmit() {
   >
     <div class="enqueue-form">
       <TFormField
-        label="Zones (multi-select)"
+        label="Tags (multi-select)"
         required
       >
         <select
-          v-model="selectedZones"
+          v-model="selectedTags"
           multiple
-          class="zones-multi"
+          class="tags-multi"
           size="6"
         >
           <option
-            v-for="z in props.zones"
-            :key="z.id"
-            :value="z.id"
+            v-for="t in props.tags"
+            :key="t.id"
+            :value="t.id"
           >
-            {{ z.name }}
+            {{ t.name }}
           </option>
         </select>
       </TFormField>
@@ -79,7 +79,7 @@ function onSubmit() {
           </option>
         </TSelect>
       </TFormField>
-      <TFormField label="Hostname filter (glob, optional)">
+      <TFormField label="Host filter (glob, optional)">
         <TInput
           v-model="filter"
           placeholder="db-*"
@@ -97,7 +97,7 @@ function onSubmit() {
       <TButton
         variant="primary"
         size="sm"
-        :disabled="selectedZones.length === 0 || busy"
+        :disabled="selectedTags.length === 0 || busy"
         @click="onSubmit"
       >
         {{ busy ? 'Enqueueing…' : 'Enqueue' }}
@@ -112,7 +112,7 @@ function onSubmit() {
   flex-direction: column;
   gap: var(--space-3);
 }
-.zones-multi {
+.tags-multi {
   width: 100%;
   padding: var(--space-2);
   background: var(--bg-surface);

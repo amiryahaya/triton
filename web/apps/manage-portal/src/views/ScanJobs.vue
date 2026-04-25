@@ -16,12 +16,12 @@ import type {
   EnqueueReq,
 } from '@triton/api-client';
 import { useScanJobsStore } from '../stores/scanjobs';
-import { useZonesStore } from '../stores/zones';
+import { useTagsStore } from '../stores/tags';
 import ScanJobEnqueueForm from './modals/ScanJobEnqueueForm.vue';
 import ScanJobDetailDrawer from './modals/ScanJobDetailDrawer.vue';
 
 const jobs = useScanJobsStore();
-const zones = useZonesStore();
+const tags = useTagsStore();
 const toast = useToast();
 
 const enqueueOpen = ref(false);
@@ -29,7 +29,6 @@ const drawerJobID = ref<string | null>(null);
 
 const columns: Column<ScanJob>[] = [
   { key: 'profile', label: 'Profile' },
-  { key: 'zone_id', label: 'Zone' },
   { key: 'host_id', label: 'Host' },
   { key: 'status', label: 'Status' },
   { key: 'enqueued_at', label: 'Enqueued' },
@@ -47,12 +46,6 @@ const statusVariant: Record<ScanJobStatus, PillVariant> = {
   cancelled: 'info',
 };
 
-const zoneNameByID = computed(() => {
-  const m = new Map<string, string>();
-  for (const z of zones.items) m.set(z.id, z.name);
-  return m;
-});
-
 // TSelect requires a defined-string modelValue; the store keeps status
 // optional. Normalise around an empty string.
 const filterStatus = computed<string>({
@@ -63,7 +56,7 @@ const filterStatus = computed<string>({
 });
 
 onMounted(async () => {
-  await zones.fetch();
+  await tags.fetch();
   jobs.startPolling();
 });
 
@@ -112,7 +105,7 @@ function openDrawer(j: ScanJob) {
     <header class="scanjobs-head">
       <div>
         <h1>Scan Jobs</h1>
-        <p class="scanjobs-sub">Scan queue across agents and zones. Polls every 5 seconds.</p>
+        <p class="scanjobs-sub">Scan queue across agents and tags. Polls every 5 seconds.</p>
       </div>
       <TButton
         variant="primary"
@@ -155,9 +148,6 @@ function openDrawer(j: ScanJob) {
       :empty-text="jobs.loading ? 'Loading…' : 'No scan jobs yet.'"
       @row-click="openDrawer"
     >
-      <template #[`cell:zone_id`]="{ row }">
-        {{ row.zone_id ? (zoneNameByID.get(row.zone_id) ?? row.zone_id) : '—' }}
-      </template>
       <template #[`cell:host_id`]="{ row }">
         {{ row.host_id ?? '—' }}
       </template>
@@ -185,7 +175,7 @@ function openDrawer(j: ScanJob) {
 
     <ScanJobEnqueueForm
       :open="enqueueOpen"
-      :zones="zones.items"
+      :tags="tags.items"
       @close="enqueueOpen = false"
       @submit="onEnqueue"
     />

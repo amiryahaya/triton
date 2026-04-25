@@ -58,8 +58,6 @@ async function refresh() {
           <dd>{{ store.selected.profile }}</dd>
           <dt>Host</dt>
           <dd>{{ store.selected.host_id ?? '—' }}</dd>
-          <dt>Zone</dt>
-          <dd>{{ store.selected.zone_id ?? '—' }}</dd>
           <dt>Cancel requested</dt>
           <dd>{{ store.selected.cancel_requested ? 'yes' : 'no' }}</dd>
           <dt>Worker</dt>

@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { TModal, TFormField, TInput, TSelect, TButton } from '@triton/ui';
-import type { Zone } from '@triton/api-client';
+import { TModal, TFormField, TInput, TButton } from '@triton/ui';
 
 const props = defineProps<{
   open: boolean;
-  zones: Zone[];
 }>();
 
 const emit = defineEmits<{
   close: [];
-  submit: [payload: { name: string; zone_id?: string }];
+  submit: [payload: { name: string }];
 }>();
 
 const name = ref('');
-const zoneID = ref('');
 const error = ref('');
 const busy = ref(false);
 
@@ -23,7 +20,6 @@ watch(
   (o) => {
     if (!o) return;
     name.value = '';
-    zoneID.value = '';
     error.value = '';
     busy.value = false;
   }
@@ -38,7 +34,6 @@ async function submit() {
   try {
     emit('submit', {
       name: name.value.trim(),
-      zone_id: zoneID.value || undefined,
     });
   } finally {
     // Parent controls close + success/error toast; release the spinner
@@ -73,20 +68,6 @@ async function submit() {
         :error="error"
       >
         <TInput v-model="name" />
-      </TFormField>
-      <TFormField label="Zone">
-        <TSelect v-model="zoneID">
-          <option value="">
-            — None —
-          </option>
-          <option
-            v-for="z in zones"
-            :key="z.id"
-            :value="z.id"
-          >
-            {{ z.name }}
-          </option>
-        </TSelect>
       </TFormField>
     </div>
     <template #footer>

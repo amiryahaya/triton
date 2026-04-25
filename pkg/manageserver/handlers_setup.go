@@ -141,6 +141,8 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.LicenseServerURL = strings.TrimRight(req.LicenseServerURL, "/")
+
 	// Reject plaintext License Server URLs unless dev opts out explicitly.
 	// Production must use HTTPS so the license key isn't exposed on the wire.
 	if !strings.HasPrefix(req.LicenseServerURL, "https://") {

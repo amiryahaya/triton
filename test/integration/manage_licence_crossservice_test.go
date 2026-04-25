@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/license"
@@ -442,4 +443,83 @@ func TestCSLicence_Deactivate_Immediate(t *testing.T) {
 	require.False(t, state.LicenseActivated, "LicenseActivated must be false after deactivation")
 	require.Empty(t, state.LicenseKey, "LicenseKey must be empty after deactivation")
 	require.Empty(t, state.SignedToken, "SignedToken must be empty after deactivation")
+}
+
+// TestCSLicence_Deactivate_Queued verifies the queued deactivation path:
+// deactivate returns 202 while a scan job is active, then the watcher goroutine
+// (100ms tick) fires deactivateNow against the real License Portal once the
+// scan job is marked completed.
+func TestCSLicence_Deactivate_Queued(t *testing.T) {
+	f := newCSFixture(t)
+	ctx := context.Background()
+
+	tenantID, err := uuid.Parse(f.InstanceID)
+	require.NoError(t, err)
+
+	// Insert a running scan job directly so CountActive returns 1.
+	// zone_id and host_id are nullable — no FK rows required.
+	var jobID uuid.UUID
+	require.NoError(t, f.ManageStore.Pool().QueryRow(ctx,
+		`INSERT INTO manage_scan_jobs (tenant_id, profile, status, running_heartbeat_at)
+		 VALUES ($1, 'quick', 'running', NOW())
+		 RETURNING id`,
+		tenantID,
+	).Scan(&jobID))
+
+	// POST /admin/licence/deactivate — must return 202 (queued) because
+	// active scan count is 1.
+	resp := csManageReq(t, f, http.MethodPost, "/api/v1/admin/licence/deactivate", nil)
+	body := csReadBody(resp)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"deactivate with active scan must return 202: %s", body)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.Equal(t, true, out["pending"], "pending must be true: %v", out)
+
+	// Manage Server: licence still live while deactivation is pending.
+	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
+	licBody := csReadBody(licResp)
+	require.Equal(t, http.StatusOK, licResp.StatusCode,
+		"licence must be live while pending: %s", licBody)
+
+	// License Portal: activation still active (watcher has not fired yet).
+	actsBefore := csActivationsForLicense(t, f, f.LicIDA)
+	require.NotEmpty(t, actsBefore)
+	for _, a := range actsBefore {
+		require.Empty(t, csDeactivatedAt(a),
+			"activation must not be deactivated yet: %v", a)
+	}
+
+	// Complete the running scan job so CountActive drops to 0.
+	_, err = f.ManageStore.Pool().Exec(ctx,
+		`UPDATE manage_scan_jobs SET status = 'completed', finished_at = NOW() WHERE id = $1`,
+		jobID,
+	)
+	require.NoError(t, err)
+
+	// Wait for the watcher (100ms tick) to fire deactivateNow.
+	// Allow up to 2s: 20× the tick interval.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		licResp2 := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
+		io.Copy(io.Discard, licResp2.Body) //nolint:errcheck
+		licResp2.Body.Close()
+		if licResp2.StatusCode == http.StatusServiceUnavailable {
+			// Watcher fired — verify the License Portal shows the deactivation.
+			actsAfter := csActivationsForLicense(t, f, f.LicIDA)
+			require.NotEmpty(t, actsAfter)
+			deactivated := 0
+			for _, a := range actsAfter {
+				if csDeactivatedAt(a) != "" {
+					deactivated++
+				}
+			}
+			require.Equal(t, 1, deactivated,
+				"exactly one activation for LicIDA must have deactivated_at after watcher fires")
+			return // test passes
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("deactivation watcher did not fire within 2s after scan job completed")
 }

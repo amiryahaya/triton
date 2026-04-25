@@ -476,12 +476,18 @@ func TestCSLicence_Deactivate_Queued(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
 	require.Equal(t, true, out["pending"], "pending must be true: %v", out)
+	activeScans, _ := out["active_scans"].(float64) // JSON numbers decode as float64
+	require.Equal(t, float64(1), activeScans, "active_scans must be 1: %v", out)
 
 	// Manage Server: licence still live while deactivation is pending.
 	licResp := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
 	licBody := csReadBody(licResp)
 	require.Equal(t, http.StatusOK, licResp.StatusCode,
 		"licence must be live while pending: %s", licBody)
+	var licSummary map[string]any
+	require.NoError(t, json.Unmarshal([]byte(licBody), &licSummary))
+	require.Equal(t, true, licSummary["pending_deactivation"],
+		"GET /admin/licence must report pending_deactivation:true, got %v", licSummary)
 
 	// License Portal: activation still active (watcher has not fired yet).
 	actsBefore := csActivationsForLicense(t, f, f.LicIDA)
@@ -503,10 +509,15 @@ func TestCSLicence_Deactivate_Queued(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		licResp2 := csManageReq(t, f, http.MethodGet, "/api/v1/admin/licence", nil)
-		io.Copy(io.Discard, licResp2.Body) //nolint:errcheck
-		licResp2.Body.Close()
-		if licResp2.StatusCode == http.StatusServiceUnavailable {
-			// Watcher fired — verify the License Portal shows the deactivation.
+		status2 := licResp2.StatusCode
+		body2 := csReadBody(licResp2)
+		if status2 == http.StatusServiceUnavailable {
+			// Watcher fired — assert setup_required, LP deactivation, and DB state.
+			var svcOut map[string]any
+			require.NoError(t, json.Unmarshal([]byte(body2), &svcOut))
+			require.Equal(t, true, svcOut["setup_required"],
+				"503 response must include setup_required:true, got %v", svcOut)
+
 			actsAfter := csActivationsForLicense(t, f, f.LicIDA)
 			require.NotEmpty(t, actsAfter)
 			deactivated := 0
@@ -517,6 +528,12 @@ func TestCSLicence_Deactivate_Queued(t *testing.T) {
 			}
 			require.Equal(t, 1, deactivated,
 				"exactly one activation for LicIDA must have deactivated_at after watcher fires")
+
+			state, err := f.ManageStore.GetSetup(ctx)
+			require.NoError(t, err)
+			require.False(t, state.LicenseActivated, "LicenseActivated must be false after watcher")
+			require.Empty(t, state.LicenseKey, "LicenseKey must be empty after watcher")
+			require.Empty(t, state.SignedToken, "SignedToken must be empty after watcher")
 			return // test passes
 		}
 		time.Sleep(50 * time.Millisecond)

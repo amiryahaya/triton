@@ -88,20 +88,20 @@ func (h *AdminHandlers) guard() ScanCapGuard {
 // deliberately omitted so a misbehaving client cannot forge another
 // tenant's submission — the handler injects it from orgctx.
 type enqueueRequestBody struct {
-	ZoneIDs        []uuid.UUID `json:"zones"`
-	HostFilter     string      `json:"target_filter"`
+	TagIDs         []uuid.UUID `json:"tags"`
+	HostFilter     string      `json:"host_filter"`
 	Profile        Profile     `json:"profile"`
 	CredentialsRef *uuid.UUID  `json:"credentials_ref"`
 }
 
 // validateEnqueue enforces the handler-layer invariants: at least one
-// zone, and a valid profile. These are the same checks the DB would
-// ultimately make (profile CHECK constraint, non-empty zone list =>
+// tag, and a valid profile. These are the same checks the DB would
+// ultimately make (profile CHECK constraint, non-empty tag list =>
 // non-empty job set) but catching them early keeps 400s separate from
 // 500s.
 func validateEnqueue(b enqueueRequestBody) error {
-	if len(b.ZoneIDs) == 0 {
-		return errors.New("zones must contain at least one zone id")
+	if len(b.TagIDs) == 0 {
+		return errors.New("tags must contain at least one tag id")
 	}
 	switch b.Profile {
 	case ProfileQuick, ProfileStandard, ProfileComprehensive:
@@ -114,7 +114,7 @@ func validateEnqueue(b enqueueRequestBody) error {
 }
 
 // Enqueue creates new scan jobs for the authenticated tenant.
-// Body: {zones, target_filter?, profile, credentials_ref?}
+// Body: {tags, host_filter?, profile, credentials_ref?}
 func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
@@ -153,7 +153,7 @@ func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 
 	req := EnqueueReq{
 		TenantID:       tenantID,
-		ZoneIDs:        body.ZoneIDs,
+		TagIDs:         body.TagIDs,
 		HostFilter:     body.HostFilter,
 		Profile:        body.Profile,
 		CredentialsRef: body.CredentialsRef,

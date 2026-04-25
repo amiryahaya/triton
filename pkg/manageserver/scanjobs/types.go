@@ -40,7 +40,6 @@ const (
 type Job struct {
 	ID                 uuid.UUID  `json:"id"`
 	TenantID           uuid.UUID  `json:"tenant_id"`
-	ZoneID             uuid.UUID  `json:"zone_id"`
 	HostID             uuid.UUID  `json:"host_id"`
 	Profile            Profile    `json:"profile"`
 	CredentialsRef     *uuid.UUID `json:"credentials_ref,omitempty"`
@@ -57,13 +56,13 @@ type Job struct {
 
 // EnqueueReq is the input to Store.Enqueue. TenantID is injected from
 // orgctx at the handler boundary, never from the client body, which is
-// why it carries `json:"-"`. ZoneIDs + HostFilter jointly resolve to
+// why it carries `json:"-"`. TagIDs + HostFilter jointly resolve to
 // the Host rows the orchestrator will scan; HostFilter is a simple
-// glob against hostname (empty means "all hosts in the zones").
+// glob against hostname (empty means "all hosts with the tags").
 type EnqueueReq struct {
 	TenantID       uuid.UUID   `json:"-"`
-	ZoneIDs        []uuid.UUID `json:"zones"`
-	HostFilter     string      `json:"target_filter,omitempty"`
+	TagIDs         []uuid.UUID `json:"tags"`
+	HostFilter     string      `json:"host_filter"`
 	Profile        Profile     `json:"profile"`
 	CredentialsRef *uuid.UUID  `json:"credentials_ref,omitempty"`
 }

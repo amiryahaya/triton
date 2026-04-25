@@ -66,12 +66,11 @@ func (f *fakeStore) Enqueue(_ context.Context, req scanjobs.EnqueueReq) ([]scanj
 	if f.enqErr != nil {
 		return nil, f.enqErr
 	}
-	out := make([]scanjobs.Job, 0, len(req.ZoneIDs))
-	for _, z := range req.ZoneIDs {
+	out := make([]scanjobs.Job, 0, len(req.TagIDs))
+	for range req.TagIDs {
 		j := scanjobs.Job{
 			ID:         uuid.Must(uuid.NewV7()),
 			TenantID:   req.TenantID,
-			ZoneID:     z,
 			HostID:     uuid.Must(uuid.NewV7()),
 			Profile:    req.Profile,
 			Status:     scanjobs.StatusQueued,
@@ -141,10 +140,10 @@ func (f *fakeStore) Fail(_ context.Context, _ uuid.UUID, _ string) error       {
 func (f *fakeStore) Cancel(_ context.Context, _ uuid.UUID) error               { return nil }
 func (f *fakeStore) ReapStale(_ context.Context, _ time.Duration) (int, error) { return 0, nil }
 func (f *fakeStore) PlanEnqueueCount(_ context.Context, req scanjobs.EnqueueReq) (int64, error) {
-	// Matches the real store's "one job per zone (assuming one host per
-	// zone)" fake shape so cap tests can reason about the count
+	// Matches the real store's "one job per tag (assuming one host per
+	// tag)" fake shape so cap tests can reason about the count
 	// without touching postgres.
-	return int64(len(req.ZoneIDs)), nil
+	return int64(len(req.TagIDs)), nil
 }
 func (f *fakeStore) CountCompletedSince(_ context.Context, _ uuid.UUID, _ time.Time) (int64, error) {
 	// Handler-layer tests don't exercise the usage-pusher path;
@@ -252,9 +251,9 @@ func TestScanJobsAdmin_Enqueue_Success(t *testing.T) {
 	tenantID := uuid.Must(uuid.NewV7())
 	ts := newTestServer(t, store, tenantID)
 
-	zoneID := uuid.Must(uuid.NewV7())
+	tagID := uuid.Must(uuid.NewV7())
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{zoneID.String()},
+		"tags":   []string{tagID.String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -283,7 +282,7 @@ func TestScanJobsAdmin_Enqueue_BadProfile_Returns400(t *testing.T) {
 	ts := newTestServer(t, newFakeStore(), uuid.Must(uuid.NewV7()))
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "not-a-profile",
 	})
 	defer resp.Body.Close()
@@ -309,7 +308,7 @@ func TestScanJobsAdmin_Enqueue_InternalError_Returns500(t *testing.T) {
 	ts := newTestServer(t, store, uuid.Must(uuid.NewV7()))
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -326,9 +325,9 @@ func TestScanJobsAdmin_Create_QueueSaturated_Returns503(t *testing.T) {
 	tenantID := uuid.Must(uuid.NewV7())
 	ts := newTestServerWithQueueDepth(t, store, tenantID, &fakeQueueDepther{Depth: 10_000})
 
-	zoneID := uuid.Must(uuid.NewV7())
+	tagID := uuid.Must(uuid.NewV7())
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{zoneID.String()},
+		"tags":   []string{tagID.String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -350,9 +349,9 @@ func TestScanJobsAdmin_Create_QueueDepthError_Returns500(t *testing.T) {
 	qd := &fakeQueueDepther{QueueErr: errors.New("boom: pg down")}
 	ts := newTestServerWithQueueDepth(t, store, tenantID, qd)
 
-	zoneID := uuid.Must(uuid.NewV7())
+	tagID := uuid.Must(uuid.NewV7())
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{zoneID.String()},
+		"tags":   []string{tagID.String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -363,7 +362,7 @@ func TestScanJobsAdmin_Enqueue_MissingTenant_Returns503(t *testing.T) {
 	ts := newTestServerNoTenant(t, newFakeStore())
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()

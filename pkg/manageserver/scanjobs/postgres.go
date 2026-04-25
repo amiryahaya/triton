@@ -30,35 +30,30 @@ var _ Store = (*PostgresStore)(nil)
 // jobSelectCols lists the columns expected by scanJob. COALESCE on
 // worker_id lets us read the nullable TEXT column into a plain
 // `string` Go field (empty-string = not-yet-claimed).
-const jobSelectCols = `id, tenant_id, zone_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message`
+const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message`
 
 // defaultListLimit is the fallback page size for List when a non-positive
 // limit is supplied. 100 keeps API responses bounded without operator
 // configuration; admin UIs paginate explicitly when they need more.
 const defaultListLimit = 100
 
-// scanJob decodes a single row into a Job. ZoneID and HostID are
-// nullable in DB (per migration v6 for audit preservation across
-// zone/host deletes) but Job models them as non-pointer uuid.UUID —
-// historical rows with NULL zone/host surface as uuid.Nil.
+// scanJob decodes a single row into a Job. HostID is nullable in DB
+// (for audit preservation across host deletes) but Job models it as a
+// non-pointer uuid.UUID — historical rows with NULL host surface as uuid.Nil.
 func scanJob(row pgx.Row) (Job, error) {
 	var (
 		j        Job
 		credRef  *uuid.UUID
-		zoneID   *uuid.UUID
 		hostID   *uuid.UUID
 		workerID string
 	)
 	if err := row.Scan(
-		&j.ID, &j.TenantID, &zoneID, &hostID, &j.Profile, &credRef,
+		&j.ID, &j.TenantID, &hostID, &j.Profile, &credRef,
 		&j.Status, &j.CancelRequested, &workerID, &j.EnqueuedAt,
 		&j.StartedAt, &j.FinishedAt, &j.RunningHeartbeatAt,
 		&j.ProgressText, &j.ErrorMessage,
 	); err != nil {
 		return Job{}, err
-	}
-	if zoneID != nil {
-		j.ZoneID = *zoneID
 	}
 	if hostID != nil {
 		j.HostID = *hostID
@@ -86,7 +81,7 @@ func sqlGlob(f string) string {
 	return strings.ReplaceAll(f, "*", "%")
 }
 
-// Enqueue expands (ZoneIDs, HostFilter) into Host rows then inserts
+// Enqueue expands (TagIDs, HostFilter) into Host rows then inserts
 // one job per host in a single transaction. All-or-nothing semantics:
 // any failure mid-batch rolls back the whole set.
 //
@@ -95,7 +90,7 @@ func sqlGlob(f string) string {
 // belongs in the scanresults package and is wired at the handler
 // call-site.
 func (s *PostgresStore) Enqueue(ctx context.Context, req EnqueueReq) ([]Job, error) {
-	if len(req.ZoneIDs) == 0 {
+	if len(req.TagIDs) == 0 {
 		return []Job{}, nil
 	}
 
@@ -106,11 +101,13 @@ func (s *PostgresStore) Enqueue(ctx context.Context, req EnqueueReq) ([]Job, err
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := tx.Query(ctx,
-		`SELECT id FROM manage_hosts WHERE zone_id = ANY($1) AND hostname LIKE $2`,
-		req.ZoneIDs, sqlGlob(req.HostFilter),
+		`SELECT DISTINCT h.id FROM manage_hosts h
+		 JOIN manage_host_tags ht ON ht.host_id = h.id
+		 WHERE ht.tag_id = ANY($1) AND h.hostname LIKE $2`,
+		req.TagIDs, sqlGlob(req.HostFilter),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("expand zones to hosts: %w", err)
+		return nil, fmt.Errorf("expand tags to hosts: %w", err)
 	}
 	var hostIDs []uuid.UUID
 	for rows.Next() {
@@ -129,10 +126,10 @@ func (s *PostgresStore) Enqueue(ctx context.Context, req EnqueueReq) ([]Job, err
 	out := make([]Job, 0, len(hostIDs))
 	for _, hid := range hostIDs {
 		row := tx.QueryRow(ctx,
-			`INSERT INTO manage_scan_jobs (tenant_id, zone_id, host_id, profile, credentials_ref)
-			 SELECT $1, h.zone_id, h.id, $2, $3 FROM manage_hosts h WHERE h.id = $4
+			`INSERT INTO manage_scan_jobs (tenant_id, host_id, profile, credentials_ref)
+			 VALUES ($1, $2, $3, $4)
 			 RETURNING `+jobSelectCols,
-			req.TenantID, string(req.Profile), credRefArg(req.CredentialsRef), hid,
+			req.TenantID, hid, string(req.Profile), credRefArg(req.CredentialsRef),
 		)
 		j, err := scanJob(row)
 		if err != nil {
@@ -326,22 +323,24 @@ func (s *PostgresStore) Cancel(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// PlanEnqueueCount runs the same zone/host expansion query as
+// PlanEnqueueCount runs the same tag/host expansion query as
 // Enqueue but returns only the count, without writing anything. The
 // admin handler's soft-buffer scan-cap check calls this to know how
 // many jobs a request would create before deciding whether to let
 // the caller through.
 //
-// Returns 0 for an empty ZoneIDs list — matches Enqueue's short-
+// Returns 0 for an empty TagIDs list — matches Enqueue's short-
 // circuit, which also inserts nothing in that case.
 func (s *PostgresStore) PlanEnqueueCount(ctx context.Context, req EnqueueReq) (int64, error) {
-	if len(req.ZoneIDs) == 0 {
+	if len(req.TagIDs) == 0 {
 		return 0, nil
 	}
 	var n int64
 	err := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM manage_hosts WHERE zone_id = ANY($1) AND hostname LIKE $2`,
-		req.ZoneIDs, sqlGlob(req.HostFilter),
+		`SELECT COUNT(DISTINCT h.id) FROM manage_hosts h
+		 JOIN manage_host_tags ht ON ht.host_id = h.id
+		 WHERE ht.tag_id = ANY($1) AND h.hostname LIKE $2`,
+		req.TagIDs, sqlGlob(req.HostFilter),
 	).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("plan enqueue count: %w", err)

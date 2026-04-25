@@ -52,20 +52,20 @@ func (f *fakeScanCapGuard) SoftBufferCeiling(metric, window string) int64 {
 // is rejected with 403 and no jobs are written.
 //
 // Setup: cap=100, used=95, ceiling=110 (10% soft buffer).
-// Batch size = 20 zones → 20 expected jobs (fake store PlanEnqueueCount
-// returns len(zones)) → 95 + 20 = 115 > 110 ⇒ reject.
+// Batch size = 20 tags → 20 expected jobs (fake store PlanEnqueueCount
+// returns len(tags)) → 95 + 20 = 115 > 110 ⇒ reject.
 func TestScanJobsAdmin_Create_CapExceeded_SoftBuffer_Returns403(t *testing.T) {
 	store := newFakeStore()
 	tenantID := uuid.Must(uuid.NewV7())
 	guard := &fakeScanCapGuard{cap: 100, used: 95, ceiling: 110}
 	ts := newTestServerWithGuard(t, store, tenantID, guard)
 
-	zones := make([]string, 20)
-	for i := range zones {
-		zones[i] = uuid.Must(uuid.NewV7()).String()
+	tags := make([]string, 20)
+	for i := range tags {
+		tags[i] = uuid.Must(uuid.NewV7()).String()
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   zones,
+		"tags":   tags,
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -90,7 +90,7 @@ func TestScanJobsAdmin_Create_WithinBuffer_Succeeds(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, tenantID, guard)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -111,7 +111,7 @@ func TestScanJobsAdmin_Create_NoGuard_Unrestricted(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, tenantID, nil)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -128,7 +128,7 @@ func TestScanJobsAdmin_Create_UnlimitedCap_Unrestricted(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, tenantID, guard)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -164,7 +164,7 @@ func TestScanJobsAdmin_Create_CapCheckRunsAfterBackpressure(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"zones":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()

@@ -8,12 +8,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// runDeactivationWatcher polls every 10 seconds while pending_deactivation
+// runDeactivationWatcher polls at cfg.WatcherTickInterval (default 10s) while pending_deactivation
 // is set. It fires deactivateNow once CountActive returns 0.
 // Exits when ctx is cancelled, when the flag is cleared (cancel case),
 // or after firing deactivation.
 func (s *Server) runDeactivationWatcher(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(s.cfg.WatcherTickInterval)
 	defer ticker.Stop()
 
 	for {

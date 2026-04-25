@@ -450,7 +450,9 @@ func classifyActivationError(err error) (int, string) {
 		if strings.Contains(msg, "expired") {
 			return http.StatusUnprocessableEntity, "licence expired"
 		}
-		return http.StatusUnprocessableEntity, msg
+		// Return a generic message; do NOT echo msg here — it may contain
+		// internal error details from the Licence Portal. Fix D2.
+		return http.StatusUnprocessableEntity, "licence activation denied"
 	default:
 		return http.StatusServiceUnavailable, "licence server unavailable"
 	}

@@ -237,10 +237,14 @@ func (c *ServerClient) DeactivateForTenant(licenceKey, machineID string) error {
 		return fmt.Errorf("connecting to licence server: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	// Read the body BEFORE the status check so non-2xx error messages
+	// are captured in the returned error. Previously the body was drained
+	// unconditionally first, making the error opaque. Fix D1.
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("deactivation failed (status %d)", resp.StatusCode)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return fmt.Errorf("deactivation failed (status %d): %s", resp.StatusCode, string(respBody))
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 

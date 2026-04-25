@@ -190,7 +190,16 @@ func JWTAuth(pubKey ed25519.PublicKey, jwtStore jwtAuthStore, cache *sessioncach
 			// Cache fast path. On hit we have everything the
 			// handler chain needs; on miss we fall through to
 			// the DB lookups below and Put the result.
-			if entry, ok := cache.Get(tokenHash); ok {
+			//
+			// Security exception: platform_admin has the highest
+			// privilege level (can provision unlimited tenants) and
+			// is therefore excluded from the cache fast-path. A
+			// platform_admin hit always falls through to the full
+			// GetSessionByHash check so that admin session revocation
+			// (via logout, admin flush, or direct DB mutation) takes
+			// effect immediately rather than within the cache TTL.
+			// All other roles use the cache normally.
+			if entry, ok := cache.Get(tokenHash); ok && entry.Role != "platform_admin" {
 				user := &store.User{
 					ID:                 entry.UserID,
 					OrgID:              entry.OrgID,

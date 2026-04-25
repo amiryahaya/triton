@@ -9,8 +9,6 @@ import (
 const (
 	licenceValidatorInterval = 24 * time.Hour
 	licenceGracePeriod       = 30 * 24 * time.Hour
-	// licenceWarnBefore is reserved for expiry warning notifications (not yet wired).
-	licenceWarnBefore = 14 * 24 * time.Hour
 )
 
 // startLicenceValidator launches a goroutine that validates all tenant

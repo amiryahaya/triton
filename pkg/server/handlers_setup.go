@@ -96,7 +96,12 @@ func (s *Server) handleFirstSetup(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.CreateUser(r.Context(), user); err != nil {
 		var conflict *store.ErrConflict
 		if errors.As(err, &conflict) {
-			writeError(w, http.StatusConflict, "email already in use")
+			// Two concurrent first-setup requests can both pass the
+			// len(users)==0 check before either commits. Whichever
+			// loses the DB unique-constraint race gets ErrConflict
+			// here — surface that as 409 "setup already complete"
+			// so the client doesn't retry. Fix D5/I4.
+			writeError(w, http.StatusConflict, "setup already complete")
 			return
 		}
 		log.Printf("setup: create user: %v", err)

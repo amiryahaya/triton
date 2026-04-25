@@ -12,9 +12,19 @@ import (
 // platform_admin exists, allowing the browser to reach the first-run
 // setup wizard. Setup endpoints, auth paths, and health checks bypass
 // the guard via isSetupPath.
+//
+// Performance: after the first request that confirms setup is complete,
+// s.setupComplete is set to true and subsequent requests skip the
+// ListUsers DB query entirely. Setup completion is permanent — the
+// flag is never cleared. Fix D4/C1.
 func (s *Server) SetupGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isSetupPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Fast path: once setup is confirmed complete, skip the DB query.
+		if s.setupComplete.Load() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -29,6 +39,8 @@ func (s *Server) SetupGuard(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			return
 		}
+		// Mark setup as complete so future requests skip this query.
+		s.setupComplete.Store(true)
 		next.ServeHTTP(w, r)
 	})
 }

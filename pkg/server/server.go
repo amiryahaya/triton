@@ -178,6 +178,13 @@ type Server struct {
 
 	// licenceValidatorDone is closed when the background validator exits.
 	licenceValidatorDone chan struct{}
+
+	// setupComplete is set permanently to true the first time SetupGuard
+	// detects that a platform_admin exists. Once set, SetupGuard skips
+	// the ListUsers DB query on every subsequent request — setup
+	// completion is an irreversible state transition, so no locking or
+	// reset logic is needed. Fix D4/C1.
+	setupComplete atomic.Bool
 }
 
 // BackfillInProgress exposes the atomic flag so cmd/server.go can flip

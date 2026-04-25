@@ -69,9 +69,12 @@ func (h *AdminHandlers) guard() HostCapGuard {
 type hostRequestBody struct {
 	Hostname   string     `json:"hostname"`
 	IP         string     `json:"ip"`
-	ZoneID     *uuid.UUID `json:"zone_id"`
 	OS         string     `json:"os"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
+	// TagIDs is the UUID-based form (from the host form modal).
+	TagIDs []uuid.UUID `json:"tag_ids"`
+	// Tags is the name-based form (from CSV import via BulkCreate).
+	Tags []string `json:"tags"`
 }
 
 // toHost converts a request body into a Host without any server-managed
@@ -80,7 +83,6 @@ func (b hostRequestBody) toHost() Host {
 	return Host{
 		Hostname:   strings.TrimSpace(b.Hostname),
 		IP:         strings.TrimSpace(b.IP),
-		ZoneID:     b.ZoneID,
 		OS:         b.OS,
 		LastSeenAt: b.LastSeenAt,
 	}
@@ -106,17 +108,17 @@ func validateHost(h Host) error {
 	return nil
 }
 
-// List returns every host, or hosts filtered by ?zone_id=<uuid>.
+// List returns every host, or hosts filtered by ?tag_id=<uuid>.
 func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
-	if zoneStr := r.URL.Query().Get("zone_id"); zoneStr != "" {
-		zoneID, err := uuid.Parse(zoneStr)
+	if tagStr := r.URL.Query().Get("tag_id"); tagStr != "" {
+		tagID, err := uuid.Parse(tagStr)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid zone_id")
+			writeErr(w, http.StatusBadRequest, "invalid tag_id")
 			return
 		}
-		list, err := h.Store.ListByZone(r.Context(), zoneID)
+		list, err := h.Store.ListByTag(r.Context(), tagID)
 		if err != nil {
-			internalErr(w, r, err, "list hosts by zone")
+			internalErr(w, r, err, "list hosts by tag")
 			return
 		}
 		writeJSON(w, http.StatusOK, list)
@@ -131,7 +133,7 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// Create inserts a single host. Body: {hostname, ip?, zone_id?, os?, last_seen_at?}.
+// Create inserts a single host. Body: {hostname, ip?, tag_ids?, tags?, os?, last_seen_at?}.
 func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
@@ -166,6 +168,19 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Resolve tags from request body.
+	var tagIDs []uuid.UUID
+	if len(body.TagIDs) > 0 {
+		tagIDs = body.TagIDs
+	} else if len(body.Tags) > 0 {
+		resolved, err := h.Store.ResolveTagNames(r.Context(), body.Tags, "#6366F1")
+		if err != nil {
+			internalErr(w, r, err, "resolve tag names")
+			return
+		}
+		tagIDs = resolved
+	}
+
 	created, err := h.Store.Create(r.Context(), host)
 	if errors.Is(err, ErrConflict) {
 		writeErr(w, http.StatusConflict, "hostname already exists")
@@ -178,6 +193,17 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		internalErr(w, r, err, "create host")
 		return
+	}
+
+	if len(tagIDs) > 0 {
+		if err := h.Store.SetTags(r.Context(), created.ID, tagIDs); err != nil {
+			log.Printf("manageserver/hosts: set tags after create: %v", err)
+		} else {
+			// Reload host to get tags populated.
+			if reloaded, err := h.Store.Get(r.Context(), created.ID); err == nil {
+				created = reloaded
+			}
+		}
 	}
 	writeJSON(w, http.StatusCreated, created)
 }
@@ -262,7 +288,7 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 
 // BulkCreate inserts a batch of hosts in a single transaction. Any
 // hostname collision rolls back the entire batch (all-or-nothing).
-// Body: {"hosts": [{hostname, ip?, zone_id?, os?}, ...]}
+// Body: {"hosts": [{hostname, ip?, tag_ids?, tags?, os?}, ...]}
 func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
@@ -321,7 +347,63 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		internalErr(w, r, err, "bulk create hosts")
 		return
 	}
+
+	// Set tags for each host that supplied them.
+	for i, row := range body.Hosts {
+		var tagIDs []uuid.UUID
+		if len(row.TagIDs) > 0 {
+			tagIDs = row.TagIDs
+		} else if len(row.Tags) > 0 {
+			resolved, err := h.Store.ResolveTagNames(r.Context(), row.Tags, "#6366F1")
+			if err != nil {
+				log.Printf("manageserver/hosts: resolve tag names for bulk host %d: %v", i, err)
+				continue
+			}
+			tagIDs = resolved
+		}
+		if len(tagIDs) > 0 {
+			if err := h.Store.SetTags(r.Context(), out[i].ID, tagIDs); err != nil {
+				log.Printf("manageserver/hosts: set tags for bulk host %d: %v", i, err)
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{"hosts": out})
+}
+
+// SetTags replaces the full tag set for a host.
+// Body: {"tag_ids": ["uuid1", "uuid2"]}
+func (h *AdminHandlers) SetTags(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid host id")
+		return
+	}
+	var body struct {
+		TagIDs []uuid.UUID `json:"tag_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if body.TagIDs == nil {
+		body.TagIDs = []uuid.UUID{}
+	}
+	if err := h.Store.SetTags(r.Context(), id, body.TagIDs); err != nil {
+		internalErr(w, r, err, "set host tags")
+		return
+	}
+	host, err := h.Store.Get(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "host not found")
+		return
+	}
+	if err != nil {
+		internalErr(w, r, err, "get host after set-tags")
+		return
+	}
+	writeJSON(w, http.StatusOK, host)
 }
 
 // writeJSON writes a JSON response with the given status code.

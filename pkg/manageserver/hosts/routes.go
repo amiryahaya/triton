@@ -15,4 +15,5 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	r.Get("/{id}", h.Get)
 	r.Patch("/{id}", h.Update)
 	r.Delete("/{id}", h.Delete)
+	r.Put("/{id}/tags", h.SetTags)
 }

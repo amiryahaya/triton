@@ -35,10 +35,16 @@ type fakeStore struct {
 	// createErr, if set, is returned from the next Create call so
 	// handler tests can drive the internal-error branch.
 	createErr error
+
+	// tags maps hostID → []tagID for SetTags/ListByTag.
+	tags map[uuid.UUID][]uuid.UUID
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{items: map[uuid.UUID]hosts.Host{}}
+	return &fakeStore{
+		items: map[uuid.UUID]hosts.Host{},
+		tags:  map[uuid.UUID][]uuid.UUID{},
+	}
 }
 
 func (f *fakeStore) recordCall(name string) {
@@ -121,22 +127,44 @@ func (f *fakeStore) Count(_ context.Context) (int64, error) {
 	return int64(len(f.items)), nil
 }
 
-func (f *fakeStore) ListByZone(_ context.Context, zoneID uuid.UUID) ([]hosts.Host, error) {
+func (f *fakeStore) SetTags(_ context.Context, hostID uuid.UUID, tagIDs []uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.recordCall("ListByZone")
+	f.recordCall("SetTags")
+	f.tags[hostID] = tagIDs
+	return nil
+}
+
+func (f *fakeStore) ResolveTagNames(_ context.Context, names []string, _ string) ([]uuid.UUID, error) {
+	f.recordCall("ResolveTagNames")
+	ids := make([]uuid.UUID, len(names))
+	for i := range names {
+		ids[i] = uuid.New()
+	}
+	return ids, nil
+}
+
+func (f *fakeStore) ListByTag(_ context.Context, tagID uuid.UUID) ([]hosts.Host, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recordCall("ListByTag")
 	out := make([]hosts.Host, 0)
-	for _, h := range f.items {
-		if h.ZoneID != nil && *h.ZoneID == zoneID {
-			out = append(out, h)
+	for hostID, tagIDs := range f.tags {
+		for _, tid := range tagIDs {
+			if tid == tagID {
+				if h, ok := f.items[hostID]; ok {
+					out = append(out, h)
+				}
+				break
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
 	return out, nil
 }
 
-func (f *fakeStore) CountByZone(_ context.Context, zoneID uuid.UUID) (int64, error) {
-	list, _ := f.ListByZone(context.Background(), zoneID)
+func (f *fakeStore) CountByTag(_ context.Context, tagID uuid.UUID) (int64, error) {
+	list, _ := f.ListByTag(context.Background(), tagID)
 	return int64(len(list)), nil
 }
 
@@ -203,6 +231,16 @@ func newTestServer(t *testing.T, s hosts.Store) *httptest.Server {
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+// mountTest returns an http.Handler for unit tests that use httptest.NewRecorder
+// directly (no test server). Routes are mounted at "/{id}" and "/{id}/tags".
+func mountTest(s hosts.Store) http.Handler {
+	r := chi.NewRouter()
+	r.Route("/", func(r chi.Router) {
+		hosts.MountAdminRoutes(r, hosts.NewAdminHandlers(s, nil))
+	})
+	return r
 }
 
 func doReq(t *testing.T, method, url string, body any) *http.Response {
@@ -294,7 +332,7 @@ func TestHostsAdmin_Create_ConflictReturns409(t *testing.T) {
 	resp.Body.Close()
 }
 
-func TestHostsAdmin_List_NoZoneFilter_CallsList(t *testing.T) {
+func TestHostsAdmin_List_NoTagFilter_CallsList(t *testing.T) {
 	store := newFakeStore()
 	ts := newTestServer(t, store)
 
@@ -303,37 +341,39 @@ func TestHostsAdmin_List_NoZoneFilter_CallsList(t *testing.T) {
 	resp.Body.Close()
 
 	assert.Contains(t, store.calls, "List")
-	assert.NotContains(t, store.calls, "ListByZone")
+	assert.NotContains(t, store.calls, "ListByTag")
 }
 
-func TestHostsAdmin_List_WithZoneFilter_CallsListByZone(t *testing.T) {
+func TestHostsAdmin_List_WithTagFilter_CallsListByTag(t *testing.T) {
 	store := newFakeStore()
 	ts := newTestServer(t, store)
 
-	zoneID := uuid.Must(uuid.NewV7())
-	_, err := store.Create(context.Background(), hosts.Host{Hostname: "in-zone", ZoneID: &zoneID})
+	tagID := uuid.Must(uuid.NewV7())
+	h1, err := store.Create(context.Background(), hosts.Host{Hostname: "tagged"})
 	require.NoError(t, err)
-	_, err = store.Create(context.Background(), hosts.Host{Hostname: "outside"})
+	err = store.SetTags(context.Background(), h1.ID, []uuid.UUID{tagID})
+	require.NoError(t, err)
+	_, err = store.Create(context.Background(), hosts.Host{Hostname: "untagged"})
 	require.NoError(t, err)
 	// Reset call log so the test only inspects the LIST invocation.
 	store.calls = nil
 
-	resp := doReq(t, http.MethodGet, ts.URL+"/api/v1/admin/hosts/?zone_id="+zoneID.String(), nil)
+	resp := doReq(t, http.MethodGet, ts.URL+"/api/v1/admin/hosts/?tag_id="+tagID.String(), nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var list []hosts.Host
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
 	resp.Body.Close()
 	assert.Len(t, list, 1)
-	assert.Equal(t, "in-zone", list[0].Hostname)
+	assert.Equal(t, "tagged", list[0].Hostname)
 
-	assert.Contains(t, store.calls, "ListByZone")
+	assert.Contains(t, store.calls, "ListByTag")
 	assert.NotContains(t, store.calls, "List")
 }
 
-func TestHostsAdmin_List_BadZoneID_Returns400(t *testing.T) {
+func TestHostsAdmin_List_BadTagID_Returns400(t *testing.T) {
 	ts := newTestServer(t, newFakeStore())
 
-	resp := doReq(t, http.MethodGet, ts.URL+"/api/v1/admin/hosts/?zone_id=not-a-uuid", nil)
+	resp := doReq(t, http.MethodGet, ts.URL+"/api/v1/admin/hosts/?tag_id=not-a-uuid", nil)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -504,4 +544,20 @@ func TestHostsAdmin_BulkCreate_InvalidIPReturns400(t *testing.T) {
 	count, err := store.Count(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
+}
+
+func TestHandlers_SetTags(t *testing.T) {
+	store := newFakeStore()
+	h, err := store.Create(context.Background(), hosts.Host{Hostname: "web-01", OS: "linux"})
+	require.NoError(t, err)
+
+	tagID := uuid.New()
+	body, err := json.Marshal(map[string]any{"tag_ids": []string{tagID.String()}})
+	require.NoError(t, err)
+
+	r := httptest.NewRequest(http.MethodPut, "/"+h.ID.String()+"/tags", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mountTest(store).ServeHTTP(w, r)
+	assert.Equal(t, http.StatusOK, w.Code)
 }

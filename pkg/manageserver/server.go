@@ -22,6 +22,7 @@ import (
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/agents"
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
+	"github.com/amiryahaya/triton/pkg/manageserver/discovery"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
@@ -71,8 +72,10 @@ type Server struct {
 
 	// Admin-API handler packages (Batch C). Constructed in New() against
 	// the shared pool and mounted under /api/v1/admin/*.
-	tagsAdmin  *tags.AdminHandlers
-	hostsAdmin *hosts.AdminHandlers
+	tagsAdmin      *tags.AdminHandlers
+	hostsAdmin     *hosts.AdminHandlers
+	discoveryAdmin *discovery.AdminHandlers
+	discoveryStore *discovery.PostgresStore
 
 	// Batch E admin handlers + the scanner pipeline stores. Orchestrator
 	// + drain goroutines are spawned in Run() — not in New() — so
@@ -150,6 +153,13 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	}
 
 	hostsStore := hosts.NewPostgresStore(pool)
+	discoveryStore := discovery.NewPostgresStore(pool)
+	discScanner := discovery.NewScanner()
+	discWorker := &discovery.Worker{
+		Store:      discoveryStore,
+		HostsStore: hostsStore,
+		Scanner:    discScanner,
+	}
 	resultsStore := scanresults.NewPostgresStore(pool)
 	scanjobsStore := scanjobs.NewPostgresStore(pool)
 	caStore := ca.NewPostgresStore(pool)
@@ -166,6 +176,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		scanjobsStore:   scanjobsStore,
 		resultsStore:    resultsStore,
 		hostsStore:      hostsStore,
+		discoveryStore:  discoveryStore,
 		caStore:         caStore,
 		agentStore:      agentStore,
 		agentsGateway:   agentsGateway,
@@ -176,6 +187,9 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	// Providers consult the test overrides first so Set*CapGuardForTest
 	// still wins without having to re-wire the handler.
 	srv.hostsAdmin = hosts.NewAdminHandlers(hostsStore, srv.hostGuardProvider)
+	srv.discoveryAdmin = discovery.NewAdminHandlers(discoveryStore, hostsStore, discWorker, func() discovery.HostCapGuard {
+		return srv.hostGuardProvider()
+	})
 	srv.scanjobsAdmin = scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, srv.scanGuardProvider)
 	srv.agentsAdmin = agents.NewAdminHandlers(
 		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
@@ -283,6 +297,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Use(s.injectInstanceOrg)
 		r.Route("/tags", func(r chi.Router) { tags.MountAdminRoutes(r, s.tagsAdmin) })
 		r.Route("/hosts", func(r chi.Router) { hosts.MountAdminRoutes(r, s.hostsAdmin) })
+		r.Route("/discovery", func(r chi.Router) { discovery.MountAdminRoutes(r, s.discoveryAdmin) })
 		r.Route("/scan-jobs", func(r chi.Router) {
 			r.Use(s.rejectWhenDeactivationPending)
 			scanjobs.MountAdminRoutes(r, s.scanjobsAdmin)

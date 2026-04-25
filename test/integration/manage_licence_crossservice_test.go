@@ -142,8 +142,15 @@ func newCSFixture(t *testing.T) *csFixture {
 	f.ManageURL = "http://" + ln.Addr().String()
 
 	runCtx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = msSrv.RunOnListener(runCtx, ln) }()
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		_ = msSrv.RunOnListener(runCtx, ln)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
 
 	csWaitReady(t, f.ManageURL)
 	csSetup(t, f)

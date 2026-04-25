@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { TPill } from '@triton/ui';
+import type { PillVariant } from '@triton/ui';
 import { useApiClient } from '../stores/apiClient';
 import type { TenantResponse } from '@triton/api-client';
 
@@ -25,6 +27,12 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function licencePillVariant(status: string): PillVariant {
+  if (status === 'active') return 'safe';
+  if (status === 'grace') return 'warn';
+  return 'unsafe';
 }
 
 async function create() {
@@ -61,7 +69,7 @@ async function create() {
         <tr v-for="t in tenants" :key="t.id">
           <td><code>{{ t.id.slice(0, 8) }}</code></td>
           <td>{{ t.name }}</td>
-          <td :class="t.licenceStatus">{{ t.licenceStatus }}</td>
+          <td><TPill :variant="licencePillVariant(t.licenceStatus)">{{ t.licenceStatus }}</TPill></td>
           <td>{{ t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : '—' }}</td>
           <td><router-link :to="`/platform/tenants/${t.id}`">Detail</router-link></td>
         </tr>
@@ -91,9 +99,6 @@ async function create() {
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
 .error { color: var(--color-danger); }
-.active { color: var(--color-success, green); }
-.grace { color: var(--color-warning, orange); }
-.expired { color: var(--color-danger); }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
 .modal { background: var(--bg-surface); padding: var(--space-6); border-radius: var(--radius); min-width: 360px; }
 .modal form { display: flex; flex-direction: column; gap: var(--space-3); }

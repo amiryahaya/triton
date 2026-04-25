@@ -27,8 +27,9 @@ export const useTagsStore = defineStore('tags', () => {
     const api = useApiClient().get();
     const tag = await api.updateTag(id, req);
     const idx = items.value.findIndex(t => t.id === id);
-    if (idx !== -1) items.value[idx] = tag;
-    return tag;
+    // Merge response preserving host_count — PATCH endpoint does not re-query it.
+    if (idx !== -1) items.value[idx] = { ...items.value[idx], ...tag };
+    return items.value[idx] ?? tag;
   }
 
   async function remove(id: string): Promise<void> {

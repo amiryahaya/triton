@@ -22,7 +22,7 @@ var ErrNotFound = errors.New("scanjobs: not found")
 // the sibling `scanresults` package (Batch E), which tracks the
 // downstream push queue, not the job queue.
 type Store interface {
-	// Enqueue expands (ZoneIDs, HostFilter) into a set of Host rows
+	// Enqueue expands (TagIDs, HostFilter) into a set of Host rows
 	// and inserts one manage_scan_jobs row per host, all in a single
 	// transaction. Returns the inserted Job rows.
 	Enqueue(ctx context.Context, req EnqueueReq) ([]Job, error)
@@ -83,7 +83,7 @@ type Store interface {
 	// handler layer: the handler pre-checks cap+usage before delegating
 	// to Enqueue so a rejected request never mutates state.
 	//
-	// Implementation runs the same zone/host expansion query as
+	// Implementation runs the same tag/host expansion query as
 	// Enqueue so numeric parity is guaranteed.
 	PlanEnqueueCount(ctx context.Context, req EnqueueReq) (int64, error)
 

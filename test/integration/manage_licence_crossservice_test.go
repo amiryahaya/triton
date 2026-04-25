@@ -67,7 +67,7 @@ func newCSFixture(t *testing.T) *csFixture {
 
 	// --- License Portal ---
 
-	lsStore, err := licensestore.NewPostgresStore(ctx, testDBURL())
+	lsStore, err := licensestore.NewPostgresStore(ctx, licenseTestDBURL())
 	if err != nil {
 		t.Skipf("PostgreSQL unavailable (license store): %v", err)
 	}
@@ -96,17 +96,20 @@ func newCSFixture(t *testing.T) *csFixture {
 		f.LSServer.Close()
 	})
 
-	// Create org.
+	// Create org. Response: {"org": {"id": "...", ...}, "admin": ...}
 	resp := csLSAdminReq(t, f, "POST", "/api/v1/admin/orgs", map[string]string{"name": "CS-Test-Org"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "create org")
 	var orgOut map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgOut))
 	resp.Body.Close()
-	f.OrgID = orgOut["id"].(string)
+	orgObj, ok := orgOut["org"].(map[string]any)
+	require.True(t, ok, "create org response missing 'org' key: %v", orgOut)
+	f.OrgID = orgObj["id"].(string)
 
-	// License A — Pro, 5 seats.
+	// License A — Enterprise, 5 seats. Enterprise tier includes Manage feature
+	// (required by POST /setup/license), which pro does not have.
 	resp = csLSAdminReq(t, f, "POST", "/api/v1/admin/licenses", map[string]any{
-		"orgID": f.OrgID, "tier": "pro", "seats": 5, "days": 365,
+		"orgID": f.OrgID, "tier": "enterprise", "seats": 5, "days": 365,
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "create license A")
 	var licAOut map[string]any
@@ -274,10 +277,11 @@ func csReadBody(resp *http.Response) string {
 	return string(b)
 }
 
-// csDeactivatedAt extracts the deactivated_at field from an activation record.
+// csDeactivatedAt extracts the deactivatedAt field from an activation record.
+// The LP serialises Activation.DeactivatedAt as "deactivatedAt" (camelCase).
 // Returns empty string if absent or null.
 func csDeactivatedAt(act map[string]any) string {
-	if v, ok := act["deactivated_at"]; ok && v != nil {
+	if v, ok := act["deactivatedAt"]; ok && v != nil {
 		return fmt.Sprintf("%v", v)
 	}
 	return ""
@@ -294,6 +298,10 @@ func TestCSLicence_Refresh(t *testing.T) {
 	require.NoError(t, err)
 	tokenBefore := stateBefore.SignedToken
 	require.NotEmpty(t, tokenBefore, "setup must have stored a signed token")
+
+	// Sleep >1s so the LP-minted token has a different IssuedAt (Unix second)
+	// than the one stored during setup — proves the refresh actually called LP.
+	time.Sleep(1100 * time.Millisecond)
 
 	resp := csManageReq(t, f, http.MethodPost, "/api/v1/admin/licence/refresh", nil)
 	body := csReadBody(resp)

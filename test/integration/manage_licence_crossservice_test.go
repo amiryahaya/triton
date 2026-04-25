@@ -33,8 +33,11 @@ var csSchemaSeq atomic.Int64
 // csJWTKey is a fixed 32-byte HS256 secret for cross-service tests.
 var csJWTKey = []byte("manage-cs-test-jwt-key-32bytess!")
 
-// csAdminKey is the License Portal admin key used in cross-service tests.
-const csAdminKey = "cs-test-admin-key"
+// csLSAdminEmail/Password are the LP admin credentials seeded in newCSFixture.
+const (
+	csLSAdminEmail    = "cs-test-admin@example.com"
+	csLSAdminPassword = "CsTestPass123!"
+)
 
 // csFixture holds the test rig for cross-service lifecycle tests.
 type csFixture struct {
@@ -78,14 +81,20 @@ func newCSFixture(t *testing.T) *csFixture {
 	require.NoError(t, err)
 	f.LSPub = pub
 
+	seedLicenseAdmin(t, lsStore, csLSAdminEmail, csLSAdminPassword)
+
 	lsSrv := licenseserver.New(&licenseserver.Config{
 		ListenAddr: ":0",
-		AdminKeys:  []string{csAdminKey},
-		SigningKey: priv,
-		PublicKey:  pub,
+		SigningKey:  priv,
+		PublicKey:   pub,
 	}, lsStore)
 	f.LSServer = httptest.NewServer(lsSrv.Router())
-	t.Cleanup(f.LSServer.Close)
+	licAdminCredsMap.Store(f.LSServer.URL, [2]string{csLSAdminEmail, csLSAdminPassword})
+	t.Cleanup(func() {
+		licAdminTokenCache.Delete(f.LSServer.URL)
+		licAdminCredsMap.Delete(f.LSServer.URL)
+		f.LSServer.Close()
+	})
 
 	// Create org.
 	resp := csLSAdminReq(t, f, "POST", "/api/v1/admin/orgs", map[string]string{"name": "CS-Test-Org"})
@@ -239,10 +248,10 @@ func csManageReq(t *testing.T, f *csFixture, method, path string, body any) *htt
 	return resp
 }
 
-// csLSAdminReq sends an admin-keyed request to the License Portal.
+// csLSAdminReq sends an authenticated admin request to the License Portal.
 func csLSAdminReq(t *testing.T, f *csFixture, method, path string, body any) *http.Response {
 	t.Helper()
-	return licAdminReqWithKey(t, method, f.LSServer.URL+path, csAdminKey, body)
+	return licAdminReq(t, method, f.LSServer.URL+path, body)
 }
 
 // csActivationsForLicense calls GET /api/v1/admin/activations?license={licID}

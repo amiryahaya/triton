@@ -7,9 +7,9 @@ export const nav: NavSection[] = [
     label: 'Inventory',
     items: [
       { href: '#/inventory/zones',  label: 'Zones' },
+      { href: '#/inventory/tags',   label: 'Tags' },
       { href: '#/inventory/hosts',  label: 'Hosts' },
       { href: '#/inventory/agents', label: 'Agents' },
-      { href: '#/inventory/tags',   label: 'Tags' },
     ],
   },
   {

@@ -317,9 +317,13 @@ function onSubmit(): void {
       <TButton
         variant="primary"
         size="sm"
+        :disabled="activeTab === 'csv' && validRows().length === 0"
         @click="onSubmit"
       >
-        Import
+        <template v-if="activeTab === 'csv' && validRows().length > 0">
+          Import {{ validRows().length }} host{{ validRows().length === 1 ? '' : 's' }}
+        </template>
+        <template v-else>Import</template>
       </TButton>
     </template>
   </TModal>

@@ -24,6 +24,7 @@ import (
 )
 
 var testSchemaSeq atomic.Int64
+var seedIPSeq atomic.Int64 // unique host IP counter; avoids UNIQUE violations across seeds
 
 // newTestPool mirrors the isolation pattern used by scanjobs tests:
 // each test gets a fresh schema with the full manage_* migration set.
@@ -86,9 +87,10 @@ func seedJob(t *testing.T, pool *pgxpool.Pool, hostname string) (uuid.UUID, uuid
 	).Scan(&tagID))
 
 	hostsStore := hosts.NewPostgresStore(pool)
-	// Derive a stable IP from the hostname length + a fixed prefix so the
-	// helper is deterministic and collision-free within a schema.
-	ip := fmt.Sprintf("10.0.4.%d", len(hostname)%200+1)
+	// Use a global counter so every seedJob call gets a unique IP regardless
+	// of hostname length (the previous len-based formula caused collisions).
+	seq := seedIPSeq.Add(1)
+	ip := fmt.Sprintf("10.%d.%d.%d", (seq>>16)&0xFF, (seq>>8)&0xFF, seq&0xFF)
 	h, err := hostsStore.Create(ctx, hosts.Host{IP: ip, Hostname: hostname})
 	require.NoError(t, err)
 	require.NoError(t, hostsStore.SetTags(ctx, h.ID, []uuid.UUID{tagID}))

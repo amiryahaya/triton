@@ -22,12 +22,12 @@ func TestScanJobs_ReapStale_RevertsToQueued(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID, _ := seedZoneAndHost(t, pool, "stale-host")
+	tagID, _ := seedTagAndHost(t, pool, "stale-host")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
@@ -76,12 +76,12 @@ func TestScanJobs_ReapStale_IgnoresCompletedRows(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID, _ := seedZoneAndHost(t, pool, "done-host")
+	tagID, _ := seedTagAndHost(t, pool, "done-host")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 

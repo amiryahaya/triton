@@ -16,16 +16,13 @@ import (
 )
 
 // TestAdminCRUD_ZonesAndHosts exercises the full admin CRUD lifecycle over
-// HTTP through the injectInstanceOrg middleware. Covers:
-//   - POST /api/v1/admin/zones (201)
-//   - POST /api/v1/admin/hosts (201)
-//   - GET  /api/v1/admin/zones (200, list)
-//   - GET  /api/v1/admin/zones/{id} (200, single)
-//   - DELETE /api/v1/admin/zones/{id} (204)
-//   - GET  /api/v1/admin/zones/{id} (404 post-delete)
-//
-// Role enforcement on DELETE is deferred (see Batch C notes); this test
-// therefore expects 204, not 403.
+// HTTP through the injectInstanceOrg middleware. Zones were replaced by Tags;
+// this test now covers:
+//   - POST /api/v1/admin/tags  (201)
+//   - POST /api/v1/admin/hosts (201, ip required)
+//   - GET  /api/v1/admin/tags  (200, list)
+//   - DELETE /api/v1/admin/tags/{id} (204)
+//   - GET  /api/v1/admin/tags  (200, list empty after delete)
 func TestAdminCRUD_ZonesAndHosts(t *testing.T) {
 	srv, store, cleanup := openOperationalServer(t)
 	defer cleanup()
@@ -36,35 +33,26 @@ func TestAdminCRUD_ZonesAndHosts(t *testing.T) {
 	user := seedAdminUser(t, store)
 	token := loginViaHTTP(t, ts.URL, user.Email, "Password123!")
 
-	// --- Create zone ---
-	zoneID := createZone(t, ts.URL, token, "dmz")
+	// --- Create tag ---
+	tagID := createTag(t, ts.URL, token, "dmz")
 
-	// --- Create host in that zone ---
-	createHost(t, ts.URL, token, "db-01", zoneID)
+	// --- Create host (ip is now required) ---
+	createHost(t, ts.URL, token, "10.0.9.1", "db-01")
 
-	// --- List zones: expect 1 ---
-	zones := listZones(t, ts.URL, token)
-	require.Len(t, zones, 1, "expected exactly one zone after create")
-	assert.Equal(t, "dmz", zones[0]["name"])
+	// --- List tags: expect 1 ---
+	tags := listTags(t, ts.URL, token)
+	require.Len(t, tags, 1, "expected exactly one tag after create")
+	assert.Equal(t, "dmz", tags[0]["name"])
 
-	// --- Get single zone ---
-	getResp, err := authorizedRequest(t, ts.URL+"/api/v1/admin/zones/"+zoneID.String(), "GET", token)
-	require.NoError(t, err)
-	defer getResp.Body.Close()
-	assert.Equal(t, http.StatusOK, getResp.StatusCode)
-
-	// --- Delete zone ---
-	delResp, err := authorizedRequest(t, ts.URL+"/api/v1/admin/zones/"+zoneID.String(), "DELETE", token)
+	// --- Delete tag ---
+	delResp, err := authorizedRequest(t, ts.URL+"/api/v1/admin/tags/"+tagID.String(), "DELETE", token)
 	require.NoError(t, err)
 	defer delResp.Body.Close()
-	assert.Equal(t, http.StatusNoContent, delResp.StatusCode,
-		"DELETE should succeed (role enforcement deferred)")
+	assert.Equal(t, http.StatusNoContent, delResp.StatusCode, "DELETE tag should return 204")
 
-	// --- Get deleted zone: 404 ---
-	missResp, err := authorizedRequest(t, ts.URL+"/api/v1/admin/zones/"+zoneID.String(), "GET", token)
-	require.NoError(t, err)
-	defer missResp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, missResp.StatusCode)
+	// --- List tags: expect 0 after delete ---
+	tagsAfter := listTags(t, ts.URL, token)
+	assert.Empty(t, tagsAfter, "tag list must be empty after delete")
 }
 
 // TestAdmin_RequiresJWT — unauthenticated request to /api/v1/admin/* → 401.
@@ -75,7 +63,7 @@ func TestAdmin_RequiresJWT(t *testing.T) {
 	ts := httptest.NewServer(srv.Router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/admin/zones")
+	resp, err := http.Get(ts.URL + "/api/v1/admin/tags")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
@@ -90,7 +78,7 @@ func TestAdmin_RejectsInSetupMode(t *testing.T) {
 	ts := httptest.NewServer(srv.Router())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v1/admin/zones")
+	resp, err := http.Get(ts.URL + "/api/v1/admin/tags")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
@@ -113,27 +101,29 @@ func postJSON(t *testing.T, url, token string, body any) *http.Response {
 	return resp
 }
 
-func createZone(t *testing.T, baseURL, token, name string) uuid.UUID {
+func createTag(t *testing.T, baseURL, token, name string) uuid.UUID {
 	t.Helper()
-	resp := postJSON(t, baseURL+"/api/v1/admin/zones", token, map[string]string{"name": name})
+	resp := postJSON(t, baseURL+"/api/v1/admin/tags/", token, map[string]string{
+		"name":  name,
+		"color": "#6366F1",
+	})
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusCreated, resp.StatusCode, "create zone should return 201")
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "create tag should return 201")
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	idStr, ok := out["id"].(string)
-	require.True(t, ok && idStr != "", "zone response must carry a non-empty id")
+	require.True(t, ok && idStr != "", "tag response must carry a non-empty id")
 	id, err := uuid.Parse(idStr)
 	require.NoError(t, err)
 	return id
 }
 
-func createHost(t *testing.T, baseURL, token, hostname string, zoneID uuid.UUID) {
+func createHost(t *testing.T, baseURL, token, ip, hostname string) {
 	t.Helper()
-	zid := zoneID.String()
-	resp := postJSON(t, baseURL+"/api/v1/admin/hosts", token, map[string]any{
+	resp := postJSON(t, baseURL+"/api/v1/admin/hosts/", token, map[string]any{
+		"ip":       ip,
 		"hostname": hostname,
-		"zone_id":  zid,
 	})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -142,9 +132,9 @@ func createHost(t *testing.T, baseURL, token, hostname string, zoneID uuid.UUID)
 	}
 }
 
-func listZones(t *testing.T, baseURL, token string) []map[string]any {
+func listTags(t *testing.T, baseURL, token string) []map[string]any {
 	t.Helper()
-	resp, err := authorizedRequest(t, baseURL+"/api/v1/admin/zones", "GET", token)
+	resp, err := authorizedRequest(t, baseURL+"/api/v1/admin/tags/", "GET", token)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

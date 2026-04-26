@@ -288,7 +288,7 @@ var migrations = []string{
 		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_discovery_candidates_job ON manage_discovery_candidates(job_id);`,
+	CREATE INDEX IF NOT EXISTS idx_manage_discovery_candidates_job ON manage_discovery_candidates(job_id);`,
 
 	// Version 11: Make ip required and hostname/os optional on manage_hosts.
 	// hostname: drop NOT NULL so existing rows keep their value but new rows

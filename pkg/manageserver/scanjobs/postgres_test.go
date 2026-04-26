@@ -20,8 +20,9 @@ import (
 )
 
 var testSchemaSeq atomic.Int64
+var hostIPSeq atomic.Int64 // unique host IP counter across tests in this package
 
-// newTestPool mirrors the isolation pattern used by zones/hosts tests:
+// newTestPool mirrors the isolation pattern used by tags/hosts tests:
 // each test gets a fresh schema with the full manage_* migration set.
 func newTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -66,34 +67,37 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// seedZoneAndHost creates one zone and one host inside it. Returns
-// (zoneID, host) for convenience.
-func seedZoneAndHost(t *testing.T, pool *pgxpool.Pool, hostname string) (uuid.UUID, hosts.Host) {
+// seedTagAndHost creates one tag and one host tagged with it. Returns
+// (tagID, host) for convenience. Each call generates a unique IP so
+// the UNIQUE constraint on manage_hosts.ip is never violated.
+func seedTagAndHost(t *testing.T, pool *pgxpool.Pool, hostname string) (uuid.UUID, hosts.Host) {
 	t.Helper()
 	ctx := context.Background()
-	var zoneID uuid.UUID
+	var tagID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO manage_zones (name) VALUES ($1) RETURNING id`,
-		"z-"+hostname,
-	).Scan(&zoneID))
-	h, err := hosts.NewPostgresStore(pool).Create(ctx, hosts.Host{
-		Hostname: hostname, ZoneID: &zoneID,
-	})
+		`INSERT INTO manage_tags (name, color) VALUES ($1, '#6366F1') RETURNING id`,
+		"t-"+hostname,
+	).Scan(&tagID))
+	hs := hosts.NewPostgresStore(pool)
+	seq := hostIPSeq.Add(1)
+	ip := fmt.Sprintf("10.%d.%d.%d", (seq>>16)&0xFF, (seq>>8)&0xFF, seq&0xFF)
+	h, err := hs.Create(ctx, hosts.Host{IP: ip, Hostname: hostname})
 	require.NoError(t, err)
-	return zoneID, h
+	require.NoError(t, hs.SetTags(ctx, h.ID, []uuid.UUID{tagID}))
+	return tagID, h
 }
 
 func TestScanJobs_EndToEndHappyPath(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID, h := seedZoneAndHost(t, pool, "db-01")
+	tagID, h := seedTagAndHost(t, pool, "db-01")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
 		TenantID: tenantID,
-		ZoneIDs:  []uuid.UUID{zoneID},
+		TagIDs:   []uuid.UUID{tagID},
 		Profile:  scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
@@ -132,17 +136,17 @@ func TestScanJobs_Get_Missing_ReturnsNotFound(t *testing.T) {
 func TestScanJobs_List_FiltersByTenant(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
-	zoneID, _ := seedZoneAndHost(t, pool, "shared")
+	tagID, _ := seedTagAndHost(t, pool, "shared")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantA := uuid.Must(uuid.NewV7())
 	tenantB := uuid.Must(uuid.NewV7())
 
-	_, err := s.Enqueue(ctx, scanjobs.EnqueueReq{TenantID: tenantA, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick})
+	_, err := s.Enqueue(ctx, scanjobs.EnqueueReq{TenantID: tenantA, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick})
 	require.NoError(t, err)
-	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{TenantID: tenantB, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick})
+	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{TenantID: tenantB, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick})
 	require.NoError(t, err)
-	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{TenantID: tenantB, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick})
+	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{TenantID: tenantB, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick})
 	require.NoError(t, err)
 
 	listA, err := s.List(ctx, tenantA, 0)
@@ -162,15 +166,18 @@ func TestScanJobs_Enqueue_FiltersByHostGlob(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	var zoneID uuid.UUID
+	var tagID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO manage_zones (name) VALUES ('glob-zone') RETURNING id`,
-	).Scan(&zoneID))
+		`INSERT INTO manage_tags (name, color) VALUES ('glob-tag', '#6366F1') RETURNING id`,
+	).Scan(&tagID))
 
 	hs := hosts.NewPostgresStore(pool)
-	for _, name := range []string{"web-01", "web-02", "db-01"} {
-		_, err := hs.Create(ctx, hosts.Host{Hostname: name, ZoneID: &zoneID})
-		require.NoError(t, err)
+	for i, name := range []string{"web-01", "web-02", "db-01"} {
+		seq := hostIPSeq.Add(1)
+		ip := fmt.Sprintf("10.%d.%d.%d", (seq>>16)&0xFF, (seq>>8)&0xFF, seq&0xFF)
+		h, err := hs.Create(ctx, hosts.Host{IP: ip, Hostname: name})
+		require.NoError(t, err, "host %d", i)
+		require.NoError(t, hs.SetTags(ctx, h.ID, []uuid.UUID{tagID}))
 	}
 
 	s := scanjobs.NewPostgresStore(pool)
@@ -178,7 +185,7 @@ func TestScanJobs_Enqueue_FiltersByHostGlob(t *testing.T) {
 
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
 		TenantID:   tenantID,
-		ZoneIDs:    []uuid.UUID{zoneID},
+		TagIDs:     []uuid.UUID{tagID},
 		HostFilter: "web-*",
 		Profile:    scanjobs.ProfileQuick,
 	})
@@ -198,18 +205,20 @@ func TestScanJobs_ClaimNext_EmptyQueue_ReturnsFalse(t *testing.T) {
 func TestScanJobs_ClaimNext_ConcurrentWorkersPickDifferentRows(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
-	zoneID, _ := seedZoneAndHost(t, pool, "parallel-host-1")
+	tagID, _ := seedTagAndHost(t, pool, "parallel-host-1")
 
-	// Seed a second host in the same zone so Enqueue produces 2 jobs.
-	_, err := hosts.NewPostgresStore(pool).Create(ctx, hosts.Host{
-		Hostname: "parallel-host-2", ZoneID: &zoneID,
-	})
+	// Seed a second host in the same tag so Enqueue produces 2 jobs.
+	hs := hosts.NewPostgresStore(pool)
+	seq := hostIPSeq.Add(1)
+	ip2 := fmt.Sprintf("10.%d.%d.%d", (seq>>16)&0xFF, (seq>>8)&0xFF, seq&0xFF)
+	h2, err := hs.Create(ctx, hosts.Host{IP: ip2, Hostname: "parallel-host-2"})
 	require.NoError(t, err)
+	require.NoError(t, hs.SetTags(ctx, h2.ID, []uuid.UUID{tagID}))
 
 	s := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 2)
@@ -245,12 +254,12 @@ func TestScanJobs_Heartbeat_Missing_ReturnsNotFound(t *testing.T) {
 func TestScanJobs_Fail_RecordsError(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
-	zoneID, _ := seedZoneAndHost(t, pool, "err-host")
+	tagID, _ := seedTagAndHost(t, pool, "err-host")
 
 	s := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 
@@ -278,15 +287,15 @@ func TestCountActive(t *testing.T) {
 	assert.Equal(t, int64(0), n)
 
 	// Enqueue two jobs for this tenant (each needs its own host).
-	zoneID1, _ := seedZoneAndHost(t, pool, "active-host-1")
-	zoneID2, _ := seedZoneAndHost(t, pool, "active-host-2")
+	tagID1, _ := seedTagAndHost(t, pool, "active-host-1")
+	tagID2, _ := seedTagAndHost(t, pool, "active-host-2")
 
 	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID1}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID1}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	_, err = s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID2}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID2}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 

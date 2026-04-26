@@ -92,12 +92,13 @@ func TestManageBoot_SharedSchemaPresent(t *testing.T) {
 	// two migration sets actually ran end-to-end, not just the version
 	// table CREATE.
 	for _, tbl := range []string{
-		"manage_users",        // managestore v1
-		"manage_zones",        // managestore v2
-		"manage_scan_jobs",    // managestore v3
+		"manage_users",         // managestore v1
+		"manage_hosts",         // managestore v2 (manage_zones dropped in v9)
+		"manage_scan_jobs",     // managestore v3
 		"manage_license_state", // managestore v4
-		"manage_agents",       // managestore v5
-		"scans",               // pkg/store v1
+		"manage_agents",        // managestore v5
+		"manage_tags",          // managestore v9 (replaced zones)
+		"scans",                // pkg/store v1
 	} {
 		assertTableInSchema(t, ctx, pool, schema, tbl)
 	}

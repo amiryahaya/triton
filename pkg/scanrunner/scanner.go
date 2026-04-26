@@ -17,9 +17,9 @@ type Scanner interface {
 // Target describes a single host to scan.
 type Target struct {
 	IP           string
-	Profile      string     // "quick" | "standard" | "comprehensive"
-	RateLimit    int        // max new TCP connections/sec; 0 = profile default
-	PortOverride []uint16   // non-nil overrides profile port list; nil = profile default
+	Profile      string       // "quick" | "standard" | "comprehensive"
+	RateLimit    int          // max new TCP connections/sec; 0 = profile default
+	PortOverride []uint16     // non-nil overrides profile port list; nil = profile default
 	Credentials  *Credentials // nil for port survey; non-nil for SSH agentless
 }
 
@@ -34,8 +34,8 @@ type Credentials struct {
 // Finding is one detected service on a host port.
 type Finding struct {
 	Port    uint16
-	Service string      // "ssh", "https", "smtp" etc.
-	Banner  string      // version string / banner
+	Service string       // "ssh", "https", "smtp" etc.
+	Banner  string       // version string / banner
 	TLSCert *TLSCertInfo // non-nil when TLS certificate was extracted
 }
 

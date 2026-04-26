@@ -26,8 +26,8 @@ const confirmOpen = ref(false);
 const pendingDelete = ref<Host | null>(null);
 
 const columns: Column<Host>[] = [
-  { key: 'hostname', label: 'Hostname' },
   { key: 'ip', label: 'IP' },
+  { key: 'hostname', label: 'Hostname' },
   { key: 'tags', label: 'Tags' },
   { key: 'os', label: 'OS' },
   { key: 'last_seen_at', label: 'Last seen' },
@@ -67,10 +67,10 @@ async function onSubmit(payload: CreateHostReq) {
   try {
     if (editing.value) {
       await hosts.update(editing.value.id, payload);
-      toast.success({ title: 'Host updated', description: payload.hostname });
+      toast.success({ title: 'Host updated', description: payload.ip });
     } else {
       await hosts.create(payload);
-      toast.success({ title: 'Host created', description: payload.hostname });
+      toast.success({ title: 'Host created', description: payload.ip });
     }
     formOpen.value = false;
     editing.value = null;
@@ -97,7 +97,7 @@ async function onConfirmDelete() {
   if (!h) return;
   try {
     await hosts.remove(h.id);
-    toast.success({ title: 'Host deleted', description: h.hostname });
+    toast.success({ title: 'Host deleted', description: h.hostname || h.ip });
   } catch (e) {
     toast.error({ title: 'Delete failed', description: String(e) });
   } finally {
@@ -208,7 +208,7 @@ async function onConfirmDelete() {
       :open="confirmOpen"
       title="Delete host?"
       :message="pendingDelete
-        ? `Deleting host '${pendingDelete.hostname}' will set host_id to NULL on scan jobs `
+        ? `Deleting host '${pendingDelete.hostname || pendingDelete.ip}' will set host_id to NULL on scan jobs `
           + 'referencing it. Historical scan results remain in the queue / Report '
           + 'Server. This cannot be undone.'
         : ''"

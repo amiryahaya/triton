@@ -67,26 +67,27 @@ export interface UpdateTagReq {
 
 export interface Host {
   id: string;
-  hostname: string;
-  ip?: string;
+  hostname?: string;
+  ip: string;
   tags: Tag[];
-  os: string;
+  os?: string;
   last_seen_at?: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateHostReq {
-  hostname: string;
-  ip?: string;
+  ip: string;          // required
+  hostname?: string;   // optional
   os?: string;
+  last_seen_at?: string;
   tag_ids?: string[];
   tags?: string[];  // name-based form for CSV import
 }
 
 export interface UpdateHostReq {
-  hostname: string;
-  ip?: string;
+  ip: string;
+  hostname?: string;
   os?: string;
 }
 

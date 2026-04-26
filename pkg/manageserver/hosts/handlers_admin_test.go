@@ -60,8 +60,9 @@ func (f *fakeStore) Create(_ context.Context, h hosts.Host) (hosts.Host, error) 
 		f.createErr = nil
 		return hosts.Host{}, err
 	}
+	// ip is the unique key now.
 	for _, existing := range f.items {
-		if existing.Hostname == h.Hostname {
+		if existing.IP == h.IP {
 			return hosts.Host{}, hosts.ErrConflict
 		}
 	}
@@ -89,7 +90,7 @@ func (f *fakeStore) List(_ context.Context) ([]hosts.Host, error) {
 	for _, h := range f.items {
 		out = append(out, h)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
+	sort.Slice(out, func(i, j int) bool { return out[i].IP < out[j].IP })
 	return out, nil
 }
 
@@ -100,8 +101,9 @@ func (f *fakeStore) Update(_ context.Context, h hosts.Host) (hosts.Host, error) 
 	if _, ok := f.items[h.ID]; !ok {
 		return hosts.Host{}, hosts.ErrNotFound
 	}
+	// ip is the unique key now.
 	for id, existing := range f.items {
-		if existing.Hostname == h.Hostname && id != h.ID {
+		if existing.IP == h.IP && id != h.ID {
 			return hosts.Host{}, hosts.ErrConflict
 		}
 	}
@@ -159,7 +161,7 @@ func (f *fakeStore) ListByTag(_ context.Context, tagID uuid.UUID) ([]hosts.Host,
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Hostname < out[j].Hostname })
+	sort.Slice(out, func(i, j int) bool { return out[i].IP < out[j].IP })
 	return out, nil
 }
 
@@ -199,20 +201,19 @@ func (f *fakeStore) BulkCreate(_ context.Context, batch []hosts.Host) ([]hosts.H
 	out := make([]hosts.Host, 0, len(batch))
 	seen := map[string]struct{}{}
 	for _, h := range batch {
-		// Conflict against pre-existing row.
+		// Conflict against pre-existing row (ip is the unique key).
 		for _, existing := range f.items {
-			if existing.Hostname == h.Hostname {
+			if existing.IP == h.IP {
 				f.items = snapshot
 				return nil, hosts.ErrConflict
 			}
 		}
-		// Conflict within the batch itself (would trip the unique
-		// constraint on the real DB too).
-		if _, dup := seen[h.Hostname]; dup {
+		// Conflict within the batch itself.
+		if _, dup := seen[h.IP]; dup {
 			f.items = snapshot
 			return nil, hosts.ErrConflict
 		}
-		seen[h.Hostname] = struct{}{}
+		seen[h.IP] = struct{}{}
 		h.ID = uuid.Must(uuid.NewV7())
 		f.items[h.ID] = h
 		out = append(out, h)
@@ -268,14 +269,15 @@ func TestHostsAdmin_CreateGetListPatchDelete_RoundTrip(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
-		"hostname": "web01.example.com",
 		"ip":       "10.0.0.5",
+		"hostname": "web01.example.com",
 		"os":       "linux",
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var created hosts.Host
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
 	resp.Body.Close()
+	assert.Equal(t, "10.0.0.5", created.IP)
 	assert.Equal(t, "web01.example.com", created.Hostname)
 
 	resp = doReq(t, http.MethodGet, ts.URL+"/api/v1/admin/hosts/"+created.ID.String(), nil)
@@ -290,6 +292,7 @@ func TestHostsAdmin_CreateGetListPatchDelete_RoundTrip(t *testing.T) {
 	assert.Len(t, list, 1)
 
 	resp = doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+created.ID.String(), map[string]string{
+		"ip":       "10.0.0.5",
 		"hostname": "web01-renamed",
 		"os":       "linux-ubuntu",
 	})
@@ -309,10 +312,23 @@ func TestHostsAdmin_CreateGetListPatchDelete_RoundTrip(t *testing.T) {
 	resp.Body.Close()
 }
 
-func TestHostsAdmin_Create_MissingHostname_Returns400(t *testing.T) {
+// TestHostsAdmin_Create_MissingIP_Returns400 verifies that omitting the
+// required ip field is rejected with a 400 before reaching the store.
+func TestHostsAdmin_Create_MissingIP_Returns400(t *testing.T) {
 	ts := newTestServer(t, newFakeStore())
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"os": "linux"})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
+// TestHostsAdmin_Create_MissingHostname_Returns400 keeps a placeholder test
+// that now verifies hostname-only requests are rejected (no ip).
+func TestHostsAdmin_Create_MissingHostname_Returns400(t *testing.T) {
+	ts := newTestServer(t, newFakeStore())
+
+	// Sending hostname without ip should be rejected (ip is now required).
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"hostname": "only-hostname"})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -322,12 +338,12 @@ func TestHostsAdmin_Create_ConflictReturns409(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	// First insert ok.
-	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"hostname": "dup"})
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"ip": "10.0.0.1"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// Second insert conflicts.
-	resp = doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"hostname": "dup"})
+	// Second insert with same ip conflicts.
+	resp = doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"ip": "10.0.0.1"})
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -349,11 +365,11 @@ func TestHostsAdmin_List_WithTagFilter_CallsListByTag(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	tagID := uuid.Must(uuid.NewV7())
-	h1, err := store.Create(context.Background(), hosts.Host{Hostname: "tagged"})
+	h1, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.1", Hostname: "tagged"})
 	require.NoError(t, err)
 	err = store.SetTags(context.Background(), h1.ID, []uuid.UUID{tagID})
 	require.NoError(t, err)
-	_, err = store.Create(context.Background(), hosts.Host{Hostname: "untagged"})
+	_, err = store.Create(context.Background(), hosts.Host{IP: "10.0.0.2", Hostname: "untagged"})
 	require.NoError(t, err)
 	// Reset call log so the test only inspects the LIST invocation.
 	store.calls = nil
@@ -364,7 +380,7 @@ func TestHostsAdmin_List_WithTagFilter_CallsListByTag(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
 	resp.Body.Close()
 	assert.Len(t, list, 1)
-	assert.Equal(t, "tagged", list[0].Hostname)
+	assert.Equal(t, "10.0.0.1", list[0].IP)
 
 	assert.Contains(t, store.calls, "ListByTag")
 	assert.NotContains(t, store.calls, "List")
@@ -384,9 +400,9 @@ func TestHostsAdmin_BulkCreate_Success(t *testing.T) {
 
 	body := map[string]any{
 		"hosts": []map[string]string{
-			{"hostname": "bulk-1", "ip": "10.0.0.1"},
-			{"hostname": "bulk-2", "ip": "10.0.0.2"},
-			{"hostname": "bulk-3"},
+			{"ip": "10.0.0.1", "hostname": "bulk-1"},
+			{"ip": "10.0.0.2", "hostname": "bulk-2"},
+			{"ip": "10.0.0.3"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -407,14 +423,14 @@ func TestHostsAdmin_BulkCreate_ConflictRollsBackAll(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	// Pre-existing row that the batch will collide with.
-	_, err := store.Create(context.Background(), hosts.Host{Hostname: "collide"})
+	_, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.99"})
 	require.NoError(t, err)
 
 	body := map[string]any{
 		"hosts": []map[string]string{
-			{"hostname": "fresh-1"},
-			{"hostname": "collide"}, // boom
-			{"hostname": "fresh-2"},
+			{"ip": "10.0.0.1"},
+			{"ip": "10.0.0.99"}, // boom — collides with pre-existing
+			{"ip": "10.0.0.2"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -425,7 +441,7 @@ func TestHostsAdmin_BulkCreate_ConflictRollsBackAll(t *testing.T) {
 	all, err := store.List(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, all, 1)
-	assert.Equal(t, "collide", all[0].Hostname)
+	assert.Equal(t, "10.0.0.99", all[0].IP)
 }
 
 func TestHostsAdmin_BulkCreate_EmptyBody_Returns400(t *testing.T) {
@@ -448,21 +464,40 @@ func TestHostsAdmin_Patch_MissingReturns404(t *testing.T) {
 	ts := newTestServer(t, newFakeStore())
 
 	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+uuid.Must(uuid.NewV7()).String(),
-		map[string]string{"hostname": "ghost"})
+		map[string]string{"ip": "10.0.0.1"})
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	resp.Body.Close()
 }
 
+// TestHostsAdmin_Update_EmptyIPRejected verifies that PATCH with a blank
+// (whitespace-only) ip is rejected 400 before reaching the store.
+func TestHostsAdmin_Update_EmptyIPRejected(t *testing.T) {
+	store := newFakeStore()
+	ts := newTestServer(t, store)
+
+	h, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.1"})
+	require.NoError(t, err)
+
+	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+h.ID.String(),
+		map[string]string{"ip": "   "})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
+// TestHostsAdmin_Update_EmptyHostnameRejected is kept as a regression guard:
+// hostname is now optional, so sending an empty hostname with a valid ip must
+// succeed (not be rejected).
 func TestHostsAdmin_Update_EmptyHostnameRejected(t *testing.T) {
 	store := newFakeStore()
 	ts := newTestServer(t, store)
 
-	h, err := store.Create(context.Background(), hosts.Host{Hostname: "seeded"})
+	h, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.1", Hostname: "seeded"})
 	require.NoError(t, err)
 
+	// Empty hostname with valid ip should now succeed (hostname is optional).
 	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+h.ID.String(),
-		map[string]string{"hostname": "   "})
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		map[string]string{"ip": "10.0.0.1", "hostname": "   "})
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 }
 
@@ -471,8 +506,7 @@ func TestHostsAdmin_Create_InvalidIPReturns400(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
-		"hostname": "bad-ip",
-		"ip":       "not-an-ip",
+		"ip": "not-an-ip",
 	})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
@@ -485,13 +519,12 @@ func TestHostsAdmin_Update_InvalidIPReturns400(t *testing.T) {
 	store := newFakeStore()
 	ts := newTestServer(t, store)
 
-	h, err := store.Create(context.Background(), hosts.Host{Hostname: "seed"})
+	h, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.1"})
 	require.NoError(t, err)
 	store.calls = nil
 
 	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+h.ID.String(), map[string]string{
-		"hostname": "seed",
-		"ip":       "not-an-ip",
+		"ip": "not-an-ip",
 	})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
@@ -508,7 +541,7 @@ func TestHostsAdmin_Create_InternalError_NoLeakage(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
-		"hostname": "any.example.com",
+		"ip": "10.0.0.1",
 	})
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	var body map[string]string
@@ -527,9 +560,9 @@ func TestHostsAdmin_BulkCreate_InvalidIPReturns400(t *testing.T) {
 
 	body := map[string]any{
 		"hosts": []map[string]string{
-			{"hostname": "bulk-1", "ip": "10.0.0.1"},
-			{"hostname": "bulk-2", "ip": "not-an-ip"}, // boom at index 1
-			{"hostname": "bulk-3"},
+			{"ip": "10.0.0.1"},
+			{"ip": "not-an-ip"}, // boom at index 1
+			{"ip": "10.0.0.3"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -546,7 +579,7 @@ func TestHostsAdmin_BulkCreate_InvalidIPReturns400(t *testing.T) {
 
 func TestHandlers_SetTags(t *testing.T) {
 	store := newFakeStore()
-	h, err := store.Create(context.Background(), hosts.Host{Hostname: "web-01", OS: "linux"})
+	h, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.1", OS: "linux"})
 	require.NoError(t, err)
 
 	tagID := uuid.New()

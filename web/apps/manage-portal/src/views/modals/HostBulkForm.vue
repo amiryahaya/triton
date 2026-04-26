@@ -18,8 +18,8 @@ const jsonText = ref('');
 const jsonError = ref('');
 
 const jsonPlaceholder = `[
-  { "hostname": "web-01", "ip": "10.0.0.10", "os": "linux" },
-  { "hostname": "db-01", "ip": "10.0.0.20", "os": "linux" }
+  { "ip": "10.0.0.10", "hostname": "web-01", "os": "linux" },
+  { "ip": "10.0.0.20", "hostname": "db-01" }
 ]`;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -46,13 +46,13 @@ function parseJSON(): CreateHostReq[] | null {
   const out: CreateHostReq[] = [];
   for (let i = 0; i < parsed.length; i++) {
     const row = parsed[i];
-    if (!isRecord(row) || typeof row.hostname !== 'string' || !row.hostname.trim()) {
-      jsonError.value = `Entry ${i}: missing or invalid "hostname".`;
+    if (!isRecord(row) || typeof row.ip !== 'string' || !row.ip.trim()) {
+      jsonError.value = `Entry ${i}: missing or invalid "ip".`;
       return null;
     }
     out.push({
-      hostname: row.hostname,
-      ip: typeof row.ip === 'string' ? row.ip : undefined,
+      ip: row.ip,
+      hostname: typeof row.hostname === 'string' ? row.hostname : undefined,
       os: typeof row.os === 'string' ? row.os : undefined,
       tag_ids: Array.isArray(row.tag_ids)
         ? (row.tag_ids as unknown[]).filter((x): x is string => typeof x === 'string')
@@ -71,8 +71,8 @@ function parseJSON(): CreateHostReq[] | null {
 
 // ── CSV tab ──────────────────────────────────────────────────────────────────
 interface CsvRow {
-  hostname: string;
-  ip?: string;
+  ip: string;        // required
+  hostname?: string; // optional
   os?: string;
   tags?: string[];
   _error?: string;
@@ -124,24 +124,24 @@ function parseCSV(raw: string): void {
   }
 
   const headers = splitCSVLine(nonEmpty[0]).map(h => h.trim().toLowerCase());
-  const hostnameIdx = headers.indexOf('hostname');
-  if (hostnameIdx === -1) {
-    csvParseError.value = 'CSV must have a "hostname" column.';
+  const ipIdx = headers.indexOf('ip');
+  if (ipIdx === -1) {
+    csvParseError.value = 'CSV must have an "ip" column.';
     return;
   }
-  const ipIdx = headers.indexOf('ip');
+  const hostnameIdx = headers.indexOf('hostname');
   const osIdx = headers.indexOf('os');
   const tagsIdx = headers.indexOf('tags');
 
   const rows: CsvRow[] = [];
   for (let i = 1; i < nonEmpty.length; i++) {
     const cells = splitCSVLine(nonEmpty[i]);
-    const hostname = cells[hostnameIdx]?.trim() ?? '';
-    const row: CsvRow = { hostname };
-    if (!hostname) {
-      row._error = 'hostname is required';
+    const ip = cells[ipIdx]?.trim() ?? '';
+    const row: CsvRow = { ip };
+    if (!ip) {
+      row._error = 'ip is required';
     }
-    if (ipIdx !== -1 && cells[ipIdx]?.trim()) row.ip = cells[ipIdx].trim();
+    if (hostnameIdx !== -1 && cells[hostnameIdx]?.trim()) row.hostname = cells[hostnameIdx].trim();
     if (osIdx !== -1 && cells[osIdx]?.trim()) row.os = cells[osIdx].trim();
     if (tagsIdx !== -1 && cells[tagsIdx]?.trim()) {
       row.tags = cells[tagsIdx].trim().split(',').map(t => t.trim()).filter(Boolean);
@@ -183,8 +183,8 @@ function onSubmit(): void {
       return;
     }
     emit('submit', rows.map(r => ({
-      hostname: r.hostname,
       ip: r.ip,
+      hostname: r.hostname,
       os: r.os,
       tags: r.tags,
     })));
@@ -229,7 +229,7 @@ function onSubmit(): void {
         class="bulk-tab-panel"
       >
         <p class="bulk-hint">
-          Columns: <code>hostname</code> (required), <code>ip</code>, <code>os</code>,
+          Columns: <code>ip</code> (required), <code>hostname</code>, <code>os</code>,
           <code>tags</code> (comma-separated tag names; quote if multiple:
           <code>"production,web"</code>)
         </p>
@@ -243,7 +243,7 @@ function onSubmit(): void {
             class="bulk-text"
             rows="8"
             spellcheck="false"
-            placeholder="hostname,ip,os,tags&#10;web-01,10.0.0.10,linux,&quot;production,web&quot;"
+            placeholder="ip,hostname,os,tags&#10;10.0.0.10,web-01,linux,&quot;production,web&quot;"
             @input="onCSVInput"
           />
         </TFormField>
@@ -262,10 +262,10 @@ function onSubmit(): void {
               class="row-error"
             >Row {{ i + 1 }}: {{ row._error }}</span>
             <span v-else>
-              {{ row.hostname }}<span
-                v-if="row.ip"
+              {{ row.ip }}<span
+                v-if="row.hostname"
                 class="muted"
-              > — {{ row.ip }}</span>
+              > — {{ row.hostname }}</span>
               <span
                 v-if="row.tags?.length"
                 class="muted"
@@ -286,7 +286,7 @@ function onSubmit(): void {
       >
         <p class="bulk-hint">
           Paste a JSON array of host objects. Each entry must include
-          <code>hostname</code>; <code>ip</code>, <code>os</code>, <code>tag_ids</code>
+          <code>ip</code>; <code>hostname</code>, <code>os</code>, <code>tag_ids</code>
           (UUID array), and <code>tags</code> (name array) are optional.
         </p>
         <TFormField

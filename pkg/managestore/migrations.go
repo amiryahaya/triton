@@ -289,4 +289,22 @@ var migrations = []string{
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_discovery_candidates_job ON manage_discovery_candidates(job_id);`,
+
+	// Version 11: Make ip required and hostname/os optional on manage_hosts.
+	// hostname: drop NOT NULL so existing rows keep their value but new rows
+	//           can omit it; ip becomes the unique identity key.
+	// UNIQUE constraint moves from hostname to ip.
+	// os already had DEFAULT '' so it is already optional in practice; no change needed.
+	`ALTER TABLE manage_hosts ALTER COLUMN hostname DROP NOT NULL;
+	ALTER TABLE manage_hosts ALTER COLUMN hostname SET DEFAULT NULL;
+
+	-- Handle existing rows that may have a null ip before we make it required.
+	-- Use a placeholder so the NOT NULL constraint is satisfiable; operators
+	-- should clean up placeholder values post-migration.
+	UPDATE manage_hosts SET ip = '0.0.0.0'::inet WHERE ip IS NULL;
+	ALTER TABLE manage_hosts ALTER COLUMN ip SET NOT NULL;
+
+	-- Swap UNIQUE constraint: hostname → ip.
+	ALTER TABLE manage_hosts DROP CONSTRAINT IF EXISTS manage_hosts_hostname_key;
+	ALTER TABLE manage_hosts ADD CONSTRAINT manage_hosts_ip_key UNIQUE (ip);`,
 }

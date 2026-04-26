@@ -110,6 +110,12 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 	return nil
 }
 
+// ScannerIface is the interface implemented by *Scanner. Extracted so
+// Worker can accept a test double without duplicating its Run logic.
+type ScannerIface interface {
+	Scan(ctx context.Context, cidr string, ports []int, out chan<- Candidate) error
+}
+
 // expandCIDR returns all usable host IPs in the network (excluding network
 // address and broadcast address for IPv4).
 func expandCIDR(ipNet *net.IPNet) []net.IP {

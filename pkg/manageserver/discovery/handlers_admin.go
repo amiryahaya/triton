@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -155,7 +156,7 @@ func (h *AdminHandlers) HandleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := h.store.GetCurrentJob(r.Context(), tenantID)
-	if err == ErrNotFound {
+	if errors.Is(err, ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "no discovery job found")
 		return
 	}
@@ -185,7 +186,7 @@ func (h *AdminHandlers) HandleCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := h.store.GetCurrentJob(r.Context(), tenantID)
-	if err == ErrNotFound {
+	if errors.Is(err, ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "no discovery job found")
 		return
 	}

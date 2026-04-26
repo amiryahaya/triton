@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -216,109 +215,8 @@ func (f *fakeHostsStore) BulkCreate(_ context.Context, hs []hosts.Host) ([]hosts
 }
 
 // ---------------------------------------------------------------------------
-// scannerFunc + testWorker
-//
-// Worker.Scanner is a concrete *Scanner, not an interface.  To keep
-// worker.go unchanged while still injecting fake scan behaviour in tests, we
-// define testWorker — a local mirror of Worker that uses a scannerFunc field
-// instead of *Scanner.  The logic is byte-for-byte identical to Worker.Run /
-// Worker.lookupExistingHost.
-// ---------------------------------------------------------------------------
-
-type scannerFunc func(ctx context.Context, cidr string, ports []int, out chan<- Candidate) error
-
-type testWorker struct {
-	Store      Store
-	HostsStore hosts.Store
-	ScanFn     scannerFunc
-}
-
-func (tw *testWorker) Run(ctx context.Context, job Job) {
-	now := time.Now()
-	_ = tw.Store.UpdateStatus(ctx, StatusUpdate{
-		JobID:     job.ID,
-		Status:    "running",
-		StartedAt: &now,
-	})
-
-	scanCtx, cancelScan := context.WithCancel(ctx)
-	defer cancelScan()
-
-	out := make(chan Candidate, 64)
-	scanErrCh := make(chan error, 1)
-	go func() {
-		scanErrCh <- tw.ScanFn(scanCtx, job.CIDR, job.Ports, out)
-	}()
-
-	// Build a one-time IP→host-ID map to avoid N full-table scans.
-	hostByIP := make(map[string]uuid.UUID)
-	if allHosts, err := tw.HostsStore.List(ctx); err == nil {
-		for _, h := range allHosts {
-			if h.IP != "" {
-				hostByIP[h.IP] = h.ID
-			}
-		}
-	}
-
-	count := 0
-	for c := range out {
-		c.JobID = job.ID
-		if id, ok := hostByIP[c.IP]; ok {
-			c.ExistingHostID = &id
-		}
-
-		if err := tw.Store.InsertCandidate(ctx, c); err != nil {
-			// continue — don't abort the scan on a single insert failure
-			_ = err
-		}
-		count++
-
-		if count%50 == 0 {
-			_ = tw.Store.UpdateProgress(ctx, job.ID, count)
-
-			j, err := tw.Store.GetCurrentJob(ctx, job.TenantID)
-			if err == nil && j.CancelRequested {
-				cancelScan()
-				break
-			}
-		}
-	}
-	for range out {}
-
-	err := <-scanErrCh
-
-	j, _ := tw.Store.GetCurrentJob(ctx, job.TenantID)
-	if j.CancelRequested {
-		fin := time.Now()
-		_ = tw.Store.UpdateStatus(ctx, StatusUpdate{
-			JobID:      job.ID,
-			Status:     "cancelled",
-			FinishedAt: &fin,
-		})
-		return
-	}
-
-	fin := time.Now()
-	if err != nil && err != context.Canceled {
-		_ = tw.Store.UpdateStatus(ctx, StatusUpdate{
-			JobID:        job.ID,
-			Status:       "failed",
-			FinishedAt:   &fin,
-			ErrorMessage: err.Error(),
-		})
-		return
-	}
-
-	_ = tw.Store.UpdateProgress(ctx, job.ID, count)
-	_ = tw.Store.UpdateStatus(ctx, StatusUpdate{
-		JobID:      job.ID,
-		Status:     "completed",
-		FinishedAt: &fin,
-	})
-}
-
-// ---------------------------------------------------------------------------
 // fakeScanner emits pre-configured candidates then returns an optional error.
+// It implements ScannerIface so it can be injected directly into Worker.
 // ---------------------------------------------------------------------------
 
 type fakeScanner struct {
@@ -375,8 +273,8 @@ func TestWorkerCancelsCleanly(t *testing.T) {
 	hostsStore := &fakeHostsStore{}
 	fs := &fakeScanner{candidates: makeCandidates(60)}
 
-	tw := &testWorker{Store: store, HostsStore: hostsStore, ScanFn: fs.Scan}
-	tw.Run(context.Background(), job)
+	w := &Worker{Store: store, HostsStore: hostsStore, Scanner: fs}
+	w.Run(context.Background(), job)
 
 	base.mu.Lock()
 	status := base.job.Status
@@ -402,8 +300,8 @@ func TestWorkerSetsFailedOnScanError(t *testing.T) {
 	scanErr := errors.New("network unreachable")
 	fs := &fakeScanner{candidates: makeCandidates(3), err: scanErr}
 
-	tw := &testWorker{Store: store, HostsStore: hostsStore, ScanFn: fs.Scan}
-	tw.Run(context.Background(), job)
+	w := &Worker{Store: store, HostsStore: hostsStore, Scanner: fs}
+	w.Run(context.Background(), job)
 
 	store.mu.Lock()
 	status := store.job.Status
@@ -429,8 +327,8 @@ func TestWorkerProgressUpdatedEvery50(t *testing.T) {
 
 	fs := &fakeScanner{candidates: makeCandidates(150)}
 
-	tw := &testWorker{Store: store, HostsStore: hostsStore, ScanFn: fs.Scan}
-	tw.Run(context.Background(), job)
+	w := &Worker{Store: store, HostsStore: hostsStore, Scanner: fs}
+	w.Run(context.Background(), job)
 
 	store.mu.Lock()
 	progress := store.progress
@@ -474,8 +372,8 @@ func TestWorkerExistingHostIDSet(t *testing.T) {
 		},
 	}
 
-	tw := &testWorker{Store: store, HostsStore: hostsStore, ScanFn: fs.Scan}
-	tw.Run(context.Background(), job)
+	w := &Worker{Store: store, HostsStore: hostsStore, Scanner: fs}
+	w.Run(context.Background(), job)
 
 	store.mu.Lock()
 	cands := store.candidates
@@ -510,8 +408,8 @@ func TestWorkerDBInsertErrorSkipped(t *testing.T) {
 		},
 	}
 
-	tw := &testWorker{Store: store, HostsStore: hostsStore, ScanFn: fs.Scan}
-	tw.Run(context.Background(), job)
+	w := &Worker{Store: store, HostsStore: hostsStore, Scanner: fs}
+	w.Run(context.Background(), job)
 
 	store.mu.Lock()
 	status := store.job.Status

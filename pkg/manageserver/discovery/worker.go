@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -16,12 +17,25 @@ import (
 type Worker struct {
 	Store      Store
 	HostsStore hosts.Store
-	Scanner    *Scanner
+	Scanner    ScannerIface
 }
 
 // Run executes the discovery job in the calling goroutine. It is intended to
 // be launched with "go w.Run(ctx, job)" so the caller is not blocked.
 func (w *Worker) Run(ctx context.Context, job Job) {
+	defer func() {
+		if r := recover(); r != nil {
+			fin := time.Now()
+			log.Printf("discovery worker: panic in job %s: %v", job.ID, r)
+			_ = w.Store.UpdateStatus(ctx, StatusUpdate{
+				JobID:        job.ID,
+				Status:       "failed",
+				FinishedAt:   &fin,
+				ErrorMessage: fmt.Sprintf("internal panic: %v", r),
+			})
+		}
+	}()
+
 	// Step 1: mark job as running.
 	now := time.Now()
 	_ = w.Store.UpdateStatus(ctx, StatusUpdate{

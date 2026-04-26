@@ -130,4 +130,3 @@ func isTLSService(s *plugins.Service) bool {
 	}
 	return false
 }
-

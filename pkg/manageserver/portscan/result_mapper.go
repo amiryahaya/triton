@@ -12,7 +12,7 @@ import (
 
 // MapToScanResult converts port scan findings into a model.ScanResult
 // ready for submission to the report portal via scanresults.Enqueue.
-func MapToScanResult(hostname string, profile string, findings []Finding) *model.ScanResult {
+func MapToScanResult(hostname, profile string, findings []Finding) *model.ScanResult {
 	result := &model.ScanResult{
 		ID: uuid.NewString(),
 		Metadata: model.ScanMetadata{

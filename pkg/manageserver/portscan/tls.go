@@ -21,7 +21,7 @@ func extractTLSCert(ctx context.Context, ip string, port int, timeout time.Durat
 	if err != nil {
 		return nil
 	}
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close() //nolint:errcheck // UDP-like close; error is never actionable
 
 	_ = ctx // context available for future cancellation support
 

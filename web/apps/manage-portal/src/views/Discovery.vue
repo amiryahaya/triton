@@ -23,7 +23,7 @@ const hostnameOverrides = ref<Record<string, string>>({});
 // Initialise hostnameOverride when a new candidate arrives
 function hostnameFor(c: DiscoveryCandidate): string {
   if (hostnameOverrides.value[c.id] !== undefined) return hostnameOverrides.value[c.id];
-  return c.hostname ?? '';
+  return c.hostname ?? c.ip;
 }
 
 // Whether all selected candidates have a hostname (from DNS or override)
@@ -164,7 +164,7 @@ onUnmounted(() => store.stopPolling());
                 type="text"
                 :value="hostnameFor(c)"
                 @input="hostnameOverrides[c.id] = ($event.target as HTMLInputElement).value"
-                placeholder="enter hostname…"
+                placeholder="hostname or IP"
                 class="hostname-input"
               />
               <span v-else class="dimmed">{{ c.hostname ?? c.ip }}</span>

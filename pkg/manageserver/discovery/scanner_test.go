@@ -10,6 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ----- mock Dialer -----
@@ -232,7 +235,10 @@ func TestNetworkBroadcastSkipped(t *testing.T) {
 }
 
 // TestConcurrencyLimit verifies that MaxConcurrency bounds the number of
-// simultaneous goroutines inside DialContext.
+// simultaneous IP-level goroutines. A single port (22) is used intentionally:
+// with parallel port probing the total dial count is MaxConcurrency×len(ports),
+// so using one port keeps the peak dial count equal to the IP goroutine count,
+// making the semaphore assertion straightforward.
 func TestConcurrencyLimit(t *testing.T) {
 	t.Parallel()
 
@@ -276,11 +282,64 @@ func TestConcurrencyLimit(t *testing.T) {
 	}
 
 	got := peak.Load()
-	// Each goroutine dials all ports in sequence, so the peak concurrent dials
-	// equals at most maxConcurrency (one goroutine per IP, one port each).
+	// With a single port per IP, peak concurrent dials equals the number of
+	// concurrent IP goroutines, which must not exceed maxConcurrency.
 	if got > int64(maxConcurrency) {
 		t.Errorf("peak concurrent dials = %d, want ≤ %d", got, maxConcurrency)
 	}
+}
+
+// countingDialer invokes a user-supplied dial function and counts calls.
+type countingDialer struct {
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
+func (d *countingDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return d.dial(ctx, network, addr)
+}
+
+// TestParallelPortProbing verifies that all ports for a single IP are dialled
+// concurrently. A dead host with 5 ports should complete in approximately one
+// DialTimeout, not five.
+func TestParallelPortProbing(t *testing.T) {
+	t.Parallel()
+
+	// A dead host with 5 ports should complete in approximately one DialTimeout,
+	// not five. We verify this by checking wall-clock time.
+	dialCount := atomic.Int32{}
+	slowDialer := &countingDialer{
+		dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dialCount.Add(1)
+			// Simulate a 50ms response — fast enough to be well under one
+			// sequential chain (5×50ms = 250ms) but still measurable.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+			return nil, errors.New("refused")
+		},
+	}
+	sc := &Scanner{
+		Dialer:         slowDialer,
+		Resolver:       &fixedResolver{err: errors.New("no dns")},
+		MaxConcurrency: 10,
+		DialTimeout:    200 * time.Millisecond,
+		DNSTimeout:     time.Second,
+	}
+	ports := []int{22, 80, 443, 3389, 8080} // 5 ports
+	out := make(chan Candidate, 10)
+	start := time.Now()
+	err := sc.Scan(context.Background(), "10.0.0.0/30", ports, out) // 2 host IPs
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+
+	// Sequential probing would take 2 hosts × 5 ports × 50ms = 500ms.
+	// Parallel probing should complete in roughly 2 × 50ms = 100ms.
+	// We use 300ms as the upper bound to allow for scheduling jitter.
+	require.Less(t, elapsed, 300*time.Millisecond,
+		"parallel port probing should complete in ~100ms, got %v", elapsed)
+	assert.Equal(t, int32(10), dialCount.Load(), "should have dialled 2 IPs × 5 ports = 10 times")
 }
 
 // peakTrackingDialer wraps another Dialer and tracks peak concurrency.

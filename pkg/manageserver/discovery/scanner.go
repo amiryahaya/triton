@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"net"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -22,9 +23,10 @@ type Resolver interface {
 type Scanner struct {
 	Dialer   Dialer
 	Resolver Resolver
-	// MaxConcurrency limits simultaneous goroutines (default 200).
+	// MaxConcurrency limits simultaneous IP-level goroutines (default 2000).
 	MaxConcurrency int
-	// DialTimeout is the per-port connection timeout (default 1.5s).
+	// DialTimeout is the per-port TCP connect timeout (default 150ms — suitable
+	// for LAN where RTT is sub-millisecond; raise for WAN targets).
 	DialTimeout time.Duration
 	// DNSTimeout is the per-IP reverse-DNS timeout (default 3s).
 	DNSTimeout time.Duration
@@ -35,14 +37,16 @@ func NewScanner() *Scanner {
 	return &Scanner{
 		Dialer:         &net.Dialer{},
 		Resolver:       net.DefaultResolver,
-		MaxConcurrency: 200,
-		DialTimeout:    1500 * time.Millisecond,
+		MaxConcurrency: 2000,
+		DialTimeout:    150 * time.Millisecond,
 		DNSTimeout:     3 * time.Second,
 	}
 }
 
-// Scan expands cidr, probes each host for open ports, and sends live
-// Candidates to out. It closes out before returning.
+// Scan expands cidr, probes each host concurrently for open ports, and
+// sends live Candidates to out. All ports for a given IP are dialled in
+// parallel so unreachable hosts pay one DialTimeout, not N_ports×DialTimeout.
+// Scan closes out before returning.
 func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<- Candidate) error {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -69,18 +73,38 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			// Probe each port.
-			var openPorts []int
+			// Probe all ports concurrently so a dead host pays one timeout, not N×timeout.
+			type portResult struct {
+				port int
+				open bool
+			}
+			portCh := make(chan portResult, len(ports))
+			var portWg sync.WaitGroup
 			for _, port := range ports {
-				addr := net.JoinHostPort(ipStr, strconv.Itoa(port))
-				dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
-				conn, dialErr := s.Dialer.DialContext(dialCtx, "tcp", addr)
-				cancel()
-				if dialErr == nil {
-					conn.Close()
-					openPorts = append(openPorts, port)
+				portWg.Add(1)
+				go func(p int) {
+					defer portWg.Done()
+					addr := net.JoinHostPort(ipStr, strconv.Itoa(p))
+					dialCtx, cancel := context.WithTimeout(ctx, s.DialTimeout)
+					conn, err := s.Dialer.DialContext(dialCtx, "tcp", addr)
+					cancel()
+					open := err == nil
+					if open {
+						conn.Close()
+					}
+					portCh <- portResult{port: p, open: open}
+				}(port)
+			}
+			portWg.Wait()
+			close(portCh)
+
+			var openPorts []int
+			for r := range portCh {
+				if r.open {
+					openPorts = append(openPorts, r.port)
 				}
 			}
+			sort.Ints(openPorts)
 
 			// Skip dead hosts.
 			if len(openPorts) == 0 {

@@ -20,6 +20,7 @@ import "github.com/go-chi/chi/v5"
 // maintainers.
 func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	r.Post("/", h.Enqueue)
+	r.Post("/port-survey", h.EnqueuePortSurvey)
 	r.Get("/", h.List)
 	r.Get("/{id}", h.Get)
 	r.Post("/{id}/cancel", h.RequestCancel)

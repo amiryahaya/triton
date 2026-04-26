@@ -1,6 +1,6 @@
 // Package scanrunner is the shared foundation for all external scan binaries
-// (triton-portscan, future triton-sshscan). It provides the Scanner pluggable
-// interface, RunOne lifecycle, and HTTP client wrappers.
+// (triton-portscan, future triton-sshscan). It defines the Scanner interface
+// and the shared types used across the scan lifecycle.
 package scanrunner
 
 import (

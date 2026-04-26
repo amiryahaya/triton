@@ -25,12 +25,12 @@ func TestScanJobs_Cancel_RunningJob(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID, _ := seedZoneAndHost(t, pool, "cancel-host")
+	tagID, _ := seedTagAndHost(t, pool, "cancel-host")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
@@ -70,12 +70,12 @@ func TestScanJobs_Cancel_QueuedJob(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID, _ := seedZoneAndHost(t, pool, "queued-cancel-host")
+	tagID, _ := seedTagAndHost(t, pool, "queued-cancel-host")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
@@ -113,12 +113,12 @@ func TestScanJobs_Heartbeat_NoOpOnTerminalRow(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID, _ := seedZoneAndHost(t, pool, "hb-terminal-host")
+	tagID, _ := seedTagAndHost(t, pool, "hb-terminal-host")
 	s := scanjobs.NewPostgresStore(pool)
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := s.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)

@@ -260,4 +260,71 @@ var migrations = []string{
 
 	DROP TABLE IF EXISTS manage_zone_memberships;
 	DROP TABLE IF EXISTS manage_zones;`,
+
+	// Version 10: Network discovery — singleton job + discovered candidates.
+	`CREATE TABLE IF NOT EXISTS manage_discovery_jobs (
+		id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id        UUID        NOT NULL,
+		cidr             TEXT        NOT NULL,
+		ports            INT[]       NOT NULL,
+		status           TEXT        NOT NULL DEFAULT 'queued'
+		                             CHECK (status IN ('queued','running','completed','failed','cancelled')),
+		total_ips        INT         NOT NULL DEFAULT 0,
+		scanned_ips      INT         NOT NULL DEFAULT 0,
+		cancel_requested BOOLEAN     NOT NULL DEFAULT FALSE,
+		started_at       TIMESTAMPTZ,
+		finished_at      TIMESTAMPTZ,
+		error_message    TEXT        NOT NULL DEFAULT '',
+		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS manage_discovery_candidates (
+		id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		job_id           UUID        NOT NULL REFERENCES manage_discovery_jobs(id) ON DELETE CASCADE,
+		ip               TEXT        NOT NULL,
+		hostname         TEXT,
+		open_ports       INT[]       NOT NULL DEFAULT '{}',
+		existing_host_id UUID        REFERENCES manage_hosts(id) ON DELETE SET NULL,
+		created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_manage_discovery_candidates_job ON manage_discovery_candidates(job_id);`,
+
+	// Version 11: Make ip required and hostname/os optional on manage_hosts.
+	// hostname: drop NOT NULL so existing rows keep their value but new rows
+	//           can omit it; ip becomes the unique identity key.
+	// UNIQUE constraint moves from hostname to ip.
+	// os already had DEFAULT '' so it is already optional in practice; no change needed.
+	`ALTER TABLE manage_hosts ALTER COLUMN hostname DROP NOT NULL;
+	ALTER TABLE manage_hosts ALTER COLUMN hostname SET DEFAULT NULL;
+
+	-- Handle existing rows that may have a null ip before we make it required.
+	-- Use a placeholder so the NOT NULL constraint is satisfiable; operators
+	-- should clean up placeholder values post-migration.
+	UPDATE manage_hosts SET ip = '0.0.0.0'::inet WHERE ip IS NULL;
+	ALTER TABLE manage_hosts ALTER COLUMN ip SET NOT NULL;
+
+	-- Swap UNIQUE constraint: hostname → ip.
+	ALTER TABLE manage_hosts DROP CONSTRAINT IF EXISTS manage_hosts_hostname_key;
+	ALTER TABLE manage_hosts ADD CONSTRAINT manage_hosts_ip_key UNIQUE (ip);`,
+
+	// Version 12: Add os column to manage_discovery_candidates for OS detection results.
+	`ALTER TABLE manage_discovery_candidates
+ ADD COLUMN IF NOT EXISTS os TEXT NOT NULL DEFAULT '';`,
+
+	// Version 13: Add MAC address and mDNS name to discovery candidates.
+	`ALTER TABLE manage_discovery_candidates
+ ADD COLUMN IF NOT EXISTS mac_address TEXT NOT NULL DEFAULT '';
+ALTER TABLE manage_discovery_candidates
+ ADD COLUMN IF NOT EXISTS mdns_name TEXT NOT NULL DEFAULT '';`,
+
+	// Version 14: Port survey job type + deferred scheduling.
+	// job_type discriminates filesystem scans (default, backward-compat)
+	// from port_survey scans. scheduled_at, when set, defers claiming
+	// until that timestamp is reached.
+	`ALTER TABLE manage_scan_jobs
+	 ADD COLUMN IF NOT EXISTS job_type TEXT NOT NULL DEFAULT 'filesystem'
+	 CHECK (job_type IN ('filesystem','port_survey'));
+ALTER TABLE manage_scan_jobs
+	 ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;`,
 }

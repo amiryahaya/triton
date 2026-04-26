@@ -393,14 +393,24 @@ func TestMigrate_UsesManageSchemaVersionTable(t *testing.T) {
 	assert.GreaterOrEqual(t, count, 1, "at least one applied migration must be recorded")
 }
 
-// TestMigrate_V2_CreatesZonesAndHosts asserts migration v2 creates the
-// zones, hosts, and zone_memberships tables used by the scanner orchestrator.
+// TestMigrate_V2_CreatesZonesAndHosts asserts the final post-migration state
+// of tables created/replaced by the zones→tags refactor.
+// v2 originally created manage_zones + manage_zone_memberships + manage_hosts.
+// v9 dropped manage_zones + manage_zone_memberships, added manage_tags + manage_host_tags.
+// We assert the final schema state after all migrations have run.
 func TestMigrate_V2_CreatesZonesAndHosts(t *testing.T) {
 	s := openTestStore(t)
 
-	assert.True(t, tableExists(t, s, "manage_zones"), "manage_zones must exist")
+	// manage_zones and manage_zone_memberships were created in v2 but
+	// dropped in v9 (replaced by manage_tags + manage_host_tags).
+	// The full migration suite drops them, so we assert the final state.
+	assert.False(t, tableExists(t, s, "manage_zones"),
+		"manage_zones must be dropped by v9")
+	assert.False(t, tableExists(t, s, "manage_zone_memberships"),
+		"manage_zone_memberships must be dropped by v9")
 	assert.True(t, tableExists(t, s, "manage_hosts"), "manage_hosts must exist")
-	assert.True(t, tableExists(t, s, "manage_zone_memberships"), "manage_zone_memberships must exist")
+	assert.True(t, tableExists(t, s, "manage_tags"), "manage_tags must exist after v9")
+	assert.True(t, tableExists(t, s, "manage_host_tags"), "manage_host_tags must exist after v9")
 }
 
 // TestMigrate_V3_CreatesScanJobs asserts migration v3 creates manage_scan_jobs
@@ -462,23 +472,23 @@ func TestMigrate_V5_CreatesCATables(t *testing.T) {
 }
 
 // TestMigrate_V6_LoosenScanJobFKs asserts migration v6 drops NOT NULL on
-// manage_scan_jobs.zone_id + host_id and switches their FK delete policy
-// to SET NULL, so deleting a zone/host preserves historical scan jobs.
+// manage_scan_jobs.host_id and switches its FK delete policy to SET NULL,
+// so deleting a host preserves historical scan jobs.
+// NOTE: zone_id was added to manage_scan_jobs in v2, loosened in v6, then
+// dropped entirely in v9 (replaced by the tags model). We assert the final state.
 func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	// zone_id and host_id must be nullable now.
+	// zone_id was added to manage_scan_jobs in v2, loosened in v6, then
+	// dropped entirely in v9. Verify the final state: no zone_id column.
+	zoneColExists := columnExists(t, s, "manage_scan_jobs", "zone_id")
+	assert.False(t, zoneColExists,
+		"zone_id must be dropped from manage_scan_jobs by v9")
+
+	// host_id must still be nullable (loosened in v6, not re-tightened).
 	var isNullable string
 	err := s.QueryRowForTest(ctx, `
-		SELECT is_nullable FROM information_schema.columns
-		WHERE table_schema = current_schema()
-		  AND table_name = 'manage_scan_jobs'
-		  AND column_name = 'zone_id'`).Scan(&isNullable)
-	require.NoError(t, err)
-	assert.Equal(t, "YES", isNullable, "zone_id must be nullable after v6")
-
-	err = s.QueryRowForTest(ctx, `
 		SELECT is_nullable FROM information_schema.columns
 		WHERE table_schema = current_schema()
 		  AND table_name = 'manage_scan_jobs'
@@ -486,9 +496,8 @@ func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "YES", isNullable, "host_id must be nullable after v6")
 
-	// Both FKs must have delete_rule = SET NULL. pg_constraint.confdeltype
-	// is the authoritative lookup — 'n' = SET NULL, 'r' = RESTRICT,
-	// 'c' = CASCADE, 'a' = NO ACTION (default).
+	// After v9 there is exactly 1 FK with SET NULL on manage_scan_jobs
+	// (host_id; zone_id was dropped).
 	var setNullFKs int
 	err = s.QueryRowForTest(ctx, `
 		SELECT COUNT(*) FROM pg_constraint c
@@ -499,38 +508,31 @@ func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 		  AND c.contype = 'f'
 		  AND c.confdeltype = 'n'`).Scan(&setNullFKs)
 	require.NoError(t, err)
-	assert.Equal(t, 2, setNullFKs,
-		"manage_scan_jobs must have exactly 2 FKs with ON DELETE SET NULL (zone_id + host_id)")
+	assert.Equal(t, 1, setNullFKs,
+		"manage_scan_jobs must have exactly 1 FK with ON DELETE SET NULL (host_id only; zone_id dropped by v9)")
 
-	// End-to-end: inserting a zone+host+job, then deleting the zone should
-	// leave the job row with zone_id = NULL rather than erroring out.
-	zoneID := uuid.Must(uuid.NewV7()).String()
-	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_zones (id, name) VALUES ($1, $2)`, zoneID, "zone-"+zoneID)
-	require.NoError(t, err)
+	// End-to-end: create a host+job, delete the host → job survives with host_id=NULL.
 	hostID := uuid.Must(uuid.NewV7()).String()
 	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_hosts (id, hostname, zone_id) VALUES ($1, $2, $3)`,
-		hostID, "host-"+hostID, zoneID)
+		`INSERT INTO manage_hosts (id, ip) VALUES ($1, $2::inet)`,
+		hostID, "10.99.0.1")
 	require.NoError(t, err)
 	jobID := uuid.Must(uuid.NewV7()).String()
 	tenantID := uuid.Must(uuid.NewV7()).String()
 	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_scan_jobs (id, tenant_id, zone_id, host_id, profile)
-		 VALUES ($1, $2, $3, $4, 'quick')`,
-		jobID, tenantID, zoneID, hostID)
+		`INSERT INTO manage_scan_jobs (id, tenant_id, host_id, profile)
+		 VALUES ($1, $2, $3, 'quick')`,
+		jobID, tenantID, hostID)
 	require.NoError(t, err)
 
-	_, err = s.ExecForTest(ctx, `DELETE FROM manage_zones WHERE id = $1`, zoneID)
-	require.NoError(t, err, "deleting a zone must not error — FK should SET NULL")
+	_, err = s.ExecForTest(ctx, `DELETE FROM manage_hosts WHERE id = $1`, hostID)
+	require.NoError(t, err, "deleting a host must not error — FK should SET NULL")
 
-	var gotZoneID, gotHostID *string
+	var gotHostID *string
 	err = s.QueryRowForTest(ctx,
-		`SELECT zone_id, host_id FROM manage_scan_jobs WHERE id = $1`, jobID).
-		Scan(&gotZoneID, &gotHostID)
-	require.NoError(t, err, "scan job row must survive zone deletion")
-	assert.Nil(t, gotZoneID, "zone_id must be NULL after zone deletion")
-	assert.NotNil(t, gotHostID, "host_id must still be set")
+		`SELECT host_id FROM manage_scan_jobs WHERE id = $1`, jobID).Scan(&gotHostID)
+	require.NoError(t, err)
+	assert.Nil(t, gotHostID, "host_id must be NULL after host deletion")
 }
 
 // TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK asserts migration v7:
@@ -607,21 +609,18 @@ func TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK(t *testing.T) {
 	// deleting the scan_job should leave both child rows in place —
 	// queue.scan_job_id goes NULL (FK SET NULL), dead_letter.scan_job_id
 	// keeps its original value (no FK means no cascade).
-	zoneID := uuid.Must(uuid.NewV7()).String()
-	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_zones (id, name) VALUES ($1, $2)`, zoneID, "zone-"+zoneID)
-	require.NoError(t, err)
+	// Note: manage_zones was dropped in v9; manage_hosts.ip is now NOT NULL.
 	hostID := uuid.Must(uuid.NewV7()).String()
 	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_hosts (id, hostname, zone_id) VALUES ($1, $2, $3)`,
-		hostID, "host-"+hostID, zoneID)
+		`INSERT INTO manage_hosts (id, ip) VALUES ($1, $2::inet)`,
+		hostID, "10.99.1.1")
 	require.NoError(t, err)
 	jobID := uuid.Must(uuid.NewV7()).String()
 	tenantID := uuid.Must(uuid.NewV7()).String()
 	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_scan_jobs (id, tenant_id, zone_id, host_id, profile)
-		 VALUES ($1, $2, $3, $4, 'quick')`,
-		jobID, tenantID, zoneID, hostID)
+		`INSERT INTO manage_scan_jobs (id, tenant_id, host_id, profile)
+		 VALUES ($1, $2, $3, 'quick')`,
+		jobID, tenantID, hostID)
 	require.NoError(t, err)
 	queueID := uuid.Must(uuid.NewV7()).String()
 	sourceID := uuid.Must(uuid.NewV7()).String()

@@ -163,6 +163,9 @@ jobs:
           name: portal-dist
           path: pkg/
 
+      - name: Create license test database
+        run: psql postgres://triton:triton@localhost:5434/triton_test?sslmode=disable -c "CREATE DATABASE triton_license_test;"
+
       - name: Generate test fixtures
         run: go run test/fixtures/generate.go
 

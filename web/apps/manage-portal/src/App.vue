@@ -53,6 +53,7 @@ const labels: Record<string, string> = {
   hosts: 'Hosts',
   tags: 'Tags',
   agents: 'Agents',
+  discover: 'Discovery',
   'scan-jobs': 'Scan Jobs',
   'push-status': 'Push Status',
   users: 'Users',

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import type { ScanJob, ScanJobStatus, EnqueueReq } from '@triton/api-client';
+import type { ScanJob, ScanJobStatus, EnqueueReq, PortSurveyEnqueueReq } from '@triton/api-client';
 import { useToast } from '@triton/ui';
 import { useApiClient } from './apiClient';
 
@@ -38,6 +38,12 @@ export const useScanJobsStore = defineStore('scanjobs', () => {
     return jobs;
   }
 
+  async function enqueuePortSurvey(req: PortSurveyEnqueueReq) {
+    const result = await useApiClient().get().enqueuePortSurvey(req);
+    await fetch();
+    return result.jobs;
+  }
+
   async function requestCancel(id: string) {
     await useApiClient().get().cancelScanJob(id);
     await fetch();
@@ -55,5 +61,5 @@ export const useScanJobsStore = defineStore('scanjobs', () => {
     if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
   }
 
-  return { items, selected, loading, filter, fetch, getDetail, enqueue, requestCancel, startPolling, stopPolling };
+  return { items, selected, loading, filter, fetch, getDetail, enqueue, enqueuePortSurvey, requestCancel, startPolling, stopPolling };
 });

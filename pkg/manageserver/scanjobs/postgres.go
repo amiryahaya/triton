@@ -30,7 +30,7 @@ var _ Store = (*PostgresStore)(nil)
 // jobSelectCols lists the columns expected by scanJob. COALESCE on
 // worker_id lets us read the nullable TEXT column into a plain
 // `string` Go field (empty-string = not-yet-claimed).
-const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message`
+const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message, COALESCE(job_type,'filesystem'), scheduled_at`
 
 // defaultListLimit is the fallback page size for List when a non-positive
 // limit is supplied. 100 keeps API responses bounded without operator
@@ -42,16 +42,18 @@ const defaultListLimit = 100
 // non-pointer uuid.UUID — historical rows with NULL host surface as uuid.Nil.
 func scanJob(row pgx.Row) (Job, error) {
 	var (
-		j        Job
-		credRef  *uuid.UUID
-		hostID   *uuid.UUID
-		workerID string
+		j          Job
+		credRef    *uuid.UUID
+		hostID     *uuid.UUID
+		workerID   string
+		jobTypeStr string
 	)
 	if err := row.Scan(
 		&j.ID, &j.TenantID, &hostID, &j.Profile, &credRef,
 		&j.Status, &j.CancelRequested, &workerID, &j.EnqueuedAt,
 		&j.StartedAt, &j.FinishedAt, &j.RunningHeartbeatAt,
 		&j.ProgressText, &j.ErrorMessage,
+		&jobTypeStr, &j.ScheduledAt,
 	); err != nil {
 		return Job{}, err
 	}
@@ -60,6 +62,7 @@ func scanJob(row pgx.Row) (Job, error) {
 	}
 	j.CredentialsRef = credRef
 	j.WorkerID = workerID
+	j.JobType = JobType(jobTypeStr)
 	return j, nil
 }
 
@@ -143,6 +146,40 @@ func (s *PostgresStore) Enqueue(ctx context.Context, req EnqueueReq) ([]Job, err
 	return out, nil
 }
 
+// EnqueuePortSurvey inserts one port_survey job per HostID in a single
+// transaction. An empty HostIDs slice is a no-op.
+func (s *PostgresStore) EnqueuePortSurvey(ctx context.Context, req PortSurveyEnqueueReq) ([]Job, error) {
+	if len(req.HostIDs) == 0 {
+		return []Job{}, nil
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin port survey enqueue tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	out := make([]Job, 0, len(req.HostIDs))
+	for _, hid := range req.HostIDs {
+		row := tx.QueryRow(ctx,
+			`INSERT INTO manage_scan_jobs
+			   (tenant_id, host_id, profile, job_type, scheduled_at)
+			 VALUES ($1, $2, $3, 'port_survey', $4)
+			 RETURNING `+jobSelectCols,
+			req.TenantID, hid, string(req.Profile), req.ScheduledAt,
+		)
+		j, err := scanJob(row)
+		if err != nil {
+			return nil, fmt.Errorf("insert port survey job for host %s: %w", hid, err)
+		}
+		out = append(out, j)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit port survey enqueue tx: %w", err)
+	}
+	return out, nil
+}
+
 // Get fetches a job by id.
 func (s *PostgresStore) Get(ctx context.Context, id uuid.UUID) (Job, error) {
 	row := s.pool.QueryRow(ctx,
@@ -219,6 +256,7 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, workerID string) (Job, bo
 		  WHERE id = (
 		     SELECT id FROM manage_scan_jobs
 		      WHERE status = 'queued'
+		        AND (scheduled_at IS NULL OR scheduled_at <= NOW())
 		      ORDER BY enqueued_at
 		      LIMIT 1
 		      FOR UPDATE SKIP LOCKED

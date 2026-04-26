@@ -3,7 +3,6 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import Agents from '../../src/views/Agents.vue';
 import { useAgentsStore } from '../../src/stores/agents';
-import { useZonesStore } from '../../src/stores/zones';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -16,12 +15,6 @@ function mountWithState() {
         createTestingPinia({
           createSpy: vi.fn,
           initialState: {
-            zones: {
-              items: [
-                { id: 'z-1', name: 'Corporate', description: '', created_at: '', updated_at: '' },
-              ],
-              loading: false,
-            },
             agents: {
               items: [
                 {
@@ -68,11 +61,9 @@ describe('Agents view', () => {
   it('calls agents.fetch on mount and renders rows with status pills', async () => {
     const wrapper = mountWithState();
     const agents = useAgentsStore();
-    const zones = useZonesStore();
     await flushPromises();
 
     expect(agents.fetch).toHaveBeenCalledTimes(1);
-    expect(zones.fetch).toHaveBeenCalledTimes(1);
 
     const html = wrapper.html();
     expect(html).toContain('scanner-01');

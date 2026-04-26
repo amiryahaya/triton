@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +43,12 @@ type HostCapGuard interface {
 type AdminHandlers struct {
 	Store         Store
 	GuardProvider func() HostCapGuard
+	// AdvertisedIP and AdvertisedHostname override auto-detection in
+	// RegisterSelf. Set these when the server runs inside a container so
+	// the host's real LAN IP is registered rather than the container IP.
+	// Controlled via TRITON_MANAGE_HOST_IP / TRITON_MANAGE_HOST_HOSTNAME.
+	AdvertisedIP       string
+	AdvertisedHostname string
 }
 
 // NewAdminHandlers wires an AdminHandlers with the given Store and
@@ -89,21 +97,18 @@ func (b hostRequestBody) toHost() Host {
 }
 
 // validateHost checks the handler-layer invariants that must hold before
-// the Host reaches the store: hostname is required, and if an IP is
-// supplied it must parse. Callers should have already applied toHost()
-// so whitespace is trimmed.
+// the Host reaches the store: ip is required and must parse. Callers
+// should have already applied toHost() so whitespace is trimmed.
 //
 // Keeping this above the store boundary means malformed input never
 // reaches Postgres, so clients see a clean 400 instead of a 500 with
 // leaked pg error text.
 func validateHost(h Host) error {
-	if h.Hostname == "" {
-		return errors.New("hostname is required")
+	if h.IP == "" {
+		return errors.New("ip is required")
 	}
-	if h.IP != "" {
-		if ip := net.ParseIP(h.IP); ip == nil {
-			return fmt.Errorf("invalid ip address %q", h.IP)
-		}
+	if ip := net.ParseIP(h.IP); ip == nil {
+		return fmt.Errorf("invalid ip address %q", h.IP)
 	}
 	return nil
 }
@@ -133,7 +138,7 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// Create inserts a single host. Body: {hostname, ip?, tag_ids?, tags?, os?, last_seen_at?}.
+// Create inserts a single host. Body: {ip, hostname?, tag_ids?, tags?, os?, last_seen_at?}.
 func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
@@ -183,7 +188,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 
 	created, err := h.Store.Create(r.Context(), host)
 	if errors.Is(err, ErrConflict) {
-		writeErr(w, http.StatusConflict, "hostname already exists")
+		writeErr(w, http.StatusConflict, "ip address already exists")
 		return
 	}
 	if errors.Is(err, ErrInvalidInput) {
@@ -253,7 +258,7 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, ErrConflict) {
-		writeErr(w, http.StatusConflict, "hostname already exists")
+		writeErr(w, http.StatusConflict, "ip address already exists")
 		return
 	}
 	if errors.Is(err, ErrInvalidInput) {
@@ -287,8 +292,8 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // BulkCreate inserts a batch of hosts in a single transaction. Any
-// hostname collision rolls back the entire batch (all-or-nothing).
-// Body: {"hosts": [{hostname, ip?, tag_ids?, tags?, os?}, ...]}
+// ip collision rolls back the entire batch (all-or-nothing).
+// Body: {"hosts": [{ip, hostname?, tag_ids?, tags?, os?}, ...]}
 func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
@@ -336,7 +341,7 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 
 	out, err := h.Store.BulkCreate(r.Context(), batch)
 	if errors.Is(err, ErrConflict) {
-		writeErr(w, http.StatusConflict, "hostname already exists in batch")
+		writeErr(w, http.StatusConflict, "ip address already exists in batch")
 		return
 	}
 	if errors.Is(err, ErrInvalidInput) {
@@ -420,6 +425,81 @@ func (h *AdminHandlers) SetTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, host)
+}
+
+// RegisterSelf inserts the manage server's own machine into the host inventory.
+// When AdvertisedIP is set (via TRITON_MANAGE_HOST_IP), it takes precedence
+// over auto-detection — use this when the server runs inside a container.
+// Returns 409 if the IP already exists.
+func (h *AdminHandlers) RegisterSelf(w http.ResponseWriter, r *http.Request) {
+	// Prefer operator-supplied values (container-safe); fall back to
+	// auto-detection for bare-metal deployments.
+	ip := h.AdvertisedIP
+	if ip == "" {
+		ip = selfIPv4()
+	}
+	if ip == "" {
+		writeErr(w, http.StatusInternalServerError,
+			"could not determine host IP — set TRITON_MANAGE_HOST_IP")
+		return
+	}
+
+	hostname := h.AdvertisedHostname
+	if hostname == "" {
+		hostname, _ = os.Hostname()
+	}
+
+	host := Host{
+		Hostname: hostname,
+		IP:       ip,
+		OS:       runtime.GOOS,
+	}
+
+	created, err := h.Store.Create(r.Context(), host)
+	if errors.Is(err, ErrConflict) {
+		writeErr(w, http.StatusConflict, "ip address already exists")
+		return
+	}
+	if err != nil {
+		internalErr(w, r, err, "register self")
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+// selfIPv4 returns the first non-loopback, non-link-local IPv4 address
+// of the current machine, or "" if none can be found.
+func selfIPv4() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ipStr string
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ipStr = v.IP.String()
+			case *net.IPAddr:
+				ipStr = v.IP.String()
+			}
+			parsed := net.ParseIP(ipStr)
+			if parsed == nil || parsed.IsLoopback() || parsed.IsLinkLocalUnicast() {
+				continue
+			}
+			if parsed.To4() != nil {
+				return ipStr
+			}
+		}
+	}
+	return ""
 }
 
 // writeJSON writes a JSON response with the given status code.

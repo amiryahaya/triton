@@ -20,6 +20,9 @@
 //   - TRITON_MANAGE_REPORT_SERVER       (base URL for auto-enrol; empty = skip)
 //   - TRITON_MANAGE_REPORT_SERVICE_KEY  (service-key header for auto-enrol;
 //     empty = skip even if SERVER is set)
+//   - TRITON_MANAGE_HOST_IP             (host machine LAN IP for "+ This machine";
+//     required in containers where auto-detect returns the container IP)
+//   - TRITON_MANAGE_HOST_HOSTNAME       (host machine hostname; optional override)
 //
 // Reserved (unused; kept in the contract for future work):
 //
@@ -69,6 +72,8 @@ func run() error {
 	parallelismStr := envOr("TRITON_MANAGE_PARALLELISM", "")
 	reportServer := envOr("TRITON_MANAGE_REPORT_SERVER", "")
 	reportServiceKey := envOr("TRITON_MANAGE_REPORT_SERVICE_KEY", "")
+	hostIP := envOr("TRITON_MANAGE_HOST_IP", "")
+	hostHostname := envOr("TRITON_MANAGE_HOST_HOSTNAME", "")
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_MANAGE_DB_URL is required")
@@ -149,6 +154,8 @@ func run() error {
 		Parallelism:      parallelism,
 		ReportServer:     reportServer,
 		ReportServiceKey: reportServiceKey,
+		HostIP:           hostIP,
+		HostHostname:     hostHostname,
 	}
 
 	srv, err := manageserver.New(cfg, manageStore, pool)

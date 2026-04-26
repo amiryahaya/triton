@@ -82,6 +82,28 @@ func (f *fakeStore) Enqueue(_ context.Context, req scanjobs.EnqueueReq) ([]scanj
 	return out, nil
 }
 
+func (f *fakeStore) EnqueuePortSurvey(_ context.Context, req scanjobs.PortSurveyEnqueueReq) ([]scanjobs.Job, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recordCall("EnqueuePortSurvey")
+	out := make([]scanjobs.Job, 0, len(req.HostIDs))
+	for _, hid := range req.HostIDs {
+		j := scanjobs.Job{
+			ID:          uuid.Must(uuid.NewV7()),
+			TenantID:    req.TenantID,
+			HostID:      hid,
+			Profile:     req.Profile,
+			JobType:     scanjobs.JobTypePortSurvey,
+			ScheduledAt: req.ScheduledAt,
+			Status:      scanjobs.StatusQueued,
+			EnqueuedAt:  time.Now(),
+		}
+		f.items[j.ID] = j
+		out = append(out, j)
+	}
+	return out, nil
+}
+
 func (f *fakeStore) Get(_ context.Context, id uuid.UUID) (scanjobs.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -253,7 +275,7 @@ func TestScanJobsAdmin_Enqueue_Success(t *testing.T) {
 
 	tagID := uuid.Must(uuid.NewV7())
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{tagID.String()},
+		"tags":    []string{tagID.String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -282,7 +304,7 @@ func TestScanJobsAdmin_Enqueue_BadProfile_Returns400(t *testing.T) {
 	ts := newTestServer(t, newFakeStore(), uuid.Must(uuid.NewV7()))
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "not-a-profile",
 	})
 	defer resp.Body.Close()
@@ -308,7 +330,7 @@ func TestScanJobsAdmin_Enqueue_InternalError_Returns500(t *testing.T) {
 	ts := newTestServer(t, store, uuid.Must(uuid.NewV7()))
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -327,7 +349,7 @@ func TestScanJobsAdmin_Create_QueueSaturated_Returns503(t *testing.T) {
 
 	tagID := uuid.Must(uuid.NewV7())
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{tagID.String()},
+		"tags":    []string{tagID.String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -351,7 +373,7 @@ func TestScanJobsAdmin_Create_QueueDepthError_Returns500(t *testing.T) {
 
 	tagID := uuid.Must(uuid.NewV7())
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{tagID.String()},
+		"tags":    []string{tagID.String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -362,7 +384,7 @@ func TestScanJobsAdmin_Enqueue_MissingTenant_Returns503(t *testing.T) {
 	ts := newTestServerNoTenant(t, newFakeStore())
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()

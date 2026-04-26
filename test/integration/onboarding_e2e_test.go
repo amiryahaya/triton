@@ -461,7 +461,7 @@ func requireOnboardingDB(t *testing.T) *store.PostgresStore {
 		"scan_jobs",
 		"credential_test_results", "credential_tests",
 		"credential_deliveries", "credentials_profiles",
-		"discovery_results", "discovery_jobs",
+		"discovery_candidates", "discovery_jobs",
 		"inventory_tags", "inventory_hosts", "inventory_groups",
 		"engine_cas", "engines",
 	}

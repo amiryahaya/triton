@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -185,6 +186,52 @@ func (h *AdminHandlers) Enqueue(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.Store.Enqueue(r.Context(), req)
 	if err != nil {
 		internalErr(w, r, err, "enqueue scan jobs")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"jobs": jobs})
+}
+
+// EnqueuePortSurvey — POST /port-survey: create port survey jobs for selected hosts.
+func (h *AdminHandlers) EnqueuePortSurvey(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
+	var body struct {
+		HostIDs     []uuid.UUID `json:"host_ids"`
+		Profile     Profile     `json:"profile"`
+		ScheduledAt *time.Time  `json:"scheduled_at,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(body.HostIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "host_ids must be a non-empty array")
+		return
+	}
+	switch body.Profile {
+	case ProfileQuick, ProfileStandard, ProfileComprehensive:
+	case "":
+		body.Profile = ProfileStandard
+	default:
+		writeErr(w, http.StatusBadRequest, "profile must be one of quick|standard|comprehensive")
+		return
+	}
+
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, "instance not initialised")
+		return
+	}
+
+	req := PortSurveyEnqueueReq{
+		TenantID:    tenantID,
+		HostIDs:     body.HostIDs,
+		Profile:     body.Profile,
+		ScheduledAt: body.ScheduledAt,
+	}
+	jobs, err := h.Store.EnqueuePortSurvey(r.Context(), req)
+	if err != nil {
+		internalErr(w, r, err, "enqueue port survey")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"jobs": jobs})

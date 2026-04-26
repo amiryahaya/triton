@@ -29,9 +29,13 @@ const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_
 
 func scanHost(row pgx.Row) (Host, error) {
 	var h Host
+	var hostname *string // nullable now
 	var ip *string
-	if err := row.Scan(&h.ID, &h.Hostname, &ip, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt); err != nil {
+	if err := row.Scan(&h.ID, &hostname, &ip, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		return Host{}, err
+	}
+	if hostname != nil {
+		h.Hostname = *hostname
 	}
 	if ip != nil {
 		h.IP = *ip
@@ -45,6 +49,13 @@ func ipArg(ip string) any {
 		return nil
 	}
 	return ip
+}
+
+func hostnameArg(hostname string) any {
+	if hostname == "" {
+		return nil
+	}
+	return hostname
 }
 
 func isUniqueViolation(err error) bool {
@@ -93,11 +104,11 @@ func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
 		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
 		 VALUES ($1, $2::inet, $3, $4)
 		 RETURNING id, created_at, updated_at`,
-		h.Hostname, ipArg(h.IP), h.OS, h.LastSeenAt,
+		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
 	)
 	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
-			return Host{}, fmt.Errorf("%w: hostname %q", ErrConflict, h.Hostname)
+			return Host{}, fmt.Errorf("%w: ip %q", ErrConflict, h.IP)
 		}
 		if isInvalidTextRepresentation(err) {
 			return Host{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
@@ -130,7 +141,7 @@ func (s *PostgresStore) Get(ctx context.Context, id uuid.UUID) (Host, error) {
 
 func (s *PostgresStore) List(ctx context.Context) ([]Host, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+hostSelectCols+` FROM manage_hosts ORDER BY hostname`,
+		`SELECT `+hostSelectCols+` FROM manage_hosts ORDER BY ip`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
@@ -171,14 +182,14 @@ func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
 		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4, updated_at = NOW()
 		 WHERE id = $5
 		 RETURNING id, created_at, updated_at`,
-		h.Hostname, ipArg(h.IP), h.OS, h.LastSeenAt, h.ID,
+		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt, h.ID,
 	)
 	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Host{}, ErrNotFound
 		}
 		if isUniqueViolation(err) {
-			return Host{}, fmt.Errorf("%w: hostname %q", ErrConflict, h.Hostname)
+			return Host{}, fmt.Errorf("%w: ip %q", ErrConflict, h.IP)
 		}
 		if isInvalidTextRepresentation(err) {
 			return Host{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
@@ -258,7 +269,7 @@ func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host,
 		`SELECT `+hostSelectCols+` FROM manage_hosts h
 		 JOIN manage_host_tags ht ON ht.host_id = h.id
 		 WHERE ht.tag_id = $1
-		 ORDER BY h.hostname`,
+		 ORDER BY h.ip`,
 		tagID,
 	)
 	if err != nil {
@@ -360,17 +371,17 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
 			 VALUES ($1, $2::inet, $3, $4)
 			 RETURNING id, created_at, updated_at`,
-			src.Hostname, ipArg(src.IP), src.OS, src.LastSeenAt,
+			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt,
 		)
 		dst := *src
 		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt); err != nil {
 			if isUniqueViolation(err) {
-				return nil, fmt.Errorf("%w: hostname %q (index %d)", ErrConflict, src.Hostname, i)
+				return nil, fmt.Errorf("%w: ip %q (index %d)", ErrConflict, src.IP, i)
 			}
 			if isInvalidTextRepresentation(err) {
 				return nil, fmt.Errorf("%w: index %d: %v", ErrInvalidInput, i, err)
 			}
-			return nil, fmt.Errorf("bulk create host %q (index %d): %w", src.Hostname, i, err)
+			return nil, fmt.Errorf("bulk create host ip=%q (index %d): %w", src.IP, i, err)
 		}
 		dst.Tags = []tags.Tag{}
 		out[i] = dst

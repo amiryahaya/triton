@@ -67,26 +67,27 @@ export interface UpdateTagReq {
 
 export interface Host {
   id: string;
-  hostname: string;
-  ip?: string;
+  hostname?: string;
+  ip: string;
   tags: Tag[];
-  os: string;
+  os?: string;
   last_seen_at?: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateHostReq {
-  hostname: string;
-  ip?: string;
+  ip: string;          // required
+  hostname?: string;   // optional
   os?: string;
+  last_seen_at?: string;
   tag_ids?: string[];
   tags?: string[];  // name-based form for CSV import
 }
 
 export interface UpdateHostReq {
-  hostname: string;
-  ip?: string;
+  ip: string;
+  hostname?: string;
   os?: string;
 }
 
@@ -121,6 +122,8 @@ export interface ScanJob {
   running_heartbeat_at?: string;
   progress_text: string;
   error_message: string;
+  job_type?: 'filesystem' | 'port_survey';
+  scheduled_at?: string;
 }
 
 export interface EnqueueReq {
@@ -128,6 +131,12 @@ export interface EnqueueReq {
   host_filter?: string;
   profile: ScanJobProfile;
   credentials_ref?: string;
+}
+
+export interface PortSurveyEnqueueReq {
+  host_ids: string[];
+  profile: ScanJobProfile;
+  scheduled_at?: string; // ISO 8601; omit = run immediately
 }
 
 export interface PushStatus {
@@ -237,4 +246,43 @@ export interface DeactivateLicenceResp {
   ok?: boolean;
   pending?: boolean;
   active_scans?: number;
+}
+
+export interface DiscoveryJob {
+  id: string;
+  cidr: string;
+  ports: number[];
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  total_ips: number;
+  scanned_ips: number;
+  started_at?: string;
+  finished_at?: string;
+  error_message: string;
+  created_at: string;
+}
+
+export interface DiscoveryCandidate {
+  id: string;
+  ip: string;
+  hostname: string | null;
+  open_ports: number[];
+  os?: string;
+  mac_address?: string;
+  mdns_name?: string;
+  existing_host_id: string | null;
+}
+
+export interface DiscoveryStatus {
+  job: DiscoveryJob;
+  candidates: DiscoveryCandidate[];
+}
+
+export interface DiscoveryImportReq {
+  candidates: { id: string; hostname: string }[];
+}
+
+export interface DiscoveryImportResp {
+  imported: number;
+  skipped: number;
+  errors: { ip: string; reason: string }[];
 }

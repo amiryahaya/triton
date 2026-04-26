@@ -71,7 +71,7 @@ func TestHosts_CreateListGetDelete(t *testing.T) {
 	s := hosts.NewPostgresStore(pool)
 	ctx := context.Background()
 
-	h, err := s.Create(ctx, hosts.Host{Hostname: "web-01", OS: "linux"})
+	h, err := s.Create(ctx, hosts.Host{IP: "10.0.1.1", Hostname: "web-01", OS: "linux"})
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, h.ID)
 	assert.Empty(t, h.Tags)
@@ -96,7 +96,7 @@ func TestHosts_SetTags_AndListByTag(t *testing.T) {
 	ctx := context.Background()
 
 	tagID := insertTag(t, pool, "production", "#EF4444")
-	h, err := s.Create(ctx, hosts.Host{Hostname: "db-01", OS: "linux"})
+	h, err := s.Create(ctx, hosts.Host{IP: "10.0.1.2", Hostname: "db-01", OS: "linux"})
 	require.NoError(t, err)
 
 	require.NoError(t, s.SetTags(ctx, h.ID, []uuid.UUID{tagID}))
@@ -141,12 +141,12 @@ func TestHosts_ResolveTagNames_CreatesIfMissing(t *testing.T) {
 	assert.Equal(t, ids[0], ids2[0])
 }
 
-func TestHosts_UniqueHostname(t *testing.T) {
+func TestHosts_UniqueIP(t *testing.T) {
 	pool := newTestPool(t)
 	s := hosts.NewPostgresStore(pool)
 	ctx := context.Background()
-	_, _ = s.Create(ctx, hosts.Host{Hostname: "web-01", OS: "linux"})
-	_, err := s.Create(ctx, hosts.Host{Hostname: "web-01", OS: "linux"})
+	_, _ = s.Create(ctx, hosts.Host{IP: "10.0.1.10", Hostname: "web-01"})
+	_, err := s.Create(ctx, hosts.Host{IP: "10.0.1.10", Hostname: "web-02"})
 	assert.ErrorIs(t, err, hosts.ErrConflict)
 }
 
@@ -156,8 +156,8 @@ func TestHosts_BulkCreate(t *testing.T) {
 	ctx := context.Background()
 
 	batch := []hosts.Host{
-		{Hostname: "a", OS: "linux"},
-		{Hostname: "b", IP: "10.0.0.2", OS: "linux"},
+		{IP: "10.0.1.20", Hostname: "a", OS: "linux"},
+		{IP: "10.0.1.21", Hostname: "b", OS: "linux"},
 	}
 	out, err := s.BulkCreate(ctx, batch)
 	require.NoError(t, err)
@@ -169,15 +169,15 @@ func TestHosts_BulkCreate_Conflict_RollsBack(t *testing.T) {
 	pool := newTestPool(t)
 	s := hosts.NewPostgresStore(pool)
 	ctx := context.Background()
-	_, _ = s.Create(ctx, hosts.Host{Hostname: "dup", OS: "linux"})
+	_, _ = s.Create(ctx, hosts.Host{IP: "10.0.1.30", Hostname: "dup"})
 	_, err := s.BulkCreate(ctx, []hosts.Host{
-		{Hostname: "ok", OS: "linux"},
-		{Hostname: "dup", OS: "linux"},
+		{IP: "10.0.1.31", Hostname: "ok"},
+		{IP: "10.0.1.30", Hostname: "dup2"}, // same IP as existing
 	})
 	assert.ErrorIs(t, err, hosts.ErrConflict)
 	// "ok" should not have been created
 	list, _ := s.List(ctx)
 	for _, h := range list {
-		assert.NotEqual(t, "ok", h.Hostname)
+		assert.NotEqual(t, "10.0.1.31", h.IP)
 	}
 }

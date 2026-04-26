@@ -45,6 +45,10 @@ type OrchestratorConfig struct {
 	// a ScanFunc or use NewScanFunc() from scan_runner.go.
 	ScanFunc ScanFunc
 
+	// PortScanFunc is the scanner for port_survey jobs. nil → port_survey
+	// jobs fail immediately with "PortScanFunc not configured".
+	PortScanFunc ScanFunc
+
 	// ReapAfter controls the stale-heartbeat threshold the reaper
 	// passes to Store.ReapStale. Default 5 minutes.
 	ReapAfter time.Duration
@@ -251,7 +255,19 @@ func (o *Orchestrator) runOneJob(parent context.Context, j Job) {
 		}
 	}()
 
-	scan, scanErr := o.cfg.ScanFunc(jobCtx, j)
+	// Select scanner based on job type.
+	scanFn := o.cfg.ScanFunc
+	if j.JobType == JobTypePortSurvey {
+		scanFn = o.cfg.PortScanFunc
+		if scanFn == nil {
+			scanFn = func(_ context.Context, _ Job) (*model.ScanResult, error) {
+				return nil, errors.New("PortScanFunc not configured on orchestrator")
+			}
+		}
+	} else if scanFn == nil {
+		scanFn = defaultScanFunc
+	}
+	scan, scanErr := scanFn(jobCtx, j)
 	close(hbDone)
 	hbWG.Wait()
 

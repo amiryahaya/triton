@@ -180,7 +180,10 @@ func requireTenantServer(t *testing.T) (platformURL, tokenA, tokenB string) {
 // submitScanWithToken POSTs a scan to the server with a license token header.
 func submitScanWithToken(t *testing.T, serverURL, token string, scan *model.ScanResult) int {
 	t.Helper()
-	body, err := json.Marshal(scan)
+	// OrgID must be empty in the body — server stamps it from the authenticated token.
+	toSubmit := *scan
+	toSubmit.OrgID = ""
+	body, err := json.Marshal(toSubmit)
 	require.NoError(t, err)
 
 	req, err := http.NewRequest("POST", serverURL+"/api/v1/scans", bytes.NewReader(body))
@@ -242,6 +245,9 @@ func TestTenantIsolation_HTTP_GetScan_CrossTenant(t *testing.T) {
 }
 
 // T6: Org-B cannot delete Org-A's scan.
+// DELETE /scans/{id} requires org_admin role (RequireScanAdmin middleware).
+// License-token callers (agents) are always rejected with 403 before the
+// handler can check scan ownership — store-level isolation is covered by T2.
 func TestTenantIsolation_HTTP_DeleteScan_CrossTenant(t *testing.T) {
 	platformURL, tokenA, tokenB := requireTenantServer(t)
 
@@ -250,9 +256,10 @@ func TestTenantIsolation_HTTP_DeleteScan_CrossTenant(t *testing.T) {
 	status := submitScanWithToken(t, platformURL, tokenA, scan)
 	require.Equal(t, http.StatusCreated, status)
 
-	// Org-B tries to delete org-A's scan — must fail.
+	// Org-B uses a license token (agent auth) — RequireScanAdmin blocks it
+	// with 403 before reaching the handler, regardless of scan ownership.
 	code := httpDeleteWithToken(t, platformURL+"/api/v1/scans/"+scanID, tokenB)
-	assert.Equal(t, http.StatusNotFound, code, "org-B must NOT delete org-A's scan")
+	assert.Equal(t, http.StatusForbidden, code, "license-token callers cannot delete scans")
 
 	// Org-A can still read the scan (it was not deleted).
 	code, _ = httpGetWithToken(t, platformURL+"/api/v1/scans/"+scanID, tokenA)

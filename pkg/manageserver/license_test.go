@@ -414,7 +414,9 @@ func TestStartLicence_PropagatedGuard_EnforcesHostCapOverHTTP(t *testing.T) {
 	token := loginViaHTTP(t, ts.URL, admin.Email, "Password123!")
 
 	// POST /api/v1/admin/hosts/ with hosts/total=0 must be 403.
-	body := `{"hostname":"blocked-by-cap"}`
+	// ip is required; the cap check fires before the INSERT so a valid ip
+	// is needed to reach the cap-enforcement branch.
+	body := `{"ip":"10.0.99.1","hostname":"blocked-by-cap"}`
 	req, err := http.NewRequest(http.MethodPost,
 		ts.URL+"/api/v1/admin/hosts/", strings.NewReader(body))
 	require.NoError(t, err)

@@ -5,11 +5,12 @@ import type {
   LoginResp, ManageUser,
   Tag, CreateTagReq, UpdateTagReq,
   Host, CreateHostReq, UpdateHostReq,
-  Agent, ScanJob, EnqueueReq, PushStatus,
+  Agent, ScanJob, EnqueueReq, PortSurveyEnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
   LicenceSummary, SettingsSummary, GatewayHealthResponse,
   SecurityEventsResponse,
   LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
+  DiscoveryJob, DiscoveryStatus, DiscoveryImportReq, DiscoveryImportResp,
 } from './manageServer.types';
 
 /**
@@ -49,6 +50,7 @@ export function createManageApi(http: Http) {
     },
     createHost: (req: CreateHostReq) => http.post<Host>('/v1/admin/hosts/', req),
     bulkCreateHosts: (req: { hosts: CreateHostReq[] }) => http.post<Host[]>('/v1/admin/hosts/bulk', req),
+    registerSelfHost: () => http.post<Host>('/v1/admin/hosts/self', {}),
     updateHost: (id: string, req: UpdateHostReq) => http.patch<Host>(`/v1/admin/hosts/${id}`, req),
     deleteHost: (id: string) => http.del<void>(`/v1/admin/hosts/${id}`),
 
@@ -85,6 +87,8 @@ export function createManageApi(http: Http) {
     },
     getScanJob: (id: string) => http.get<ScanJob>(`/v1/admin/scan-jobs/${id}`),
     enqueueScanJobs: (req: EnqueueReq) => http.post<ScanJob[]>('/v1/admin/scan-jobs/', req),
+    enqueuePortSurvey: (req: PortSurveyEnqueueReq) =>
+      http.post<{ jobs: ScanJob[] }>('/v1/admin/scan-jobs/port-survey', req),
     cancelScanJob: (id: string) => http.post<void>(`/v1/admin/scan-jobs/${id}/cancel`, {}),
 
     // Push status
@@ -123,6 +127,16 @@ export function createManageApi(http: Http) {
       http.del<void>(
         `/v1/admin/security-events?email=${encodeURIComponent(email)}&ip=${encodeURIComponent(ip)}`,
       ),
+
+    // Discovery
+    startDiscovery: (req: { cidr: string; ports?: number[] }) =>
+      http.post<DiscoveryJob>('/v1/admin/discovery/', req),
+    getDiscovery: () =>
+      http.get<DiscoveryStatus>('/v1/admin/discovery/'),
+    cancelDiscovery: () =>
+      http.post<void>('/v1/admin/discovery/cancel', {}),
+    importDiscovery: (req: DiscoveryImportReq) =>
+      http.post<DiscoveryImportResp>('/v1/admin/discovery/import', req),
   };
 }
 

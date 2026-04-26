@@ -54,8 +54,8 @@ func newTestServerWithGuard(t *testing.T, s hosts.Store, guard hosts.HostCapGuar
 func TestHostsAdmin_Create_CapExceeded_Returns403(t *testing.T) {
 	store := newFakeStore()
 	// Seed 3 rows so the next Create trips the cap.
-	for _, name := range []string{"h1", "h2", "h3"} {
-		_, err := store.Create(context.Background(), hosts.Host{Hostname: name})
+	for _, ip := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
+		_, err := store.Create(context.Background(), hosts.Host{IP: ip})
 		require.NoError(t, err)
 	}
 	ts := newTestServerWithGuard(t, store, &fakeHostCapGuard{
@@ -63,7 +63,7 @@ func TestHostsAdmin_Create_CapExceeded_Returns403(t *testing.T) {
 	})
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"hostname": "h4"})
+		map[string]string{"ip": "10.0.0.4"})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 
@@ -81,8 +81,8 @@ func TestHostsAdmin_Create_CapExceeded_Returns403(t *testing.T) {
 func TestHostsAdmin_BulkCreate_CapExceeded_Returns403_WithShortfall(t *testing.T) {
 	store := newFakeStore()
 	// Seed 2; cap is 3; batch of 5 = shortfall of 4.
-	for _, name := range []string{"seed-1", "seed-2"} {
-		_, err := store.Create(context.Background(), hosts.Host{Hostname: name})
+	for _, ip := range []string{"10.0.0.1", "10.0.0.2"} {
+		_, err := store.Create(context.Background(), hosts.Host{IP: ip})
 		require.NoError(t, err)
 	}
 	ts := newTestServerWithGuard(t, store, &fakeHostCapGuard{
@@ -91,8 +91,8 @@ func TestHostsAdmin_BulkCreate_CapExceeded_Returns403_WithShortfall(t *testing.T
 
 	body := map[string]any{
 		"hosts": []map[string]string{
-			{"hostname": "b1"}, {"hostname": "b2"}, {"hostname": "b3"},
-			{"hostname": "b4"}, {"hostname": "b5"},
+			{"ip": "10.0.1.1"}, {"ip": "10.0.1.2"}, {"ip": "10.0.1.3"},
+			{"ip": "10.0.1.4"}, {"ip": "10.0.1.5"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -117,12 +117,12 @@ func TestHostsAdmin_Create_NoGuard_Unrestricted(t *testing.T) {
 	store := newFakeStore()
 	// Pre-seed 1000 rows — a hard cap would reject, a nil guard won't.
 	for i := 0; i < 1000; i++ {
-		_, _ = store.Create(context.Background(), hosts.Host{Hostname: hostname(i)})
+		_, _ = store.Create(context.Background(), hosts.Host{IP: seedIP(i)})
 	}
 	ts := newTestServerWithGuard(t, store, nil)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"hostname": "unrestricted"})
+		map[string]string{"ip": "192.168.255.255"})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode,
 		"nil guard must disable cap enforcement")
@@ -137,20 +137,22 @@ func TestHostsAdmin_Create_UnlimitedCap_Unrestricted(t *testing.T) {
 	})
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"hostname": "open-cap"})
+		map[string]string{"ip": "10.0.0.1"})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 }
 
-// hostname returns a stable unique hostname per index — helper for
-// pre-seeding loops that don't care about specific names.
-func hostname(i int) string {
-	const alphabet = "abcdefghijklmnopqrstuvwxyz"
-	return "h-" + string(alphabet[i%len(alphabet)]) + string(alphabet[(i/26)%len(alphabet)]) + "-" +
-		intToStr(i)
+// seedIP returns a stable unique IPv4 address per index — helper for
+// pre-seeding loops that don't care about specific addresses.
+// Supports up to 16M addresses via 10.x.y.z encoding.
+func seedIP(i int) string {
+	a := (i >> 16) & 0xff
+	b := (i >> 8) & 0xff
+	c := i & 0xff
+	return "10." + itoa(a) + "." + itoa(b) + "." + itoa(c)
 }
 
-func intToStr(n int) string {
+func itoa(n int) string {
 	if n == 0 {
 		return "0"
 	}

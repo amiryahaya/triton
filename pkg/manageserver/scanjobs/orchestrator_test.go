@@ -5,6 +5,7 @@ package scanjobs_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,24 +43,27 @@ func (f *fakeResultEnqueuer) Count() int {
 	return len(f.calls)
 }
 
-// seedZoneAndHosts creates one zone and n hosts inside it. Used by the
+// seedTagAndHosts creates one tag and n hosts tagged with it. Used by the
 // orchestrator tests to populate an Enqueue target set.
-func seedZoneAndHosts(t *testing.T, pool *pgxpool.Pool, n int) uuid.UUID {
+func seedTagAndHosts(t *testing.T, pool *pgxpool.Pool, n int) uuid.UUID {
 	t.Helper()
 	ctx := context.Background()
-	var zoneID uuid.UUID
+	var tagID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO manage_zones (name) VALUES ('orchestrator-zone') RETURNING id`,
-	).Scan(&zoneID))
+		`INSERT INTO manage_tags (name, color) VALUES ('orchestrator-tag', '#6366F1') RETURNING id`,
+	).Scan(&tagID))
 	hs := hosts.NewPostgresStore(pool)
 	for i := 0; i < n; i++ {
-		_, err := hs.Create(ctx, hosts.Host{
+		seq := hostIPSeq.Add(1)
+		ip := fmt.Sprintf("10.%d.%d.%d", (seq>>16)&0xFF, (seq>>8)&0xFF, seq&0xFF)
+		h, err := hs.Create(ctx, hosts.Host{
+			IP:       ip,
 			Hostname: "orch-host-" + time.Now().Format("150405") + "-" + strint(i),
-			ZoneID:   &zoneID,
 		})
 		require.NoError(t, err)
+		require.NoError(t, hs.SetTags(ctx, h.ID, []uuid.UUID{tagID}))
 	}
-	return zoneID
+	return tagID
 }
 
 func strint(i int) string {
@@ -83,11 +87,11 @@ func TestOrchestrator_EnqueueToCompletion(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID := seedZoneAndHosts(t, pool, 5)
+	tagID := seedTagAndHosts(t, pool, 5)
 	store := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 5)
@@ -157,11 +161,11 @@ func TestOrchestrator_Cancellation(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID := seedZoneAndHosts(t, pool, 1)
+	tagID := seedTagAndHosts(t, pool, 1)
 	store := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
@@ -227,11 +231,11 @@ func TestOrchestrator_FailOnScanError(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID := seedZoneAndHosts(t, pool, 1)
+	tagID := seedTagAndHosts(t, pool, 1)
 	store := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 
@@ -280,11 +284,11 @@ func TestOrchestrator_PanicRecovery_FailsJobAndContinues(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID := seedZoneAndHosts(t, pool, 2)
+	tagID := seedTagAndHosts(t, pool, 2)
 	store := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 2)
@@ -368,11 +372,11 @@ func TestNewOrchestrator_NilResultStore_FailsJobsSafely(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	zoneID := seedZoneAndHosts(t, pool, 1)
+	tagID := seedTagAndHosts(t, pool, 1)
 	store := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := store.Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)

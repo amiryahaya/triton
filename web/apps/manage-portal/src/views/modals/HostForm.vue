@@ -34,13 +34,13 @@ watch(
 );
 
 function submit() {
-  if (!hostname.value.trim()) {
-    error.value = 'Hostname is required.';
+  if (!ip.value.trim()) {
+    error.value = 'IP address is required.';
     return;
   }
   emit('submit', {
-    hostname: hostname.value.trim(),
-    ip: ip.value.trim() || undefined,
+    ip: ip.value.trim(),
+    hostname: hostname.value.trim() || undefined,
     os: os.value.trim() || undefined,
     tag_ids: selectedTagIDs.value,
   });
@@ -54,14 +54,14 @@ function submit() {
     @close="emit('close')"
   >
     <div class="host-form">
+      <TFormField label="Hostname">
+        <TInput v-model="hostname" />
+      </TFormField>
       <TFormField
-        label="Hostname"
+        label="IP address"
         required
         :error="error"
       >
-        <TInput v-model="hostname" />
-      </TFormField>
-      <TFormField label="IP address">
         <TInput v-model="ip" />
       </TFormField>
       <TFormField label="OS">

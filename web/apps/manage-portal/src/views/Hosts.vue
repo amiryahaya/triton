@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   TButton,
   TDataTable,
@@ -18,6 +19,7 @@ import HostBulkForm from './modals/HostBulkForm.vue';
 const hosts = useHostsStore();
 const tags = useTagsStore();
 const toast = useToast();
+const router = useRouter();
 
 const formOpen = ref(false);
 const editing = ref<Host | null>(null);
@@ -26,8 +28,8 @@ const confirmOpen = ref(false);
 const pendingDelete = ref<Host | null>(null);
 
 const columns: Column<Host>[] = [
-  { key: 'hostname', label: 'Hostname' },
   { key: 'ip', label: 'IP' },
+  { key: 'hostname', label: 'Hostname' },
   { key: 'tags', label: 'Tags' },
   { key: 'os', label: 'OS' },
   { key: 'last_seen_at', label: 'Last seen' },
@@ -67,10 +69,10 @@ async function onSubmit(payload: CreateHostReq) {
   try {
     if (editing.value) {
       await hosts.update(editing.value.id, payload);
-      toast.success({ title: 'Host updated', description: payload.hostname });
+      toast.success({ title: 'Host updated', description: payload.ip });
     } else {
       await hosts.create(payload);
-      toast.success({ title: 'Host created', description: payload.hostname });
+      toast.success({ title: 'Host created', description: payload.ip });
     }
     formOpen.value = false;
     editing.value = null;
@@ -97,12 +99,21 @@ async function onConfirmDelete() {
   if (!h) return;
   try {
     await hosts.remove(h.id);
-    toast.success({ title: 'Host deleted', description: h.hostname });
+    toast.success({ title: 'Host deleted', description: h.hostname || h.ip });
   } catch (e) {
     toast.error({ title: 'Delete failed', description: String(e) });
   } finally {
     confirmOpen.value = false;
     pendingDelete.value = null;
+  }
+}
+
+async function onRegisterSelf() {
+  try {
+    await hosts.registerSelf();
+    toast.success({ title: 'Host registered', description: 'This machine has been added to the inventory.' });
+  } catch (e) {
+    toast.error({ title: 'Registration failed', description: String(e) });
   }
 }
 </script>
@@ -115,6 +126,20 @@ async function onConfirmDelete() {
         <p class="hosts-sub">Targets available for scan jobs and agent binding.</p>
       </div>
       <div class="hosts-head-actions">
+        <TButton
+          variant="secondary"
+          size="sm"
+          @click="onRegisterSelf"
+        >
+          + This machine
+        </TButton>
+        <TButton
+          variant="secondary"
+          size="sm"
+          @click="router.push('/inventory/discover')"
+        >
+          Discovery
+        </TButton>
         <TButton
           variant="secondary"
           size="sm"
@@ -208,7 +233,7 @@ async function onConfirmDelete() {
       :open="confirmOpen"
       title="Delete host?"
       :message="pendingDelete
-        ? `Deleting host '${pendingDelete.hostname}' will set host_id to NULL on scan jobs `
+        ? `Deleting host '${pendingDelete.hostname || pendingDelete.ip}' will set host_id to NULL on scan jobs `
           + 'referencing it. Historical scan results remain in the queue / Report '
           + 'Server. This cannot be undone.'
         : ''"

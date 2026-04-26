@@ -14,18 +14,23 @@ import type {
   ScanJob,
   ScanJobStatus,
   EnqueueReq,
+  PortSurveyEnqueueReq,
 } from '@triton/api-client';
 import { useScanJobsStore } from '../stores/scanjobs';
 import { useTagsStore } from '../stores/tags';
+import { useHostsStore } from '../stores/hosts';
 import ScanJobEnqueueForm from './modals/ScanJobEnqueueForm.vue';
 import ScanJobDetailDrawer from './modals/ScanJobDetailDrawer.vue';
+import PortSurveyEnqueueForm from './modals/PortSurveyEnqueueForm.vue';
 
 const jobs = useScanJobsStore();
 const tags = useTagsStore();
+const hosts = useHostsStore();
 const toast = useToast();
 
 const enqueueOpen = ref(false);
 const drawerJobID = ref<string | null>(null);
+const portSurveyOpen = ref(false);
 
 const columns: Column<ScanJob>[] = [
   { key: 'profile', label: 'Profile' },
@@ -58,6 +63,7 @@ const filterStatus = computed<string>({
 onMounted(async () => {
   await tags.fetch();
   jobs.startPolling();
+  void hosts.fetch();
 });
 
 onUnmounted(() => {
@@ -98,6 +104,19 @@ async function cancelRow(j: ScanJob) {
 function openDrawer(j: ScanJob) {
   drawerJobID.value = j.id;
 }
+
+async function onPortSurveySubmit(req: PortSurveyEnqueueReq) {
+  try {
+    const created = await jobs.enqueuePortSurvey(req);
+    toast.success({
+      title: 'Port survey queued',
+      description: `${created.length} job${created.length === 1 ? '' : 's'} created`,
+    });
+    portSurveyOpen.value = false;
+  } catch (e) {
+    toast.error({ title: 'Failed to queue port survey', description: String(e) });
+  }
+}
 </script>
 
 <template>
@@ -107,13 +126,18 @@ function openDrawer(j: ScanJob) {
         <h1>Scan Jobs</h1>
         <p class="scanjobs-sub">Scan queue across agents and tags. Polls every 5 seconds.</p>
       </div>
-      <TButton
-        variant="primary"
-        size="sm"
-        @click="enqueueOpen = true"
-      >
-        Enqueue
-      </TButton>
+      <div class="scanjobs-head-actions">
+        <TButton variant="secondary" size="sm" @click="portSurveyOpen = true">
+          Port Survey
+        </TButton>
+        <TButton
+          variant="primary"
+          size="sm"
+          @click="enqueueOpen = true"
+        >
+          Enqueue
+        </TButton>
+      </div>
     </header>
 
     <div class="scanjobs-filter">
@@ -148,6 +172,10 @@ function openDrawer(j: ScanJob) {
       :empty-text="jobs.loading ? 'Loading…' : 'No scan jobs yet.'"
       @row-click="openDrawer"
     >
+      <template #[`cell:profile`]="{ row }">
+        {{ row.profile }}
+        <span v-if="row.job_type === 'port_survey'" class="port-survey-badge">Port Survey</span>
+      </template>
       <template #[`cell:host_id`]="{ row }">
         {{ row.host_id ?? '—' }}
       </template>
@@ -185,6 +213,13 @@ function openDrawer(j: ScanJob) {
       :job-i-d="drawerJobID"
       @close="drawerJobID = null"
     />
+
+    <PortSurveyEnqueueForm
+      :open="portSurveyOpen"
+      :hosts="hosts.items"
+      @close="portSurveyOpen = false"
+      @submit="onPortSurveySubmit"
+    />
   </section>
 </template>
 
@@ -214,10 +249,25 @@ function openDrawer(j: ScanJob) {
 .scanjobs-filter {
   max-width: 280px;
 }
+.scanjobs-head-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
 .scanjobs-actions {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
   width: 100%;
+}
+.port-survey-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-left: 0.3rem;
+  vertical-align: middle;
 }
 </style>

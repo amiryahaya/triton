@@ -45,7 +45,7 @@ func TestHostsAdmin_Update_OversizeBodyRejected(t *testing.T) {
 
 	// Seed a host to PATCH against.
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"hostname": "seed"})
+		map[string]string{"ip": "10.0.0.1", "hostname": "seed"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var created map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
@@ -53,7 +53,7 @@ func TestHostsAdmin_Update_OversizeBodyRejected(t *testing.T) {
 	id := created["id"].(string)
 
 	padding := bytes.Repeat([]byte("a"), int(limits.MaxRequestBody)+int(limits.MaxRequestBody))
-	body := append([]byte(`{"hostname":"seed","os":"`), padding...)
+	body := append([]byte(`{"ip":"10.0.0.1","hostname":"seed","os":"`), padding...)
 	body = append(body, []byte(`"}`)...)
 
 	req, err := http.NewRequest(http.MethodPatch,

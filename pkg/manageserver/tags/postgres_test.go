@@ -129,7 +129,7 @@ func TestTags_List_HostCount(t *testing.T) {
 	// Insert a host and assign the tag directly via SQL
 	var hostID uuid.UUID
 	err = pool.QueryRow(ctx,
-		`INSERT INTO manage_hosts (hostname, os) VALUES ('h1', 'linux') RETURNING id`,
+		`INSERT INTO manage_hosts (ip, hostname, os) VALUES ('10.0.2.1'::inet, 'h1', 'linux') RETURNING id`,
 	).Scan(&hostID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,

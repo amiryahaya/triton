@@ -29,9 +29,9 @@ describe('createManageApi', () => {
     expect(fake.calls).toEqual([{ method: 'GET', path: '/v1/setup/status' }]);
   });
 
-  it('listHosts(zoneID) encodes query string', async () => {
+  it('listHosts(tagID) encodes query string', async () => {
     await api.listHosts('abc-123');
-    expect(fake.calls[0]?.path).toBe('/v1/admin/hosts/?zone_id=abc-123');
+    expect(fake.calls[0]?.path).toBe('/v1/admin/hosts/?tag_id=abc-123');
   });
 
   it('listScanJobs with filters builds qs', async () => {
@@ -39,12 +39,12 @@ describe('createManageApi', () => {
     expect(fake.calls[0]?.path).toBe('/v1/admin/scan-jobs/?status=running&limit=50');
   });
 
-  it('createZone POSTs body', async () => {
-    await api.createZone({ name: 'dmz', description: 'perimeter' });
+  it('createTag POSTs body', async () => {
+    await api.createTag({ name: 'dmz', color: '#6366F1' });
     expect(fake.calls[0]).toEqual({
       method: 'POST',
-      path: '/v1/admin/zones/',
-      body: { name: 'dmz', description: 'perimeter' },
+      path: '/v1/admin/tags/',
+      body: { name: 'dmz', color: '#6366F1' },
     });
   });
 
@@ -161,12 +161,12 @@ describe('enrolAgent (direct fetch)', () => {
 
     const { http } = mockHttpCapture();
     const api = createManageApi(http);
-    const out = await api.enrolAgent({ name: 'agent-01', zone_id: 'z1' });
+    const out = await api.enrolAgent({ name: 'agent-01' });
     expect(out).toBe(blob);
     const [url, init] = fetchSpy.mock.calls[0]!;
     expect(url).toBe('/api/v1/admin/enrol/agent');
     expect((init as RequestInit).method).toBe('POST');
-    expect((init as RequestInit).body).toBe(JSON.stringify({ name: 'agent-01', zone_id: 'z1' }));
+    expect((init as RequestInit).body).toBe(JSON.stringify({ name: 'agent-01' }));
   });
 
   it('throws on non-ok response', async () => {

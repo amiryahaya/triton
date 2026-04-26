@@ -65,7 +65,7 @@ func TestScanJobsAdmin_Create_CapExceeded_SoftBuffer_Returns403(t *testing.T) {
 		tags[i] = uuid.Must(uuid.NewV7()).String()
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   tags,
+		"tags":    tags,
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -90,7 +90,7 @@ func TestScanJobsAdmin_Create_WithinBuffer_Succeeds(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, tenantID, guard)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -111,7 +111,7 @@ func TestScanJobsAdmin_Create_NoGuard_Unrestricted(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, tenantID, nil)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -128,7 +128,7 @@ func TestScanJobsAdmin_Create_UnlimitedCap_Unrestricted(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, tenantID, guard)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()
@@ -164,7 +164,7 @@ func TestScanJobsAdmin_Create_CapCheckRunsAfterBackpressure(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/scan-jobs/", map[string]any{
-		"tags":   []string{uuid.Must(uuid.NewV7()).String()},
+		"tags":    []string{uuid.Must(uuid.NewV7()).String()},
 		"profile": "quick",
 	})
 	defer resp.Body.Close()

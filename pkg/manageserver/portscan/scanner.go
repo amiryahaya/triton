@@ -68,7 +68,7 @@ type Finding struct {
 	IP      string
 	Port    uint16
 	Service *plugins.Service // nil if port open but unidentified
-	TLSCert *TLSCertInfo    // non-nil when TLS certificate was extracted
+	TLSCert *TLSCertInfo     // non-nil when TLS certificate was extracted
 }
 
 // Scan probes ip using the profile's port list.

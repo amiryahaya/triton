@@ -89,14 +89,14 @@ func (f *fakeStore) EnqueuePortSurvey(_ context.Context, req scanjobs.PortSurvey
 	out := make([]scanjobs.Job, 0, len(req.HostIDs))
 	for _, hid := range req.HostIDs {
 		j := scanjobs.Job{
-			ID:           uuid.Must(uuid.NewV7()),
-			TenantID:     req.TenantID,
-			HostID:       hid,
-			Profile:      req.Profile,
-			JobType:      scanjobs.JobTypePortSurvey,
-			ScheduledAt:  req.ScheduledAt,
-			Status:       scanjobs.StatusQueued,
-			EnqueuedAt:   time.Now(),
+			ID:          uuid.Must(uuid.NewV7()),
+			TenantID:    req.TenantID,
+			HostID:      hid,
+			Profile:     req.Profile,
+			JobType:     scanjobs.JobTypePortSurvey,
+			ScheduledAt: req.ScheduledAt,
+			Status:      scanjobs.StatusQueued,
+			EnqueuedAt:  time.Now(),
 		}
 		f.items[j.ID] = j
 		out = append(out, j)

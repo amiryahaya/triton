@@ -65,28 +65,30 @@ func TestCollectUsage_RecordsScansIntoGuard(t *testing.T) {
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
 		"http://localhost:0", "lic-uuid-d1", signed, instanceID.String()))
 
-	// Seed one zone + one host. Enqueue 5 jobs against that tenant,
-	// then mark them running + completed so finished_at >= monthStart.
+	// Seed one tag + 5 hosts linked to it. Enqueue 5 jobs against that
+	// tenant, then mark them running + completed so finished_at >= monthStart.
 	pool := store.Pool()
 	ctx := context.Background()
-	var zoneID uuid.UUID
+	var tagID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO manage_zones (name) VALUES ('d1-zone') RETURNING id`,
-	).Scan(&zoneID))
+		`INSERT INTO manage_tags (name, color) VALUES ('d1-tag', '#6366F1') RETURNING id`,
+	).Scan(&tagID))
 
 	hostsStore := hosts.NewPostgresStore(pool)
 	// 5 hosts so Enqueue produces 5 jobs in a single call.
 	for i := 0; i < 5; i++ {
-		_, err := hostsStore.Create(ctx, hosts.Host{
-			Hostname: fmt.Sprintf("d1-host-%d", i), ZoneID: &zoneID,
+		h, err := hostsStore.Create(ctx, hosts.Host{
+			IP:       fmt.Sprintf("10.0.3.%d", i+1),
+			Hostname: fmt.Sprintf("d1-host-%d", i),
 		})
 		require.NoError(t, err)
+		require.NoError(t, hostsStore.SetTags(ctx, h.ID, []uuid.UUID{tagID}))
 	}
 
 	sjStore := scanjobs.NewPostgresStore(pool)
 	jobs, err := sjStore.Enqueue(ctx, scanjobs.EnqueueReq{
 		TenantID: instanceID,
-		ZoneIDs:  []uuid.UUID{zoneID},
+		TagIDs:   []uuid.UUID{tagID},
 		Profile:  scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)

@@ -70,25 +70,32 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// seedJob creates a zone+host+tenant+job tuple and returns the
+// seedJob creates a tag+host+tenant+job tuple and returns the
 // scan-job UUID the caller can use to enqueue scan results against.
-// Shared helper across E1/E2/E3 tests.
+// Shared helper across E1/E2/E3 tests. Each call uses the hostname as a
+// unique discriminator; the schema is fresh per test so no cross-test
+// collision can occur.
 func seedJob(t *testing.T, pool *pgxpool.Pool, hostname string) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	var zoneID uuid.UUID
+
+	var tagID uuid.UUID
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO manage_zones (name) VALUES ($1) RETURNING id`,
-		"z-"+hostname,
-	).Scan(&zoneID))
-	_, err := hosts.NewPostgresStore(pool).Create(ctx, hosts.Host{
-		Hostname: hostname, ZoneID: &zoneID,
-	})
+		`INSERT INTO manage_tags (name, color) VALUES ($1, '#6366F1') RETURNING id`,
+		"tag-"+hostname,
+	).Scan(&tagID))
+
+	hostsStore := hosts.NewPostgresStore(pool)
+	// Derive a stable IP from the hostname length + a fixed prefix so the
+	// helper is deterministic and collision-free within a schema.
+	ip := fmt.Sprintf("10.0.4.%d", len(hostname)%200+1)
+	h, err := hostsStore.Create(ctx, hosts.Host{IP: ip, Hostname: hostname})
 	require.NoError(t, err)
+	require.NoError(t, hostsStore.SetTags(ctx, h.ID, []uuid.UUID{tagID}))
 
 	tenantID := uuid.Must(uuid.NewV7())
 	jobs, err := scanjobs.NewPostgresStore(pool).Enqueue(ctx, scanjobs.EnqueueReq{
-		TenantID: tenantID, ZoneIDs: []uuid.UUID{zoneID}, Profile: scanjobs.ProfileQuick,
+		TenantID: tenantID, TagIDs: []uuid.UUID{tagID}, Profile: scanjobs.ProfileQuick,
 	})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)

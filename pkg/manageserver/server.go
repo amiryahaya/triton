@@ -187,6 +187,8 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	// Providers consult the test overrides first so Set*CapGuardForTest
 	// still wins without having to re-wire the handler.
 	srv.hostsAdmin = hosts.NewAdminHandlers(hostsStore, srv.hostGuardProvider)
+	srv.hostsAdmin.AdvertisedIP = cfg.HostIP
+	srv.hostsAdmin.AdvertisedHostname = cfg.HostHostname
 	srv.discoveryAdmin = discovery.NewAdminHandlers(discoveryStore, hostsStore, discWorker, func() discovery.HostCapGuard {
 		return srv.hostGuardProvider()
 	})

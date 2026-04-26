@@ -43,6 +43,12 @@ type HostCapGuard interface {
 type AdminHandlers struct {
 	Store         Store
 	GuardProvider func() HostCapGuard
+	// AdvertisedIP and AdvertisedHostname override auto-detection in
+	// RegisterSelf. Set these when the server runs inside a container so
+	// the host's real LAN IP is registered rather than the container IP.
+	// Controlled via TRITON_MANAGE_HOST_IP / TRITON_MANAGE_HOST_HOSTNAME.
+	AdvertisedIP       string
+	AdvertisedHostname string
 }
 
 // NewAdminHandlers wires an AdminHandlers with the given Store and
@@ -422,15 +428,25 @@ func (h *AdminHandlers) SetTags(w http.ResponseWriter, r *http.Request) {
 }
 
 // RegisterSelf inserts the manage server's own machine into the host inventory.
-// IP and hostname are detected from the system. Returns 409 if the IP already exists.
+// When AdvertisedIP is set (via TRITON_MANAGE_HOST_IP), it takes precedence
+// over auto-detection — use this when the server runs inside a container.
+// Returns 409 if the IP already exists.
 func (h *AdminHandlers) RegisterSelf(w http.ResponseWriter, r *http.Request) {
-	hostname, _ := os.Hostname()
-
-	// Find the first non-loopback IPv4 address.
-	ip := selfIPv4()
+	// Prefer operator-supplied values (container-safe); fall back to
+	// auto-detection for bare-metal deployments.
+	ip := h.AdvertisedIP
 	if ip == "" {
-		writeErr(w, http.StatusInternalServerError, "could not determine host IP address")
+		ip = selfIPv4()
+	}
+	if ip == "" {
+		writeErr(w, http.StatusInternalServerError,
+			"could not determine host IP — set TRITON_MANAGE_HOST_IP")
 		return
+	}
+
+	hostname := h.AdvertisedHostname
+	if hostname == "" {
+		hostname, _ = os.Hostname()
 	}
 
 	host := Host{

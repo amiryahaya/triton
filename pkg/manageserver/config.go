@@ -53,4 +53,12 @@ type Config struct {
 	// watcher goroutine. Zero defaults to 10s. Tests set this to ~100ms for
 	// deterministic fast-path coverage.
 	WatcherTickInterval time.Duration
+
+	// HostIP and HostHostname override auto-detection in the "Register this
+	// machine" (POST /hosts/self) endpoint. Required when the server runs
+	// inside a container — set to the host's real LAN IP/hostname so the
+	// inventory entry reflects the physical machine, not the container.
+	// Controlled via TRITON_MANAGE_HOST_IP / TRITON_MANAGE_HOST_HOSTNAME.
+	HostIP       string
+	HostHostname string
 }

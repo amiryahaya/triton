@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import Hosts from '../../src/views/Hosts.vue';
 import { useHostsStore } from '../../src/stores/hosts';
-import { useZonesStore } from '../../src/stores/zones';
+import { useTagsStore } from '../../src/stores/tags';
 
 // jsdom doesn't ship a real localStorage watcher, but the hosts store
 // does `watch(filter, ...)` with writes to localStorage. Keep a no-op
@@ -20,10 +20,10 @@ function mountWithState() {
         createTestingPinia({
           createSpy: vi.fn,
           initialState: {
-            zones: {
+            tags: {
               items: [
-                { id: 'z-1', name: 'Corporate', description: '', created_at: '', updated_at: '' },
-                { id: 'z-2', name: 'DMZ',       description: '', created_at: '', updated_at: '' },
+                { id: 't-1', name: 'production', color: '#6366F1', created_at: '' },
+                { id: 't-2', name: 'database',   color: '#6366F1', created_at: '' },
               ],
               loading: false,
             },
@@ -31,25 +31,25 @@ function mountWithState() {
               items: [
                 {
                   id: 'h-1',
-                  hostname: 'web-01',
                   ip: '10.0.0.10',
-                  zone_id: 'z-1',
+                  hostname: 'web-01',
+                  tags: [{ id: 't-1', name: 'production', color: '#6366F1', created_at: '' }],
                   os: 'linux',
                   created_at: '',
                   updated_at: '',
                 },
                 {
                   id: 'h-2',
-                  hostname: 'db-01',
                   ip: '10.0.0.20',
-                  zone_id: 'z-2',
+                  hostname: 'db-01',
+                  tags: [{ id: 't-2', name: 'database', color: '#6366F1', created_at: '' }],
                   os: 'linux',
                   created_at: '',
                   updated_at: '',
                 },
               ],
               loading: false,
-              filter: { zoneID: undefined },
+              filter: { tagID: undefined },
             },
           },
         }),
@@ -62,30 +62,25 @@ describe('Hosts view', () => {
   it('calls zones.fetch + hosts.fetch on mount and renders rows', async () => {
     const wrapper = mountWithState();
     const hosts = useHostsStore();
-    const zones = useZonesStore();
+    const tags = useTagsStore();
     await flushPromises();
 
     expect(hosts.fetch).toHaveBeenCalledTimes(1);
-    expect(zones.fetch).toHaveBeenCalledTimes(1);
+    expect(tags.fetch).toHaveBeenCalledTimes(1);
     const html = wrapper.html();
     expect(html).toContain('web-01');
     expect(html).toContain('db-01');
-    // Zone column resolves id → name.
-    expect(html).toContain('Corporate');
-    expect(html).toContain('DMZ');
   });
 
-  it('refetches hosts when the zone filter changes', async () => {
+  it('fetches tags and hosts on mount', async () => {
     const wrapper = mountWithState();
     const hosts = useHostsStore();
+    const tags = useTagsStore();
     await flushPromises();
 
-    // Reset counts after mount-time fetch so we can isolate the filter trigger.
-    (hosts.fetch as ReturnType<typeof vi.fn>).mockClear();
-
-    hosts.filter.zoneID = 'z-1';
-    await flushPromises();
-
+    // Both stores are fetched on mount: tags for the filter dropdown,
+    // hosts for the table. Hosts.vue calls Promise.all([tags.fetch(), hosts.fetch()]).
+    expect(tags.fetch).toHaveBeenCalledTimes(1);
     expect(hosts.fetch).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });

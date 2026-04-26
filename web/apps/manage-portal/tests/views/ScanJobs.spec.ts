@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import ScanJobs from '../../src/views/ScanJobs.vue';
 import { useScanJobsStore } from '../../src/stores/scanjobs';
-import { useZonesStore } from '../../src/stores/zones';
+import { useTagsStore } from '../../src/stores/tags';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -16,9 +16,9 @@ function mountWithState() {
         createTestingPinia({
           createSpy: vi.fn,
           initialState: {
-            zones: {
+            tags: {
               items: [
-                { id: 'z-1', name: 'Corporate', description: '', created_at: '', updated_at: '' },
+                { id: 't-1', name: 'production', color: '#6366F1', created_at: '' },
               ],
               loading: false,
             },
@@ -27,7 +27,7 @@ function mountWithState() {
                 {
                   id: 'job-1',
                   tenant_id: 't-1',
-                  zone_id: 'z-1',
+                  tag_ids: ['t-1'],
                   host_id: 'h-1',
                   profile: 'standard',
                   status: 'running',
@@ -39,7 +39,7 @@ function mountWithState() {
                 {
                   id: 'job-2',
                   tenant_id: 't-1',
-                  zone_id: 'z-1',
+                  tag_ids: ['t-1'],
                   host_id: 'h-2',
                   profile: 'quick',
                   status: 'completed',
@@ -51,7 +51,7 @@ function mountWithState() {
                 {
                   id: 'job-3',
                   tenant_id: 't-1',
-                  zone_id: 'z-1',
+                  tag_ids: ['t-1'],
                   host_id: 'h-3',
                   profile: 'quick',
                   status: 'failed',
@@ -73,13 +73,13 @@ function mountWithState() {
 }
 
 describe('ScanJobs view', () => {
-  it('starts polling on mount and stops on unmount, fetches zones', async () => {
+  it('starts polling on mount and stops on unmount, fetches tags', async () => {
     const wrapper = mountWithState();
     const jobs = useScanJobsStore();
-    const zones = useZonesStore();
+    const tags = useTagsStore();
     await flushPromises();
 
-    expect(zones.fetch).toHaveBeenCalledTimes(1);
+    expect(tags.fetch).toHaveBeenCalledTimes(1);
     expect(jobs.startPolling).toHaveBeenCalledTimes(1);
     wrapper.unmount();
     expect(jobs.stopPolling).toHaveBeenCalledTimes(1);

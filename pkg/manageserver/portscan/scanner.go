@@ -30,13 +30,15 @@ func Ports(p PortScanProfile) []uint16 {
 // TLSCertInfo holds crypto-relevant fields from a TLS certificate.
 // Full implementation in tls.go.
 type TLSCertInfo struct {
-	Subject   string
-	Issuer    string
-	Algorithm string
-	KeyBits   int
-	NotBefore time.Time
-	NotAfter  time.Time
-	SANs      []string
+	Subject      string
+	Issuer       string
+	Algorithm    string
+	KeyBits      int
+	NotBefore    time.Time
+	NotAfter     time.Time
+	SANs         []string
+	SerialNumber string
+	IsSelfSigned bool
 }
 
 // Scanner wraps fingerprintx with profile-derived aggressiveness.
@@ -129,8 +131,3 @@ func isTLSService(s *plugins.Service) bool {
 	return false
 }
 
-// extractTLSCert is implemented in tls.go.
-// This stub is replaced when tls.go is added in Task 5.
-func extractTLSCert(_ context.Context, _ string, _ int, _ time.Duration) *TLSCertInfo {
-	return nil
-}

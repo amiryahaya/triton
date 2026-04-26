@@ -5,7 +5,7 @@ import type {
   LoginResp, ManageUser,
   Tag, CreateTagReq, UpdateTagReq,
   Host, CreateHostReq, UpdateHostReq,
-  Agent, ScanJob, EnqueueReq, PushStatus,
+  Agent, ScanJob, EnqueueReq, PortSurveyEnqueueReq, PushStatus,
   CreateUserReq, CreateUserResp,
   LicenceSummary, SettingsSummary, GatewayHealthResponse,
   SecurityEventsResponse,
@@ -87,6 +87,8 @@ export function createManageApi(http: Http) {
     },
     getScanJob: (id: string) => http.get<ScanJob>(`/v1/admin/scan-jobs/${id}`),
     enqueueScanJobs: (req: EnqueueReq) => http.post<ScanJob[]>('/v1/admin/scan-jobs/', req),
+    enqueuePortSurvey: (req: PortSurveyEnqueueReq) =>
+      http.post<{ jobs: ScanJob[] }>('/v1/admin/scan-jobs/port-survey', req),
     cancelScanJob: (id: string) => http.post<void>(`/v1/admin/scan-jobs/${id}/cancel`, {}),
 
     // Push status

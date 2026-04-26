@@ -122,6 +122,8 @@ export interface ScanJob {
   running_heartbeat_at?: string;
   progress_text: string;
   error_message: string;
+  job_type?: 'filesystem' | 'port_survey';
+  scheduled_at?: string;
 }
 
 export interface EnqueueReq {
@@ -129,6 +131,12 @@ export interface EnqueueReq {
   host_filter?: string;
   profile: ScanJobProfile;
   credentials_ref?: string;
+}
+
+export interface PortSurveyEnqueueReq {
+  host_ids: string[];
+  profile: ScanJobProfile;
+  scheduled_at?: string; // ISO 8601; omit = run immediately
 }
 
 export interface PushStatus {

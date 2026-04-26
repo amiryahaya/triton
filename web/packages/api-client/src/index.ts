@@ -59,7 +59,7 @@ export type {
   Tag, CreateTagReq, UpdateTagReq,
   Host, CreateHostReq, UpdateHostReq,
   Agent, AgentStatus,
-  ScanJob, ScanJobStatus, ScanJobProfile, EnqueueReq,
+  ScanJob, ScanJobStatus, ScanJobProfile, EnqueueReq, PortSurveyEnqueueReq,
   PushStatus, CreateUserReq, CreateUserResp,
   LimitPair, ScansLimitPair, LicenceSummary,
   SettingsSummary, GatewayHealthResponse,

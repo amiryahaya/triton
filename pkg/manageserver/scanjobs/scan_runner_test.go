@@ -31,7 +31,7 @@ func TestScanRunner_QuickProfile_Localhost(t *testing.T) {
 	ctx := context.Background()
 
 	hs := hosts.NewPostgresStore(pool)
-	h, err := hs.Create(ctx, hosts.Host{Hostname: "localhost"})
+	h, err := hs.Create(ctx, hosts.Host{Hostname: "localhost", IP: "127.0.0.1"})
 	require.NoError(t, err)
 
 	runner := scanjobs.NewScanFunc(hs)

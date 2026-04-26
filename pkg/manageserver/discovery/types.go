@@ -30,6 +30,7 @@ type Candidate struct {
 	IP             string     `json:"ip"`
 	Hostname       *string    `json:"hostname,omitempty"`
 	OpenPorts      []int      `json:"open_ports"`
+	OS             string     `json:"os,omitempty"`
 	ExistingHostID *uuid.UUID `json:"existing_host_id,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 }

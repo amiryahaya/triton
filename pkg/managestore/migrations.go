@@ -307,4 +307,8 @@ var migrations = []string{
 	-- Swap UNIQUE constraint: hostname → ip.
 	ALTER TABLE manage_hosts DROP CONSTRAINT IF EXISTS manage_hosts_hostname_key;
 	ALTER TABLE manage_hosts ADD CONSTRAINT manage_hosts_ip_key UNIQUE (ip);`,
+
+	// Version 12: Add os column to manage_discovery_candidates for OS detection results.
+	`ALTER TABLE manage_discovery_candidates
+ ADD COLUMN IF NOT EXISTS os TEXT NOT NULL DEFAULT '';`,
 }

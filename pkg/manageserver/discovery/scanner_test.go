@@ -342,6 +342,68 @@ func TestParallelPortProbing(t *testing.T) {
 	assert.Equal(t, int32(10), dialCount.Load(), "should have dialled 2 IPs × 5 ports = 10 times")
 }
 
+func TestParseSSHBanner(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		banner string
+		want   string
+	}{
+		{"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6", "Ubuntu"},
+		{"SSH-2.0-OpenSSH_9.3p1 Debian-1", "Debian"},
+		{"SSH-2.0-OpenSSH_7.4 (CentOS)", "CentOS"},
+		{"SSH-2.0-OpenSSH_8.1", ""},     // no distro hint
+		{"not-ssh-banner", ""},
+	}
+	for _, c := range cases {
+		got := parseSSHBanner(c.banner)
+		if got != c.want {
+			t.Errorf("parseSSHBanner(%q) = %q, want %q", c.banner, got, c.want)
+		}
+	}
+}
+
+func TestDetectOS_SSHBanner(t *testing.T) {
+	t.Parallel()
+
+	sc := NewScanner()
+	sc.BannerTimeout = 200 * time.Millisecond
+
+	// net.Pipe gives two connected net.Conns.
+	server, client := net.Pipe()
+	go func() {
+		_, _ = server.Write([]byte("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n"))
+		server.Close()
+	}()
+
+	got := sc.detectOS(client, []int{22, 443})
+	client.Close()
+	if got != "Ubuntu" {
+		t.Errorf("detectOS with Ubuntu banner = %q, want Ubuntu", got)
+	}
+}
+
+func TestDetectOS_WindowsHeuristic(t *testing.T) {
+	t.Parallel()
+
+	sc := NewScanner()
+	// No SSH conn, but RDP port open → Windows
+	got := sc.detectOS(nil, []int{443, 3389})
+	if got != "Windows" {
+		t.Errorf("detectOS with RDP = %q, want Windows", got)
+	}
+}
+
+func TestDetectOS_Unknown(t *testing.T) {
+	t.Parallel()
+
+	sc := NewScanner()
+	got := sc.detectOS(nil, []int{443, 8080})
+	if got != "" {
+		t.Errorf("detectOS with no hints = %q, want empty", got)
+	}
+}
+
 // peakTrackingDialer wraps another Dialer and tracks peak concurrency.
 type peakTrackingDialer struct {
 	inner   Dialer

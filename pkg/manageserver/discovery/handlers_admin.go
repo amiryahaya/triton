@@ -311,6 +311,7 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 		hostList = append(hostList, hosts.Host{
 			Hostname: hostname,
 			IP:       c.IP,
+			OS:       c.OS,
 		})
 	}
 

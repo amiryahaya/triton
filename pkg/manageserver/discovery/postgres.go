@@ -32,7 +32,7 @@ const jobSelectCols = `id, tenant_id, cidr, ports, status, total_ips, scanned_ip
 	cancel_requested, started_at, finished_at, error_message, created_at`
 
 // candidateSelectCols lists columns expected by scanCandidate in scan order.
-const candidateSelectCols = `id, job_id, ip, hostname, open_ports, existing_host_id, created_at`
+const candidateSelectCols = `id, job_id, ip, hostname, open_ports, os, existing_host_id, created_at`
 
 // scanJob decodes a single row into a Job.
 func scanJob(row pgx.Row) (Job, error) {
@@ -55,7 +55,7 @@ func scanCandidate(row pgx.Row) (Candidate, error) {
 	var ports []int32
 	if err := row.Scan(
 		&c.ID, &c.JobID, &c.IP, &c.Hostname, &ports,
-		&c.ExistingHostID, &c.CreatedAt,
+		&c.OS, &c.ExistingHostID, &c.CreatedAt,
 	); err != nil {
 		return Candidate{}, err
 	}
@@ -178,9 +178,9 @@ func (s *PostgresStore) UpdateStatus(ctx context.Context, upd StatusUpdate) erro
 func (s *PostgresStore) InsertCandidate(ctx context.Context, c Candidate) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO manage_discovery_candidates
-		 (job_id, ip, hostname, open_ports, existing_host_id)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		c.JobID, c.IP, c.Hostname, toInt32Array(c.OpenPorts), c.ExistingHostID,
+		 (job_id, ip, hostname, open_ports, os, existing_host_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		c.JobID, c.IP, c.Hostname, toInt32Array(c.OpenPorts), c.OS, c.ExistingHostID,
 	)
 	if err != nil {
 		return fmt.Errorf("discovery: insert candidate: %w", err)

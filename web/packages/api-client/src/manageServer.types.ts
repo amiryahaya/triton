@@ -258,6 +258,7 @@ export interface DiscoveryCandidate {
   ip: string;
   hostname: string | null;
   open_ports: number[];
+  os?: string;
   existing_host_id: string | null;
 }
 

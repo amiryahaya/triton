@@ -139,6 +139,7 @@ onUnmounted(() => store.stopPolling());
             <th class="col-check"></th>
             <th class="col-ip">IP Address</th>
             <th class="col-hostname">Hostname</th>
+            <th class="col-os">OS</th>
             <th class="col-ports">Open Ports</th>
             <th class="col-status">Status</th>
           </tr>
@@ -169,6 +170,7 @@ onUnmounted(() => store.stopPolling());
               />
               <span v-else class="dimmed">{{ c.hostname ?? c.ip }}</span>
             </td>
+            <td class="col-os">{{ c.os || '—' }}</td>
             <td class="col-ports">
               <span v-for="p in c.open_ports" :key="p" class="port-badge">{{ p }}</span>
             </td>
@@ -323,6 +325,8 @@ td {
   margin-bottom: 1rem;
   color: #991b1b;
 }
+
+.col-os { min-width: 100px; }
 
 .dimmed {
   color: var(--text-muted);

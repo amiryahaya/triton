@@ -68,7 +68,7 @@ func lookupMDNS(ctx context.Context, ip string, timeout time.Duration) string {
 	if err != nil {
 		return ""
 	}
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close() //nolint:errcheck // UDP conn.Close never fails in practice
 
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(pkt); err != nil {
@@ -85,24 +85,25 @@ func lookupMDNS(ctx context.Context, ip string, timeout time.Duration) string {
 
 // buildDNSQuery constructs a minimal DNS PTR query for name.
 func buildDNSQuery(name string) []byte {
-	var b []byte
+	// Pre-allocate: 12 header bytes + encoded labels + 5 trailer bytes.
+	b := make([]byte, 0, 64)
 
-	// Header: ID=0, QR=0 (query), Opcode=0, AA=0, TC=0, RD=0, RA=0, Z=0, RCODE=0
-	b = append(b, 0x00, 0x00) // Transaction ID
-	b = append(b, 0x00, 0x00) // Flags
-	b = append(b, 0x00, 0x01) // QDCOUNT=1
-	b = append(b, 0x00, 0x00) // ANCOUNT=0
-	b = append(b, 0x00, 0x00) // NSCOUNT=0
-	b = append(b, 0x00, 0x00) // ARCOUNT=0
+	// Header: ID=0, standard query, 1 question, 0 answers/authority/additional.
+	b = append(b,
+		0x00, 0x00, // Transaction ID
+		0x00, 0x00, // Flags
+		0x00, 0x01, // QDCOUNT=1
+		0x00, 0x00, // ANCOUNT=0
+		0x00, 0x00, // NSCOUNT=0
+		0x00, 0x00, // ARCOUNT=0
+	)
 
 	// Question: encode name as DNS labels
 	for _, label := range strings.Split(strings.TrimSuffix(name, "."), ".") {
 		b = append(b, byte(len(label)))
 		b = append(b, []byte(label)...)
 	}
-	b = append(b, 0x00)       // root label
-	b = append(b, 0x00, 0x0c) // QTYPE=PTR
-	b = append(b, 0x80, 0x01) // QCLASS=IN with unicast-response bit
+	b = append(b, 0x00, 0x00, 0x0c, 0x80, 0x01) // root, QTYPE=PTR, QCLASS=IN|unicast
 
 	return b
 }
@@ -132,7 +133,6 @@ func parsePTRName(buf []byte) string {
 		return ""
 	}
 	rrType := binary.BigEndian.Uint16(buf[offset : offset+2])
-	// rrClass := binary.BigEndian.Uint16(buf[offset+2 : offset+4]) // unused
 	rdLen := int(binary.BigEndian.Uint16(buf[offset+8 : offset+10]))
 	offset += 10
 
@@ -167,10 +167,7 @@ func skipName(buf []byte, offset int) int {
 func decodeName(buf []byte, offset int) string {
 	var labels []string
 	visited := make(map[int]bool)
-	for {
-		if offset >= len(buf) || visited[offset] {
-			break
-		}
+	for offset < len(buf) && !visited[offset] {
 		visited[offset] = true
 		length := int(buf[offset])
 		if length == 0 {

@@ -107,6 +107,15 @@ async function onConfirmDelete() {
     pendingDelete.value = null;
   }
 }
+
+async function onRegisterSelf() {
+  try {
+    await hosts.registerSelf();
+    toast.success({ title: 'Host registered', description: 'This machine has been added to the inventory.' });
+  } catch (e) {
+    toast.error({ title: 'Registration failed', description: String(e) });
+  }
+}
 </script>
 
 <template>
@@ -117,6 +126,13 @@ async function onConfirmDelete() {
         <p class="hosts-sub">Targets available for scan jobs and agent binding.</p>
       </div>
       <div class="hosts-head-actions">
+        <TButton
+          variant="secondary"
+          size="sm"
+          @click="onRegisterSelf"
+        >
+          + This machine
+        </TButton>
         <TButton
           variant="secondary"
           size="sm"

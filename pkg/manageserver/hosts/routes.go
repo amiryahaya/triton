@@ -12,6 +12,7 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	r.Get("/", h.List)
 	r.Post("/", h.Create)
 	r.Post("/bulk", h.BulkCreate)
+	r.Post("/self", h.RegisterSelf)
 	r.Get("/{id}", h.Get)
 	r.Patch("/{id}", h.Update)
 	r.Delete("/{id}", h.Delete)

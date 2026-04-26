@@ -11,7 +11,7 @@ const toast = useToast();
 
 // Scan form
 const cidr = ref('');
-const portsRaw = ref('22, 443, 3389, 5985, 5986');
+const portsRaw = ref('22, 443, 3389, 5555, 5985, 5986, 8008, 8009');
 const formError = ref('');
 
 // Selected candidate IDs

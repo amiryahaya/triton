@@ -54,6 +54,11 @@ export const useHostsStore = defineStore('hosts', () => {
     await useApiClient().get().deleteHost(id);
     items.value = items.value.filter(x => x.id !== id);
   }
+  async function registerSelf() {
+    const h = await useApiClient().get().registerSelfHost();
+    items.value.push(h);
+    return h;
+  }
 
-  return { items, loading, filter, fetch, create, bulkCreate, update, remove };
+  return { items, loading, filter, fetch, create, bulkCreate, update, remove, registerSelf };
 });

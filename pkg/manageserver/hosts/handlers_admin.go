@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -417,6 +419,71 @@ func (h *AdminHandlers) SetTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, host)
+}
+
+// RegisterSelf inserts the manage server's own machine into the host inventory.
+// IP and hostname are detected from the system. Returns 409 if the IP already exists.
+func (h *AdminHandlers) RegisterSelf(w http.ResponseWriter, r *http.Request) {
+	hostname, _ := os.Hostname()
+
+	// Find the first non-loopback IPv4 address.
+	ip := selfIPv4()
+	if ip == "" {
+		writeErr(w, http.StatusInternalServerError, "could not determine host IP address")
+		return
+	}
+
+	host := Host{
+		Hostname: hostname,
+		IP:       ip,
+		OS:       runtime.GOOS,
+	}
+
+	created, err := h.Store.Create(r.Context(), host)
+	if errors.Is(err, ErrConflict) {
+		writeErr(w, http.StatusConflict, "ip address already exists")
+		return
+	}
+	if err != nil {
+		internalErr(w, r, err, "register self")
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+// selfIPv4 returns the first non-loopback, non-link-local IPv4 address
+// of the current machine, or "" if none can be found.
+func selfIPv4() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ipStr string
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ipStr = v.IP.String()
+			case *net.IPAddr:
+				ipStr = v.IP.String()
+			}
+			parsed := net.ParseIP(ipStr)
+			if parsed == nil || parsed.IsLoopback() || parsed.IsLinkLocalUnicast() {
+				continue
+			}
+			if parsed.To4() != nil {
+				return ipStr
+			}
+		}
+	}
+	return ""
 }
 
 // writeJSON writes a JSON response with the given status code.

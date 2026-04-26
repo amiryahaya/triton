@@ -19,7 +19,7 @@ import (
 
 // defaultPorts is the set of ports probed when the caller omits the
 // "ports" field in a Start request.
-var defaultPorts = []int{22, 443, 3389, 5985, 5986}
+var defaultPorts = []int{22, 443, 3389, 5555, 5985, 5986, 8008, 8009}
 
 // HostCapGuard is the narrow licence-guard surface the discovery admin
 // handler consults before importing new hosts. Kept minimal so tests

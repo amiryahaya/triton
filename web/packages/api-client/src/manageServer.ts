@@ -50,6 +50,7 @@ export function createManageApi(http: Http) {
     },
     createHost: (req: CreateHostReq) => http.post<Host>('/v1/admin/hosts/', req),
     bulkCreateHosts: (req: { hosts: CreateHostReq[] }) => http.post<Host[]>('/v1/admin/hosts/bulk', req),
+    registerSelfHost: () => http.post<Host>('/v1/admin/hosts/self', {}),
     updateHost: (id: string, req: UpdateHostReq) => http.patch<Host>(`/v1/admin/hosts/${id}`, req),
     deleteHost: (id: string) => http.del<void>(`/v1/admin/hosts/${id}`),
 

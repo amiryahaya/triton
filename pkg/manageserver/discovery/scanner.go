@@ -182,7 +182,12 @@ func (s *Scanner) detectOS(sshConn net.Conn, openPorts []int) string {
 		}
 	}
 	for _, p := range openPorts {
-		if p == 3389 || p == 5985 || p == 5986 {
+		switch p {
+		case 5555:
+			return "Android TV" // ADB port — specific to Android devices
+		case 8008, 8009:
+			return "Smart TV (Cast)" // Google Cast — Android TV / Chromecast
+		case 3389, 5985, 5986:
 			return "Windows"
 		}
 	}

@@ -264,7 +264,7 @@ var migrations = []string{
 	// Version 10: Network discovery — singleton job + discovered candidates.
 	`CREATE TABLE IF NOT EXISTS manage_discovery_jobs (
 		id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-		tenant_id        UUID        NOT NULL REFERENCES manage_orgs(id) ON DELETE CASCADE,
+		tenant_id        UUID        NOT NULL,
 		cidr             TEXT        NOT NULL,
 		ports            INT[]       NOT NULL,
 		status           TEXT        NOT NULL DEFAULT 'queued'

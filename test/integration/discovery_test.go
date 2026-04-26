@@ -75,24 +75,7 @@ func newDiscFixture(t *testing.T) *discFixture {
 
 	pool := ms.Pool()
 
-	// manage_orgs is the FK target of manage_discovery_jobs.tenant_id.
-	// It is not created by the manage store migrations (the Manage server uses
-	// manage_setup.instance_id as its single-tenant identity), so we create a
-	// minimal stub table here to satisfy the FK constraint.
-	_, err = pool.Exec(context.Background(), `
-		CREATE TABLE IF NOT EXISTS manage_orgs (
-			id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-			name       TEXT        NOT NULL,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`)
-	require.NoError(t, err, "create manage_orgs stub")
-
 	tenantID := uuid.New()
-	_, err = pool.Exec(context.Background(),
-		`INSERT INTO manage_orgs (id, name) VALUES ($1, $2)`,
-		tenantID, "test-org",
-	)
-	require.NoError(t, err, "insert test tenant into manage_orgs")
 
 	hostsStore := hosts.NewPostgresStore(pool)
 	discStore := discovery.NewPostgresStore(pool)

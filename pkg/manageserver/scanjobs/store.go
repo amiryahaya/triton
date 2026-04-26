@@ -27,6 +27,10 @@ type Store interface {
 	// transaction. Returns the inserted Job rows.
 	Enqueue(ctx context.Context, req EnqueueReq) ([]Job, error)
 
+	// EnqueuePortSurvey creates one port_survey job per host ID.
+	// ScheduledAt nil means "run immediately".
+	EnqueuePortSurvey(ctx context.Context, req PortSurveyEnqueueReq) ([]Job, error)
+
 	// Get fetches a job by id. Returns ErrNotFound if no row matches.
 	Get(ctx context.Context, id uuid.UUID) (Job, error)
 

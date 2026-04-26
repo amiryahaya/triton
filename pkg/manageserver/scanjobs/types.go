@@ -34,6 +34,14 @@ const (
 	ProfileComprehensive Profile = "comprehensive"
 )
 
+// JobType discriminates the scan execution strategy.
+type JobType string
+
+const (
+	JobTypeFilesystem JobType = "filesystem"
+	JobTypePortSurvey JobType = "port_survey"
+)
+
 // Job models one row of `manage_scan_jobs`. Nullable DB columns are
 // surfaced as pointer-typed fields (`*time.Time`, `*uuid.UUID`) so a
 // consumer can distinguish "not yet set" from "zero value".
@@ -52,6 +60,8 @@ type Job struct {
 	RunningHeartbeatAt *time.Time `json:"running_heartbeat_at,omitempty"`
 	ProgressText       string     `json:"progress_text"`
 	ErrorMessage       string     `json:"error_message"`
+	JobType            JobType    `json:"job_type"`
+	ScheduledAt        *time.Time `json:"scheduled_at,omitempty"`
 }
 
 // EnqueueReq is the input to Store.Enqueue. TenantID is injected from
@@ -65,4 +75,14 @@ type EnqueueReq struct {
 	HostFilter     string      `json:"host_filter"`
 	Profile        Profile     `json:"profile"`
 	CredentialsRef *uuid.UUID  `json:"credentials_ref,omitempty"`
+}
+
+// PortSurveyEnqueueReq is the input to Store.EnqueuePortSurvey.
+// Operators select individual hosts by ID (not by tag) since port
+// surveys target specific machines. ScheduledAt nil = run immediately.
+type PortSurveyEnqueueReq struct {
+	TenantID    uuid.UUID   `json:"-"`
+	HostIDs     []uuid.UUID `json:"host_ids"`
+	Profile     Profile     `json:"profile"`
+	ScheduledAt *time.Time  `json:"scheduled_at,omitempty"`
 }

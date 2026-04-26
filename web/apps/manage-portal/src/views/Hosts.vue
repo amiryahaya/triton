@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   TButton,
   TDataTable,
@@ -18,6 +19,7 @@ import HostBulkForm from './modals/HostBulkForm.vue';
 const hosts = useHostsStore();
 const tags = useTagsStore();
 const toast = useToast();
+const router = useRouter();
 
 const formOpen = ref(false);
 const editing = ref<Host | null>(null);
@@ -115,6 +117,13 @@ async function onConfirmDelete() {
         <p class="hosts-sub">Targets available for scan jobs and agent binding.</p>
       </div>
       <div class="hosts-head-actions">
+        <TButton
+          variant="secondary"
+          size="sm"
+          @click="router.push('/inventory/discover')"
+        >
+          Discovery
+        </TButton>
         <TButton
           variant="secondary"
           size="sm"

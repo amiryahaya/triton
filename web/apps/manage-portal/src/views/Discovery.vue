@@ -86,7 +86,12 @@ onUnmounted(() => store.stopPolling());
 
 <template>
   <div class="discovery-page">
-    <h1 class="page-title">Network Discovery</h1>
+    <div class="discovery-header">
+      <TButton variant="secondary" size="sm" @click="router.push('/inventory/hosts')">
+        ← Back to Hosts
+      </TButton>
+      <h1 class="page-title">Network Discovery</h1>
+    </div>
 
     <!-- Error banner (failed job) -->
     <div v-if="store.job?.status === 'failed'" class="alert-error">
@@ -198,6 +203,17 @@ onUnmounted(() => store.stopPolling());
   max-width: 1000px;
   margin: 0 auto;
   padding: 1.5rem;
+}
+
+.discovery-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.discovery-header .page-title {
+  margin-bottom: 0;
 }
 
 .page-title {

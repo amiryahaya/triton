@@ -143,6 +143,8 @@ onUnmounted(() => store.stopPolling());
           <tr>
             <th class="col-check"></th>
             <th class="col-ip">IP Address</th>
+            <th class="col-mac">MAC</th>
+            <th class="col-mdns">mDNS Name</th>
             <th class="col-hostname">Hostname</th>
             <th class="col-os">OS</th>
             <th class="col-ports">Open Ports</th>
@@ -164,6 +166,8 @@ onUnmounted(() => store.stopPolling());
               />
             </td>
             <td class="col-ip mono">{{ c.ip }}</td>
+            <td class="col-mac mono">{{ c.mac_address || '—' }}</td>
+            <td class="col-mdns">{{ c.mdns_name || '—' }}</td>
             <td class="col-hostname">
               <input
                 v-if="!c.existing_host_id"
@@ -342,6 +346,8 @@ td {
   color: #991b1b;
 }
 
+.col-mac { min-width: 140px; font-size: 0.8rem; }
+.col-mdns { min-width: 140px; }
 .col-os { min-width: 100px; }
 
 .dimmed {

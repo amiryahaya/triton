@@ -259,6 +259,8 @@ export interface DiscoveryCandidate {
   hostname: string | null;
   open_ports: number[];
   os?: string;
+  mac_address?: string;
+  mdns_name?: string;
   existing_host_id: string | null;
 }
 

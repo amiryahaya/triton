@@ -311,4 +311,10 @@ var migrations = []string{
 	// Version 12: Add os column to manage_discovery_candidates for OS detection results.
 	`ALTER TABLE manage_discovery_candidates
  ADD COLUMN IF NOT EXISTS os TEXT NOT NULL DEFAULT '';`,
+
+	// Version 13: Add MAC address and mDNS name to discovery candidates.
+	`ALTER TABLE manage_discovery_candidates
+ ADD COLUMN IF NOT EXISTS mac_address TEXT NOT NULL DEFAULT '';
+ALTER TABLE manage_discovery_candidates
+ ADD COLUMN IF NOT EXISTS mdns_name TEXT NOT NULL DEFAULT '';`,
 }

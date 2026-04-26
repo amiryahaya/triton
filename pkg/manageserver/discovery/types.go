@@ -31,6 +31,8 @@ type Candidate struct {
 	Hostname       *string    `json:"hostname,omitempty"`
 	OpenPorts      []int      `json:"open_ports"`
 	OS             string     `json:"os,omitempty"`
+	MACAddress     string     `json:"mac_address,omitempty"`
+	MDNSName       string     `json:"mdns_name,omitempty"`
 	ExistingHostID *uuid.UUID `json:"existing_host_id,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 }

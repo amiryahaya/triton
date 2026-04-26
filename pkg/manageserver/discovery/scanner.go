@@ -135,6 +135,14 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 				_ = sshConn.Close()
 			}
 
+			// MAC address from ARP cache (populated by our TCP probes above).
+			macAddr := lookupMAC(ipStr)
+
+			// mDNS name — unicast PTR query to the host's port 5353.
+			mdnsCtx, mdnsCancel := context.WithTimeout(ctx, s.DNSTimeout)
+			mdnsName := lookupMDNS(mdnsCtx, ipStr, s.DNSTimeout)
+			mdnsCancel()
+
 			// Reverse DNS — failure is non-fatal.
 			var hostname *string
 			dnsCtx, dnsCancel := context.WithTimeout(ctx, s.DNSTimeout)
@@ -146,10 +154,12 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 			}
 
 			out <- Candidate{
-				IP:        ipStr,
-				Hostname:  hostname,
-				OpenPorts: openPorts,
-				OS:        osName,
+				IP:         ipStr,
+				Hostname:   hostname,
+				OpenPorts:  openPorts,
+				OS:         osName,
+				MACAddress: macAddr,
+				MDNSName:   mdnsName,
 			}
 		}(ipStr)
 	}

@@ -91,7 +91,7 @@ onUnmounted(() => store.stopPolling());
     <!-- Error banner (failed job) -->
     <div v-if="store.job?.status === 'failed'" class="alert-error">
       <span>Scan failed: {{ store.job.error_message }}</span>
-      <TButton variant="secondary" @click="store.job = null">Retry</TButton>
+      <TButton variant="secondary" @click="store.job = null">Dismiss</TButton>
     </div>
 
     <!-- Scan form -->

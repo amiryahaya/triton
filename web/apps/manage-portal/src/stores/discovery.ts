@@ -63,7 +63,6 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     const api = useApiClient().get();
     try {
       await api.cancelDiscovery();
-      stopPolling();
     } catch (e: unknown) {
       useToast().error({ title: 'Cancel failed', description: String(e) });
     }

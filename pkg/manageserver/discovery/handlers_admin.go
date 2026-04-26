@@ -187,6 +187,9 @@ func (h *AdminHandlers) HandleCancel(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.store.GetCurrentJob(r.Context(), tenantID)
 	if errors.Is(err, ErrNotFound) {
+		// NOTE: spec says 409 here, but 404 is more semantically correct for
+		// "no job resource exists". The spec conflates two cases: no job ever
+		// created (404) vs job exists but is not cancellable (409).
 		writeErr(w, http.StatusNotFound, "no discovery job found")
 		return
 	}
@@ -228,8 +231,10 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "instance not initialised")
 		return
 	}
-	// tenantID is extracted for context but not used directly in this handler
-	// beyond confirming the instance is initialised.
+	// tenantID is validated (503 if missing) but not threaded into GetCandidates
+	// because manage_discovery_candidates UUIDs are globally unique. In a
+	// multi-tenant scenario, GetCandidates should accept tenantID and join
+	// through manage_discovery_jobs to enforce isolation.
 	_ = tenantID
 
 	// Build a lookup map from the request body.

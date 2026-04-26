@@ -248,6 +248,40 @@ func TestDiscoveryIntegration_NewScanReplacesOld(t *testing.T) {
 	assert.Equal(t, "10.0.1.0/30", job["cidr"])
 }
 
+// TestDiscoveryIntegration_Cancel — starts a scan, cancels it, and verifies
+// the cancel_requested flag is set on the job returned by GET /.
+func TestDiscoveryIntegration_Cancel(t *testing.T) {
+	f := newDiscFixture(t)
+	defer f.cleanup()
+
+	// Start a scan.
+	startResp := discPostJSON(t, f.srv.URL+"/", map[string]any{
+		"cidr":  "192.168.1.0/30",
+		"ports": []int{22},
+	})
+	assert.Equal(t, http.StatusCreated, startResp.StatusCode)
+	_ = discReadBody(t, startResp)
+
+	// Cancel it.
+	cancelResp := discPostJSON(t, f.srv.URL+"/cancel", nil)
+	assert.Equal(t, http.StatusNoContent, cancelResp.StatusCode)
+	_ = discReadBody(t, cancelResp)
+
+	// GET / confirms cancel_requested flag is set.
+	getResp := discGet(t, f.srv.URL+"/")
+	require.Equal(t, http.StatusOK, getResp.StatusCode)
+
+	var status struct {
+		Job struct {
+			CancelRequested bool   `json:"cancel_requested"`
+			Status          string `json:"status"`
+		} `json:"job"`
+	}
+	b := discReadBody(t, getResp)
+	require.NoError(t, json.Unmarshal(b, &status), "parse response body: %s", string(b))
+	assert.True(t, status.Job.CancelRequested, "cancel_requested should be true after cancel")
+}
+
 // TestDiscoveryIntegration_ImportFlow — inserts a candidate directly into the
 // DB, then calls POST /import; verifies the candidate is created in manage_hosts.
 func TestDiscoveryIntegration_ImportFlow(t *testing.T) {

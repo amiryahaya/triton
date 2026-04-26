@@ -255,21 +255,21 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 	// Separate: already-imported (ExistingHostID set) vs to-import.
 	var toImport []Candidate
 	skipped := 0
-	for _, c := range rows {
-		if c.ExistingHostID != nil {
+	for i := range rows {
+		if rows[i].ExistingHostID != nil {
 			skipped++
 		} else {
-			toImport = append(toImport, c)
+			toImport = append(toImport, rows[i])
 		}
 	}
 
 	// Validate: every toImport candidate must have a non-empty hostname
 	// in the request body.
 	var missingHostnames []string
-	for _, c := range toImport {
-		item, ok := importByID[c.ID]
+	for i := range toImport {
+		item, ok := importByID[toImport[i].ID]
 		if !ok || strings.TrimSpace(item.Hostname) == "" {
-			missingHostnames = append(missingHostnames, c.IP)
+			missingHostnames = append(missingHostnames, toImport[i].IP)
 		}
 	}
 	if len(missingHostnames) > 0 {
@@ -306,12 +306,12 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	// Build hosts.Host slice from toImport.
 	hostList := make([]hosts.Host, 0, len(toImport))
-	for _, c := range toImport {
-		hostname := strings.TrimSpace(importByID[c.ID].Hostname)
+	for i := range toImport {
+		hostname := strings.TrimSpace(importByID[toImport[i].ID].Hostname)
 		hostList = append(hostList, hosts.Host{
 			Hostname: hostname,
-			IP:       c.IP,
-			OS:       c.OS,
+			IP:       toImport[i].IP,
+			OS:       toImport[i].OS,
 		})
 	}
 
@@ -322,9 +322,9 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 	_, bulkErr := h.hostsStore.BulkCreate(r.Context(), hostList)
 	if bulkErr != nil {
 		// Whole-batch failure: attribute the error to each candidate.
-		for _, c := range toImport {
+		for i := range toImport {
 			importErrors = append(importErrors, ImportError{
-				IP:     c.IP,
+				IP:     toImport[i].IP,
 				Reason: bulkErr.Error(),
 			})
 		}

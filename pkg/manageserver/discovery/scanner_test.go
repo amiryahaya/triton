@@ -352,7 +352,7 @@ func TestParseSSHBanner(t *testing.T) {
 		{"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6", "Ubuntu"},
 		{"SSH-2.0-OpenSSH_9.3p1 Debian-1", "Debian"},
 		{"SSH-2.0-OpenSSH_7.4 (CentOS)", "CentOS"},
-		{"SSH-2.0-OpenSSH_8.1", ""},     // no distro hint
+		{"SSH-2.0-OpenSSH_8.1", ""}, // no distro hint
 		{"not-ssh-banner", ""},
 	}
 	for _, c := range cases {

@@ -50,9 +50,9 @@ type ImportItem struct {
 
 // ImportResult is the result of importing candidates.
 type ImportResult struct {
-	Imported int            `json:"imported"`
-	Skipped  int            `json:"skipped"`
-	Errors   []ImportError  `json:"errors"`
+	Imported int           `json:"imported"`
+	Skipped  int           `json:"skipped"`
+	Errors   []ImportError `json:"errors"`
 }
 
 // ImportError represents a single import failure.

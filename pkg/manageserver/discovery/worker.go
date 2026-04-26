@@ -58,9 +58,9 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 	// Step 3b: Build a one-time IP→host-ID map to avoid N full-table scans.
 	hostByIP := make(map[string]uuid.UUID)
 	if allHosts, err := w.HostsStore.List(ctx); err == nil {
-		for _, h := range allHosts {
-			if h.IP != "" {
-				hostByIP[h.IP] = h.ID
+		for i := range allHosts {
+			if allHosts[i].IP != "" {
+				hostByIP[allHosts[i].IP] = allHosts[i].ID
 			}
 		}
 	} else {
@@ -93,7 +93,8 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 		}
 	}
 	// Drain remaining candidates if we broke out early.
-	for range out {}
+	for range out {
+	}
 
 	// Step 5: wait for the scanner goroutine to finish.
 	err := <-scanErr

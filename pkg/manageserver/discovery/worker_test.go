@@ -126,9 +126,9 @@ func (f *fakeStoreCancelling) GetCurrentJob(ctx context.Context, tenantID uuid.U
 	if err != nil {
 		return j, err
 	}
-	f.fakeStore.mu.Lock()
-	count := len(f.fakeStore.candidates)
-	f.fakeStore.mu.Unlock()
+	f.mu.Lock()
+	count := len(f.candidates)
+	f.mu.Unlock()
 	if count >= f.cancelAfterCount {
 		j.CancelRequested = true
 	}

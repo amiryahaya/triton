@@ -101,7 +101,7 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 					if p == 22 {
 						portCh <- portResult{port: p, open: true, conn: conn} // keep alive for banner
 					} else {
-						conn.Close()
+						_ = conn.Close()
 						portCh <- portResult{port: p, open: true}
 					}
 				}(port)
@@ -124,7 +124,7 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 			// Skip dead hosts.
 			if len(openPorts) == 0 {
 				if sshConn != nil {
-					sshConn.Close()
+					_ = sshConn.Close()
 				}
 				return
 			}
@@ -132,7 +132,7 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 			// OS detection using SSH banner or port heuristics.
 			osName := s.detectOS(sshConn, openPorts)
 			if sshConn != nil {
-				sshConn.Close()
+				_ = sshConn.Close()
 			}
 
 			// Reverse DNS — failure is non-fatal.
@@ -247,10 +247,7 @@ func expandCIDR(ipNet *net.IPNet) []net.IP {
 	ip := cloneIP(base)
 
 	var ips []net.IP
-	for {
-		if !ipNet.Contains(ip) {
-			break
-		}
+	for ipNet.Contains(ip) {
 		if !isNetworkAddr(ip, ipNet) && !isBroadcastAddr(ip, ipNet) {
 			ips = append(ips, cloneIP(ip))
 		}

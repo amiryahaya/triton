@@ -70,13 +70,6 @@ func (g *fakeCapGuard) LimitCap(_, _ string) int64 { return g.limit }
 // helpers
 // ---------------------------------------------------------------------------
 
-// newHandlerWithTenant builds an AdminHandlers and injects the tenantID into
-// the request context via orgctx.
-func newHandlerWithTenant(store *handlerFakeStore, hs hosts.Store, w WorkerRunner, gp func() HostCapGuard) (*AdminHandlers, uuid.UUID) {
-	tenantID := uuid.New()
-	return NewAdminHandlers(store, hs, w, gp), tenantID
-}
-
 func withTenant(r *http.Request, tenantID uuid.UUID) *http.Request {
 	return r.WithContext(orgctx.WithInstanceID(r.Context(), tenantID))
 }
@@ -232,7 +225,7 @@ func TestHandleGet_200(t *testing.T) {
 	job := newJob(tenantID)
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
 	// Seed two candidates.
-	store.fakeStore.candidates = []Candidate{
+	store.candidates = []Candidate{
 		{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}},
 		{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.2", OpenPorts: []int{443}},
 	}
@@ -341,7 +334,7 @@ func TestHandleImport_SkipsExisting(t *testing.T) {
 	candB := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.2", OpenPorts: []int{22}, ExistingHostID: &existingHostID}
 
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
-	store.fakeStore.candidates = []Candidate{candA, candB}
+	store.candidates = []Candidate{candA, candB}
 
 	hs := &fakeHostsStore{}
 	h := NewAdminHandlers(store, hs, &noopWorker{}, nil)
@@ -382,7 +375,7 @@ func TestHandleImport_400MissingHostname(t *testing.T) {
 	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}}
 
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
-	store.fakeStore.candidates = []Candidate{candA}
+	store.candidates = []Candidate{candA}
 
 	h := NewAdminHandlers(store, &fakeHostsStore{}, &noopWorker{}, nil)
 
@@ -411,7 +404,7 @@ func TestHandleImport_403CapExceeded(t *testing.T) {
 	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}}
 
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
-	store.fakeStore.candidates = []Candidate{candA}
+	store.candidates = []Candidate{candA}
 
 	// hostsStore already has 5 hosts; cap is 5 → importing 1 more exceeds cap.
 	hs := &fakeHostsStore{}

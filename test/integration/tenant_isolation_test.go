@@ -180,7 +180,10 @@ func requireTenantServer(t *testing.T) (platformURL, tokenA, tokenB string) {
 // submitScanWithToken POSTs a scan to the server with a license token header.
 func submitScanWithToken(t *testing.T, serverURL, token string, scan *model.ScanResult) int {
 	t.Helper()
-	body, err := json.Marshal(scan)
+	// OrgID must be empty in the body — server stamps it from the authenticated token.
+	toSubmit := *scan
+	toSubmit.OrgID = ""
+	body, err := json.Marshal(toSubmit)
 	require.NoError(t, err)
 
 	req, err := http.NewRequest("POST", serverURL+"/api/v1/scans", bytes.NewReader(body))

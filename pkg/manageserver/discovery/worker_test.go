@@ -250,10 +250,22 @@ func (tw *testWorker) Run(ctx context.Context, job Job) {
 		scanErrCh <- tw.ScanFn(scanCtx, job.CIDR, job.Ports, out)
 	}()
 
+	// Build a one-time IP→host-ID map to avoid N full-table scans.
+	hostByIP := make(map[string]uuid.UUID)
+	if allHosts, err := tw.HostsStore.List(ctx); err == nil {
+		for _, h := range allHosts {
+			if h.IP != "" {
+				hostByIP[h.IP] = h.ID
+			}
+		}
+	}
+
 	count := 0
 	for c := range out {
 		c.JobID = job.ID
-		c.ExistingHostID = tw.lookupExistingHost(ctx, c.IP)
+		if id, ok := hostByIP[c.IP]; ok {
+			c.ExistingHostID = &id
+		}
 
 		if err := tw.Store.InsertCandidate(ctx, c); err != nil {
 			// continue — don't abort the scan on a single insert failure
@@ -303,20 +315,6 @@ func (tw *testWorker) Run(ctx context.Context, job Job) {
 		Status:     "completed",
 		FinishedAt: &fin,
 	})
-}
-
-func (tw *testWorker) lookupExistingHost(ctx context.Context, ip string) *uuid.UUID {
-	hostList, err := tw.HostsStore.List(ctx)
-	if err != nil {
-		return nil
-	}
-	for _, h := range hostList {
-		if h.IP == ip {
-			id := h.ID
-			return &id
-		}
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------

@@ -41,11 +41,25 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 		scanErr <- w.Scanner.Scan(scanCtx, job.CIDR, job.Ports, out)
 	}()
 
+	// Step 3b: Build a one-time IP→host-ID map to avoid N full-table scans.
+	hostByIP := make(map[string]uuid.UUID)
+	if allHosts, err := w.HostsStore.List(ctx); err == nil {
+		for _, h := range allHosts {
+			if h.IP != "" {
+				hostByIP[h.IP] = h.ID
+			}
+		}
+	} else {
+		log.Printf("discovery worker: list hosts for IP lookup: %v", err)
+	}
+
 	// Step 4: consume candidates.
 	count := 0
 	for c := range out {
 		c.JobID = job.ID
-		c.ExistingHostID = w.lookupExistingHost(ctx, c.IP)
+		if id, ok := hostByIP[c.IP]; ok {
+			c.ExistingHostID = &id
+		}
 
 		if err := w.Store.InsertCandidate(ctx, c); err != nil {
 			log.Printf("discovery worker: insert candidate %s: %v", c.IP, err)
@@ -101,20 +115,4 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 		Status:     "completed",
 		FinishedAt: &fin,
 	})
-}
-
-// lookupExistingHost returns the ID of the host in HostsStore whose IP
-// matches ip, or nil if none exists.
-func (w *Worker) lookupExistingHost(ctx context.Context, ip string) *uuid.UUID {
-	hostList, err := w.HostsStore.List(ctx)
-	if err != nil {
-		return nil
-	}
-	for _, h := range hostList {
-		if h.IP == ip {
-			id := h.ID
-			return &id
-		}
-	}
-	return nil
 }

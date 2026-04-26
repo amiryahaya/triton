@@ -317,4 +317,14 @@ var migrations = []string{
  ADD COLUMN IF NOT EXISTS mac_address TEXT NOT NULL DEFAULT '';
 ALTER TABLE manage_discovery_candidates
  ADD COLUMN IF NOT EXISTS mdns_name TEXT NOT NULL DEFAULT '';`,
+
+	// Version 14: Port survey job type + deferred scheduling.
+	// job_type discriminates filesystem scans (default, backward-compat)
+	// from port_survey scans. scheduled_at, when set, defers claiming
+	// until that timestamp is reached.
+	`ALTER TABLE manage_scan_jobs
+	 ADD COLUMN IF NOT EXISTS job_type TEXT NOT NULL DEFAULT 'filesystem'
+	 CHECK (job_type IN ('filesystem','port_survey'));
+ALTER TABLE manage_scan_jobs
+	 ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;`,
 }

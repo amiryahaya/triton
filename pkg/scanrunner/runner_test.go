@@ -107,6 +107,24 @@ func TestRunOne_JobGone_ExitsClean(t *testing.T) {
 	}
 }
 
+func TestRunOne_TargetHasCredentialField(t *testing.T) {
+	target := scanrunner.Target{
+		IP:      "10.0.0.1",
+		Profile: "standard",
+		Credential: &scanrunner.CredentialSecret{
+			Username: "ubuntu",
+			Password: "pw",
+		},
+		AccessPort: 22,
+	}
+	if target.Credential == nil {
+		t.Error("Credential field is nil")
+	}
+	if target.AccessPort != 22 {
+		t.Errorf("AccessPort: got %d, want 22", target.AccessPort)
+	}
+}
+
 func TestRunOne_ScanError_CallsFail(t *testing.T) {
 	jobID, hostID := uuid.New(), uuid.New()
 	var failCalled bool

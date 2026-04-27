@@ -17,10 +17,12 @@ type Scanner interface {
 // Target describes a single host to scan.
 type Target struct {
 	IP           string
-	Profile      string       // "quick" | "standard" | "comprehensive"
-	RateLimit    int          // max new TCP connections/sec; 0 = profile default
-	PortOverride []uint16     // non-nil overrides profile port list; nil = profile default
-	Credentials  *Credentials // nil for port survey; non-nil for SSH agentless
+	Profile      string            // "quick" | "standard" | "comprehensive"
+	RateLimit    int               // max new TCP connections/sec; 0 = profile default
+	PortOverride []uint16          // non-nil overrides profile port list; nil = profile default
+	Credentials  *Credentials      // nil for port survey; non-nil for SSH agentless
+	Credential   *CredentialSecret // Vault-backed credential for port survey; nil = unauthenticated
+	AccessPort   int               // SSH/WinRM port; 0 means unset/default
 }
 
 // Credentials holds optional SSH/auth material for agentless scan types.

@@ -81,8 +81,12 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, report *
 		hostname = host.IP
 	}
 	result := ToScanResult(hostname, host.IP, claim.Profile, findings)
-	if err := report.Submit(ctx, result); err != nil {
-		return fail(fmt.Errorf("runner: submit %s: %w", jobID, err))
+	if report != nil {
+		if err := report.Submit(ctx, result); err != nil {
+			return fail(fmt.Errorf("runner: submit %s: %w", jobID, err))
+		}
+	} else {
+		log.Printf("runner: no report client configured — skipping submission for job %s", jobID)
 	}
 
 	// Step 6: Mark complete (best-effort — result already submitted).

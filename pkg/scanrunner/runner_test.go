@@ -50,7 +50,7 @@ func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, submittedPtr, fail
 			if submittedPtr != nil {
 				*submittedPtr = true
 			}
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/fail":
 			if failPtr != nil {
 				*failPtr = true
@@ -85,7 +85,7 @@ func TestRunOne_Success(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/submit":
 			submitted = true
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusAccepted)
 		default:
 			t.Errorf("unexpected manage request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

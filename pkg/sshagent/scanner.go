@@ -120,8 +120,7 @@ func runScanner(ctx context.Context, profile, hostname string, reader fsadapter.
 }
 
 // sshCommandExecutor implements fsadapter.CommandExecutor by opening a fresh
-// SSH session per command. It mirrors sshClientRunner in
-// pkg/engine/scanexec/executor.go.
+// SSH session per command.
 type sshCommandExecutor struct {
 	client  *ssh.Client
 	timeout time.Duration

@@ -145,15 +145,17 @@ func TestWorkerFail_OK(t *testing.T) {
 
 // stubResultEnqueuer implements WorkerResultEnqueuer for tests.
 type stubResultEnqueuer struct {
-	err      error
-	enqueued int
+	err        error
+	enqueued   int
+	sourceType string
 }
 
-func (s *stubResultEnqueuer) Enqueue(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID, _ *model.ScanResult) error {
+func (s *stubResultEnqueuer) Enqueue(_ context.Context, _ uuid.UUID, sourceType string, _ uuid.UUID, _ *model.ScanResult) error {
 	if s.err != nil {
 		return s.err
 	}
 	s.enqueued++
+	s.sourceType = sourceType
 	return nil
 }
 
@@ -164,15 +166,18 @@ func TestWorkerSubmit_OK(t *testing.T) {
 	h := scanjobs.NewWorkerHandlersWithEnqueuer(store, &stubHostsStore{}, enqueuer)
 	h.SetSourceID(uuid.New())
 
-	body := `{"id":"` + uuid.NewString() + `","metadata":{"hostname":"h1"}}`
+	body := `{"id":"` + uuid.NewString() + `","metadata":{"hostname":"h1","source":"triton-portscan"}}`
 	w, r := routedRequest(http.MethodPost, "/v1/worker/jobs/"+jobID.String()+"/submit", body, jobID)
 	h.Submit(w, r)
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status: got %d, want 204 — body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status: got %d, want 202 — body: %s", w.Code, w.Body.String())
 	}
 	if enqueuer.enqueued != 1 {
 		t.Errorf("enqueuer.enqueued: got %d, want 1", enqueuer.enqueued)
+	}
+	if enqueuer.sourceType != "triton-portscan" {
+		t.Errorf("sourceType: got %q, want triton-portscan", enqueuer.sourceType)
 	}
 }
 

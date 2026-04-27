@@ -153,7 +153,7 @@ func (c *ManageClient) SubmitResult(ctx context.Context, jobID uuid.UUID, result
 		return err
 	}
 	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("submit result: status %d", resp.StatusCode)
 	}
 	return nil

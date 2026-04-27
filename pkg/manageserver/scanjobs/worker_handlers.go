@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync/atomic"
 
@@ -250,21 +251,24 @@ func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.enqueuer.Enqueue(r.Context(), id, "portscan", h.getSourceID(), &result); err != nil {
+	sourceType := string(result.Metadata.Source)
+	if sourceType == "" {
+		sourceType = "worker"
+	}
+	if err := h.enqueuer.Enqueue(r.Context(), id, sourceType, h.getSourceID(), &result); err != nil {
 		http.Error(w, "enqueue result: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := h.store.Complete(r.Context(), id); err != nil {
-		// Enqueue succeeded — log the complete failure but still return 204
-		// so the worker exits cleanly. The drain will push the result; the
-		// job will remain in 'running' until the reaper reverts it, which
-		// is cosmetic at this point.
-		http.Error(w, "complete job: "+err.Error(), http.StatusInternalServerError)
-		return
+		// Enqueue succeeded — log the Complete failure but still return 202
+		// so the worker exits cleanly. The drain will deliver the result;
+		// the job row stays in 'running' until the stale-job reaper reverts
+		// it, which is cosmetic at this point.
+		log.Printf("manageserver/scanjobs: submit: complete job %s: %v", id, err)
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func parseJobID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

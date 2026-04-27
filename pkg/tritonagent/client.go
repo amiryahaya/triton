@@ -86,7 +86,7 @@ func (c *Client) PollCommand(ctx context.Context) (*AgentCommand, error) {
 		return nil, nil
 	case http.StatusOK:
 		var cmd AgentCommand
-		if err := json.NewDecoder(resp.Body).Decode(&cmd); err != nil {
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&cmd); err != nil {
 			return nil, err
 		}
 		return &cmd, nil
@@ -96,18 +96,11 @@ func (c *Client) PollCommand(ctx context.Context) (*AgentCommand, error) {
 	}
 }
 
-// SubmitScan calls POST /agents/scans with an envelope containing the job ID
-// and the scan result JSON.
-func (c *Client) SubmitScan(ctx context.Context, jobID string, scanResult []byte) error {
-	type envelope struct {
-		JobID      string          `json:"job_id,omitempty"`
-		ScanResult json.RawMessage `json:"scan_result"`
-	}
-	raw, err := json.Marshal(envelope{JobID: jobID, ScanResult: json.RawMessage(scanResult)})
-	if err != nil {
-		return fmt.Errorf("marshal scan envelope: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", c.ManageURL+"/agents/scans", bytes.NewReader(raw))
+// SubmitScan calls POST /agents/scans with the scan result JSON directly.
+// The already-marshaled scanResult bytes are posted as-is; IngestScan decodes
+// them as a flat model.ScanResult.
+func (c *Client) SubmitScan(ctx context.Context, _ string, scanResult []byte) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.ManageURL+"/agents/scans", bytes.NewReader(scanResult))
 	if err != nil {
 		return err
 	}
@@ -117,7 +110,7 @@ func (c *Client) SubmitScan(ctx context.Context, jobID string, scanResult []byte
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("submit scan: HTTP %d", resp.StatusCode)
 	}
@@ -145,7 +138,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
 	}

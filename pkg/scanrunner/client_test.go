@@ -136,7 +136,7 @@ func TestManageClient_SubmitResult(t *testing.T) {
 			t.Errorf("X-Worker-Key: got %q, want wk-secret", got)
 		}
 		submitted = true
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer srv.Close()
 

@@ -4,6 +4,15 @@ import (
 	"time"
 )
 
+// ScanSource identifies which program produced a ScanResult.
+type ScanSource string
+
+const (
+	ScanSourceAgent    ScanSource = "triton-agent"
+	ScanSourcePortscan ScanSource = "triton-portscan"
+	ScanSourceSSHAgent ScanSource = "triton-sshagent"
+)
+
 // ModuleCategory classifies scanner modules by their scanning approach.
 type ModuleCategory int
 
@@ -141,6 +150,7 @@ type ScanMetadata struct {
 	IncrementalMode    bool           `json:"incrementalMode,omitempty"`
 	FilesSkipped       int64          `json:"filesSkipped,omitempty"`
 	PolicyResult       string         `json:"policyResult,omitempty"`
+	Source             ScanSource     `json:"source,omitempty"`
 }
 
 // ModuleMetric captures per-module-target scan performance metrics.

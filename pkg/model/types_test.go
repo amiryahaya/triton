@@ -477,3 +477,15 @@ func TestCryptoAssetImageFieldsOmitEmpty(t *testing.T) {
 	assert.Contains(t, string(b), `"imageRef":"nginx:1.25"`)
 	assert.Contains(t, string(b), `"imageDigest":"sha256:abc"`)
 }
+
+func TestScanMetadata_SourceField(t *testing.T) {
+	m := ScanMetadata{Source: ScanSourceAgent}
+	b, err := json.Marshal(m)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"source":"triton-agent"`)
+
+	var m2 ScanMetadata
+	err = json.Unmarshal(b, &m2)
+	require.NoError(t, err)
+	assert.Equal(t, ScanSourceAgent, m2.Source)
+}

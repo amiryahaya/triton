@@ -36,7 +36,7 @@ func (s *FingerprintxScanner) Scan(ctx context.Context, target scanrunner.Target
 		targets[i] = plugins.Target{Address: netip.AddrPortFrom(addr, p)}
 	}
 
-	_, timeoutSec := profileParams(profile)
+	timeoutSec := profileParams(profile)
 	cfg := scan.Config{
 		DefaultTimeout: time.Duration(timeoutSec) * time.Second,
 		FastMode:       profile == scanjobs.ProfileQuick,
@@ -84,14 +84,14 @@ func effectivePorts(p scanjobs.Profile, override []uint16) []uint16 {
 	return Ports(p)
 }
 
-func profileParams(p scanjobs.Profile) (concurrency int, timeoutSec int) {
+func profileParams(p scanjobs.Profile) (timeoutSec int) {
 	switch p {
 	case scanjobs.ProfileComprehensive:
-		return 500, 5
+		return 5
 	case scanjobs.ProfileStandard:
-		return 200, 3
+		return 3
 	default:
-		return 50, 3
+		return 3
 	}
 }
 

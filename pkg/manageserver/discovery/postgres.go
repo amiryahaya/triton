@@ -226,7 +226,8 @@ func (s *PostgresStore) GetCandidates(ctx context.Context, tenantID uuid.UUID, i
 		return []Candidate{}, nil
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+candidateSelectCols+`
+		`SELECT c.id, c.job_id, c.ip, c.hostname, c.open_ports, c.os,
+		        c.mac_address, c.mdns_name, c.existing_host_id, c.created_at
 		 FROM manage_discovery_candidates c
 		 JOIN manage_discovery_jobs j ON j.id = c.job_id
 		 WHERE c.id = ANY($1) AND j.tenant_id = $2`,

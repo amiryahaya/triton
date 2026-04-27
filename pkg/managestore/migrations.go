@@ -333,4 +333,20 @@ ALTER TABLE manage_scan_jobs
 	// means "use the profile default port list".
 	`ALTER TABLE manage_scan_jobs
 	 ADD COLUMN IF NOT EXISTS port_override INTEGER[];`,
+
+	// Version 16: Host credentials vault — manage_credentials table + credential columns on hosts.
+	`CREATE TABLE IF NOT EXISTS manage_credentials (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID        NOT NULL,
+    name        TEXT        NOT NULL,
+    auth_type   TEXT        NOT NULL CHECK (auth_type IN ('ssh-key', 'ssh-password', 'winrm-password')),
+    vault_path  TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (tenant_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_manage_credentials_tenant ON manage_credentials(tenant_id);
+
+ALTER TABLE manage_hosts
+  ADD COLUMN IF NOT EXISTS credentials_ref UUID REFERENCES manage_credentials(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS access_port     INT  NOT NULL DEFAULT 22;`,
 }

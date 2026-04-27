@@ -180,6 +180,9 @@ func (s *PostgresStore) EnqueuePortSurvey(ctx context.Context, req PortSurveyEnq
 			req.TenantID, hid, string(req.Profile), req.ScheduledAt, portOverride,
 		)
 		j, err := scanJob(row)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("insert port survey job for host %s: %w", hid, ErrNotFound)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("insert port survey job for host %s: %w", hid, err)
 		}

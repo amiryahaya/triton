@@ -129,6 +129,10 @@ func TestEnqueuePortSurvey_InheritsCredentialsRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert host: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM manage_hosts WHERE id = $1", hostID)
+		pool.Exec(context.Background(), "DELETE FROM manage_credentials WHERE id = $1", credID)
+	})
 
 	store := scanjobs.NewPostgresStore(pool)
 	jobs, err := store.EnqueuePortSurvey(ctx, scanjobs.PortSurveyEnqueueReq{
@@ -144,6 +148,16 @@ func TestEnqueuePortSurvey_InheritsCredentialsRef(t *testing.T) {
 	}
 	if jobs[0].CredentialsRef == nil || *jobs[0].CredentialsRef != credID {
 		t.Errorf("credentials_ref: got %v want %v", jobs[0].CredentialsRef, credID)
+	}
+
+	// missing host returns ErrNotFound
+	_, err = store.EnqueuePortSurvey(ctx, scanjobs.PortSurveyEnqueueReq{
+		TenantID: tenantID,
+		HostIDs:  []uuid.UUID{uuid.New()},
+		Profile:  scanjobs.ProfileStandard,
+	})
+	if !errors.Is(err, scanjobs.ErrNotFound) {
+		t.Errorf("missing host: expected ErrNotFound, got %v", err)
 	}
 }
 

@@ -2,8 +2,11 @@
 package scanjobs
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -30,10 +33,12 @@ func NewWorkerHandlers(store Store) *WorkerHandlers {
 }
 
 // WorkerKeyAuth is middleware that validates the X-Worker-Key header.
+// Uses constant-time comparison to resist timing attacks.
 func WorkerKeyAuth(key string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("X-Worker-Key") != key {
+			got := r.Header.Get("X-Worker-Key")
+			if subtle.ConstantTimeCompare([]byte(got), []byte(key)) != 1 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -48,7 +53,8 @@ func (h *WorkerHandlers) Claim(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	workerID := r.Header.Get("X-Worker-Key")
+	sum := sha256.Sum256([]byte(r.Header.Get("X-Worker-Key")))
+	workerID := fmt.Sprintf("worker-%x", sum[:8])
 	job, err := h.store.ClaimByID(r.Context(), id, workerID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -63,7 +69,7 @@ func (h *WorkerHandlers) Claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ClaimWorkerResp{ //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(ClaimWorkerResp{
 		JobID:          job.ID,
 		HostID:         job.HostID,
 		Profile:        string(job.Profile),

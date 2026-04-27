@@ -72,7 +72,9 @@ func TestWorkerClaim_OK(t *testing.T) {
 		t.Fatalf("status: got %d, want 200", w.Code)
 	}
 	var resp scanjobs.ClaimWorkerResp
-	json.NewDecoder(w.Body).Decode(&resp)
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if resp.HostID != hostID {
 		t.Errorf("host_id mismatch")
 	}

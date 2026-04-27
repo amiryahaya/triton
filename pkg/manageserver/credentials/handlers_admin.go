@@ -13,20 +13,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
+	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 )
 
-// tenantKey is the credentials-package context key for tenant UUID.
-// It is intentionally isolated from other packages to avoid collisions.
-type tenantKey struct{}
-
-// WithTenantID injects a tenant UUID into the context. Used by tests and middleware.
+// WithTenantID injects a tenant UUID into the context. Used only by tests.
+// Production code path goes through injectInstanceOrg middleware.
 func WithTenantID(ctx context.Context, id uuid.UUID) context.Context {
-	return context.WithValue(ctx, tenantKey{}, id)
-}
-
-func tenantFromCtx(ctx context.Context) (uuid.UUID, bool) {
-	id, ok := ctx.Value(tenantKey{}).(uuid.UUID)
-	return id, ok
+	return orgctx.WithInstanceID(ctx, id)
 }
 
 // WithURLParam injects a chi URL param into the request context. Used by tests.
@@ -124,7 +117,7 @@ func (req createReq) toPayload() SecretPayload {
 
 // List returns all credentials for the current tenant.
 func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenantFromCtx(r.Context())
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
 	if !ok {
 		writeErr(w, http.StatusServiceUnavailable, "tenant not set")
 		return
@@ -153,7 +146,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	tenantID, ok := tenantFromCtx(r.Context())
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
 	if !ok {
 		writeErr(w, http.StatusServiceUnavailable, "tenant not set")
 		return

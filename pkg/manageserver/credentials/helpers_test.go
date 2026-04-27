@@ -21,7 +21,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dbURL := os.Getenv("TRITON_TEST_DB_URL")
 	if dbURL == "" {
-		dbURL = "postgres://triton:triton@localhost:5434/triton_test?sslmode=disable"
+		dbURL = "postgres://triton:triton@localhost:5435/triton_test?sslmode=disable"
 	}
 	schema := fmt.Sprintf("test_credentials_%d", testSchemaSeq.Add(1))
 

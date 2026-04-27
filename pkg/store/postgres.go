@@ -261,12 +261,12 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 
 	_, err = s.pool.Exec(ctx,
 		`INSERT INTO scans
-		 (id, hostname, timestamp, profile, total_findings, safe, transitional, deprecated, unsafe, result_json, org_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 (id, hostname, timestamp, profile, total_findings, safe, transitional, deprecated, unsafe, result_json, org_id, scan_source)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 ON CONFLICT (id) DO UPDATE SET
 		   hostname = $2, timestamp = $3, profile = $4,
 		   total_findings = $5, safe = $6, transitional = $7,
-		   deprecated = $8, unsafe = $9, result_json = $10, org_id = $11`,
+		   deprecated = $8, unsafe = $9, result_json = $10, org_id = $11, scan_source = $12`,
 		result.ID,
 		result.Metadata.Hostname,
 		result.Metadata.Timestamp.UTC(),
@@ -278,6 +278,7 @@ func (s *PostgresStore) SaveScan(ctx context.Context, result *model.ScanResult) 
 		result.Summary.Unsafe,
 		blob,
 		orgID,
+		string(result.Metadata.Source),
 	)
 	if err != nil {
 		return fmt.Errorf("saving scan: %w", err)
@@ -324,7 +325,7 @@ func (s *PostgresStore) GetScan(ctx context.Context, id, orgID string) (*model.S
 
 // ListScans returns scan summaries matching the given filter.
 func (s *PostgresStore) ListScans(ctx context.Context, filter ScanFilter) ([]ScanSummary, error) {
-	query := `SELECT id, hostname, timestamp, profile,
+	query := `SELECT id, hostname, timestamp, profile, scan_source,
 	                 total_findings, safe, transitional, deprecated, unsafe
 	          FROM scans WHERE 1=1`
 	var args []any
@@ -344,6 +345,11 @@ func (s *PostgresStore) ListScans(ctx context.Context, filter ScanFilter) ([]Sca
 		paramIdx++
 		query += fmt.Sprintf(" AND profile = $%d", paramIdx)
 		args = append(args, filter.Profile)
+	}
+	if filter.Source != "" {
+		paramIdx++
+		query += fmt.Sprintf(" AND LOWER(scan_source) = LOWER($%d)", paramIdx)
+		args = append(args, filter.Source)
 	}
 	if filter.After != nil {
 		paramIdx++
@@ -373,11 +379,13 @@ func (s *PostgresStore) ListScans(ctx context.Context, filter ScanFilter) ([]Sca
 	summaries := make([]ScanSummary, 0)
 	for rows.Next() {
 		var ss ScanSummary
-		if err := rows.Scan(&ss.ID, &ss.Hostname, &ss.Timestamp, &ss.Profile,
+		var src string
+		if err := rows.Scan(&ss.ID, &ss.Hostname, &ss.Timestamp, &ss.Profile, &src,
 			&ss.TotalFindings, &ss.Safe, &ss.Transitional, &ss.Deprecated, &ss.Unsafe,
 		); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
+		ss.Source = model.ScanSource(src)
 		summaries = append(summaries, ss)
 	}
 	return summaries, rows.Err()

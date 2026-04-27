@@ -259,21 +259,23 @@ type ScanFilter struct {
 	After    *time.Time
 	Before   *time.Time
 	Profile  string
+	Source   string // If non-empty, filter to scans with this scan_source value.
 	Limit    int
 	OrgID    string // Tenant isolation: if set, only return scans for this org.
 }
 
 // ScanSummary is a lightweight representation of a stored scan.
 type ScanSummary struct {
-	ID            string    `json:"id"`
-	Hostname      string    `json:"hostname"`
-	Timestamp     time.Time `json:"timestamp"`
-	Profile       string    `json:"profile"`
-	TotalFindings int       `json:"totalFindings"`
-	Safe          int       `json:"safe"`
-	Transitional  int       `json:"transitional"`
-	Deprecated    int       `json:"deprecated"`
-	Unsafe        int       `json:"unsafe"`
+	ID            string           `json:"id"`
+	Hostname      string           `json:"hostname"`
+	Timestamp     time.Time        `json:"timestamp"`
+	Profile       string           `json:"profile"`
+	Source        model.ScanSource `json:"source,omitempty"`
+	TotalFindings int              `json:"totalFindings"`
+	Safe          int              `json:"safe"`
+	Transitional  int              `json:"transitional"`
+	Deprecated    int              `json:"deprecated"`
+	Unsafe        int              `json:"unsafe"`
 }
 
 // TrendSummary describes an org-wide monthly-bucketed trend in

@@ -102,6 +102,7 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 	filter := store.ScanFilter{
 		Hostname: r.URL.Query().Get("hostname"),
 		Profile:  r.URL.Query().Get("profile"),
+		Source:   r.URL.Query().Get("source"),
 		OrgID:    TenantFromContext(r.Context()),
 	}
 

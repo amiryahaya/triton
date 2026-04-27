@@ -61,4 +61,19 @@ type Config struct {
 	// Controlled via TRITON_MANAGE_HOST_IP / TRITON_MANAGE_HOST_HOSTNAME.
 	HostIP       string
 	HostHostname string
+
+	// WorkerKey is the shared secret for X-Worker-Key authentication used by
+	// the port-survey binary to call back into the Manage Server Worker API.
+	// Leave empty to disable the Dispatcher and Worker API routes.
+	WorkerKey string
+
+	// PortscanBinary is the path to the triton-portscan binary spawned by the
+	// Dispatcher for each queued port_survey job. Empty defaults to
+	// "triton-portscan" (PATH lookup).
+	PortscanBinary string
+
+	// ManageURL is the base URL the Dispatcher passes to spawned subprocesses
+	// via --manage-url so they can call back into the Worker API. If empty,
+	// the Dispatcher uses http://localhost together with the Listen port.
+	ManageURL string
 }

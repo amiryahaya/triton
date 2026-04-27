@@ -34,6 +34,7 @@ type Store interface {
 	// ListCandidates returns all candidates for the job ordered by created_at.
 	ListCandidates(ctx context.Context, jobID uuid.UUID) ([]Candidate, error)
 
-	// GetCandidates fetches specific candidates by ID (for import validation).
-	GetCandidates(ctx context.Context, ids []uuid.UUID) ([]Candidate, error)
+	// GetCandidates fetches specific candidates by ID scoped to tenantID,
+	// joining through manage_discovery_jobs to prevent cross-tenant IDOR.
+	GetCandidates(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) ([]Candidate, error)
 }

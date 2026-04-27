@@ -94,7 +94,7 @@ func (f *fakeStore) ListCandidates(_ context.Context, _ uuid.UUID) ([]Candidate,
 	return f.candidates, nil
 }
 
-func (f *fakeStore) GetCandidates(_ context.Context, ids []uuid.UUID) ([]Candidate, error) {
+func (f *fakeStore) GetCandidates(_ context.Context, _ uuid.UUID, ids []uuid.UUID) ([]Candidate, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	idSet := make(map[uuid.UUID]bool, len(ids))

@@ -371,6 +371,7 @@ func (s *Server) RunOnListener(ctx context.Context, ln net.Listener) error {
 	// may race to read it while this goroutine sets it.
 	s.mu.Lock()
 	s.runCtx = ctx
+	s.discoveryAdmin.ServerCtx = ctx
 	s.mu.Unlock()
 
 	// Spawn the Batch E scanner pipeline before the HTTP listener comes

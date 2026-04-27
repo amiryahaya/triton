@@ -219,16 +219,18 @@ func (s *PostgresStore) ListCandidates(ctx context.Context, jobID uuid.UUID) ([]
 	return out, nil
 }
 
-// GetCandidates fetches specific candidates by ID (for import validation).
-func (s *PostgresStore) GetCandidates(ctx context.Context, ids []uuid.UUID) ([]Candidate, error) {
+// GetCandidates fetches specific candidates by ID scoped to tenantID,
+// joining through manage_discovery_jobs to prevent cross-tenant IDOR.
+func (s *PostgresStore) GetCandidates(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) ([]Candidate, error) {
 	if len(ids) == 0 {
 		return []Candidate{}, nil
 	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+candidateSelectCols+`
-		 FROM manage_discovery_candidates
-		 WHERE id = ANY($1)`,
-		ids,
+		 FROM manage_discovery_candidates c
+		 JOIN manage_discovery_jobs j ON j.id = c.job_id
+		 WHERE c.id = ANY($1) AND j.tenant_id = $2`,
+		ids, tenantID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("discovery: get candidates: %w", err)

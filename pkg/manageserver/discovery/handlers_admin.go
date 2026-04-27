@@ -52,6 +52,10 @@ type AdminHandlers struct {
 	hostsStore    hosts.Store
 	worker        WorkerRunner
 	GuardProvider func() HostCapGuard
+	// ServerCtx is set by the server after construction to the server
+	// lifecycle context. Background worker goroutines use this so they
+	// respect server shutdown. Defaults to context.Background().
+	ServerCtx context.Context
 }
 
 // NewAdminHandlers wires an AdminHandlers with the given Store,
@@ -62,6 +66,7 @@ func NewAdminHandlers(store Store, hostsStore hosts.Store, worker WorkerRunner, 
 		hostsStore:    hostsStore,
 		worker:        worker,
 		GuardProvider: gp,
+		ServerCtx:     context.Background(),
 	}
 }
 
@@ -141,8 +146,9 @@ func (h *AdminHandlers) HandleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Launch worker in background.
-	go h.worker.Run(context.Background(), job)
+	// Launch worker in background using the server lifecycle context so the
+	// worker respects server shutdown rather than running until scan completion.
+	go h.worker.Run(h.ServerCtx, job)
 
 	writeJSON(w, http.StatusCreated, job)
 }
@@ -231,12 +237,6 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "instance not initialised")
 		return
 	}
-	// tenantID is validated (503 if missing) but not threaded into GetCandidates
-	// because manage_discovery_candidates UUIDs are globally unique. In a
-	// multi-tenant scenario, GetCandidates should accept tenantID and join
-	// through manage_discovery_jobs to enforce isolation.
-	_ = tenantID
-
 	// Build a lookup map from the request body.
 	importByID := make(map[uuid.UUID]ImportItem, len(body.Candidates))
 	ids := make([]uuid.UUID, 0, len(body.Candidates))
@@ -245,8 +245,8 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, item.ID)
 	}
 
-	// Fetch candidate rows from the store.
-	rows, err := h.store.GetCandidates(r.Context(), ids)
+	// Fetch candidate rows scoped to this tenant to prevent cross-tenant IDOR.
+	rows, err := h.store.GetCandidates(r.Context(), tenantID, ids)
 	if err != nil {
 		internalErr(w, r, err, "get candidates")
 		return

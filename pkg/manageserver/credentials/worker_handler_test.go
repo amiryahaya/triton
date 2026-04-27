@@ -2,6 +2,7 @@ package credentials_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -47,5 +48,24 @@ func TestWorkerHandler_GetSecret_NotFound(t *testing.T) {
 	h.GetSecret(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("not found: status %d want 404", w.Code)
+	}
+}
+
+func TestWorkerHandler_GetSecret_VaultUnavailable(t *testing.T) {
+	store := newStubStore()
+	id := uuid.New()
+	store.items[id] = credentials.Credential{
+		ID:        id,
+		VaultPath: "secret/data/triton/t/c",
+	}
+	vault := &stubReader{err: errors.New("vault connection refused")}
+	h := credentials.NewWorkerHandler(store, vault)
+
+	r := httptest.NewRequest(http.MethodGet, "/"+id.String(), nil)
+	r = credentials.WithURLParam(r, "id", id.String())
+	w := httptest.NewRecorder()
+	h.GetSecret(w, r)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("vault failure: status %d want %d", w.Code, http.StatusBadGateway)
 	}
 }

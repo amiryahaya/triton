@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -261,6 +262,40 @@ func (h *AdminHandlers) Revoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// DispatchCommand handles POST /admin/agents/{id}/commands. It queues a
+// pending scan command for the identified agent. An existing pending
+// command is overwritten (last-writer wins). The agent picks the command
+// up on its next GET /agents/commands poll.
+//
+// Body: {"scan_profile":"<profile>","job_id":"<optional>"}
+// Returns 202 Accepted on success, 400 on bad JSON or missing profile,
+// 404 when the agent does not exist.
+func (h *AdminHandlers) DispatchCommand(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid agent id")
+		return
+	}
+	var cmd AgentCommand
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&cmd); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if cmd.ScanProfile == "" {
+		writeErr(w, http.StatusBadRequest, "scan_profile is required")
+		return
+	}
+	if err := h.AgentStore.SetCommand(r.Context(), id, &cmd); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		internalErr(w, r, err, "dispatch command")
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // parseLeafMetadata extracts the serial (as base-16 string) + NotAfter

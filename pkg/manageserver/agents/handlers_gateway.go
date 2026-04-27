@@ -52,7 +52,7 @@ func NewGatewayHandlers(caStore ca.Store, agentStore Store, resultsStore ResultE
 	}
 }
 
-// MountGatewayRoutes wires the four agent gateway endpoints onto r.
+// MountGatewayRoutes wires the agent gateway endpoints onto r.
 // Callers must mount this under a subtree that's already wrapped by
 // MTLSCNAuth — the handlers call CNFromContext on every request.
 func MountGatewayRoutes(r chi.Router, h *GatewayHandlers) {
@@ -60,6 +60,7 @@ func MountGatewayRoutes(r chi.Router, h *GatewayHandlers) {
 	r.Post("/agents/scans", h.IngestScan)
 	r.Post("/agents/findings", h.IngestFindings)
 	r.Post("/agents/rotate-cert", h.RotateCert)
+	r.Get("/agents/commands", h.PollCommand)
 }
 
 // agentIDFromCN strips the "agent:" prefix and parses the remainder as
@@ -146,6 +147,34 @@ func (h *GatewayHandlers) IngestFindings(w http.ResponseWriter, r *http.Request)
 	// close that upsets HTTP/1.1 keep-alive.
 	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxGatewayBody))
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// PollCommand handles GET /agents/commands. The calling agent polls for
+// a pending scan command. If one is queued the handler atomically pops
+// it and returns 200+JSON. If none is pending it returns 204 No Content.
+// The pop is atomic: a second call on the same agent immediately after
+// will always return 204, even under concurrent polling.
+func (h *GatewayHandlers) PollCommand(w http.ResponseWriter, r *http.Request) {
+	agentID, err := agentIDFromCN(r.Context())
+	if err != nil {
+		http.Error(w, "bad cn", http.StatusUnauthorized)
+		return
+	}
+	cmd, err := h.AgentStore.PopCommand(r.Context(), agentID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "unknown agent", http.StatusUnauthorized)
+			return
+		}
+		log.Printf("manageserver/agents: poll-command: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if cmd == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, cmd)
 }
 
 // RotateCert mints a new leaf for the calling agent and returns the

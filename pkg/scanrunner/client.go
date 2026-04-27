@@ -19,7 +19,7 @@ import (
 // The caller should exit 0 — both are clean conditions.
 var ErrJobGone = errors.New("scanrunner: job not found or already claimed")
 
-// ClaimResp is the JSON body returned by POST /v1/worker/jobs/{id}/claim.
+// ClaimResp is the JSON body returned by POST /api/v1/worker/jobs/{id}/claim.
 type ClaimResp struct {
 	JobID          uuid.UUID  `json:"job_id"`
 	HostID         uuid.UUID  `json:"host_id"`
@@ -28,7 +28,7 @@ type ClaimResp struct {
 	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
 }
 
-// HostInfo holds the fields RunOne needs from GET /v1/admin/hosts/{id}.
+// HostInfo holds the fields RunOne needs from GET /api/v1/worker/hosts/{id}.
 type HostInfo struct {
 	ID       uuid.UUID `json:"id"`
 	Hostname string    `json:"hostname"`
@@ -73,7 +73,7 @@ func (c *ManageClient) req(ctx context.Context, method, path string, body any) (
 
 // Claim claims the job. Returns ErrJobGone on 404 or 409.
 func (c *ManageClient) Claim(ctx context.Context, jobID uuid.UUID) (ClaimResp, error) {
-	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/v1/worker/jobs/%s/claim", jobID), nil)
+	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/api/v1/worker/jobs/%s/claim", jobID), nil)
 	if err != nil {
 		return ClaimResp{}, err
 	}
@@ -90,7 +90,7 @@ func (c *ManageClient) Claim(ctx context.Context, jobID uuid.UUID) (ClaimResp, e
 
 // Heartbeat renews running_heartbeat_at.
 func (c *ManageClient) Heartbeat(ctx context.Context, jobID uuid.UUID) error {
-	resp, err := c.req(ctx, http.MethodPatch, fmt.Sprintf("/v1/worker/jobs/%s/heartbeat", jobID), nil)
+	resp, err := c.req(ctx, http.MethodPatch, fmt.Sprintf("/api/v1/worker/jobs/%s/heartbeat", jobID), nil)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (c *ManageClient) Heartbeat(ctx context.Context, jobID uuid.UUID) error {
 
 // Complete marks the job completed.
 func (c *ManageClient) Complete(ctx context.Context, jobID uuid.UUID) error {
-	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/v1/worker/jobs/%s/complete", jobID), nil)
+	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/api/v1/worker/jobs/%s/complete", jobID), nil)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (c *ManageClient) Complete(ctx context.Context, jobID uuid.UUID) error {
 
 // Fail marks the job failed with an error message.
 func (c *ManageClient) Fail(ctx context.Context, jobID uuid.UUID, errMsg string) error {
-	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/v1/worker/jobs/%s/fail", jobID),
+	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/api/v1/worker/jobs/%s/fail", jobID),
 		map[string]string{"error": errMsg})
 	if err != nil {
 		return err
@@ -130,7 +130,7 @@ func (c *ManageClient) Fail(ctx context.Context, jobID uuid.UUID, errMsg string)
 
 // GetHost fetches host info by ID (uses X-Worker-Key for auth).
 func (c *ManageClient) GetHost(ctx context.Context, hostID uuid.UUID) (HostInfo, error) {
-	resp, err := c.req(ctx, http.MethodGet, fmt.Sprintf("/v1/admin/hosts/%s", hostID), nil)
+	resp, err := c.req(ctx, http.MethodGet, fmt.Sprintf("/api/v1/worker/hosts/%s", hostID), nil)
 	if err != nil {
 		return HostInfo{}, err
 	}

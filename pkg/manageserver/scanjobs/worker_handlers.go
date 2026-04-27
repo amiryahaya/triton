@@ -2,6 +2,7 @@
 package scanjobs
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -13,6 +14,20 @@ import (
 	"github.com/google/uuid"
 )
 
+// HostsStore is the subset of hosts.Store that WorkerHandlers needs for
+// the GET /api/v1/worker/hosts/{id} endpoint. Using a local interface
+// avoids a circular import between the scanjobs and hosts packages.
+type HostsStore interface {
+	GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, err error)
+}
+
+// WorkerHostResp is returned by GET /api/v1/worker/hosts/{id}.
+type WorkerHostResp struct {
+	ID       uuid.UUID `json:"id"`
+	Hostname string    `json:"hostname"`
+	IP       string    `json:"ip"`
+}
+
 // ClaimWorkerResp is the JSON body returned by the claim endpoint.
 type ClaimWorkerResp struct {
 	JobID          uuid.UUID  `json:"job_id"`
@@ -22,14 +37,15 @@ type ClaimWorkerResp struct {
 	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
 }
 
-// WorkerHandlers serves the /v1/worker/ route group.
+// WorkerHandlers serves the /api/v1/worker/ route group.
 type WorkerHandlers struct {
-	store Store
+	store      Store
+	hostsStore HostsStore
 }
 
 // NewWorkerHandlers constructs WorkerHandlers.
-func NewWorkerHandlers(store Store) *WorkerHandlers {
-	return &WorkerHandlers{store: store}
+func NewWorkerHandlers(store Store, hostsStore HostsStore) *WorkerHandlers {
+	return &WorkerHandlers{store: store, hostsStore: hostsStore}
 }
 
 // WorkerKeyAuth is middleware that validates the X-Worker-Key header.
@@ -128,6 +144,29 @@ func (h *WorkerHandlers) Fail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetHost handles GET /api/v1/worker/hosts/{id}.
+// Returns the hostname and IP for a host so the scanner subprocess can
+// resolve its target without a JWT-authenticated admin API call.
+func (h *WorkerHandlers) GetHost(w http.ResponseWriter, r *http.Request) {
+	raw := chi.URLParam(r, "id")
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		http.Error(w, "invalid host id", http.StatusBadRequest)
+		return
+	}
+	hostname, ip, err := h.hostsStore.GetHostBasic(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(WorkerHostResp{ID: id, Hostname: hostname, IP: ip})
 }
 
 func parseJobID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

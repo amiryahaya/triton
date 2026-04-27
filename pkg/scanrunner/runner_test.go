@@ -34,24 +34,24 @@ func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, completedPtr, fail
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/worker/jobs/"+jobID.String()+"/claim":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/claim":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(scanrunner.ClaimResp{
 				JobID: jobID, HostID: hostID, Profile: "standard",
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/admin/hosts/"+hostID.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/worker/hosts/"+hostID.String():
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(scanrunner.HostInfo{
 				ID: hostID, Hostname: "host1", IP: "192.168.1.50",
 			})
 		case r.Method == http.MethodPatch:
 			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/worker/jobs/"+jobID.String()+"/complete":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/complete":
 			if completedPtr != nil {
 				*completedPtr = true
 			}
 			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/worker/jobs/"+jobID.String()+"/fail":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/fail":
 			if failPtr != nil {
 				*failPtr = true
 			} else {
@@ -113,13 +113,13 @@ func TestRunOne_ScanError_CallsFail(t *testing.T) {
 
 	manageSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/worker/jobs/"+jobID.String()+"/claim":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/claim":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(scanrunner.ClaimResp{JobID: jobID, HostID: hostID, Profile: "quick"})
 		case r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(scanrunner.HostInfo{ID: hostID, IP: "10.0.0.1"})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/worker/jobs/"+jobID.String()+"/fail":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/fail":
 			failCalled = true
 			w.WriteHeader(http.StatusNoContent)
 		default:

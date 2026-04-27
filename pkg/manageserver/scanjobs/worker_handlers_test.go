@@ -26,6 +26,17 @@ type stubWorkerStore struct {
 	failErr      error
 }
 
+// stubHostsStore implements scanjobs.HostsStore for tests.
+type stubHostsStore struct {
+	hostname string
+	ip       string
+	err      error
+}
+
+func (s *stubHostsStore) GetHostBasic(_ context.Context, _ uuid.UUID) (string, string, error) {
+	return s.hostname, s.ip, s.err
+}
+
 func (s *stubWorkerStore) ClaimByID(_ context.Context, _ uuid.UUID, _ string) (scanjobs.Job, error) {
 	return s.claimResult, s.claimErr
 }
@@ -64,7 +75,7 @@ func TestWorkerClaim_OK(t *testing.T) {
 			Status: scanjobs.StatusRunning,
 		},
 	}
-	h := scanjobs.NewWorkerHandlers(store)
+	h := scanjobs.NewWorkerHandlers(store, &stubHostsStore{})
 	w, r := routedRequest(http.MethodPost, "/v1/worker/jobs/"+jobID.String()+"/claim", "", jobID)
 	h.Claim(w, r)
 
@@ -82,7 +93,7 @@ func TestWorkerClaim_OK(t *testing.T) {
 
 func TestWorkerClaim_AlreadyClaimed_Returns409(t *testing.T) {
 	store := &stubWorkerStore{claimErr: scanjobs.ErrAlreadyClaimed}
-	h := scanjobs.NewWorkerHandlers(store)
+	h := scanjobs.NewWorkerHandlers(store, &stubHostsStore{})
 	w, r := routedRequest(http.MethodPost, "/", "", uuid.New())
 	h.Claim(w, r)
 	if w.Code != http.StatusConflict {
@@ -92,7 +103,7 @@ func TestWorkerClaim_AlreadyClaimed_Returns409(t *testing.T) {
 
 func TestWorkerClaim_NotFound_Returns404(t *testing.T) {
 	store := &stubWorkerStore{claimErr: scanjobs.ErrNotFound}
-	h := scanjobs.NewWorkerHandlers(store)
+	h := scanjobs.NewWorkerHandlers(store, &stubHostsStore{})
 	w, r := routedRequest(http.MethodPost, "/", "", uuid.New())
 	h.Claim(w, r)
 	if w.Code != http.StatusNotFound {
@@ -102,7 +113,7 @@ func TestWorkerClaim_NotFound_Returns404(t *testing.T) {
 
 func TestWorkerHeartbeat_OK(t *testing.T) {
 	store := &stubWorkerStore{}
-	h := scanjobs.NewWorkerHandlers(store)
+	h := scanjobs.NewWorkerHandlers(store, &stubHostsStore{})
 	w, r := routedRequest(http.MethodPatch, "/", "", uuid.New())
 	h.Heartbeat(w, r)
 	if w.Code != http.StatusNoContent {
@@ -112,7 +123,7 @@ func TestWorkerHeartbeat_OK(t *testing.T) {
 
 func TestWorkerComplete_OK(t *testing.T) {
 	store := &stubWorkerStore{}
-	h := scanjobs.NewWorkerHandlers(store)
+	h := scanjobs.NewWorkerHandlers(store, &stubHostsStore{})
 	w, r := routedRequest(http.MethodPost, "/", "", uuid.New())
 	h.Complete(w, r)
 	if w.Code != http.StatusNoContent {
@@ -122,7 +133,7 @@ func TestWorkerComplete_OK(t *testing.T) {
 
 func TestWorkerFail_OK(t *testing.T) {
 	store := &stubWorkerStore{}
-	h := scanjobs.NewWorkerHandlers(store)
+	h := scanjobs.NewWorkerHandlers(store, &stubHostsStore{})
 	w, r := routedRequest(http.MethodPost, "/", `{"error":"boom"}`, uuid.New())
 	h.Fail(w, r)
 	if w.Code != http.StatusNoContent {

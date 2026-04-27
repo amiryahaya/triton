@@ -338,7 +338,7 @@ func (s *Server) buildRouter() chi.Router {
 	// X-Worker-Key header on every route in this group, so triton-portscan
 	// subprocesses can call back without a user JWT.
 	if s.cfg.WorkerKey != "" {
-		workerHandlers := scanjobs.NewWorkerHandlers(s.scanjobsStore)
+		workerHandlers := scanjobs.NewWorkerHandlers(s.scanjobsStore, s.hostsStore)
 		r.Route("/api/v1/worker", func(r chi.Router) {
 			scanjobs.MountWorkerRoutes(r, workerHandlers, s.cfg.WorkerKey)
 		})
@@ -512,10 +512,12 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 			manageURL = "http://localhost" + s.cfg.Listen
 		}
 		disp := scanjobs.NewDispatcher(scanjobs.DispatcherConfig{
-			Store:      s.scanjobsStore,
-			BinaryPath: binaryPath,
-			ManageURL:  manageURL,
-			WorkerKey:  s.cfg.WorkerKey,
+			Store:        s.scanjobsStore,
+			BinaryPath:   binaryPath,
+			ManageURL:    manageURL,
+			WorkerKey:    s.cfg.WorkerKey,
+			ReportURL:    s.cfg.ReportServer,
+			LicenseToken: s.cfg.ReportLicenseToken,
 		})
 		wg.Add(1)
 		go func() {

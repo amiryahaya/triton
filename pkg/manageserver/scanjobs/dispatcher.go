@@ -33,6 +33,16 @@ type DispatcherConfig struct {
 	// WorkerKey is the X-Worker-Key secret, forwarded via --manage-key.
 	WorkerKey string
 
+	// ReportURL is the base URL of the Report Server. Forwarded to the
+	// spawned binary via --report-url so scan results can be submitted.
+	// Empty means the subprocess skips submission (results are discarded).
+	ReportURL string
+
+	// LicenseToken is the Triton licence token forwarded to subprocesses
+	// via the TRITON_LICENSE_TOKEN environment variable (not a CLI flag,
+	// to keep it out of ps aux). Empty means the subprocess uses no token.
+	LicenseToken string
+
 	// Concurrency is the maximum number of simultaneous subprocesses.
 	// 0 means "call ComputeCaps and use the result".
 	Concurrency int
@@ -147,16 +157,25 @@ func (d *Dispatcher) spawnOne(ctx context.Context, j Job) {
 		"--manage-url", d.cfg.ManageURL,
 		"--job-id", j.ID.String(),
 	}
+	if d.cfg.ReportURL != "" {
+		args = append(args, "--report-url", d.cfg.ReportURL)
+	}
 
 	// Use a background context for the command so we can send SIGTERM
 	// manually instead of having exec.CommandContext send SIGKILL immediately.
 	cmd := exec.Command(d.cfg.BinaryPath, args...) //nolint:gosec // path is operator-supplied config
-	// Pass the worker key via environment variable rather than a CLI flag to
-	// keep it out of the process argv (visible to all users via ps aux).
-	cmd.Env = append(os.Environ(), "TRITON_WORKER_KEY="+d.cfg.WorkerKey)
+	// Pass secrets via environment variables rather than CLI flags to
+	// keep them out of the process argv (visible to all users via ps aux).
+	cmd.Env = append(os.Environ(),
+		"TRITON_WORKER_KEY="+d.cfg.WorkerKey,
+		"TRITON_LICENSE_TOKEN="+d.cfg.LicenseToken,
+	)
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("dispatcher: start job %s: %v", j.ID, err)
+		if ferr := d.cfg.Store.Fail(context.Background(), j.ID, fmt.Sprintf("dispatcher: start binary: %v", err)); ferr != nil {
+			log.Printf("dispatcher: revert claim on start failure %s: %v", j.ID, ferr)
+		}
 		return
 	}
 

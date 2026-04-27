@@ -61,8 +61,8 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		INSERT INTO scans
 		  (id, hostname, timestamp, profile,
 		   total_findings, safe, transitional, deprecated, unsafe,
-		   result_json, org_id, findings_extracted_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		   result_json, org_id, findings_extracted_at, scan_source)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
 		ON CONFLICT (id) DO UPDATE SET
 		  hostname = EXCLUDED.hostname,
 		  timestamp = EXCLUDED.timestamp,
@@ -74,7 +74,8 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		  unsafe = EXCLUDED.unsafe,
 		  result_json = EXCLUDED.result_json,
 		  org_id = EXCLUDED.org_id,
-		  findings_extracted_at = EXCLUDED.findings_extracted_at
+		  findings_extracted_at = EXCLUDED.findings_extracted_at,
+		  scan_source = EXCLUDED.scan_source
 	`,
 		scan.ID,
 		scan.Metadata.Hostname,
@@ -87,6 +88,7 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		scan.Summary.Unsafe,
 		blob,
 		orgID,
+		string(scan.Metadata.Source),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert scan: %w", err)
@@ -170,8 +172,8 @@ func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.
 		  (id, hostname, timestamp, profile,
 		   total_findings, safe, transitional, deprecated, unsafe,
 		   result_json, org_id, findings_extracted_at,
-		   engine_id, scan_job_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13)
+		   engine_id, scan_job_id, scan_source)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14)
 		ON CONFLICT (id) DO UPDATE SET
 		  hostname = EXCLUDED.hostname,
 		  timestamp = EXCLUDED.timestamp,
@@ -185,7 +187,8 @@ func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.
 		  org_id = EXCLUDED.org_id,
 		  findings_extracted_at = EXCLUDED.findings_extracted_at,
 		  engine_id = EXCLUDED.engine_id,
-		  scan_job_id = EXCLUDED.scan_job_id
+		  scan_job_id = EXCLUDED.scan_job_id,
+		  scan_source = EXCLUDED.scan_source
 	`,
 		scan.ID,
 		scan.Metadata.Hostname,
@@ -200,6 +203,7 @@ func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.
 		orgID,
 		engineID,
 		scanJobID,
+		string(scan.Metadata.Source),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert scan: %w", err)

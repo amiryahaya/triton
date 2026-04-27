@@ -872,5 +872,6 @@ CREATE INDEX IF NOT EXISTS idx_tenant_licences_active
     WHERE status IN ('active', 'grace');`,
 
 	// v28 — add scan_source column for ?source filter on GET /api/v1/scans.
-	`ALTER TABLE scans ADD COLUMN IF NOT EXISTS scan_source TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE scans ADD COLUMN IF NOT EXISTS scan_source TEXT NOT NULL DEFAULT '';
+	CREATE INDEX IF NOT EXISTS idx_scans_source ON scans (LOWER(scan_source));`,
 }

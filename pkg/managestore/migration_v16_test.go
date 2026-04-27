@@ -33,17 +33,16 @@ func TestMigrationV16_CredentialsSchema(t *testing.T) {
 	assert.True(t, columnExists(t, s, "manage_hosts", "access_port"),
 		"manage_hosts must have access_port column after v16")
 
-	// access_port default must be 22
-	var colDefault string
+	// access_port default must be 22: insert a host row without specifying
+	// access_port and read the stored value back.
+	var accessPort int
 	err := s.QueryRowForTest(ctx, `
-		SELECT column_default
-		FROM information_schema.columns
-		WHERE table_schema = current_schema()
-		  AND table_name   = 'manage_hosts'
-		  AND column_name  = 'access_port'
-	`).Scan(&colDefault)
-	require.NoError(t, err, "access_port column must have a default")
-	assert.Equal(t, "22", colDefault, "access_port default must be 22")
+		INSERT INTO manage_hosts (ip)
+		VALUES ('192.0.2.1'::inet)
+		RETURNING access_port
+	`).Scan(&accessPort)
+	require.NoError(t, err, "insert without access_port must succeed")
+	assert.Equal(t, 22, accessPort, "access_port default must be 22")
 
 	// auth_type CHECK constraint: verify the valid values are accepted
 	// by attempting an INSERT with each valid auth_type.
@@ -52,8 +51,7 @@ func TestMigrationV16_CredentialsSchema(t *testing.T) {
 	for _, authType := range []string{"ssh-key", "ssh-password", "winrm-password"} {
 		_, err := s.ExecForTest(ctx,
 			`INSERT INTO manage_credentials (tenant_id, name, auth_type, vault_path)
-			 VALUES ($1::uuid, $2, $3, '/vault/test')
-			 ON CONFLICT (tenant_id, name) DO NOTHING`,
+			 VALUES ($1::uuid, $2, $3, '/vault/test')`,
 			tenantID, "cred-"+authType, authType)
 		assert.NoError(t, err, "auth_type %q should be accepted", authType)
 	}

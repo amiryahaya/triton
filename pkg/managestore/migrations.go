@@ -346,7 +346,20 @@ ALTER TABLE manage_scan_jobs
 );
 CREATE INDEX IF NOT EXISTS idx_manage_credentials_tenant ON manage_credentials(tenant_id);
 
+-- manage_credentials must exist (created above) before this FK reference is valid.
 ALTER TABLE manage_hosts
   ADD COLUMN IF NOT EXISTS credentials_ref UUID REFERENCES manage_credentials(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS access_port     INT  NOT NULL DEFAULT 22;`,
+  ADD COLUMN IF NOT EXISTS access_port     INT  NOT NULL DEFAULT 22;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'manage_scan_jobs_credentials_ref_fkey'
+  ) THEN
+    ALTER TABLE manage_scan_jobs
+      ADD CONSTRAINT manage_scan_jobs_credentials_ref_fkey
+      FOREIGN KEY (credentials_ref) REFERENCES manage_credentials(id) ON DELETE SET NULL;
+  END IF;
+END
+$$;`,
 }

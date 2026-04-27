@@ -196,9 +196,10 @@ func (h *AdminHandlers) EnqueuePortSurvey(w http.ResponseWriter, r *http.Request
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
 	var body struct {
-		HostIDs     []uuid.UUID `json:"host_ids"`
-		Profile     Profile     `json:"profile"`
-		ScheduledAt *time.Time  `json:"scheduled_at,omitempty"`
+		HostIDs      []uuid.UUID `json:"host_ids"`
+		Profile      Profile     `json:"profile"`
+		ScheduledAt  *time.Time  `json:"scheduled_at,omitempty"`
+		PortOverride []uint16    `json:"port_override,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -224,10 +225,11 @@ func (h *AdminHandlers) EnqueuePortSurvey(w http.ResponseWriter, r *http.Request
 	}
 
 	req := PortSurveyEnqueueReq{
-		TenantID:    tenantID,
-		HostIDs:     body.HostIDs,
-		Profile:     body.Profile,
-		ScheduledAt: body.ScheduledAt,
+		TenantID:     tenantID,
+		HostIDs:      body.HostIDs,
+		Profile:      body.Profile,
+		ScheduledAt:  body.ScheduledAt,
+		PortOverride: body.PortOverride,
 	}
 	jobs, err := h.Store.EnqueuePortSurvey(r.Context(), req)
 	if err != nil {

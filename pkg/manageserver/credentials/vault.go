@@ -115,8 +115,8 @@ func (c *VaultClient) authHeader() (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Only attempt renewal when AppRole is configured AND we have an expiry set
-	// AND the token is past that expiry.
-	if c.roleID != "" && !c.tokenExpiry.IsZero() && time.Now().After(c.tokenExpiry) {
+	// AND the token is within 60 seconds of expiry (renew proactively).
+	if c.roleID != "" && !c.tokenExpiry.IsZero() && time.Now().After(c.tokenExpiry.Add(-60*time.Second)) {
 		if err := c.loginLocked(); err != nil {
 			return "", fmt.Errorf("vault token renewal: %w", err)
 		}

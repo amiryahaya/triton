@@ -39,17 +39,16 @@ type VaultRW interface {
 type AdminHandlers struct {
 	store Store
 	vault VaultRW
-	mount string
 }
 
 // NewAdminHandlers constructs an AdminHandlers. vault may be nil when Vault is
 // not configured — Create will return 503 in that case.
-func NewAdminHandlers(store Store, vault VaultRW, mount string) *AdminHandlers {
-	return &AdminHandlers{store: store, vault: vault, mount: mount}
+func NewAdminHandlers(store Store, vault VaultRW) *AdminHandlers {
+	return &AdminHandlers{store: store, vault: vault}
 }
 
 func (h *AdminHandlers) vaultPath(tenantID, credID uuid.UUID) string {
-	return fmt.Sprintf("%s/data/triton/%s/credentials/%s", h.mount, tenantID, credID)
+	return fmt.Sprintf("triton/%s/credentials/%s", tenantID, credID)
 }
 
 type createReq struct {

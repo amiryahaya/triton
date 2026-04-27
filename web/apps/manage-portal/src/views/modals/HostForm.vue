@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { TModal, TFormField, TInput, TSelect, TButton } from '@triton/ui';
 import type { Host, Tag, CreateHostReq } from '@triton/api-client';
 import { useCredentialsStore } from '../../stores/credentials';
@@ -16,7 +16,6 @@ const emit = defineEmits<{
 }>();
 
 const credStore = useCredentialsStore();
-onMounted(() => credStore.fetch());
 
 const hostname = ref('');
 const ip = ref('');

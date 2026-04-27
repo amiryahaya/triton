@@ -205,7 +205,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		agentStore:      agentStore,
 		agentsGateway:   agentsGateway,
 		credStore:       credStore,
-		credAdmin:       credentials.NewAdminHandlers(credStore, vaultClient, vaultMount),
+		credAdmin:       credentials.NewAdminHandlers(credStore, vaultClient),
 		credWorker:      credentials.NewWorkerHandler(credStore, vaultClient),
 	}
 	// Guard providers close over srv so sub-handlers see the current

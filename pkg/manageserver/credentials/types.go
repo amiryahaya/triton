@@ -21,7 +21,7 @@ type Credential struct {
 	TenantID   uuid.UUID `json:"tenant_id"`
 	Name       string    `json:"name"`
 	AuthType   AuthType  `json:"auth_type"`
-	VaultPath  string    `json:"vault_path"`
+	VaultPath  string    `json:"-"`
 	InUseCount int       `json:"in_use_count"`
 	CreatedAt  time.Time `json:"created_at"`
 }

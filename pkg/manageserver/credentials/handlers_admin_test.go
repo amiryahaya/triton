@@ -73,7 +73,7 @@ func (v *stubVault) Delete(_ context.Context, path string) error {
 }
 
 func newHandlers(store credentials.Store, vault credentials.VaultRW) *credentials.AdminHandlers {
-	return credentials.NewAdminHandlers(store, vault, "secret")
+	return credentials.NewAdminHandlers(store, vault)
 }
 
 func jsonBody(t *testing.T, v any) *bytes.Buffer {
@@ -154,7 +154,7 @@ func TestAdminHandlers_Delete_InUse(t *testing.T) {
 }
 
 func TestAdminHandlers_Create_VaultNil_Returns503(t *testing.T) {
-	h := credentials.NewAdminHandlers(newStubStore(), nil, "secret")
+	h := credentials.NewAdminHandlers(newStubStore(), nil)
 	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, map[string]any{}))
 	r = r.WithContext(credentials.WithTenantID(r.Context(), uuid.New()))
 	w := httptest.NewRecorder()

@@ -124,25 +124,27 @@ func TestManageClient_GetHost(t *testing.T) {
 	}
 }
 
-func TestReportClient_Submit(t *testing.T) {
+func TestManageClient_SubmitResult(t *testing.T) {
+	jobID := uuid.New()
 	var submitted bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/scans" {
+		wantPath := "/api/v1/worker/jobs/" + jobID.String() + "/submit"
+		if r.Method != http.MethodPost || r.URL.Path != wantPath {
 			t.Errorf("unexpected: %s %s", r.Method, r.URL.Path)
 		}
-		if got := r.Header.Get("X-Triton-License-Token"); got != "my-token" {
-			t.Errorf("X-Triton-License-Token: got %q, want my-token", got)
+		if got := r.Header.Get("X-Worker-Key"); got != "wk-secret" {
+			t.Errorf("X-Worker-Key: got %q, want wk-secret", got)
 		}
 		submitted = true
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
-	c := scanrunner.NewReportClient(srv.URL, "my-token")
-	if err := c.Submit(context.Background(), &model.ScanResult{ID: uuid.NewString()}); err != nil {
-		t.Fatalf("Submit: %v", err)
+	c := scanrunner.NewManageClient(srv.URL, "wk-secret")
+	if err := c.SubmitResult(context.Background(), jobID, &model.ScanResult{ID: uuid.NewString()}); err != nil {
+		t.Fatalf("SubmitResult: %v", err)
 	}
 	if !submitted {
-		t.Error("report server was not called")
+		t.Error("manage server submit endpoint was not called")
 	}
 }

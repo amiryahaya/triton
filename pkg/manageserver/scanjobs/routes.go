@@ -34,7 +34,8 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 //
 //	POST   /jobs/{id}/claim     - claim a queued job → 200 ClaimWorkerResp | 404 | 409
 //	PATCH  /jobs/{id}/heartbeat - renew running_heartbeat_at → 204
-//	POST   /jobs/{id}/complete  - mark job completed → 204
+//	POST   /jobs/{id}/submit    - submit scan result + mark complete → 204
+//	POST   /jobs/{id}/complete  - mark job completed (no result) → 204
 //	POST   /jobs/{id}/fail      - mark job failed (body: {"error":"…"}) → 204
 //	GET    /hosts/{id}          - get host info for a job → 200 WorkerHostResp
 func MountWorkerRoutes(r chi.Router, h *WorkerHandlers, key string) {
@@ -42,6 +43,7 @@ func MountWorkerRoutes(r chi.Router, h *WorkerHandlers, key string) {
 		r.Use(WorkerKeyAuth(key))
 		r.Post("/jobs/{id}/claim", h.Claim)
 		r.Patch("/jobs/{id}/heartbeat", h.Heartbeat)
+		r.Post("/jobs/{id}/submit", h.Submit)
 		r.Post("/jobs/{id}/complete", h.Complete)
 		r.Post("/jobs/{id}/fail", h.Fail)
 		r.Get("/hosts/{id}", h.GetHost)

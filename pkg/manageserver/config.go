@@ -77,8 +77,4 @@ type Config struct {
 	// the Dispatcher uses http://localhost together with the Listen port.
 	ManageURL string
 
-	// ReportLicenseToken is the Triton licence token forwarded to port-survey
-	// subprocesses via TRITON_LICENSE_TOKEN so they can submit scan results
-	// to the Report Server. Leave empty to skip token forwarding.
-	ReportLicenseToken string
 }

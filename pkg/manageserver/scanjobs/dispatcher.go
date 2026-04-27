@@ -30,18 +30,10 @@ type DispatcherConfig struct {
 	// binary via --manage-url.
 	ManageURL string
 
-	// WorkerKey is the X-Worker-Key secret, forwarded via --manage-key.
+	// WorkerKey is the X-Worker-Key secret, forwarded via the
+	// TRITON_WORKER_KEY environment variable (not a CLI flag, to keep
+	// it out of ps aux).
 	WorkerKey string
-
-	// ReportURL is the base URL of the Report Server. Forwarded to the
-	// spawned binary via --report-url so scan results can be submitted.
-	// Empty means the subprocess skips submission (results are discarded).
-	ReportURL string
-
-	// LicenseToken is the Triton licence token forwarded to subprocesses
-	// via the TRITON_LICENSE_TOKEN environment variable (not a CLI flag,
-	// to keep it out of ps aux). Empty means the subprocess uses no token.
-	LicenseToken string
 
 	// Concurrency is the maximum number of simultaneous subprocesses.
 	// 0 means "call ComputeCaps and use the result".
@@ -157,9 +149,6 @@ func (d *Dispatcher) spawnOne(ctx context.Context, j Job) {
 		"--manage-url", d.cfg.ManageURL,
 		"--job-id", j.ID.String(),
 	}
-	if d.cfg.ReportURL != "" {
-		args = append(args, "--report-url", d.cfg.ReportURL)
-	}
 
 	// Use a background context for the command so we can send SIGTERM
 	// manually instead of having exec.CommandContext send SIGKILL immediately.
@@ -168,7 +157,6 @@ func (d *Dispatcher) spawnOne(ctx context.Context, j Job) {
 	// keep them out of the process argv (visible to all users via ps aux).
 	cmd.Env = append(os.Environ(),
 		"TRITON_WORKER_KEY="+d.cfg.WorkerKey,
-		"TRITON_LICENSE_TOKEN="+d.cfg.LicenseToken,
 	)
 
 	if err := cmd.Start(); err != nil {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // stubWorkerStore implements only the Store methods needed by WorkerHandlers.
@@ -138,6 +140,68 @@ func TestWorkerFail_OK(t *testing.T) {
 	h.Fail(w, r)
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status: got %d, want 204", w.Code)
+	}
+}
+
+// stubResultEnqueuer implements WorkerResultEnqueuer for tests.
+type stubResultEnqueuer struct {
+	err      error
+	enqueued int
+}
+
+func (s *stubResultEnqueuer) Enqueue(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID, _ *model.ScanResult) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.enqueued++
+	return nil
+}
+
+func TestWorkerSubmit_OK(t *testing.T) {
+	jobID := uuid.New()
+	store := &stubWorkerStore{}
+	enqueuer := &stubResultEnqueuer{}
+	h := scanjobs.NewWorkerHandlersWithEnqueuer(store, &stubHostsStore{}, enqueuer)
+	h.SetSourceID(uuid.New())
+
+	body := `{"id":"` + uuid.NewString() + `","metadata":{"hostname":"h1"}}`
+	w, r := routedRequest(http.MethodPost, "/v1/worker/jobs/"+jobID.String()+"/submit", body, jobID)
+	h.Submit(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status: got %d, want 204 — body: %s", w.Code, w.Body.String())
+	}
+	if enqueuer.enqueued != 1 {
+		t.Errorf("enqueuer.enqueued: got %d, want 1", enqueuer.enqueued)
+	}
+}
+
+func TestWorkerSubmit_NoEnqueuer_Returns501(t *testing.T) {
+	h := scanjobs.NewWorkerHandlers(&stubWorkerStore{}, &stubHostsStore{})
+	w, r := routedRequest(http.MethodPost, "/", `{}`, uuid.New())
+	h.Submit(w, r)
+	if w.Code != http.StatusNotImplemented {
+		t.Errorf("status: got %d, want 501", w.Code)
+	}
+}
+
+func TestWorkerSubmit_BadJSON_Returns400(t *testing.T) {
+	h := scanjobs.NewWorkerHandlersWithEnqueuer(&stubWorkerStore{}, &stubHostsStore{}, &stubResultEnqueuer{})
+	w, r := routedRequest(http.MethodPost, "/", `{not json`, uuid.New())
+	h.Submit(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want 400", w.Code)
+	}
+}
+
+func TestWorkerSubmit_EnqueueError_Returns500(t *testing.T) {
+	store := &stubWorkerStore{}
+	enqueuer := &stubResultEnqueuer{err: errors.New("db down")}
+	h := scanjobs.NewWorkerHandlersWithEnqueuer(store, &stubHostsStore{}, enqueuer)
+	w, r := routedRequest(http.MethodPost, "/", `{}`, uuid.New())
+	h.Submit(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status: got %d, want 500", w.Code)
 	}
 }
 

@@ -8,10 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
 // HostsStore is the subset of hosts.Store that WorkerHandlers needs for
@@ -37,15 +41,55 @@ type ClaimWorkerResp struct {
 	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
 }
 
+// WorkerResultEnqueuer is the subset of ResultEnqueuer that WorkerHandlers
+// needs for POST /worker/jobs/{id}/submit. Declared locally to avoid
+// a circular import between scanjobs and scanresults.
+type WorkerResultEnqueuer interface {
+	Enqueue(ctx context.Context, scanJobID uuid.UUID, sourceType string, sourceID uuid.UUID, scan *model.ScanResult) error
+}
+
 // WorkerHandlers serves the /api/v1/worker/ route group.
 type WorkerHandlers struct {
 	store      Store
 	hostsStore HostsStore
+	enqueuer   WorkerResultEnqueuer // may be nil; Submit returns 501 if not wired
+
+	// sourceID holds the Manage instance UUID stamped on every enqueued row.
+	// Stored as [16]byte in an atomic.Value so SetSourceID can be called
+	// from startScannerPipeline without a mutex. Workers are only dispatched
+	// after the pipeline starts, so Submit will always see a non-zero value.
+	sourceID atomic.Value // stores uuid.UUID
 }
 
-// NewWorkerHandlers constructs WorkerHandlers.
+// NewWorkerHandlers constructs WorkerHandlers without a result enqueuer.
+// Use NewWorkerHandlersWithEnqueuer when the submit endpoint is needed.
 func NewWorkerHandlers(store Store, hostsStore HostsStore) *WorkerHandlers {
 	return &WorkerHandlers{store: store, hostsStore: hostsStore}
+}
+
+// NewWorkerHandlersWithEnqueuer constructs WorkerHandlers with a result enqueuer
+// so that POST /worker/jobs/{id}/submit can relay results to the Report Server.
+func NewWorkerHandlersWithEnqueuer(store Store, hostsStore HostsStore, enqueuer WorkerResultEnqueuer) *WorkerHandlers {
+	return &WorkerHandlers{
+		store:      store,
+		hostsStore: hostsStore,
+		enqueuer:   enqueuer,
+	}
+}
+
+// SetSourceID updates the Manage instance ID stamped on enqueued scan results.
+// Called once from startScannerPipeline after instance_id is resolved.
+func (h *WorkerHandlers) SetSourceID(id uuid.UUID) {
+	h.sourceID.Store(id)
+}
+
+// getSourceID returns the current sourceID, or uuid.Nil if not yet set.
+func (h *WorkerHandlers) getSourceID() uuid.UUID {
+	v := h.sourceID.Load()
+	if v == nil {
+		return uuid.Nil
+	}
+	return v.(uuid.UUID)
 }
 
 // WorkerKeyAuth is middleware that validates the X-Worker-Key header.
@@ -167,6 +211,60 @@ func (h *WorkerHandlers) GetHost(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(WorkerHostResp{ID: id, Hostname: hostname, IP: ip})
+}
+
+// Submit handles POST /v1/worker/jobs/{id}/submit.
+// The worker posts the completed ScanResult JSON body. The handler:
+//  1. Decodes the body.
+//  2. Enqueues the result via the ResultEnqueuer (scanresults outbox).
+//  3. Marks the job completed.
+//
+// This combines what the orchestrator does internally (Enqueue + Complete)
+// into a single worker-facing endpoint so external binaries (triton-portscan,
+// triton-sshagent) don't need a direct Report Server connection.
+func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseJobID(w, r)
+	if !ok {
+		return
+	}
+
+	if h.enqueuer == nil {
+		http.Error(w, "result enqueuer not configured", http.StatusNotImplemented)
+		return
+	}
+
+	// Cap body at 32 MB — a generous upper bound for a ScanResult payload.
+	const maxBodyBytes = 32 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	defer r.Body.Close() //nolint:errcheck
+
+	var result model.ScanResult
+	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
+		// Distinguish oversized body from malformed JSON.
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) || errors.Is(err, io.ErrUnexpectedEOF) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := h.enqueuer.Enqueue(r.Context(), id, "portscan", h.getSourceID(), &result); err != nil {
+		http.Error(w, "enqueue result: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.store.Complete(r.Context(), id); err != nil {
+		// Enqueue succeeded — log the complete failure but still return 204
+		// so the worker exits cleanly. The drain will push the result; the
+		// job will remain in 'running' until the reaper reverts it, which
+		// is cosmetic at this point.
+		http.Error(w, "complete job: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func parseJobID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

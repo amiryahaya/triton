@@ -13,9 +13,11 @@ import (
 
 // RunOne executes the full lifecycle for one scan job:
 // claim → resolve host → scan → submit → complete.
+// Results are submitted to the Manage Server via POST /worker/jobs/{id}/submit,
+// which enqueues them for relay to the Report Server.
 // Returns nil when the job is not found or already claimed (exit 0 case).
 // Returns non-nil on scan or submission failure (caller should exit 1).
-func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, report *ReportClient, scanner Scanner) error {
+func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, scanner Scanner) error {
 	// Step 1: Claim.
 	claim, err := manage.Claim(ctx, jobID)
 	if err != nil {
@@ -75,23 +77,17 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, report *
 		return fail(fmt.Errorf("runner: scan %s: %w", host.IP, err))
 	}
 
-	// Step 5: Map + submit.
+	// Step 5: Map + submit to Manage Server (which enqueues for relay to
+	// the Report Server via the scanresults drain goroutine).
 	hostname := host.Hostname
 	if hostname == "" {
 		hostname = host.IP
 	}
 	result := ToScanResult(hostname, host.IP, claim.Profile, findings)
-	if report != nil {
-		if err := report.Submit(ctx, result); err != nil {
-			return fail(fmt.Errorf("runner: submit %s: %w", jobID, err))
-		}
-	} else {
-		log.Printf("runner: no report client configured — skipping submission for job %s", jobID)
+	if err := manage.SubmitResult(ctx, jobID, result); err != nil {
+		return fail(fmt.Errorf("runner: submit %s: %w", jobID, err))
 	}
-
-	// Step 6: Mark complete (best-effort — result already submitted).
-	if err := manage.Complete(ctx, jobID); err != nil {
-		log.Printf("runner: complete %s: %v", jobID, err)
-	}
+	// SubmitResult marks the job complete on the server side; no separate
+	// Complete call needed.
 	return nil
 }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -488,4 +489,13 @@ func TestScanMetadata_SourceField(t *testing.T) {
 	err = json.Unmarshal(b, &m2)
 	require.NoError(t, err)
 	assert.Equal(t, ScanSourceAgent, m2.Source)
+}
+
+func TestScanMetadata_SourceFieldOmitEmpty(t *testing.T) {
+	m := ScanMetadata{}
+	b, err := json.Marshal(m)
+	require.NoError(t, err)
+	if strings.Contains(string(b), `"source"`) {
+		t.Errorf("expected source to be omitted for zero value, got: %s", b)
+	}
 }

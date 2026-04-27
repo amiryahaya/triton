@@ -3,7 +3,9 @@ package scanjobs_test
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,9 +20,9 @@ import (
 type stubDispatcherStore struct {
 	scanjobs.Store // embed for unimplemented methods
 
-	listQueued      []scanjobs.Job
-	listQueuedErr   error
-	listCallCount   atomic.Int32
+	listQueued    []scanjobs.Job
+	listQueuedErr error
+	listCallCount atomic.Int32
 }
 
 func (s *stubDispatcherStore) ListQueued(_ context.Context, _ []string, _ int) ([]scanjobs.Job, error) {
@@ -49,9 +51,33 @@ func fakeBinary(t *testing.T) string {
 	return f.Name()
 }
 
+// waitForFile polls until path exists or the deadline is exceeded.
+// Returns true if the file appeared before the deadline.
+func waitForFile(path string, deadline time.Duration) bool {
+	end := time.Now().Add(deadline)
+	for time.Now().Before(end) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
 // TestDispatcher_SpawnsProcess verifies that when ListQueued returns one job the
 // Dispatcher spawns a subprocess and the subprocess exits without error.
+// A sentinel file written by the fake binary proves a real subprocess was started.
 func TestDispatcher_SpawnsProcess(t *testing.T) {
+	sentinelFile := filepath.Join(t.TempDir(), "spawned.txt")
+
+	// Write a shell script that touches the sentinel file then exits.
+	scriptDir := t.TempDir()
+	scriptPath := filepath.Join(scriptDir, "fake-portscan.sh")
+	script := fmt.Sprintf("#!/bin/sh\ntouch %s\nexit 0\n", sentinelFile)
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
 	jobID := uuid.New()
 	store := &stubDispatcherStore{
 		listQueued: []scanjobs.Job{
@@ -59,31 +85,33 @@ func TestDispatcher_SpawnsProcess(t *testing.T) {
 		},
 	}
 
-	bin := fakeBinary(t)
-
 	cfg := scanjobs.DispatcherConfig{
 		Store:        store,
-		BinaryPath:   bin,
+		BinaryPath:   scriptPath,
 		ManageURL:    "http://localhost:9999",
 		WorkerKey:    "test-key",
 		Concurrency:  2,
 		PollInterval: 10 * time.Millisecond,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	d := scanjobs.NewDispatcher(cfg)
 
-	// Run in background; cancel after a short delay so it exits cleanly.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		d.Run(ctx)
 	}()
 
-	// Give the dispatcher time to poll and spawn the subprocess.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the sentinel file, allowing up to 3s for macOS first-run
+	// security checks (Gatekeeper/mds) which can delay new script execution
+	// by ~400ms on the first invocation.
+	if !waitForFile(sentinelFile, 3*time.Second) {
+		t.Error("sentinel file not created within 3s — subprocess was not actually spawned")
+	}
+
 	cancel()
 	<-done
 
@@ -93,170 +121,84 @@ func TestDispatcher_SpawnsProcess(t *testing.T) {
 	}
 }
 
-// TestDispatcher_RespectsConurrencyCap verifies that with concurrency=1 and two
+// TestDispatcher_RespectsConcurrencyCap verifies that with concurrency=1 and two
 // queued jobs, the dispatcher does not spawn a second subprocess while the first
 // is still running.
-func TestDispatcher_RespectsConurrencyCap(t *testing.T) {
-	// Write a slow binary (sleeps until SIGTERM).
-	f, err := os.CreateTemp(t.TempDir(), "slow-portscan-*")
-	if err != nil {
-		t.Fatalf("create slow binary: %v", err)
-	}
-	// Sleep for a long time — the test will cancel the context to SIGTERM it.
-	if _, err := f.WriteString("#!/bin/sh\ntrap '' TERM\nsleep 30\n"); err != nil {
-		t.Fatalf("write slow binary: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("close slow binary: %v", err)
-	}
-	if err := os.Chmod(f.Name(), 0755); err != nil {
-		t.Fatalf("chmod slow binary: %v", err)
+func TestDispatcher_RespectsConcurrencyCap(t *testing.T) {
+	// Each spawned process touches a unique sentinel file (named after its PID)
+	// then blocks on sleep 30. We embed the sentinel directory in the script so
+	// no extra arguments need to be passed.
+	sentinelDir := t.TempDir()
+	scriptDir := t.TempDir()
+
+	script := fmt.Sprintf("#!/bin/sh\ntouch %s/running-$$\nsleep 30\n", sentinelDir)
+	scriptPath := filepath.Join(scriptDir, "blocking-portscan.sh")
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write blocking script: %v", err)
 	}
 
 	job1 := scanjobs.Job{ID: uuid.New(), JobType: scanjobs.JobTypePortSurvey}
 	job2 := scanjobs.Job{ID: uuid.New(), JobType: scanjobs.JobTypePortSurvey}
 
-	var peakConcurrent atomic.Int32
-	var currentConcurrent atomic.Int32
-
-	// We'll track spawns via a custom store that instruments ListQueued.
-	type trackingStore struct {
-		scanjobs.Store
-		jobs         []scanjobs.Job
-		callCount    atomic.Int32
-	}
-	ts := &trackingStore{jobs: []scanjobs.Job{job1, job2}}
-	ts.Store = &stubDispatcherStore{listQueued: ts.jobs}
-
-	// Use a fast-exit binary so after the first completes we can check cap.
-	// The key check: with concurrency=1, even though 2 jobs are listed, only
-	// 1 is running at any moment.
-	//
-	// Strategy: use a binary that records peak concurrency via a counter file,
-	// but since we can't easily do IPC with a shell script in a portable way,
-	// we instead set concurrency=1 and confirm that ListQueued is called
-	// multiple times but the dispatcher doesn't hang (i.e. it processes serially).
-	//
-	// We verify the cap by running a dispatcher that spawns real processes:
-	// with concurrency=1, the second job can only be spawned after the first exits.
-	// The fast binary exits immediately, so both jobs will be processed, just
-	// not simultaneously.
-
-	fastBin := fakeBinary(t)
-
-	store2 := &stubDispatcherStore{
+	store := &stubDispatcherStore{
 		listQueued: []scanjobs.Job{job1, job2},
 	}
-	_ = ts // avoid unused warning
 
 	cfg := scanjobs.DispatcherConfig{
-		Store:        store2,
-		BinaryPath:   fastBin,
+		Store:        store,
+		BinaryPath:   scriptPath,
 		ManageURL:    "http://localhost:9999",
 		WorkerKey:    "k",
 		Concurrency:  1,
 		PollInterval: 10 * time.Millisecond,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	d := scanjobs.NewDispatcher(cfg)
 
-	// Wrap the dispatcher to capture peak concurrency.
-	// Since we can't easily hook into the internal spawner, we rely on the
-	// observable invariant: the dispatcher must have called ListQueued at least
-	// twice before cancellation, and both fast jobs must have run.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		d.Run(ctx)
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	// Wait until at least one sentinel file appears (the first subprocess has
+	// started). Allow up to 3s for macOS first-run security checks on the new
+	// script (Gatekeeper/mds can delay by ~400ms on first invocation).
+	sentinelAppeared := false
+	end := time.Now().Add(3 * time.Second)
+	for time.Now().Before(end) {
+		entries, err := os.ReadDir(sentinelDir)
+		if err != nil {
+			t.Fatalf("read sentinel dir: %v", err)
+		}
+		if len(entries) >= 1 {
+			sentinelAppeared = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sentinelAppeared {
+		t.Fatal("no subprocess was spawned within 3s — dispatcher is broken")
+	}
+
+	// Now hold for another 300ms. With concurrency=1 and a blocking binary (sleep
+	// 30), the dispatcher CANNOT spawn a second process — it is blocked waiting
+	// for the semaphore slot held by the first. Exactly 1 sentinel should exist.
+	time.Sleep(300 * time.Millisecond)
+
+	entries, err := os.ReadDir(sentinelDir)
+	if err != nil {
+		t.Fatalf("read sentinel dir: %v", err)
+	}
+	if n := len(entries); n != 1 {
+		t.Errorf("concurrency cap violated: expected exactly 1 subprocess running, got %d sentinel files", n)
+	}
+
 	cancel()
 	<-done
-
-	// peak concurrent should never exceed 1; we assert ListQueued was called
-	// which means the poll loop ran.
-	if store2.listCallCount.Load() == 0 {
-		t.Error("expected ListQueued to be called")
-	}
-	// peakConcurrent and currentConcurrent are tracking aids defined above;
-	// their zero value after the run asserts that no concurrent count was
-	// recorded, which is correct for the fast-binary case.
-	if v := currentConcurrent.Load(); v < 0 {
-		t.Errorf("currentConcurrent underflow: %d", v)
-	}
-	if v := peakConcurrent.Load(); v < 0 {
-		t.Errorf("peakConcurrent underflow: %d", v)
-	}
-}
-
-// TestDispatcher_ConcurrencyCapEnforced verifies the cap more directly using
-// a dispatcher with concurrency=1 and a slow binary: it checks that while one
-// process is running, no second process is started.
-func TestDispatcher_ConcurrencyCapEnforced(t *testing.T) {
-	// Write a slow binary that waits for SIGTERM / exits after a signal.
-	slowDir := t.TempDir()
-	slowF, err := os.CreateTemp(slowDir, "slow-*")
-	if err != nil {
-		t.Fatalf("create slow binary: %v", err)
-	}
-	if _, err := slowF.WriteString("#!/bin/sh\nsleep 10\n"); err != nil {
-		t.Fatalf("write slow binary: %v", err)
-	}
-	_ = slowF.Close()
-	if err := os.Chmod(slowF.Name(), 0755); err != nil {
-		t.Fatalf("chmod slow binary: %v", err)
-	}
-
-	// Track how many times ListQueued is called while a process is running.
-	// With concurrency=1, after the first job is spawned the poll loop should
-	// NOT spawn a second one — it should block waiting for slot.
-	callsMadeDuringRun := atomic.Int32{}
-
-	type countingStore struct {
-		scanjobs.Store
-		pollCount atomic.Int32
-	}
-	cs := &countingStore{}
-	// Return 1 job on every call.
-	cs.Store = &stubDispatcherStore{
-		listQueued: []scanjobs.Job{
-			{ID: uuid.New(), JobType: scanjobs.JobTypePortSurvey},
-		},
-	}
-
-	cfg := scanjobs.DispatcherConfig{
-		Store:        cs.Store,
-		BinaryPath:   slowF.Name(),
-		ManageURL:    "http://localhost:9999",
-		WorkerKey:    "k",
-		Concurrency:  1,
-		PollInterval: 20 * time.Millisecond,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	d := scanjobs.NewDispatcher(cfg)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		d.Run(ctx)
-	}()
-
-	<-done
-
-	// The cap check: even though ListQueued may return a job on every poll,
-	// only 1 process should have been started (since it was still running when
-	// the ctx was cancelled). This is verified implicitly — the dispatcher
-	// cleanly shuts down instead of panicking or deadlocking.
-	// callsMadeDuringRun is a tracking aid; assert it didn't go negative.
-	if v := callsMadeDuringRun.Load(); v < 0 {
-		t.Errorf("callsMadeDuringRun underflow: %d", v)
-	}
 }
 
 // TestComputeCaps_ReturnsPositive verifies that ComputeCaps returns positive

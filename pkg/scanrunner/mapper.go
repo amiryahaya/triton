@@ -104,8 +104,19 @@ func serviceToAsset(f *Finding) *model.CryptoAsset {
 			Function:  "encryption",
 			State:     "IN_TRANSIT",
 		}
+	default:
+		if f.Banner == "" {
+			return nil
+		}
+		return &model.CryptoAsset{
+			ID:        uuid.NewString(),
+			Algorithm: strings.ToUpper(proto),
+			Subject:   f.Banner,
+			PQCStatus: model.PQCStatusTransitional,
+			Function:  "network",
+			State:     "IN_TRANSIT",
+		}
 	}
-	return nil
 }
 
 func classifyKeySize(algo string, bits int) string {

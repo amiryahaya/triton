@@ -224,3 +224,42 @@ func TestToScanResult_Module(t *testing.T) {
 		t.Errorf("module: got %q, want port_survey", result.Findings[0].Module)
 	}
 }
+
+func TestToScanResult_UnknownServiceWithBanner(t *testing.T) {
+	findings := []scanrunner.Finding{
+		{Port: 25, Service: "smtp", Banner: "Postfix smtpd"},
+	}
+	result := scanrunner.ToScanResult("host", "10.0.0.1", "standard", findings)
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding for smtp+banner, got %d", len(result.Findings))
+	}
+	if result.Findings[0].CryptoAsset.Algorithm != "SMTP" {
+		t.Errorf("algorithm: got %q, want SMTP", result.Findings[0].CryptoAsset.Algorithm)
+	}
+	if result.Findings[0].CryptoAsset.Function != "network" {
+		t.Errorf("function: got %q, want network", result.Findings[0].CryptoAsset.Function)
+	}
+}
+
+func TestToScanResult_UnknownServiceNoBanner(t *testing.T) {
+	findings := []scanrunner.Finding{
+		{Port: 21, Service: "ftp", Banner: ""},
+	}
+	result := scanrunner.ToScanResult("host", "10.0.0.1", "standard", findings)
+	if len(result.Findings) != 0 {
+		t.Errorf("expected 0 findings for ftp with no banner, got %d", len(result.Findings))
+	}
+}
+
+func TestClassifyKeySize_UnknownAlgo(t *testing.T) {
+	findings := []scanrunner.Finding{
+		{Port: 443, TLSCert: &scanrunner.TLSCertInfo{Algorithm: "Ed25519", KeyBits: 0}},
+	}
+	result := scanrunner.ToScanResult("h", "1.2.3.4", "quick", findings)
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+	if result.Findings[0].CryptoAsset.PQCStatus != "TRANSITIONAL" {
+		t.Errorf("unknown algo should be TRANSITIONAL, got %s", result.Findings[0].CryptoAsset.PQCStatus)
+	}
+}

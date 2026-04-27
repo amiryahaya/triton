@@ -161,7 +161,7 @@ func (c *ManageClient) GetCredential(ctx context.Context, id uuid.UUID) (Credent
 	if err != nil {
 		return CredentialSecret{}, err
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return CredentialSecret{}, fmt.Errorf("get credential: status %d", resp.StatusCode)

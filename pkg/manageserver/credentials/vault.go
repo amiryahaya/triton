@@ -19,8 +19,8 @@ var ErrNotFound = errors.New("vault: secret not found")
 
 // VaultClient is a thin Vault KV v2 HTTP wrapper. No Vault SDK dependency.
 type VaultClient struct {
-	addr  string
-	mount string
+	addr   string
+	mount  string
 	client *http.Client
 
 	mu          sync.Mutex
@@ -88,7 +88,7 @@ func (c *VaultClient) loginLocked() error {
 	if err != nil {
 		return fmt.Errorf("approle login request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable // TLS close error is not actionable
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("approle login: status %d", resp.StatusCode)
@@ -160,7 +160,7 @@ func (c *VaultClient) Write(ctx context.Context, path string, payload SecretPayl
 	if err != nil {
 		return fmt.Errorf("vault write: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable // TLS close error is not actionable
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("vault write: status %d", resp.StatusCode)
@@ -174,7 +174,7 @@ func (c *VaultClient) Read(ctx context.Context, path string) (SecretPayload, err
 	if err != nil {
 		return SecretPayload{}, fmt.Errorf("vault read: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable
 	if resp.StatusCode == http.StatusNotFound {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return SecretPayload{}, fmt.Errorf("vault read: %w", ErrNotFound)
@@ -200,7 +200,7 @@ func (c *VaultClient) Delete(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("vault delete: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("vault delete: status %d", resp.StatusCode)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/managestore"
+
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
@@ -27,11 +28,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	ms, err := managestore.NewPostgresStore(pool)
-	if err != nil {
-		t.Fatalf("managestore: %v", err)
-	}
-	if err := ms.Migrate(context.Background()); err != nil {
+	if err := managestore.Migrate(context.Background(), pool); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(), "TRUNCATE manage_scan_jobs CASCADE"); err != nil {

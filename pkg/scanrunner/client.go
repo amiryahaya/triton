@@ -169,7 +169,7 @@ func (c *ReportClient) Submit(ctx context.Context, result *model.ScanResult) err
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-License-Token", c.token)
+	req.Header.Set("X-Triton-License-Token", c.token)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

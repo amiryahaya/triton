@@ -130,6 +130,9 @@ func TestReportClient_Submit(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/scans" {
 			t.Errorf("unexpected: %s %s", r.Method, r.URL.Path)
 		}
+		if got := r.Header.Get("X-Triton-License-Token"); got != "my-token" {
+			t.Errorf("X-Triton-License-Token: got %q, want my-token", got)
+		}
 		submitted = true
 		w.WriteHeader(http.StatusCreated)
 	}))

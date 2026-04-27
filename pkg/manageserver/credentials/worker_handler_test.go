@@ -69,3 +69,14 @@ func TestWorkerHandler_GetSecret_VaultUnavailable(t *testing.T) {
 		t.Errorf("vault failure: status %d want %d", w.Code, http.StatusBadGateway)
 	}
 }
+
+func TestWorkerHandler_GetSecret_VaultNil_Returns503(t *testing.T) {
+	h := credentials.NewWorkerHandler(newStubStore(), nil)
+	r := httptest.NewRequest(http.MethodGet, "/"+uuid.New().String(), nil)
+	r = credentials.WithURLParam(r, "id", uuid.New().String())
+	w := httptest.NewRecorder()
+	h.GetSecret(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("nil vault: status %d want 503", w.Code)
+	}
+}

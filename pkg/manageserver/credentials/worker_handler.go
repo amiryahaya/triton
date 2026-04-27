@@ -28,6 +28,10 @@ func NewWorkerHandler(store Store, vault VaultReader) *WorkerHandler {
 // GetSecret looks up the credential metadata, fetches the secret from Vault,
 // and returns the SecretPayload to the scanner subprocess.
 func (h *WorkerHandler) GetSecret(w http.ResponseWriter, r *http.Request) {
+	if h.vault == nil {
+		writeErr(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid credential id")

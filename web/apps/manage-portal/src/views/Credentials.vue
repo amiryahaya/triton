@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { TButton, TDataTable, useToast, type Column } from '@triton/ui';
+import { TButton, TDataTable, TConfirmDialog, useToast, type Column } from '@triton/ui';
 import type { Credential } from '@triton/api-client';
 import { useCredentialsStore } from '../stores/credentials';
 import CredentialForm from './modals/CredentialForm.vue';
@@ -8,6 +8,8 @@ import CredentialForm from './modals/CredentialForm.vue';
 const store = useCredentialsStore();
 const toast = useToast();
 const formOpen = ref(false);
+const confirmOpen = ref(false);
+const pendingDeleteId = ref<string | null>(null);
 
 onMounted(() => store.fetch());
 
@@ -25,7 +27,7 @@ const columns: Column<Credential>[] = [
   { key: 'id', label: '', width: '120px', align: 'right' },
 ];
 
-async function remove(id: string, inUseCount: number) {
+function remove(id: string, inUseCount: number) {
   if (inUseCount > 0) {
     toast.error({
       title: 'Credential in use',
@@ -33,12 +35,21 @@ async function remove(id: string, inUseCount: number) {
     });
     return;
   }
-  if (!confirm('Delete this credential? This also removes it from Vault.')) return;
+  pendingDeleteId.value = id;
+  confirmOpen.value = true;
+}
+
+async function onConfirmDelete() {
+  const id = pendingDeleteId.value;
+  if (!id) return;
   try {
     await store.remove(id);
     toast.success({ title: 'Deleted' });
   } catch (e) {
     toast.error({ title: 'Delete failed', description: String(e) });
+  } finally {
+    confirmOpen.value = false;
+    pendingDeleteId.value = null;
   }
 }
 </script>
@@ -78,7 +89,17 @@ async function remove(id: string, inUseCount: number) {
       </template>
     </TDataTable>
 
-    <CredentialForm v-if="formOpen" @close="formOpen = false; store.fetch()" />
+    <CredentialForm v-if="formOpen" @close="formOpen = false" @saved="formOpen = false; store.fetch()" />
+
+    <TConfirmDialog
+      :open="confirmOpen"
+      title="Delete credential?"
+      message="This will permanently remove the credential from the Vault. This cannot be undone."
+      confirm-label="Delete"
+      variant="danger"
+      @confirm="onConfirmDelete"
+      @cancel="confirmOpen = false; pendingDeleteId = null"
+    />
   </section>
 </template>
 

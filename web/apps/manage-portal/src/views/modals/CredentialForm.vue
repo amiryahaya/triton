@@ -4,7 +4,7 @@ import type { CredentialAuthType, CreateCredentialReq } from '@triton/api-client
 import { TModal, TFormField, TSelect, TButton, TInput } from '@triton/ui';
 import { useCredentialsStore } from '../../stores/credentials';
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 const store = useCredentialsStore();
 
 const name = ref('');
@@ -26,8 +26,9 @@ async function submit() {
   error.value = '';
   if (!name.value.trim()) { error.value = 'Name is required'; return; }
   if (!username.value.trim()) { error.value = 'Username is required'; return; }
-  if (authType.value === 'ssh-key' && privateKey.value && !pemValid.value) {
-    error.value = 'Private key must be in PEM format'; return;
+  if (authType.value === 'ssh-key') {
+    if (!privateKey.value.trim()) { error.value = 'Private key is required'; return; }
+    if (!pemValid.value) { error.value = 'Private key must be in PEM format'; return; }
   }
 
   const req: CreateCredentialReq = {
@@ -46,7 +47,7 @@ async function submit() {
   saving.value = true;
   try {
     await store.create(req);
-    emit('close');
+    emit('saved');
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {

@@ -25,13 +25,14 @@ var _ Store = (*PostgresStore)(nil)
 
 // hostSelectCols selects host columns only (no tags). Tags are loaded
 // separately via loadTagsForHosts and attached by the caller.
-const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at`
+const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, access_port`
 
 func scanHost(row pgx.Row) (Host, error) {
 	var h Host
 	var hostname *string // nullable now
 	var ip *string
-	if err := row.Scan(&h.ID, &hostname, &ip, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt); err != nil {
+	if err := row.Scan(&h.ID, &hostname, &ip, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt,
+		&h.CredentialsRef, &h.AccessPort); err != nil {
 		return Host{}, err
 	}
 	if hostname != nil {
@@ -101,12 +102,13 @@ func (s *PostgresStore) loadTagsForHosts(ctx context.Context, hostIDs []uuid.UUI
 
 func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
-		 VALUES ($1, $2::inet, $3, $4)
-		 RETURNING id, created_at, updated_at`,
+		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, access_port)
+		 VALUES ($1, $2::inet, $3, $4, $5, $6)
+		 RETURNING id, created_at, updated_at, credentials_ref, access_port`,
 		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
+		h.CredentialsRef, h.AccessPort,
 	)
-	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
+	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.AccessPort); err != nil {
 		if isUniqueViolation(err) {
 			return Host{}, fmt.Errorf("%w: ip %q", ErrConflict, h.IP)
 		}
@@ -179,12 +181,14 @@ func (s *PostgresStore) List(ctx context.Context) ([]Host, error) {
 func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_hosts
-		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4, updated_at = NOW()
-		 WHERE id = $5
-		 RETURNING id, created_at, updated_at`,
-		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt, h.ID,
+		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4,
+		     credentials_ref = $5, access_port = $6, updated_at = NOW()
+		 WHERE id = $7
+		 RETURNING id, created_at, updated_at, credentials_ref, access_port`,
+		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
+		h.CredentialsRef, h.AccessPort, h.ID,
 	)
-	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt); err != nil {
+	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.AccessPort); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Host{}, ErrNotFound
 		}
@@ -305,19 +309,19 @@ func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host,
 	return out, nil
 }
 
-// GetHostBasic returns just the hostname and IP for a host. Used by the
-// Worker API (GET /api/v1/worker/hosts/{id}) which only needs these two
-// fields and avoids loading tags.
-func (s *PostgresStore) GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, err error) {
+// GetHostBasic returns the hostname, IP, and access port for a host. Used by
+// the Worker API (GET /api/v1/worker/hosts/{id}) which only needs these fields
+// and avoids loading tags.
+func (s *PostgresStore) GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, accessPort int, err error) {
 	var hn, ipv *string
 	err = s.pool.QueryRow(ctx,
-		`SELECT hostname, host(ip)::text FROM manage_hosts WHERE id = $1`, id,
-	).Scan(&hn, &ipv)
+		`SELECT hostname, host(ip)::text, access_port FROM manage_hosts WHERE id = $1`, id,
+	).Scan(&hn, &ipv, &accessPort)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", ErrNotFound
+		return "", "", 0, ErrNotFound
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("get host basic: %w", err)
+		return "", "", 0, fmt.Errorf("get host basic: %w", err)
 	}
 	if hn != nil {
 		hostname = *hn
@@ -325,7 +329,7 @@ func (s *PostgresStore) GetHostBasic(ctx context.Context, id uuid.UUID) (hostnam
 	if ipv != nil {
 		ip = *ipv
 	}
-	return hostname, ip, nil
+	return hostname, ip, accessPort, nil
 }
 
 func (s *PostgresStore) CountByTag(ctx context.Context, tagID uuid.UUID) (int64, error) {
@@ -393,11 +397,11 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 		row := tx.QueryRow(ctx,
 			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
 			 VALUES ($1, $2::inet, $3, $4)
-			 RETURNING id, created_at, updated_at`,
+			 RETURNING id, created_at, updated_at, credentials_ref, access_port`,
 			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt,
 		)
 		dst := *src
-		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt); err != nil {
+		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt, &dst.CredentialsRef, &dst.AccessPort); err != nil {
 			if isUniqueViolation(err) {
 				return nil, fmt.Errorf("%w: ip %q (index %d)", ErrConflict, src.IP, i)
 			}

@@ -67,6 +67,7 @@ export type {
   LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
   DiscoveryJob, DiscoveryCandidate, DiscoveryStatus,
   DiscoveryImportReq, DiscoveryImportResp,
+  CredentialAuthType, Credential, CreateCredentialReq,
 } from './manageServer.types';
 export type {
   Organisation,

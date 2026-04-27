@@ -74,6 +74,8 @@ export interface Host {
   last_seen_at?: string;
   created_at: string;
   updated_at: string;
+  credentials_ref?: string;
+  access_port: number;
 }
 
 export interface CreateHostReq {
@@ -89,6 +91,30 @@ export interface UpdateHostReq {
   ip: string;
   hostname?: string;
   os?: string;
+  credentials_ref?: string | null;
+  access_port?: number;
+}
+
+export type CredentialAuthType = 'ssh-key' | 'ssh-password' | 'winrm-password';
+
+export interface Credential {
+  id: string;
+  tenant_id: string;
+  name: string;
+  auth_type: CredentialAuthType;
+  vault_path: string;
+  in_use_count: number;
+  created_at: string;
+}
+
+export interface CreateCredentialReq {
+  name: string;
+  auth_type: CredentialAuthType;
+  username: string;
+  private_key?: string;
+  passphrase?: string;
+  password?: string;
+  use_https?: boolean;
 }
 
 export type AgentStatus = 'pending' | 'active' | 'revoked';

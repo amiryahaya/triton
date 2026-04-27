@@ -24,7 +24,6 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
 	"github.com/amiryahaya/triton/pkg/manageserver/discovery"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
-	"github.com/amiryahaya/triton/pkg/manageserver/portscan"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
 	"github.com/amiryahaya/triton/pkg/manageserver/tags"
@@ -480,9 +479,8 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 		Store:        s.scanjobsStore,
 		ResultStore:  s.resultsStore,
 		Parallelism:  s.cfg.Parallelism,
-		ScanFunc:     scanjobs.NewScanFunc(s.hostsStore),
-		PortScanFunc: portscan.NewPortScanFunc(s.hostsStore),
-		SourceID:     instanceID,
+		ScanFunc: scanjobs.NewScanFunc(s.hostsStore),
+		SourceID: instanceID,
 	})
 	wg.Add(1)
 	go func() {

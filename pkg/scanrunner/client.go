@@ -77,7 +77,7 @@ func (c *ManageClient) Claim(ctx context.Context, jobID uuid.UUID) (ClaimResp, e
 	if err != nil {
 		return ClaimResp{}, err
 	}
-	defer drainClose(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusConflict {
 		return ClaimResp{}, ErrJobGone
 	}
@@ -85,7 +85,8 @@ func (c *ManageClient) Claim(ctx context.Context, jobID uuid.UUID) (ClaimResp, e
 		return ClaimResp{}, fmt.Errorf("claim: status %d", resp.StatusCode)
 	}
 	var cr ClaimResp
-	return cr, json.NewDecoder(resp.Body).Decode(&cr)
+	err = json.NewDecoder(resp.Body).Decode(&cr)
+	return cr, err
 }
 
 // Heartbeat renews running_heartbeat_at.
@@ -94,7 +95,7 @@ func (c *ManageClient) Heartbeat(ctx context.Context, jobID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	defer drainClose(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("heartbeat: status %d", resp.StatusCode)
 	}
@@ -107,7 +108,7 @@ func (c *ManageClient) Complete(ctx context.Context, jobID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	defer drainClose(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("complete: status %d", resp.StatusCode)
 	}
@@ -121,7 +122,7 @@ func (c *ManageClient) Fail(ctx context.Context, jobID uuid.UUID, errMsg string)
 	if err != nil {
 		return err
 	}
-	defer drainClose(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("fail: status %d", resp.StatusCode)
 	}
@@ -134,12 +135,13 @@ func (c *ManageClient) GetHost(ctx context.Context, hostID uuid.UUID) (HostInfo,
 	if err != nil {
 		return HostInfo{}, err
 	}
-	defer drainClose(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
 	if resp.StatusCode != http.StatusOK {
 		return HostInfo{}, fmt.Errorf("get host: status %d", resp.StatusCode)
 	}
 	var h HostInfo
-	return h, json.NewDecoder(resp.Body).Decode(&h)
+	err = json.NewDecoder(resp.Body).Decode(&h)
+	return h, err
 }
 
 // ReportClient submits scan results directly to the report server.
@@ -174,14 +176,9 @@ func (c *ReportClient) Submit(ctx context.Context, result *model.ScanResult) err
 	if err != nil {
 		return err
 	}
-	defer drainClose(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("submit: status %d", resp.StatusCode)
 	}
 	return nil
-}
-
-func drainClose(b io.ReadCloser) {
-	_, _ = io.Copy(io.Discard, b)
-	_ = b.Close()
 }

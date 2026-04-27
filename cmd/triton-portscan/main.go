@@ -15,11 +15,18 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("triton-portscan: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// CLI flags
-	manageURL    := flag.String("manage-url",     "", "Manage server base URL (required)")
-	jobIDStr     := flag.String("job-id",         "", "Job UUID to claim and run (required)")
-	reportURL    := flag.String("report-url",     "", "Report server base URL (optional; skip submission if empty)")
-	licenseToken := flag.String("license-token",  "", "License token for the report server (env: TRITON_LICENSE_TOKEN)")
+	manageURL := flag.String("manage-url", "", "Manage server base URL (required)")
+	jobIDStr := flag.String("job-id", "", "Job UUID to claim and run (required)")
+	reportURL := flag.String("report-url", "", "Report server base URL (optional; skip submission if empty)")
+	licenseToken := flag.String("license-token", "", "License token for the report server (env: TRITON_LICENSE_TOKEN)")
 	flag.Parse()
 
 	// Worker key from env (not flag — avoids ps exposure).
@@ -56,9 +63,5 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 
-	// Run the job lifecycle.
-	if err := scanrunner.RunOne(ctx, jobID, mc, rc, scanner); err != nil {
-		log.Printf("triton-portscan: job %s failed: %v", jobID, err)
-		os.Exit(1)
-	}
+	return scanrunner.RunOne(ctx, jobID, mc, rc, scanner)
 }

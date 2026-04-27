@@ -20,13 +20,13 @@ func extractTLSCert(ctx context.Context, ip string, port int, timeout time.Durat
 	if err != nil {
 		return nil
 	}
-	tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // intentional audit scan
+	tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // audit scan must accept self-signed certs
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
-		rawConn.Close() //nolint:errcheck
+		rawConn.Close() //nolint:errcheck // best-effort close; error not actionable on handshake failure
 		return nil
 	}
 	conn := tlsConn
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close() //nolint:errcheck // TLS close error is not actionable
 
 	certs := conn.ConnectionState().PeerCertificates
 	if len(certs) == 0 {

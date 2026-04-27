@@ -45,27 +45,6 @@ func (s *stubDispatcherStore) ClaimByID(_ context.Context, id uuid.UUID, _ strin
 	return scanjobs.Job{ID: id}, nil
 }
 
-// fakeBinary writes a shell script that exits 0 to a temp file and returns its
-// path. The caller must not delete it during the test — t.Cleanup handles removal.
-func fakeBinary(t *testing.T) string {
-	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "fake-portscan-*")
-	if err != nil {
-		t.Fatalf("create temp binary: %v", err)
-	}
-	// Write a no-op shell script.
-	if _, err := f.WriteString("#!/bin/sh\nsleep 0\nexit 0\n"); err != nil {
-		t.Fatalf("write fake binary: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("close fake binary: %v", err)
-	}
-	if err := os.Chmod(f.Name(), 0755); err != nil {
-		t.Fatalf("chmod fake binary: %v", err)
-	}
-	return f.Name()
-}
-
 // waitForFile polls until path exists or the deadline is exceeded.
 // Returns true if the file appeared before the deadline.
 func waitForFile(path string, deadline time.Duration) bool {

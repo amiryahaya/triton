@@ -487,11 +487,11 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	s.bootstrapCA(ctx, instanceID.String())
 
 	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
-		Store:        s.scanjobsStore,
-		ResultStore:  s.resultsStore,
-		Parallelism:  s.cfg.Parallelism,
-		ScanFunc: scanjobs.NewScanFunc(s.hostsStore),
-		SourceID: instanceID,
+		Store:       s.scanjobsStore,
+		ResultStore: s.resultsStore,
+		Parallelism: s.cfg.Parallelism,
+		ScanFunc:    scanjobs.NewScanFunc(s.hostsStore),
+		SourceID:    instanceID,
 	})
 	wg.Add(1)
 	go func() {

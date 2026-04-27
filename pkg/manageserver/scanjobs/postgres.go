@@ -65,7 +65,7 @@ func scanJob(row pgx.Row) (Job, error) {
 	j.WorkerID = workerID
 	j.JobType = JobType(jobTypeStr)
 	for _, p := range portOverride {
-		j.PortOverride = append(j.PortOverride, uint16(p)) //nolint:gosec
+		j.PortOverride = append(j.PortOverride, uint16(p)) //nolint:gosec // port values are 1–65535, validated at enqueue time
 	}
 	return j, nil
 }

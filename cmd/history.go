@@ -58,7 +58,8 @@ func runHistory(_ *cobra.Command, _ []string) error {
 	divider := strings.Repeat("\u2500", len(header))
 	fmt.Printf("%s\n%s\n", header, divider)
 
-	for _, s := range summaries {
+	for i := range summaries {
+		s := &summaries[i]
 		fmt.Printf("%-38s %-20s %-20s %-14s %6d %6d %6d %6d %6d\n",
 			s.ID,
 			truncate(s.Hostname, 20),

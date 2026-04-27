@@ -76,5 +76,4 @@ type Config struct {
 	// via --manage-url so they can call back into the Worker API. If empty,
 	// the Dispatcher uses http://localhost together with the Listen port.
 	ManageURL string
-
 }

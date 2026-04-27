@@ -40,7 +40,7 @@ func TestRunOne_SubmitsResult(t *testing.T) {
 	mc := sshagent.NewClient(srv.URL, "worker-key")
 
 	stubScanner := &stubSSHScanner{result: &model.ScanResult{
-		ID: uuid.NewString(),
+		ID:       uuid.NewString(),
 		Metadata: model.ScanMetadata{Hostname: "server1"},
 	}}
 

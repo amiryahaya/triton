@@ -237,7 +237,7 @@ func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	// Cap body at 32 MB — a generous upper bound for a ScanResult payload.
 	const maxBodyBytes = 32 << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	defer r.Body.Close() //nolint:errcheck
+	defer r.Body.Close() //nolint:errcheck // MaxBytesReader already closed on limit; error not actionable here
 
 	var result model.ScanResult
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {

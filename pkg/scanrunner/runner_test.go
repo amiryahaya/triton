@@ -30,40 +30,6 @@ func (s *stubScanner) Scan(_ context.Context, _ scanrunner.Target, onFinding fun
 	return nil
 }
 
-func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, submittedPtr, failPtr *bool) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/claim":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(scanrunner.ClaimResp{
-				JobID: jobID, HostID: hostID, Profile: "standard",
-			})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/worker/hosts/"+hostID.String():
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(scanrunner.HostInfo{
-				ID: hostID, Hostname: "host1", IP: "192.168.1.50",
-			})
-		case r.Method == http.MethodPatch:
-			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/submit":
-			if submittedPtr != nil {
-				*submittedPtr = true
-			}
-			w.WriteHeader(http.StatusAccepted)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/fail":
-			if failPtr != nil {
-				*failPtr = true
-			} else {
-				t.Errorf("unexpected fail call: %s %s", r.Method, r.URL.Path)
-			}
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			t.Errorf("unexpected manage request: %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-}
 
 func TestRunOne_Success(t *testing.T) {
 	jobID, hostID := uuid.New(), uuid.New()

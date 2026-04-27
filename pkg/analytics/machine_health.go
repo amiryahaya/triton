@@ -23,7 +23,8 @@ import (
 // percentage. Pure function; no DB access.
 func ComputeReadiness(latestPerHost []store.ScanSummary) store.ReadinessSummary {
 	var safe, total int
-	for _, s := range latestPerHost {
+	for i := range latestPerHost {
+		s := &latestPerHost[i]
 		safe += s.Safe
 		total += s.Safe + s.Transitional + s.Deprecated + s.Unsafe
 	}
@@ -40,7 +41,8 @@ func ComputeReadiness(latestPerHost []store.ScanSummary) store.ReadinessSummary 
 
 func ComputeMachineHealth(machines []store.ScanSummary) store.MachineHealthTiers {
 	var out store.MachineHealthTiers
-	for _, m := range machines {
+	for i := range machines {
+		m := &machines[i]
 		switch {
 		case m.Unsafe > 0:
 			out.Red++

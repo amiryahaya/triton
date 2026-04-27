@@ -636,4 +636,3 @@ func TestSubmitTest_InsertsAndFinishes(t *testing.T) {
 	assert.Len(t, fs.results[tj.ID], 1)
 	assert.Equal(t, tj.ID, fs.results[tj.ID][0].TestID, "handler must overwrite test_id from URL")
 }
-

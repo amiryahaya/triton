@@ -1,5 +1,5 @@
-// Command triton-agent is a lightweight daemon that connects to a Triton
-// engine's agent gateway via mTLS, heartbeats periodically, and executes
+// Command triton-agent is a lightweight daemon that connects to the Triton
+// Manage Server's mTLS gateway, heartbeats periodically, and executes
 // scans on demand.
 package main
 
@@ -31,7 +31,7 @@ func run() error {
 		return err
 	}
 
-	c, err := tritonagent.NewClient(cfg.EngineURL, cfg.CertPath, cfg.KeyPath, cfg.CAPath, cfg.HostID)
+	c, err := tritonagent.NewClient(cfg.ManageURL, cfg.CertPath, cfg.KeyPath, cfg.CAPath, cfg.HostID)
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Printf("triton-agent starting: host_id=%s engine=%s", cfg.HostID, cfg.EngineURL)
+	log.Printf("triton-agent starting: host_id=%s manage=%s", cfg.HostID, cfg.ManageURL)
 
 	loopErr := tritonagent.Run(ctx, c, tritonagent.Config{
 		DefaultProfile: cfg.ScanProfile,

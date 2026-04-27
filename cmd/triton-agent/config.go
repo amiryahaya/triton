@@ -8,7 +8,7 @@ import (
 
 // agentConfig holds the triton-agent configuration loaded from YAML.
 type agentConfig struct {
-	EngineURL   string `yaml:"engine_url"`
+	ManageURL   string `yaml:"manage_url"`
 	CertPath    string `yaml:"cert_path"`
 	KeyPath     string `yaml:"key_path"`
 	CAPath      string `yaml:"ca_path"`

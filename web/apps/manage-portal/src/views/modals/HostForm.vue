@@ -12,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  submit: [payload: CreateHostReq & { credentials_ref?: string | null; access_port?: number }];
+  submit: [payload: CreateHostReq];
 }>();
 
 const credStore = useCredentialsStore();
@@ -23,18 +23,19 @@ const ip = ref('');
 const os = ref('');
 const selectedTagIDs = ref<string[]>([]);
 const error = ref('');
-const credentialsRef = ref<string>('');
+const credentialsRef = ref<string | null>(null);
 const accessPort = ref<number>(22);
 
 watch(
   () => [props.open, props.editing],
   () => {
     if (!props.open) return;
+    credStore.fetch();
     hostname.value = props.editing?.hostname ?? '';
     ip.value = props.editing?.ip ?? '';
     os.value = props.editing?.os ?? '';
     selectedTagIDs.value = props.editing?.tags.map(t => t.id) ?? [];
-    credentialsRef.value = props.editing?.credentials_ref ?? '';
+    credentialsRef.value = props.editing?.credentials_ref ?? null;
     accessPort.value = props.editing?.access_port ?? 22;
     error.value = '';
   },
@@ -46,11 +47,10 @@ watch(credentialsRef, (id) => {
   const cred = credStore.items.find(c => c.id === id);
   if (!cred) return;
   if (cred.auth_type === 'winrm-password') accessPort.value = 5985;
-  else accessPort.value = 22;
 });
 
 const credOptions = computed(() => [
-  { value: '', label: '— none —' },
+  { value: null, label: '— none —' },
   ...credStore.items.map(c => ({ value: c.id, label: `${c.name} (${c.auth_type})` })),
 ]);
 
@@ -64,7 +64,7 @@ function submit() {
     hostname: hostname.value.trim() || undefined,
     os: os.value.trim() || undefined,
     tag_ids: selectedTagIDs.value,
-    credentials_ref: credentialsRef.value || null,
+    credentials_ref: credentialsRef.value ?? null,
     access_port: accessPort.value,
   });
 }
@@ -117,7 +117,7 @@ function submit() {
         <TSelect v-model="credentialsRef">
           <option
             v-for="opt in credOptions"
-            :key="opt.value"
+            :key="opt.value ?? '__none__'"
             :value="opt.value"
           >
             {{ opt.label }}

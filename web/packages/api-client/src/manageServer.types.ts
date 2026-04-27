@@ -85,6 +85,8 @@ export interface CreateHostReq {
   last_seen_at?: string;
   tag_ids?: string[];
   tags?: string[];  // name-based form for CSV import
+  credentials_ref?: string | null;
+  access_port?: number;
 }
 
 export interface UpdateHostReq {

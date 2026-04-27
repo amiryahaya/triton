@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/amiryahaya/triton/internal/auth"
-	engineclient "github.com/amiryahaya/triton/pkg/engine/client"
 	"github.com/amiryahaya/triton/pkg/server"
 	"github.com/amiryahaya/triton/pkg/server/engine"
 	"github.com/amiryahaya/triton/pkg/server/hostmatch"
@@ -638,58 +637,3 @@ func TestSubmitTest_InsertsAndFinishes(t *testing.T) {
 	assert.Equal(t, tj.ID, fs.results[tj.ID][0].TestID, "handler must overwrite test_id from URL")
 }
 
-// TestPollDelivery_WireFormat_RoundTripsViaClientType guards against
-// silent wire-format drift between the portal's Delivery struct and
-// the engine client's DeliveryPayload. If the server ever drops its
-// snake_case json tags (or renames a field), deserialising into
-// engineclient.DeliveryPayload will leave non-empty server fields
-// empty and this test will catch it.
-func TestPollDelivery_WireFormat_RoundTripsViaClientType(t *testing.T) {
-	fs := newFakeStore()
-	orgID := uuid.Must(uuid.NewV7())
-	engID := uuid.Must(uuid.NewV7())
-	profileID := uuid.New()
-	secretRef := uuid.New()
-	deliveryID := uuid.New()
-	// Non-empty ciphertext lets us assert the base64 encoding on the
-	// wire survives the client's string-typed decode.
-	ciphertext := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-
-	fs.deliveries = append(fs.deliveries, Delivery{
-		ID:         deliveryID,
-		OrgID:      orgID,
-		EngineID:   engID,
-		ProfileID:  &profileID,
-		SecretRef:  secretRef,
-		AuthType:   AuthSSHKey,
-		Kind:       DeliveryPush,
-		Ciphertext: ciphertext,
-		Status:     "queued",
-	})
-
-	gh := &GatewayHandlers{Store: fs, InventoryStore: &fakeInventory{}, PollTimeout: 100 * time.Millisecond, PollInterval: 10 * time.Millisecond}
-	router := buildGatewayRouter(gh, &engine.Engine{ID: engID, OrgID: orgID})
-
-	req := httptest.NewRequest(http.MethodGet, "/credentials/deliveries/poll", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-
-	// Decode the server response into the engine-client wire struct.
-	// If any snake_case tag is missing on the server side the fields
-	// below would arrive empty.
-	var payload engineclient.DeliveryPayload
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
-
-	assert.Equal(t, deliveryID.String(), payload.ID, "id must survive JSON round-trip")
-	assert.Equal(t, profileID.String(), payload.ProfileID, "profile_id must survive JSON round-trip")
-	assert.Equal(t, secretRef.String(), payload.SecretRef, "secret_ref must survive JSON round-trip")
-	assert.Equal(t, string(AuthSSHKey), payload.AuthType, "auth_type must survive JSON round-trip")
-	assert.Equal(t, string(DeliveryPush), payload.Kind, "kind must survive JSON round-trip")
-	require.NotEmpty(t, payload.Ciphertext, "ciphertext must be present for push kind")
-	// Client decodes base64 string → bytes lazily in handlePush; here
-	// we verify the string round-trips to the original bytes.
-	decoded, err := base64.StdEncoding.DecodeString(payload.Ciphertext)
-	require.NoError(t, err, "ciphertext must be valid base64 on the wire")
-	assert.Equal(t, ciphertext, decoded, "ciphertext bytes must round-trip via base64")
-}

@@ -468,7 +468,7 @@ func (s *PostgresStore) ListQueued(ctx context.Context, jobTypes []string, limit
 		SELECT `+jobSelectCols+`
 		FROM manage_scan_jobs
 		WHERE status = 'queued'
-		  AND COALESCE(job_type,'filesystem') = ANY($1)
+		  AND job_type = ANY($1)
 		  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
 		ORDER BY enqueued_at
 		LIMIT $2`,
@@ -512,13 +512,15 @@ func (s *PostgresStore) ClaimByID(ctx context.Context, id uuid.UUID, workerID st
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, fmt.Errorf("claim scan job by id: %w", err)
 	}
-	// ErrNoRows: distinguish job-not-found from job-already-claimed.
-	var count int
+	// ErrNoRows: distinguish job-not-found from job-already-claimed atomically.
+	var total, queued int
 	if qerr := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM manage_scan_jobs WHERE id = $1`, id).Scan(&count); qerr != nil {
+		`SELECT COUNT(*) FILTER (WHERE TRUE),
+		        COUNT(*) FILTER (WHERE status = 'queued')
+		 FROM manage_scan_jobs WHERE id = $1`, id).Scan(&total, &queued); qerr != nil {
 		return Job{}, fmt.Errorf("claim by id existence check: %w", qerr)
 	}
-	if count == 0 {
+	if total == 0 {
 		return Job{}, ErrNotFound
 	}
 	return Job{}, ErrAlreadyClaimed

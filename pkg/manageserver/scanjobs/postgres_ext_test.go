@@ -44,13 +44,12 @@ func TestListQueued_FiltersJobType(t *testing.T) {
 	pool := testPool(t)
 	store := scanjobs.NewPostgresStore(pool)
 	tenantID := uuid.New()
-	hostID := uuid.New()
 
 	insertJob := func(jobType string) {
 		_, err := pool.Exec(context.Background(),
-			`INSERT INTO manage_scan_jobs (id, tenant_id, host_id, profile, status, job_type)
-			 VALUES ($1, $2, $3, 'standard', 'queued', $4)`,
-			uuid.New(), tenantID, hostID, jobType)
+			`INSERT INTO manage_scan_jobs (id, tenant_id, profile, status, job_type)
+			 VALUES ($1, $2, 'standard', 'queued', $3)`,
+			uuid.New(), tenantID, jobType)
 		if err != nil {
 			t.Fatalf("insert: %v", err)
 		}
@@ -73,13 +72,13 @@ func TestListQueued_FiltersJobType(t *testing.T) {
 func TestClaimByID_Transitions(t *testing.T) {
 	pool := testPool(t)
 	store := scanjobs.NewPostgresStore(pool)
-	tenantID, hostID := uuid.New(), uuid.New()
+	tenantID := uuid.New()
 	jobID := uuid.New()
 
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO manage_scan_jobs (id, tenant_id, host_id, profile, status, job_type)
-		 VALUES ($1, $2, $3, 'standard', 'queued', 'port_survey')`,
-		jobID, tenantID, hostID)
+		`INSERT INTO manage_scan_jobs (id, tenant_id, profile, status, job_type)
+		 VALUES ($1, $2, 'standard', 'queued', 'port_survey')`,
+		jobID, tenantID)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -106,12 +105,12 @@ func TestClaimByID_Transitions(t *testing.T) {
 func TestClaimNext_FilesystemOnly(t *testing.T) {
 	pool := testPool(t)
 	store := scanjobs.NewPostgresStore(pool)
-	tenantID, hostID := uuid.New(), uuid.New()
+	tenantID := uuid.New()
 
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO manage_scan_jobs (id, tenant_id, host_id, profile, status, job_type)
-		 VALUES ($1, $2, $3, 'quick', 'queued', 'port_survey')`,
-		uuid.New(), tenantID, hostID)
+		`INSERT INTO manage_scan_jobs (id, tenant_id, profile, status, job_type)
+		 VALUES ($1, $2, 'quick', 'queued', 'port_survey')`,
+		uuid.New(), tenantID)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}

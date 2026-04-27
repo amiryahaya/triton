@@ -36,23 +36,31 @@ func isUniqueViolation(err error) bool {
 
 // agentSelectCols keeps the SELECT list consistent across single-row
 // lookups. Status is TEXT-typed in the DB; Scan into a string then
-// caller casts to AgentStatus.
+// caller casts to AgentStatus. PendingCommand is JSONB.
 const agentSelectCols = `id, name, cert_serial, cert_expires_at,
-	status, last_seen_at, created_at, updated_at`
+	status, last_seen_at, pending_command, created_at, updated_at`
 
 // scanAgent reads the agent columns from a pgx.Row into an Agent.
 // Extracted so List + Get + GetByCertSerial share column order.
 func scanAgent(row pgx.Row) (Agent, error) {
 	var a Agent
 	var status string
+	var rawCmd []byte // for pending_command JSONB
 	err := row.Scan(
 		&a.ID, &a.Name, &a.CertSerial, &a.CertExpiresAt,
-		&status, &a.LastSeenAt, &a.CreatedAt, &a.UpdatedAt,
+		&status, &a.LastSeenAt, &rawCmd, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		return Agent{}, err
 	}
 	a.Status = AgentStatus(status)
+	if rawCmd != nil {
+		var cmd AgentCommand
+		if err := json.Unmarshal(rawCmd, &cmd); err != nil {
+			return Agent{}, fmt.Errorf("agents: unmarshal pending_command: %w", err)
+		}
+		a.PendingCommand = &cmd
+	}
 	return a, nil
 }
 

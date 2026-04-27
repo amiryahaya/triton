@@ -30,7 +30,7 @@ func (s *stubScanner) Scan(_ context.Context, _ scanrunner.Target, onFinding fun
 	return nil
 }
 
-func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, completedPtr *bool) *httptest.Server {
+func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, completedPtr, failPtr *bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -52,6 +52,11 @@ func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, completedPtr *bool
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/worker/jobs/"+jobID.String()+"/fail":
+			if failPtr != nil {
+				*failPtr = true
+			} else {
+				t.Errorf("unexpected fail call: %s %s", r.Method, r.URL.Path)
+			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Errorf("unexpected manage request: %s %s", r.Method, r.URL.Path)
@@ -64,7 +69,7 @@ func TestRunOne_Success(t *testing.T) {
 	jobID, hostID := uuid.New(), uuid.New()
 	var completed, submitted bool
 
-	manageSrv := buildManageServer(t, jobID, hostID, &completed)
+	manageSrv := buildManageServer(t, jobID, hostID, &completed, nil)
 	defer manageSrv.Close()
 
 	reportSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

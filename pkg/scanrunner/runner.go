@@ -72,10 +72,8 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, report *
 	if err := scanner.Scan(ctx, target, func(f Finding) {
 		findings = append(findings, f)
 	}); err != nil {
-		hbCancel()
 		return fail(fmt.Errorf("runner: scan %s: %w", host.IP, err))
 	}
-	hbCancel()
 
 	// Step 5: Map + submit.
 	hostname := host.Hostname

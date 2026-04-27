@@ -3,7 +3,10 @@ package scanjobs
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -43,19 +46,24 @@ type DispatcherConfig struct {
 // configured binary for each one, enforcing a concurrency cap.
 // Call Run(ctx) to start; it blocks until ctx is cancelled.
 type Dispatcher struct {
-	cfg DispatcherConfig
+	cfg      DispatcherConfig
+	workerID string
 }
 
 // NewDispatcher applies defaults and returns a ready Dispatcher.
 func NewDispatcher(cfg DispatcherConfig) *Dispatcher {
 	if cfg.Concurrency <= 0 {
-		maxProcs, _ := ComputeCaps()
+		maxProcs, _ := ComputeCaps() // maxMemMB returned for callers to pass as subprocess flag; dispatcher enforces concurrency only
 		cfg.Concurrency = maxProcs
 	}
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 5 * time.Second
 	}
-	return &Dispatcher{cfg: cfg}
+	host, _ := os.Hostname()
+	return &Dispatcher{
+		cfg:      cfg,
+		workerID: fmt.Sprintf("dispatcher-%s", host),
+	}
 }
 
 // Run blocks until ctx is cancelled. It polls ListQueued, spawns one subprocess
@@ -123,18 +131,29 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// spawnOne spawns the binary for a single job and waits for it to finish.
+// spawnOne claims the job, spawns the binary for it, and waits for it to finish.
 // On context cancellation it sends SIGTERM to the subprocess and waits.
 func (d *Dispatcher) spawnOne(ctx context.Context, j Job) {
+	// Claim the job before spawning to prevent duplicate spawns across poll
+	// ticks or multiple dispatcher instances racing on the same job.
+	if _, err := d.cfg.Store.ClaimByID(ctx, j.ID, d.workerID); err != nil {
+		if !errors.Is(err, ErrAlreadyClaimed) {
+			log.Printf("dispatcher: claim job %s: %v", j.ID, err)
+		}
+		return
+	}
+
 	args := []string{
 		"--manage-url", d.cfg.ManageURL,
-		"--manage-key", d.cfg.WorkerKey,
 		"--job-id", j.ID.String(),
 	}
 
 	// Use a background context for the command so we can send SIGTERM
 	// manually instead of having exec.CommandContext send SIGKILL immediately.
 	cmd := exec.Command(d.cfg.BinaryPath, args...) //nolint:gosec // path is operator-supplied config
+	// Pass the worker key via environment variable rather than a CLI flag to
+	// keep it out of the process argv (visible to all users via ps aux).
+	cmd.Env = append(os.Environ(), "TRITON_WORKER_KEY="+d.cfg.WorkerKey)
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("dispatcher: start job %s: %v", j.ID, err)
@@ -186,6 +205,11 @@ func ComputeCaps() (maxProcs int, maxMemMB int64) {
 
 	vm, err := gopsutilmem.VirtualMemory()
 	if err != nil || vm.Total == 0 {
+		return maxProcs, defaultMemMB
+	}
+	if vm.Used >= vm.Total {
+		// Guard against uint64 underflow: on some Linux kernels with unusual
+		// accounting, Used can equal or exceed Total, wrapping to a huge value.
 		return maxProcs, defaultMemMB
 	}
 	available := vm.Total - vm.Used

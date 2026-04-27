@@ -15,6 +15,9 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 )
 
+// Compile-time check: stubDispatcherStore must implement the Store methods used
+// by Dispatcher. The embed provides no-op panics for all others.
+
 // stubDispatcherStore implements only the Store methods needed by Dispatcher.
 // All other methods panic if called unexpectedly.
 type stubDispatcherStore struct {
@@ -23,11 +26,23 @@ type stubDispatcherStore struct {
 	listQueued    []scanjobs.Job
 	listQueuedErr error
 	listCallCount atomic.Int32
+
+	claimErr error // if non-nil, ClaimByID returns this error
 }
 
 func (s *stubDispatcherStore) ListQueued(_ context.Context, _ []string, _ int) ([]scanjobs.Job, error) {
 	s.listCallCount.Add(1)
 	return s.listQueued, s.listQueuedErr
+}
+
+// ClaimByID satisfies the Store interface. Returns (Job{}, nil) by default so
+// the dispatcher can proceed to spawn the subprocess. Set claimErr to simulate
+// ErrAlreadyClaimed or other failures.
+func (s *stubDispatcherStore) ClaimByID(_ context.Context, id uuid.UUID, _ string) (scanjobs.Job, error) {
+	if s.claimErr != nil {
+		return scanjobs.Job{}, s.claimErr
+	}
+	return scanjobs.Job{ID: id}, nil
 }
 
 // fakeBinary writes a shell script that exits 0 to a temp file and returns its

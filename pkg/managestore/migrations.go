@@ -333,4 +333,9 @@ ALTER TABLE manage_scan_jobs
 	// means "use the profile default port list".
 	`ALTER TABLE manage_scan_jobs
 	 ADD COLUMN IF NOT EXISTS port_override INTEGER[];`,
+
+	// Version 16: pending_command column on manage_agents for admin-queued
+	// scan commands. Agent atomically reads and clears on next poll.
+	`ALTER TABLE manage_agents
+		ADD COLUMN IF NOT EXISTS pending_command JSONB;`,
 }

@@ -12,6 +12,10 @@ import (
 // matches. Handlers map this to HTTP 404.
 var ErrNotFound = errors.New("scanjobs: not found")
 
+// ErrAlreadyClaimed is returned by ClaimByID when the job exists but is no
+// longer in 'queued' status (already claimed by another worker or cancelled).
+var ErrAlreadyClaimed = errors.New("scanjobs: job already claimed or not queued")
+
 // Store is the persistence boundary for the scan-job state machine.
 // The orchestrator and the admin HTTP handlers both go through this
 // interface; see PostgresStore for the concrete implementation.
@@ -106,4 +110,13 @@ type Store interface {
 	// state for the given tenant. Used by the deactivation watcher to
 	// determine whether it is safe to proceed with licence deactivation.
 	CountActive(ctx context.Context, tenantID uuid.UUID) (int64, error)
+
+	// ListQueued returns up to limit queued jobs matching any of the given
+	// job_types, with scheduled_at <= NOW(), ordered by enqueued_at ascending.
+	ListQueued(ctx context.Context, jobTypes []string, limit int) ([]Job, error)
+
+	// ClaimByID atomically transitions the named job from queued → running.
+	// Returns ErrNotFound when no such job exists.
+	// Returns ErrAlreadyClaimed when the job is not in 'queued' status.
+	ClaimByID(ctx context.Context, id uuid.UUID, workerID string) (Job, error)
 }

@@ -179,6 +179,12 @@ func (f *fakeStore) CountActive(_ context.Context, _ uuid.UUID) (int64, error) {
 	// contract satisfied.
 	return 0, nil
 }
+func (f *fakeStore) ListQueued(_ context.Context, _ []string, _ int) ([]scanjobs.Job, error) {
+	return nil, nil
+}
+func (f *fakeStore) ClaimByID(_ context.Context, _ uuid.UUID, _ string) (scanjobs.Job, error) {
+	return scanjobs.Job{}, scanjobs.ErrNotFound
+}
 
 // --- helpers ----------------------------------------------------------------
 

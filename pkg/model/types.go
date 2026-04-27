@@ -252,6 +252,7 @@ type CryptoAsset struct {
 	NotBefore    *time.Time `json:"notBefore,omitempty"`
 	NotAfter     *time.Time `json:"notAfter,omitempty"`
 	IsCA         bool       `json:"isCA,omitempty"`
+	IsSelfSigned bool       `json:"isSelfSigned,omitempty"`
 
 	// Revocation status (for OCSP/CRL checking)
 	RevocationStatus string   `json:"revocationStatus,omitempty"` // "GOOD", "REVOKED", "UNKNOWN", "ERROR"

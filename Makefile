@@ -1,4 +1,4 @@
-.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-build-manage web-test web-clean
+.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver build-portscan test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-build-manage web-test web-clean
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -33,6 +33,9 @@ build-all:
 	# Manage server (server-only platforms)
 	GOOS=linux GOARCH=amd64 go build -o bin/triton-manageserver-linux-amd64 cmd/manageserver/main.go
 	GOOS=linux GOARCH=arm64 go build -o bin/triton-manageserver-linux-arm64 cmd/manageserver/main.go
+	# Port survey daemon (server-only platforms)
+	GOOS=linux GOARCH=amd64 go build -o bin/triton-portscan-linux-amd64 ./cmd/triton-portscan
+	GOOS=linux GOARCH=arm64 go build -o bin/triton-portscan-linux-arm64 ./cmd/triton-portscan
 
 # Database lifecycle
 db-up:
@@ -93,6 +96,11 @@ container-stop-engine:
 build-agent:
 	@mkdir -p bin
 	go build -o bin/triton-agent ./cmd/triton-agent
+
+# Port survey daemon binary
+build-portscan:
+	@mkdir -p bin
+	go build -o bin/triton-portscan ./cmd/triton-portscan
 
 # Agent container lifecycle
 container-build-agent:

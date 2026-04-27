@@ -62,6 +62,7 @@ type Job struct {
 	ErrorMessage       string     `json:"error_message"`
 	JobType            JobType    `json:"job_type"`
 	ScheduledAt        *time.Time `json:"scheduled_at,omitempty"`
+	PortOverride       []uint16   `json:"port_override,omitempty"`
 }
 
 // EnqueueReq is the input to Store.Enqueue. TenantID is injected from
@@ -81,8 +82,9 @@ type EnqueueReq struct {
 // Operators select individual hosts by ID (not by tag) since port
 // surveys target specific machines. ScheduledAt nil = run immediately.
 type PortSurveyEnqueueReq struct {
-	TenantID    uuid.UUID   `json:"-"`
-	HostIDs     []uuid.UUID `json:"host_ids"`
-	Profile     Profile     `json:"profile"`
-	ScheduledAt *time.Time  `json:"scheduled_at,omitempty"`
+	TenantID     uuid.UUID   `json:"-"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	ScheduledAt  *time.Time  `json:"scheduled_at,omitempty"`
+	PortOverride []uint16    `json:"port_override,omitempty"`
 }

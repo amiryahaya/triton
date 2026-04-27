@@ -137,6 +137,7 @@ export interface PortSurveyEnqueueReq {
   host_ids: string[];
   profile: ScanJobProfile;
   scheduled_at?: string; // ISO 8601; omit = run immediately
+  port_override?: number[]; // explicit port list; omit = use profile defaults
 }
 
 export interface PushStatus {

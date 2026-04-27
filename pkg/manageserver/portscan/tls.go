@@ -8,22 +8,25 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/scanrunner"
 )
 
 // extractTLSCert dials ip:port with TLS, extracts the leaf certificate.
 // Returns nil on any failure — TLS extraction is best-effort.
-func extractTLSCert(ctx context.Context, ip string, port int, timeout time.Duration) *TLSCertInfo {
+func extractTLSCert(ctx context.Context, ip string, port int, timeout time.Duration) *scanrunner.TLSCertInfo {
 	dialer := &net.Dialer{Timeout: timeout}
-	conn, err := tls.DialWithDialer(dialer, "tcp",
-		fmt.Sprintf("%s:%d", ip, port),
-		&tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional audit scan
-	)
+	rawConn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ip, port))
 	if err != nil {
 		return nil
 	}
-	defer conn.Close() //nolint:errcheck // UDP-like close; error is never actionable
-
-	_ = ctx // context available for future cancellation support
+	tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // audit scan must accept self-signed certs
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		rawConn.Close() //nolint:errcheck // best-effort close; error not actionable on handshake failure
+		return nil
+	}
+	conn := tlsConn
+	defer conn.Close() //nolint:errcheck // TLS close error is not actionable
 
 	certs := conn.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
@@ -31,7 +34,7 @@ func extractTLSCert(ctx context.Context, ip string, port int, timeout time.Durat
 	}
 	leaf := certs[0]
 
-	info := &TLSCertInfo{
+	info := &scanrunner.TLSCertInfo{
 		Subject:      leaf.Subject.CommonName,
 		Issuer:       leaf.Issuer.CommonName,
 		NotBefore:    leaf.NotBefore,

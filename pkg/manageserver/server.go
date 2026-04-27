@@ -24,7 +24,6 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
 	"github.com/amiryahaya/triton/pkg/manageserver/discovery"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
-	"github.com/amiryahaya/triton/pkg/manageserver/portscan"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanresults"
 	"github.com/amiryahaya/triton/pkg/manageserver/tags"
@@ -334,6 +333,17 @@ func (s *Server) buildRouter() chi.Router {
 		})
 	})
 
+	// Worker API — only mounted when WorkerKey is configured. The
+	// WorkerKeyAuth middleware (inside MountWorkerRoutes) enforces the
+	// X-Worker-Key header on every route in this group, so triton-portscan
+	// subprocesses can call back without a user JWT.
+	if s.cfg.WorkerKey != "" {
+		workerHandlers := scanjobs.NewWorkerHandlers(s.scanjobsStore, s.hostsStore)
+		r.Route("/api/v1/worker", func(r chi.Router) {
+			scanjobs.MountWorkerRoutes(r, workerHandlers, s.cfg.WorkerKey)
+		})
+	}
+
 	// Serve the embedded Vue portal at /ui/. Root and unknown paths
 	// redirect to /ui/ so operators can visit https://manage.example.com
 	// and land on the dashboard. The hash router inside the SPA handles
@@ -477,18 +487,44 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	s.bootstrapCA(ctx, instanceID.String())
 
 	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
-		Store:        s.scanjobsStore,
-		ResultStore:  s.resultsStore,
-		Parallelism:  s.cfg.Parallelism,
-		ScanFunc:     scanjobs.NewScanFunc(s.hostsStore),
-		PortScanFunc: portscan.NewPortScanFunc(s.hostsStore),
-		SourceID:     instanceID,
+		Store:       s.scanjobsStore,
+		ResultStore: s.resultsStore,
+		Parallelism: s.cfg.Parallelism,
+		ScanFunc:    scanjobs.NewScanFunc(s.hostsStore),
+		SourceID:    instanceID,
 	})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		orch.Run(ctx)
 	}()
+
+	// Dispatcher spawns triton-portscan subprocesses for port_survey jobs.
+	// Only started when WorkerKey is configured; otherwise port_survey jobs
+	// stay queued and no subprocess is ever spawned.
+	if s.cfg.WorkerKey != "" {
+		binaryPath := s.cfg.PortscanBinary
+		if binaryPath == "" {
+			binaryPath = "triton-portscan"
+		}
+		manageURL := s.cfg.ManageURL
+		if manageURL == "" {
+			manageURL = "http://localhost" + s.cfg.Listen
+		}
+		disp := scanjobs.NewDispatcher(scanjobs.DispatcherConfig{
+			Store:        s.scanjobsStore,
+			BinaryPath:   binaryPath,
+			ManageURL:    manageURL,
+			WorkerKey:    s.cfg.WorkerKey,
+			ReportURL:    s.cfg.ReportServer,
+			LicenseToken: s.cfg.ReportLicenseToken,
+		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			disp.Run(ctx)
+		}()
+	}
 
 	// Drain is best-effort: missing creds = log + idle. Batch G wires
 	// the /setup or /enrol flow that persists creds; until then the

@@ -30,7 +30,7 @@ var _ Store = (*PostgresStore)(nil)
 // jobSelectCols lists the columns expected by scanJob. COALESCE on
 // worker_id lets us read the nullable TEXT column into a plain
 // `string` Go field (empty-string = not-yet-claimed).
-const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message, COALESCE(job_type,'filesystem'), scheduled_at`
+const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message, COALESCE(job_type,'filesystem'), scheduled_at, port_override`
 
 // defaultListLimit is the fallback page size for List when a non-positive
 // limit is supplied. 100 keeps API responses bounded without operator
@@ -42,18 +42,19 @@ const defaultListLimit = 100
 // non-pointer uuid.UUID — historical rows with NULL host surface as uuid.Nil.
 func scanJob(row pgx.Row) (Job, error) {
 	var (
-		j          Job
-		credRef    *uuid.UUID
-		hostID     *uuid.UUID
-		workerID   string
-		jobTypeStr string
+		j            Job
+		credRef      *uuid.UUID
+		hostID       *uuid.UUID
+		workerID     string
+		jobTypeStr   string
+		portOverride []int32
 	)
 	if err := row.Scan(
 		&j.ID, &j.TenantID, &hostID, &j.Profile, &credRef,
 		&j.Status, &j.CancelRequested, &workerID, &j.EnqueuedAt,
 		&j.StartedAt, &j.FinishedAt, &j.RunningHeartbeatAt,
 		&j.ProgressText, &j.ErrorMessage,
-		&jobTypeStr, &j.ScheduledAt,
+		&jobTypeStr, &j.ScheduledAt, &portOverride,
 	); err != nil {
 		return Job{}, err
 	}
@@ -63,6 +64,9 @@ func scanJob(row pgx.Row) (Job, error) {
 	j.CredentialsRef = credRef
 	j.WorkerID = workerID
 	j.JobType = JobType(jobTypeStr)
+	for _, p := range portOverride {
+		j.PortOverride = append(j.PortOverride, uint16(p)) //nolint:gosec // port values are 1–65535, validated at enqueue time
+	}
 	return j, nil
 }
 
@@ -159,14 +163,20 @@ func (s *PostgresStore) EnqueuePortSurvey(ctx context.Context, req PortSurveyEnq
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Convert PortOverride once outside the host loop — same ports for all hosts.
+	var portOverride []int32
+	for _, p := range req.PortOverride {
+		portOverride = append(portOverride, int32(p))
+	}
+
 	out := make([]Job, 0, len(req.HostIDs))
 	for _, hid := range req.HostIDs {
 		row := tx.QueryRow(ctx,
 			`INSERT INTO manage_scan_jobs
-			   (tenant_id, host_id, profile, job_type, scheduled_at)
-			 VALUES ($1, $2, $3, 'port_survey', $4)
+			   (tenant_id, host_id, profile, job_type, scheduled_at, port_override)
+			 VALUES ($1, $2, $3, 'port_survey', $4, $5)
 			 RETURNING `+jobSelectCols,
-			req.TenantID, hid, string(req.Profile), req.ScheduledAt,
+			req.TenantID, hid, string(req.Profile), req.ScheduledAt, portOverride,
 		)
 		j, err := scanJob(row)
 		if err != nil {
@@ -256,6 +266,7 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, workerID string) (Job, bo
 		  WHERE id = (
 		     SELECT id FROM manage_scan_jobs
 		      WHERE status = 'queued'
+		        AND COALESCE(job_type,'filesystem') = 'filesystem'
 		        AND (scheduled_at IS NULL OR scheduled_at <= NOW())
 		      ORDER BY enqueued_at
 		      LIMIT 1
@@ -446,4 +457,71 @@ func (s *PostgresStore) ReapStale(ctx context.Context, staleAfter time.Duration)
 		return 0, fmt.Errorf("reap stale scan jobs: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+// ListQueued returns up to limit queued jobs whose job_type matches one of
+// the given jobTypes and whose scheduled_at is NULL or in the past, ordered
+// by enqueued_at ascending (oldest-first, FIFO). Used by the port-survey
+// dispatcher to find work without racing with the filesystem orchestrator.
+func (s *PostgresStore) ListQueued(ctx context.Context, jobTypes []string, limit int) ([]Job, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+jobSelectCols+`
+		FROM manage_scan_jobs
+		WHERE status = 'queued'
+		  AND job_type = ANY($1)
+		  AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+		ORDER BY enqueued_at
+		LIMIT $2`,
+		jobTypes, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list queued scan jobs: %w", err)
+	}
+	defer rows.Close()
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan queued job row: %w", err)
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// ClaimByID atomically transitions a specific queued job to running and
+// stamps worker_id + started_at + running_heartbeat_at. Returns ErrNotFound
+// when no row with the given id exists, or ErrAlreadyClaimed when the row
+// exists but is no longer in 'queued' status (race with another worker or a
+// prior cancel/complete).
+func (s *PostgresStore) ClaimByID(ctx context.Context, id uuid.UUID, workerID string) (Job, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE manage_scan_jobs
+		SET status = 'running',
+		    worker_id = $2,
+		    started_at = NOW(),
+		    running_heartbeat_at = NOW()
+		WHERE id = $1 AND status = 'queued'
+		RETURNING `+jobSelectCols,
+		id, workerID,
+	)
+	j, err := scanJob(row)
+	if err == nil {
+		return j, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return Job{}, fmt.Errorf("claim scan job by id: %w", err)
+	}
+	// ErrNoRows: distinguish job-not-found from job-already-claimed atomically.
+	var total, queued int
+	if qerr := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FILTER (WHERE TRUE),
+		        COUNT(*) FILTER (WHERE status = 'queued')
+		 FROM manage_scan_jobs WHERE id = $1`, id).Scan(&total, &queued); qerr != nil {
+		return Job{}, fmt.Errorf("claim by id existence check: %w", qerr)
+	}
+	if total == 0 {
+		return Job{}, ErrNotFound
+	}
+	return Job{}, ErrAlreadyClaimed
 }

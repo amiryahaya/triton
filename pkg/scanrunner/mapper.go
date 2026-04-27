@@ -1,0 +1,138 @@
+package scanrunner
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/pkg/model"
+)
+
+// ToScanResult converts port scan findings into a model.ScanResult ready for
+// report server submission. hostname is the display label; ip builds endpoints.
+func ToScanResult(hostname, ip, profile string, findings []Finding) *model.ScanResult {
+	result := &model.ScanResult{
+		ID: uuid.NewString(),
+		Metadata: model.ScanMetadata{
+			Timestamp:   time.Now(),
+			Hostname:    hostname,
+			ScanProfile: profile,
+		},
+		Findings: make([]model.Finding, 0, len(findings)),
+	}
+
+	for i := range findings {
+		f := &findings[i]
+		endpoint := fmt.Sprintf("tcp://%s:%d", ip, f.Port)
+
+		if f.TLSCert != nil {
+			nb := f.TLSCert.NotBefore
+			na := f.TLSCert.NotAfter
+			asset := &model.CryptoAsset{
+				ID:           uuid.NewString(),
+				Algorithm:    f.TLSCert.Algorithm,
+				KeySize:      f.TLSCert.KeyBits,
+				Subject:      f.TLSCert.Subject,
+				Issuer:       f.TLSCert.Issuer,
+				SerialNumber: f.TLSCert.SerialNumber,
+				NotBefore:    &nb,
+				NotAfter:     &na,
+				SANs:         f.TLSCert.SANs,
+				IsSelfSigned: f.TLSCert.IsSelfSigned,
+				PQCStatus:    classifyKeySize(f.TLSCert.Algorithm, f.TLSCert.KeyBits),
+				Function:     "authentication",
+				State:        "IN_TRANSIT",
+			}
+			result.Findings = append(result.Findings, model.Finding{
+				ID:       uuid.NewString(),
+				Category: int(model.CategoryActiveNetwork),
+				Source: model.FindingSource{
+					Type:            "network",
+					Endpoint:        endpoint,
+					DetectionMethod: "tls-handshake",
+				},
+				CryptoAsset: asset,
+				Confidence:  0.95,
+				Module:      "port_survey",
+				Timestamp:   time.Now(),
+			})
+		}
+
+		if asset := serviceToAsset(f); asset != nil {
+			result.Findings = append(result.Findings, model.Finding{
+				ID:       uuid.NewString(),
+				Category: int(model.CategoryActiveNetwork),
+				Source: model.FindingSource{
+					Type:            "network",
+					Endpoint:        endpoint,
+					DetectionMethod: "banner-grab",
+				},
+				CryptoAsset: asset,
+				Confidence:  0.85,
+				Module:      "port_survey",
+				Timestamp:   time.Now(),
+			})
+		}
+	}
+	return result
+}
+
+func serviceToAsset(f *Finding) *model.CryptoAsset {
+	if f.Service == "" {
+		return nil
+	}
+	proto := strings.ToLower(f.Service)
+	switch proto {
+	case "ssh":
+		return &model.CryptoAsset{
+			ID:        uuid.NewString(),
+			Algorithm: "SSH",
+			Subject:   f.Banner,
+			PQCStatus: model.PQCStatusTransitional,
+			Function:  "authentication",
+			State:     "IN_TRANSIT",
+		}
+	case "http", "https":
+		if f.Banner == "" {
+			return nil
+		}
+		return &model.CryptoAsset{
+			ID:        uuid.NewString(),
+			Algorithm: strings.ToUpper(proto),
+			Subject:   f.Banner,
+			PQCStatus: model.PQCStatusTransitional,
+			Function:  "encryption",
+			State:     "IN_TRANSIT",
+		}
+	default:
+		if f.Banner == "" {
+			return nil
+		}
+		return &model.CryptoAsset{
+			ID:        uuid.NewString(),
+			Algorithm: strings.ToUpper(proto),
+			Subject:   f.Banner,
+			PQCStatus: model.PQCStatusTransitional,
+			Function:  "network",
+			State:     "IN_TRANSIT",
+		}
+	}
+}
+
+func classifyKeySize(algo string, bits int) string {
+	switch strings.ToUpper(algo) {
+	case "RSA":
+		if bits >= 2048 {
+			return model.PQCStatusTransitional
+		}
+		return model.PQCStatusDeprecated
+	case "ECDSA", "EC":
+		if bits >= 256 {
+			return model.PQCStatusTransitional
+		}
+		return model.PQCStatusDeprecated
+	}
+	return model.PQCStatusTransitional
+}

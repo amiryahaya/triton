@@ -305,6 +305,29 @@ func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host,
 	return out, nil
 }
 
+// GetHostBasic returns just the hostname and IP for a host. Used by the
+// Worker API (GET /api/v1/worker/hosts/{id}) which only needs these two
+// fields and avoids loading tags.
+func (s *PostgresStore) GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, err error) {
+	var hn, ipv *string
+	err = s.pool.QueryRow(ctx,
+		`SELECT hostname, host(ip)::text FROM manage_hosts WHERE id = $1`, id,
+	).Scan(&hn, &ipv)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", ErrNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("get host basic: %w", err)
+	}
+	if hn != nil {
+		hostname = *hn
+	}
+	if ipv != nil {
+		ip = *ipv
+	}
+	return hostname, ip, nil
+}
+
 func (s *PostgresStore) CountByTag(ctx context.Context, tagID uuid.UUID) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx,

@@ -327,4 +327,10 @@ ALTER TABLE manage_discovery_candidates
 	 CHECK (job_type IN ('filesystem','port_survey'));
 ALTER TABLE manage_scan_jobs
 	 ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;`,
+
+	// Version 15: Port override for port_survey jobs.
+	// port_override stores an explicit list of TCP ports to scan; NULL
+	// means "use the profile default port list".
+	`ALTER TABLE manage_scan_jobs
+	 ADD COLUMN IF NOT EXISTS port_override INTEGER[];`,
 }

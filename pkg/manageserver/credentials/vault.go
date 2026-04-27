@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,11 +14,14 @@ import (
 	"time"
 )
 
+// ErrNotFound is returned by Read when the secret path does not exist in Vault.
+var ErrNotFound = errors.New("vault: secret not found")
+
 // VaultClient is a thin Vault KV v2 HTTP wrapper. No Vault SDK dependency.
 type VaultClient struct {
 	addr  string
 	mount string
-	http  *http.Client
+	client *http.Client
 
 	mu          sync.Mutex
 	token       string
@@ -51,7 +55,7 @@ func NewVaultClient(addr, mount, token, roleID, secretID string) (*VaultClient, 
 	c := &VaultClient{
 		addr:     strings.TrimRight(addr, "/"),
 		mount:    mount,
-		http:     &http.Client{Timeout: 10 * time.Second},
+		client:   &http.Client{Timeout: 10 * time.Second},
 		roleID:   roleID,
 		secretID: secretID,
 	}
@@ -76,7 +80,7 @@ func (c *VaultClient) loginLocked() error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.http.Post(
+	resp, err := c.client.Post(
 		c.addr+"/v1/auth/approle/login",
 		"application/json",
 		bytes.NewReader(body),
@@ -86,6 +90,7 @@ func (c *VaultClient) loginLocked() error {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("approle login: status %d", resp.StatusCode)
 	}
 	var out struct {
@@ -141,7 +146,7 @@ func (c *VaultClient) doReq(ctx context.Context, method, urlPath string, body an
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	return c.http.Do(req)
+	return c.client.Do(req)
 }
 
 // kvPath returns the /v1/{mount}/data/{path} URL suffix for KV v2.
@@ -157,6 +162,7 @@ func (c *VaultClient) Write(ctx context.Context, path string, payload SecretPayl
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("vault write: status %d", resp.StatusCode)
 	}
 	return nil
@@ -170,9 +176,11 @@ func (c *VaultClient) Read(ctx context.Context, path string) (SecretPayload, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode == http.StatusNotFound {
-		return SecretPayload{}, fmt.Errorf("vault read: not found")
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return SecretPayload{}, fmt.Errorf("vault read: %w", ErrNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return SecretPayload{}, fmt.Errorf("vault read: status %d", resp.StatusCode)
 	}
 	var out struct {
@@ -194,6 +202,7 @@ func (c *VaultClient) Delete(ctx context.Context, path string) error {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("vault delete: status %d", resp.StatusCode)
 	}
 	return nil

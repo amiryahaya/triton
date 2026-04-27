@@ -49,10 +49,10 @@ func mockVaultServer(t *testing.T) (*httptest.Server, *[]string) {
 func TestVaultClient_TokenAuth_WriteReadDelete(t *testing.T) {
 	srv, calls := mockVaultServer(t)
 	c := &VaultClient{
-		addr:  srv.URL,
-		mount: "secret",
-		http:  &http.Client{Timeout: 5 * time.Second},
-		token: "s.static",
+		addr:   srv.URL,
+		mount:  "secret",
+		client: &http.Client{Timeout: 5 * time.Second},
+		token:  "s.static",
 	}
 	ctx := context.Background()
 	payload := SecretPayload{Username: "ubuntu", Password: "secret"}
@@ -93,6 +93,10 @@ func TestVaultClient_AppRoleLogin(t *testing.T) {
 }
 
 func TestNewVaultClientFromEnv_NilWhenNotConfigured(t *testing.T) {
+	t.Setenv("TRITON_VAULT_ADDR", "")
+	t.Setenv("TRITON_VAULT_TOKEN", "")
+	t.Setenv("TRITON_VAULT_ROLE_ID", "")
+	t.Setenv("TRITON_VAULT_SECRET_ID", "")
 	c, err := NewVaultClientFromEnv()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

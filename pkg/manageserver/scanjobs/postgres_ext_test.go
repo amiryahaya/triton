@@ -5,6 +5,7 @@ package scanjobs_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -13,7 +14,6 @@ import (
 
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
 	"github.com/amiryahaya/triton/pkg/managestore"
-
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
@@ -96,6 +96,54 @@ func TestClaimByID_Transitions(t *testing.T) {
 	_, err = store.ClaimByID(context.Background(), uuid.New(), "worker-3")
 	if !errors.Is(err, scanjobs.ErrNotFound) {
 		t.Errorf("missing job: expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestEnqueuePortSurvey_InheritsCredentialsRef(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	// Create a credential row to reference.
+	tenantID := uuid.New()
+	credID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO manage_credentials (id, tenant_id, name, auth_type, vault_path)
+         VALUES ($1, $2, 'test-cred', 'ssh-key', 'secret/data/triton/t/c')`,
+		credID, tenantID,
+	)
+	if err != nil {
+		t.Fatalf("insert credential: %v", err)
+	}
+
+	// Create a host with credentials_ref set.
+	// Use the first 12 chars of hostID as a unique IP suffix to avoid the
+	// unique constraint on manage_hosts.ip across test runs.
+	hostID := uuid.New()
+	uniqueIP := fmt.Sprintf("10.%d.%d.%d",
+		hostID[0], hostID[1], hostID[2])
+	_, err = pool.Exec(ctx,
+		`INSERT INTO manage_hosts (id, hostname, ip, credentials_ref, access_port)
+         VALUES ($1, $2, $3, $4, 22)`,
+		hostID, "web-"+hostID.String()[:8], uniqueIP, credID,
+	)
+	if err != nil {
+		t.Fatalf("insert host: %v", err)
+	}
+
+	store := scanjobs.NewPostgresStore(pool)
+	jobs, err := store.EnqueuePortSurvey(ctx, scanjobs.PortSurveyEnqueueReq{
+		TenantID: tenantID,
+		HostIDs:  []uuid.UUID{hostID},
+		Profile:  scanjobs.ProfileStandard,
+	})
+	if err != nil {
+		t.Fatalf("EnqueuePortSurvey: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].CredentialsRef == nil || *jobs[0].CredentialsRef != credID {
+		t.Errorf("credentials_ref: got %v want %v", jobs[0].CredentialsRef, credID)
 	}
 }
 

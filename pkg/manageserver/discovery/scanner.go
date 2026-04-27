@@ -67,11 +67,20 @@ func (s *Scanner) Scan(ctx context.Context, cidr string, ports []int, out chan<-
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
+loop:
 	for _, ip := range ips {
+		if ctx.Err() != nil {
+			break
+		}
 		ipStr := ip.String()
 
 		wg.Add(1)
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			break loop
+		}
 
 		go func(ipStr string) {
 			defer wg.Done()

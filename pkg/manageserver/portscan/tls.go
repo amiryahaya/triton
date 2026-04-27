@@ -38,7 +38,7 @@ func extractTLSCert(ctx context.Context, ip string, port int, timeout time.Durat
 		NotAfter:     leaf.NotAfter,
 		SANs:         leaf.DNSNames,
 		SerialNumber: leaf.SerialNumber.String(),
-		IsSelfSigned: leaf.Issuer.CommonName == leaf.Subject.CommonName,
+		IsSelfSigned: leaf.Issuer.String() == leaf.Subject.String(),
 	}
 
 	switch pub := leaf.PublicKey.(type) {

@@ -33,6 +33,9 @@ func (s *stubStore) List(_ context.Context, tenantID uuid.UUID) ([]credentials.C
 			out = append(out, c)
 		}
 	}
+	if out == nil {
+		out = []credentials.Credential{}
+	}
 	return out, nil
 }
 func (s *stubStore) Get(_ context.Context, id uuid.UUID) (credentials.Credential, error) {
@@ -158,5 +161,21 @@ func TestAdminHandlers_Create_VaultNil_Returns503(t *testing.T) {
 	h.Create(w, r)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("nil vault: status %d want 503", w.Code)
+	}
+}
+
+func TestAdminHandlers_Create_CertificateAsPrivateKey(t *testing.T) {
+	h := newHandlers(newStubStore(), &stubVault{})
+	tenantID := uuid.New()
+	body := map[string]any{
+		"name": "x", "auth_type": "ssh-key", "username": "u",
+		"private_key": "-----BEGIN CERTIFICATE-----\nMIIBkTCB+w==\n-----END CERTIFICATE-----",
+	}
+	r := httptest.NewRequest(http.MethodPost, "/", jsonBody(t, body))
+	r = r.WithContext(credentials.WithTenantID(r.Context(), tenantID))
+	w := httptest.NewRecorder()
+	h.Create(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("certificate as private_key: status %d want 400, body: %s", w.Code, w.Body.String())
 	}
 }

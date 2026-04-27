@@ -15,6 +15,8 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
 )
 
+// tenantKey is the credentials-package context key for tenant UUID.
+// It is intentionally isolated from other packages to avoid collisions.
 type tenantKey struct{}
 
 // WithTenantID injects a tenant UUID into the context. Used by tests and middleware.
@@ -79,8 +81,21 @@ func (req createReq) validate() error {
 		if req.PrivateKey == "" {
 			return errors.New("private_key is required for ssh-key")
 		}
-		if !strings.Contains(req.PrivateKey, "-----BEGIN") {
-			return errors.New("private_key must be PEM format")
+		validKeyHeaders := []string{
+			"-----BEGIN OPENSSH PRIVATE KEY-----",
+			"-----BEGIN RSA PRIVATE KEY-----",
+			"-----BEGIN EC PRIVATE KEY-----",
+			"-----BEGIN PRIVATE KEY-----",
+		}
+		hasKeyHeader := false
+		for _, h := range validKeyHeaders {
+			if strings.Contains(req.PrivateKey, h) {
+				hasKeyHeader = true
+				break
+			}
+		}
+		if !hasKeyHeader {
+			return errors.New("private_key must be a PEM-encoded OpenSSH, RSA, EC, or PKCS#8 private key")
 		}
 	case AuthTypeSSHPassword, AuthTypeWinRM:
 		if req.Password == "" {

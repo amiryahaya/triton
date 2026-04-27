@@ -31,17 +31,19 @@ func ToScanResult(hostname, ip, profile string, findings []Finding) *model.ScanR
 			nb := f.TLSCert.NotBefore
 			na := f.TLSCert.NotAfter
 			asset := &model.CryptoAsset{
-				ID:        uuid.NewString(),
-				Algorithm: f.TLSCert.Algorithm,
-				KeySize:   f.TLSCert.KeyBits,
-				Subject:   f.TLSCert.Subject,
-				Issuer:    f.TLSCert.Issuer,
-				NotBefore: &nb,
-				NotAfter:  &na,
-				SANs:      f.TLSCert.SANs,
-				PQCStatus: classifyKeySize(f.TLSCert.Algorithm, f.TLSCert.KeyBits),
-				Function:  "authentication",
-				State:     "IN_TRANSIT",
+				ID:           uuid.NewString(),
+				Algorithm:    f.TLSCert.Algorithm,
+				KeySize:      f.TLSCert.KeyBits,
+				Subject:      f.TLSCert.Subject,
+				Issuer:       f.TLSCert.Issuer,
+				SerialNumber: f.TLSCert.SerialNumber,
+				NotBefore:    &nb,
+				NotAfter:     &na,
+				SANs:         f.TLSCert.SANs,
+				IsSelfSigned: f.TLSCert.IsSelfSigned,
+				PQCStatus:    classifyKeySize(f.TLSCert.Algorithm, f.TLSCert.KeyBits),
+				Function:     "authentication",
+				State:        "IN_TRANSIT",
 			}
 			result.Findings = append(result.Findings, model.Finding{
 				ID:       uuid.NewString(),

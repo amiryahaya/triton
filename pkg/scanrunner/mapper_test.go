@@ -52,6 +52,50 @@ func TestToScanResult_TLSCertFinding(t *testing.T) {
 	if tlsFinding.Source.DetectionMethod != "tls-handshake" {
 		t.Errorf("detection method: got %q", tlsFinding.Source.DetectionMethod)
 	}
+	asset := tlsFinding.CryptoAsset
+	if asset == nil {
+		t.Fatal("CryptoAsset should not be nil for TLS finding")
+	}
+	if asset.SerialNumber != "12345" {
+		t.Errorf("serial number: got %q, want %q", asset.SerialNumber, "12345")
+	}
+	if asset.IsSelfSigned {
+		t.Error("IsSelfSigned: got true, want false")
+	}
+}
+
+func TestToScanResult_SelfSignedCert(t *testing.T) {
+	nb := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	na := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	findings := []scanrunner.Finding{
+		{
+			Port: 8443,
+			TLSCert: &scanrunner.TLSCertInfo{
+				Subject:      "CN=myhost",
+				Issuer:       "CN=myhost",
+				Algorithm:    "ECDSA",
+				KeyBits:      256,
+				NotBefore:    nb,
+				NotAfter:     na,
+				SerialNumber: "deadbeef",
+				IsSelfSigned: true,
+			},
+		},
+	}
+	result := scanrunner.ToScanResult("myhost", "10.0.0.2", "standard", findings)
+	if len(result.Findings) != 1 {
+		t.Fatalf("findings count: got %d, want 1", len(result.Findings))
+	}
+	asset := result.Findings[0].CryptoAsset
+	if asset == nil {
+		t.Fatal("CryptoAsset should not be nil")
+	}
+	if asset.SerialNumber != "deadbeef" {
+		t.Errorf("serial number: got %q, want %q", asset.SerialNumber, "deadbeef")
+	}
+	if !asset.IsSelfSigned {
+		t.Error("IsSelfSigned: got false, want true")
+	}
 }
 
 func TestToScanResult_SSHFinding(t *testing.T) {

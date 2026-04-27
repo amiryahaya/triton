@@ -354,7 +354,11 @@ ALTER TABLE manage_hosts
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'manage_scan_jobs_credentials_ref_fkey'
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    WHERE n.nspname = current_schema()
+      AND c.conname = 'manage_scan_jobs_credentials_ref_fkey'
   ) THEN
     ALTER TABLE manage_scan_jobs
       ADD CONSTRAINT manage_scan_jobs_credentials_ref_fkey

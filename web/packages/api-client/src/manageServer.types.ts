@@ -104,7 +104,6 @@ export interface Credential {
   tenant_id: string;
   name: string;
   auth_type: CredentialAuthType;
-  vault_path: string;
   in_use_count: number;
   created_at: string;
 }

@@ -10,6 +10,11 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 }
 
 // MountWorkerRoutes wires the worker GetSecret route.
-func MountWorkerRoutes(r chi.Router, h *WorkerHandler) {
-	r.Get("/credentials/{id}", h.GetSecret)
+// key is the shared X-Worker-Key secret; WorkerKeyAuth is applied here so
+// the outer /api/v1/worker group does not need to duplicate the middleware.
+func MountWorkerRoutes(r chi.Router, h *WorkerHandler, key string) {
+	r.Group(func(r chi.Router) {
+		r.Use(workerKeyAuth(key))
+		r.Get("/credentials/{id}", h.GetSecret)
+	})
 }

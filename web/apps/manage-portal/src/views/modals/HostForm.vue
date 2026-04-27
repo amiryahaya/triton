@@ -46,6 +46,7 @@ watch(credentialsRef, (id) => {
   const cred = credStore.items.find(c => c.id === id);
   if (!cred) return;
   if (cred.auth_type === 'winrm-password') accessPort.value = 5985;
+  else accessPort.value = 22;
 });
 
 const credOptions = computed(() => [

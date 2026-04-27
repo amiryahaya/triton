@@ -368,9 +368,8 @@ func (s *Server) buildRouter() chi.Router {
 	if s.cfg.WorkerKey != "" {
 		workerHandlers := scanjobs.NewWorkerHandlers(s.scanjobsStore, s.hostsStore)
 		r.Route("/api/v1/worker", func(r chi.Router) {
-			r.Use(scanjobs.WorkerKeyAuth(s.cfg.WorkerKey))
 			scanjobs.MountWorkerRoutes(r, workerHandlers, s.cfg.WorkerKey)
-			credentials.MountWorkerRoutes(r, s.credWorker)
+			credentials.MountWorkerRoutes(r, s.credWorker, s.cfg.WorkerKey)
 		})
 	}
 

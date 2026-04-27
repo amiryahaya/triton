@@ -181,6 +181,11 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 
 // Delete blocks when the credential is in use, then removes Vault secret + DB row.
 func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, "tenant not set")
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid credential id")
@@ -188,11 +193,15 @@ func (h *AdminHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	cred, err := h.store.Get(r.Context(), id)
 	if errors.Is(err, ErrCredentialNotFound) {
-		writeErr(w, http.StatusNotFound, "credential not found")
+		http.NotFound(w, r)
 		return
 	}
 	if err != nil {
 		internalErr(w, r, err, "get credential for delete")
+		return
+	}
+	if cred.TenantID != tenantID {
+		http.NotFound(w, r)
 		return
 	}
 	n, err := h.store.CountHosts(r.Context(), id)

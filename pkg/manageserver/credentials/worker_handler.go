@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"log"
 	"net/http"
@@ -9,6 +10,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
+
+// workerKeyAuth is middleware that validates the X-Worker-Key header.
+// Uses constant-time comparison to resist timing attacks.
+func workerKeyAuth(key string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got := r.Header.Get("X-Worker-Key")
+			if subtle.ConstantTimeCompare([]byte(got), []byte(key)) != 1 {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 // VaultReader is the narrow vault surface the worker handler needs.
 type VaultReader interface {

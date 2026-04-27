@@ -140,16 +140,35 @@ func TestAdminHandlers_Create_InvalidPEM(t *testing.T) {
 
 func TestAdminHandlers_Delete_InUse(t *testing.T) {
 	store := newStubStore()
+	tenantID := uuid.New()
 	id := uuid.New()
-	store.items[id] = credentials.Credential{ID: id}
+	store.items[id] = credentials.Credential{ID: id, TenantID: tenantID}
 	store.hostCounts[id] = 2
 	h := newHandlers(store, &stubVault{})
 	r := httptest.NewRequest(http.MethodDelete, "/"+id.String(), nil)
+	r = r.WithContext(credentials.WithTenantID(r.Context(), tenantID))
 	r = credentials.WithURLParam(r, "id", id.String())
 	w := httptest.NewRecorder()
 	h.Delete(w, r)
 	if w.Code != http.StatusConflict {
 		t.Errorf("delete in-use: status %d want 409", w.Code)
+	}
+}
+
+func TestAdminHandlers_Delete_WrongTenant(t *testing.T) {
+	store := newStubStore()
+	ownerTenantID := uuid.New()
+	attackerTenantID := uuid.New()
+	id := uuid.New()
+	store.items[id] = credentials.Credential{ID: id, TenantID: ownerTenantID}
+	h := newHandlers(store, &stubVault{})
+	r := httptest.NewRequest(http.MethodDelete, "/"+id.String(), nil)
+	r = r.WithContext(credentials.WithTenantID(r.Context(), attackerTenantID))
+	r = credentials.WithURLParam(r, "id", id.String())
+	w := httptest.NewRecorder()
+	h.Delete(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("wrong tenant: status %d want 404", w.Code)
 	}
 }
 

@@ -7,9 +7,60 @@ Extend Triton's host connectivity model beyond direct SSH to support two enterpr
 1. **SSH via Bastion** — target host is in a private network; a hardened jump host (bastion) proxies the SSH connection.
 2. **Agent-managed** — target host has no inbound SSH port open (laptop, workstation, locked-down server); a `triton-agent` binary installed on the endpoint initiates an outbound HTTPS connection to the Manage Server and runs scans locally.
 
-Both features share the `connection_type` field on `manage_hosts`. The `port` field (renamed from `access_port`) is generic — its meaning depends on `connection_type`.
+Both features share the `connection_type` field on `manage_hosts`. The `ssh_port` field (renamed from `access_port`) stores the SSH port for direct/bastion hosts; hidden for agent hosts.
 
 > **WinRM deferred:** `connection_type = 'winrm'` and `auth_type = 'winrm-password'` are reserved in the schema for future use but carry no scanning implementation. WinRM coverage (~35–45% of SSH) does not justify the implementation cost when agent deployment via GPO/Intune/Jamf is available for Windows hosts.
+
+---
+
+## How Hosts Enter Inventory
+
+There are two distinct paths. Network discovery never creates agent hosts.
+
+```
+Network Discovery (CIDR scan)
+  → scans CIDR for hosts with SSH port open
+  → operator reviews candidates
+  → import → host row (connection_type = 'ssh', ssh_port = <discovered>)
+
+Agent Self-Registration (enrollment token)
+  → operator deploys triton-agent via GPO / Intune / Jamf / manual install
+  → agent boots, calls POST /api/v1/agent/register with enrollment token
+  → manage server auto-creates host row (connection_type = 'agent')
+  → host appears in Hosts page with online status
+```
+
+SSH-via-bastion hosts are created manually by the operator in the HostForm — they are standard SSH hosts whose path routes through a bastion. Discovery can find the target IP but the operator sets connection_type to `ssh_bastion` and selects the bastion when adding the host.
+
+---
+
+## Scan Job Orchestration
+
+Both SSH and agent hosts share the same `manage_scan_jobs` table. Routing is determined by `host.connection_type` at dispatch time.
+
+```
+SSH / SSH-Bastion host:
+  1. Operator/schedule triggers scan
+  2. manage_scan_jobs row created (job_type = 'ssh_scan' or 'port_survey')
+  3. Dispatcher spawns triton-portscan or triton-sshagent subprocess
+     — worker claims job via POST /api/v1/worker/jobs/{id}/claim
+     — claim endpoint only returns jobs for connection_type IN ('ssh','ssh_bastion')
+  4. Worker SSHes to host (direct or via ProxyJump for bastion)
+  5. Worker submits result via Manage Server relay
+  6. Worker calls POST /api/v1/worker/jobs/{id}/complete
+
+Agent host:
+  1. Operator/schedule triggers scan
+  2. manage_scan_jobs row created (job_type = 'agent_scan')
+  3. No subprocess spawned — job waits in queue
+  4. triton-agent long-polls GET /api/v1/agent/poll (mTLS)
+     — endpoint returns pending job only for THIS agent's host_id
+  5. Agent runs triton scan locally
+  6. Agent posts result via POST /api/v1/agent/result (mTLS)
+  7. Manage Server marks job complete, stores result
+```
+
+Workers and agents never compete for the same job — claim and poll endpoints filter by connection_type. Result format and storage pipeline are identical regardless of delivery mechanism.
 
 ---
 

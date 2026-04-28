@@ -30,7 +30,6 @@ func (s *stubScanner) Scan(_ context.Context, _ scanrunner.Target, onFinding fun
 	return nil
 }
 
-
 func TestRunOne_Success(t *testing.T) {
 	jobID, hostID := uuid.New(), uuid.New()
 	var submitted bool

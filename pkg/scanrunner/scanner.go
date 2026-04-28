@@ -22,7 +22,7 @@ type Target struct {
 	PortOverride []uint16          // non-nil overrides profile port list; nil = profile default
 	Credentials  *Credentials      // nil for port survey; non-nil for SSH agentless
 	Credential   *CredentialSecret // Vault-backed credential for port survey; nil = unauthenticated
-	AccessPort   int               // SSH/WinRM port; 0 means unset/default
+	SSHPort      int               // SSH/WinRM port; 0 means unset/default
 }
 
 // Credentials holds optional SSH/auth material for agentless scan types.

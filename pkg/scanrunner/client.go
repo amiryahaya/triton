@@ -33,7 +33,7 @@ type HostInfo struct {
 	ID         uuid.UUID `json:"id"`
 	Hostname   string    `json:"hostname"`
 	IP         string    `json:"ip"`
-	AccessPort int       `json:"access_port"`
+	SSHPort    int       `json:"ssh_port"`
 }
 
 // CredentialSecret is the scanner-side view of a credential secret

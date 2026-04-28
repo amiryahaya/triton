@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	urlpkg "net/url"
@@ -148,7 +149,9 @@ func licAdminReq(t *testing.T, method, url string, body any) *http.Response {
 func createTestOrgAndLicense(t *testing.T, serverURL string, seats int) (orgID, licID string) {
 	t.Helper()
 	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "IntTest-" + t.Name(),
+		"name":          "IntTest-" + t.Name(),
+		"contact_name":  "Integration Test Contact",
+		"contact_email": "inttest@example.com",
 	})
 	var orgResult map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgResult))
@@ -443,7 +446,9 @@ func TestLicenseServer_ExpiredLicense(t *testing.T) {
 	serverURL, store, _, _ := requireLicenseServer(t)
 
 	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "ExpiredOrg",
+		"name":          "ExpiredOrg",
+		"contact_name":  "Expired Contact",
+		"contact_email": "expired@example.com",
 	})
 	var org map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
@@ -514,7 +519,11 @@ func licAdminReqWithJWT(t *testing.T, method, url, jwt string, body any) *http.R
 // createTestOrg is a helper that creates an org and returns its ID.
 func createTestOrg(t *testing.T, serverURL, name string) string {
 	t.Helper()
-	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{"name": name})
+	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
+		"name":          name,
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.example",
+	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org))
@@ -531,7 +540,9 @@ func TestLicenseServer_DeleteOrg_NoLicenses(t *testing.T) {
 
 	// Create org
 	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "DeleteMe-Org",
+		"name":          "DeleteMe-Org",
+		"contact_name":  "Delete Contact",
+		"contact_email": "delete@example.com",
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org map[string]any
@@ -557,7 +568,9 @@ func TestLicenseServer_DuplicateOrgName(t *testing.T) {
 
 	// Create "UniqueOrg"
 	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "UniqueOrg",
+		"name":          "UniqueOrg",
+		"contact_name":  "Unique Contact",
+		"contact_email": "unique@example.com",
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org1 map[string]any
@@ -569,21 +582,27 @@ func TestLicenseServer_DuplicateOrgName(t *testing.T) {
 
 	// Create same name again → 409
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "UniqueOrg",
+		"name":          "UniqueOrg",
+		"contact_name":  "Duplicate Contact",
+		"contact_email": "dup@example.com",
 	})
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 	resp.Body.Close()
 
 	// Rename first org
 	resp = licAdminReq(t, "PUT", serverURL+"/api/v1/admin/orgs/"+org1ID, map[string]string{
-		"name": "RenamedOrg",
+		"name":          "RenamedOrg",
+		"contact_name":  "Unique Contact",
+		"contact_email": "unique@example.com",
 	})
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
 	// Now "UniqueOrg" should be available
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "UniqueOrg",
+		"name":          "UniqueOrg",
+		"contact_name":  "New Unique Contact",
+		"contact_email": "newunique@example.com",
 	})
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
@@ -595,7 +614,11 @@ func TestLicenseServer_LicenseFilter_ByOrg(t *testing.T) {
 	serverURL, _, _, _ := requireLicenseServer(t)
 
 	// Create 2 orgs
-	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{"name": "FilterOrg1"})
+	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
+		"name":          "FilterOrg1",
+		"contact_name":  "Filter Contact 1",
+		"contact_email": "filter1@example.com",
+	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org1 map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org1))
@@ -604,7 +627,11 @@ func TestLicenseServer_LicenseFilter_ByOrg(t *testing.T) {
 	require.True(t, ok, "expected 'org' key in POST /orgs response for FilterOrg1")
 	org1ID := org1Data["id"].(string)
 
-	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{"name": "FilterOrg2"})
+	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
+		"name":          "FilterOrg2",
+		"contact_name":  "Filter Contact 2",
+		"contact_email": "filter2@example.com",
+	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org2 map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&org2))
@@ -1250,4 +1277,179 @@ func TestLicenseServer_StatsAccuracy(t *testing.T) {
 	assert.Equal(t, float64(1), stats["expiredLicenses"])  // 1 expired
 	assert.Equal(t, float64(2), stats["totalActivations"]) // 2 activations
 	assert.Equal(t, float64(2), stats["activeSeats"])      // 2 active seats
+}
+
+// --- Group J: Org Contact Fields + Expiry Notifications ---
+
+// doLicAdminReqRaw makes an authenticated admin request with a raw JSON string body.
+func doLicAdminReqRaw(t *testing.T, method, url, jwt, body string) *http.Response {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, r)
+	require.NoError(t, err)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+// makeIntegrationOrg creates an org directly in the store for use in store-level tests.
+func makeIntegrationOrg(t *testing.T, store *licensestore.PostgresStore, name string) *licensestore.Organization {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	org := &licensestore.Organization{
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Name:         name,
+		ContactName:  "Default Contact",
+		ContactEmail: "default@example.com",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, store.CreateOrg(ctx, org))
+	return org
+}
+
+// makeIntegrationLicense creates a license directly in the store for use in store-level tests.
+func makeIntegrationLicense(t *testing.T, store *licensestore.PostgresStore, orgID string, expiresIn time.Duration) *licensestore.LicenseRecord {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	lic := &licensestore.LicenseRecord{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:     orgID,
+		Tier:      "pro",
+		Seats:     5,
+		IssuedAt:  now,
+		ExpiresAt: now.Add(expiresIn),
+		CreatedAt: now,
+	}
+	require.NoError(t, store.CreateLicense(ctx, lic))
+	return lic
+}
+
+func TestOrgContactFields_CreateAndRead(t *testing.T) {
+	baseURL, _, _, _ := requireLicenseServer(t)
+	jwt := licGetJWT(t, baseURL)
+	ctx := context.Background()
+	_ = ctx
+
+	resp := doLicAdminReqRaw(t, "POST", baseURL+"/api/v1/admin/orgs", jwt, `{
+		"name": "Contact Test Org",
+		"contact_name": "Ahmad bin Ali",
+		"contact_phone": "+60123456789",
+		"contact_email": "ahmad@nacsa.gov.my"
+	}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	var created struct {
+		Org struct {
+			ID           string `json:"id"`
+			ContactName  string `json:"contact_name"`
+			ContactPhone string `json:"contact_phone"`
+			ContactEmail string `json:"contact_email"`
+		} `json:"org"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&created))
+	resp.Body.Close()
+	assert.Equal(t, "Ahmad bin Ali", created.Org.ContactName)
+	assert.Equal(t, "+60123456789", created.Org.ContactPhone)
+	assert.Equal(t, "ahmad@nacsa.gov.my", created.Org.ContactEmail)
+
+	// Read back via GET
+	get := licAdminReqWithJWT(t, "GET", baseURL+"/api/v1/admin/orgs/"+created.Org.ID, jwt, nil)
+	require.Equal(t, http.StatusOK, get.StatusCode)
+	var org map[string]any
+	require.NoError(t, json.NewDecoder(get.Body).Decode(&org))
+	get.Body.Close()
+	assert.Equal(t, "Ahmad bin Ali", org["contact_name"])
+	assert.Equal(t, "ahmad@nacsa.gov.my", org["contact_email"])
+}
+
+func TestOrgContactFields_CreateValidation(t *testing.T) {
+	baseURL, _, _, _ := requireLicenseServer(t)
+	jwt := licGetJWT(t, baseURL)
+
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{
+			name: "missing contact_name",
+			body: `{"name":"Org A","contact_email":"a@b.com"}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "missing contact_email",
+			body: `{"name":"Org B","contact_name":"Bob"}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "invalid contact_email",
+			body: `{"name":"Org C","contact_name":"Carol","contact_email":"not-an-email"}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "valid with phone",
+			body: `{"name":"Org D","contact_name":"Dave","contact_email":"dave@d.com","contact_phone":"+601234"}`,
+			want: http.StatusCreated,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doLicAdminReqRaw(t, "POST", baseURL+"/api/v1/admin/orgs", jwt, tc.body)
+			resp.Body.Close()
+			assert.Equal(t, tc.want, resp.StatusCode, "test: %s", tc.name)
+		})
+	}
+}
+
+func TestExpiryNotifications_30dTriggered(t *testing.T) {
+	_, store, _, _ := requireLicenseServer(t)
+	ctx := context.Background()
+
+	// Create org with contact email
+	org := makeIntegrationOrg(t, store, "Expiry Test Org "+t.Name())
+	org.ContactEmail = "contact@example.com"
+	org.ContactName = "Test Contact"
+	org.UpdatedAt = time.Now().UTC()
+	require.NoError(t, store.UpdateOrg(ctx, org))
+
+	// Create license expiring in 20 days (within 30d window)
+	lic := makeIntegrationLicense(t, store, org.ID, 20*24*time.Hour)
+
+	// Verify notified_30d_at starts NULL
+	results, err := store.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	var before *licensestore.LicenseWithOrg
+	for i := range results {
+		if results[i].LicenseID == lic.ID {
+			before = &results[i]
+		}
+	}
+	require.NotNil(t, before, "license should appear in 30d window")
+	assert.Nil(t, before.Notified30dAt)
+
+	// Mark as notified
+	require.NoError(t, store.MarkLicenseNotified(ctx, lic.ID, "30d"))
+
+	// Verify notified_30d_at is now set
+	results2, err := store.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	var after *licensestore.LicenseWithOrg
+	for i := range results2 {
+		if results2[i].LicenseID == lic.ID {
+			after = &results2[i]
+		}
+	}
+	require.NotNil(t, after)
+	assert.NotNil(t, after.Notified30dAt)
+	assert.Nil(t, after.Notified7dAt)
+	assert.Nil(t, after.Notified1dAt)
 }

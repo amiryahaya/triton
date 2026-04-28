@@ -2,12 +2,13 @@
 
 ## Goal
 
-Extend Triton's host connectivity model beyond direct SSH to support two enterprise patterns:
+Extend Triton's host connectivity model beyond direct SSH to support three enterprise patterns:
 
 1. **SSH via Bastion** — target host is in a private network; a hardened jump host (bastion) proxies the SSH connection.
-2. **Agent-managed** — target host has no SSH port open (laptop, workstation, locked-down VM); a `triton-agent` binary installed on the endpoint initiates an outbound connection to the Manage Server and runs scans locally.
+2. **WinRM** — Windows hosts managed via WinRM (HTTP port 5985 or HTTPS port 5986). No SSH needed.
+3. **Agent-managed** — target host has no SSH/WinRM port open (laptop, workstation, locked-down VM); a `triton-agent` binary installed on the endpoint initiates an outbound HTTPS connection to the Manage Server and runs scans locally.
 
-Both features share the same `connection_type` field added to `manage_hosts`.
+All features share the `connection_type` field on `manage_hosts`. The `port` field (renamed from `access_port`) is generic — its meaning depends on `connection_type`.
 
 ---
 
@@ -33,7 +34,7 @@ The bastion itself is a host in Triton's inventory with `connection_type = 'ssh'
 
 ALTER TABLE manage_hosts
   ADD COLUMN connection_type TEXT NOT NULL DEFAULT 'ssh'
-    CHECK (connection_type IN ('ssh', 'ssh_bastion', 'agent')),
+    CHECK (connection_type IN ('ssh', 'ssh_bastion', 'winrm', 'agent')),
   ADD COLUMN bastion_host_id UUID REFERENCES manage_hosts(id);
 ```
 
@@ -51,7 +52,7 @@ When a port survey job is dispatched for a `ssh_bastion` host:
 2. `triton-portscan` claims the job — `ClaimResp` now carries both credential IDs and the bastion's IP/port.
 3. Scanner calls `GET /api/v1/worker/credentials/{target_cred_id}` and `GET /api/v1/worker/credentials/{bastion_cred_id}`.
 4. Scanner opens SSH connection to bastion using bastion credential.
-5. Via the bastion SSH session, opens a proxied TCP connection to the target's `ip:ssh_port`.
+5. Via the bastion SSH session, opens a proxied TCP connection to the target's `ip:port`.
 6. Authenticates to target using target credential over the proxied connection.
 7. Runs scan normally through the tunnel.
 
@@ -60,9 +61,9 @@ When a port survey job is dispatched for a `ssh_bastion` host:
 **`manage_scan_jobs` table additions:**
 ```sql
 ALTER TABLE manage_scan_jobs
-  ADD COLUMN bastion_host_id      UUID REFERENCES manage_hosts(id),
-  ADD COLUMN bastion_host_ip      TEXT,
-  ADD COLUMN bastion_ssh_port     INT,
+  ADD COLUMN bastion_host_id         UUID REFERENCES manage_hosts(id),
+  ADD COLUMN bastion_host_ip         TEXT,
+  ADD COLUMN bastion_port            INT,
   ADD COLUMN bastion_credentials_ref UUID REFERENCES manage_credentials(id);
 ```
 
@@ -73,10 +74,10 @@ Stored at enqueue time so the scanner doesn't need to re-query the host table �
 {
   "job_id": "...",
   "host_ip": "10.0.1.50",
-  "ssh_port": 22,
+  "port": 22,
   "credentials_ref": "uuid",
   "bastion_ip": "203.0.113.10",
-  "bastion_ssh_port": 22,
+  "bastion_port": 22,
   "bastion_credentials_ref": "uuid"
 }
 ```
@@ -94,26 +95,33 @@ Accept and return two new optional fields:
 ```
 
 Validation:
-- `connection_type` must be one of `ssh`, `ssh_bastion`, `agent`
+- `connection_type` must be one of `ssh`, `ssh_bastion`, `winrm`, `agent`
 - If `ssh_bastion`, `bastion_host_id` must be provided and must reference a `ssh`-type host
+- If `winrm`, `bastion_host_id` must be absent; `port` defaults to 5985; `credentials_ref` must point to a `winrm-password` credential
 - If `agent`, `bastion_host_id` must be absent; `credentials_ref` must be absent
 
 ### UI Changes
 
-**HostForm.vue** — new field "Connection Type" (radio or select):
+**HostForm.vue** — new field "Connection Type" (select):
 
 ```
-○ Direct SSH        (default)
-○ SSH via Bastion
-○ Agent-managed
+Direct SSH          (default)
+SSH via Bastion
+WinRM
+Agent-managed
 ```
 
 When **SSH via Bastion** selected:
 - Show "Bastion Host" dropdown — lists only hosts with `connection_type = 'ssh'` that have a credential assigned
-- Credential and SSH Port fields remain (for the target)
+- Credential picker filters to SSH credential types; Port field remains (default 22)
+
+When **WinRM** selected:
+- Hide Bastion Host field
+- Credential picker filters to `winrm-password` credentials only
+- Port auto-fills to 5985 (HTTP); operator can change to 5986 for HTTPS
 
 When **Agent-managed** selected:
-- Hide Credential, SSH Port, Bastion Host fields
+- Hide Credential, Port, Bastion Host fields
 - Show read-only info box: "This host will appear online once triton-agent checks in."
 
 **Hosts.vue table** — new "Type" badge column:
@@ -122,11 +130,50 @@ When **Agent-managed** selected:
 |---|---|
 | `SSH` | Direct SSH |
 | `Bastion` | SSH via jump host |
+| `WinRM` | Windows Remote Management |
 | `Agent` | Agent-managed |
 
 ---
 
-## Feature 2: Agent-Managed Hosts
+## Feature 2: WinRM
+
+### How It Works
+
+```
+Manage Server
+  └── HTTP(S) → Windows host (port 5985 HTTP / 5986 HTTPS)
+                    └── WinRM over SOAP/HTTP
+```
+
+Windows Remote Management (WinRM) is the Microsoft implementation of WS-Management — a SOAP-based protocol for remote machine management. It is enabled by default on Windows Server 2012 R2+ and is the standard alternative to SSH for Windows hosts.
+
+The Manage Server connects using the `winrm-password` credential type. The `port` field determines transport: **5985 = plain HTTP**, **5986 = HTTPS**. There is no separate `use_https` flag — the port is the single source of truth.
+
+### Scan Execution Flow
+
+When a scan job is dispatched for a `winrm` host:
+
+1. Worker claims job; `ClaimResp` includes `host_ip`, `port`, `credentials_ref`, `connection_type: "winrm"`.
+2. Worker calls `GET /api/v1/worker/credentials/{id}` → receives `{ type: "winrm-password", username, password }`.
+3. Worker establishes WinRM session: HTTP POST to `http(s)://{host_ip}:{port}/wsman`.
+4. Runs remote commands / WMI queries to collect cryptographic asset data.
+5. Posts result through normal scan result pipeline.
+
+HTTPS determination: if `port == 5986`, connect with TLS; if `port == 5985`, plain HTTP. No other configuration needed.
+
+### API Changes
+
+No new fields beyond what Feature 1 introduces. The `connection_type = 'winrm'` value plus the generic `port` field are sufficient.
+
+**Host CRUD:** same `/api/v1/admin/hosts` endpoint — `connection_type: "winrm"`, `port: 5985` (or 5986), `credentials_ref: <winrm-password uuid>`.
+
+### UI Changes
+
+Covered in Feature 1 UI section above — HostForm.vue shows WinRM option in the Connection Type selector, auto-fills port to 5985, and filters the credential picker to `winrm-password` credentials only.
+
+---
+
+## Feature 3: Agent-Managed Hosts
 
 ### How It Works
 
@@ -156,32 +203,31 @@ Before an agent can register, an operator generates a short-lived **enrollment t
      triton-agent.exe --register --server https://manage.example.com --token enroll-abc123
 
 3. Agent first boot:
-   POST /api/v1/agent/register
+   POST /api/v1/agent/register  (no client cert yet — TLS server-auth only)
    Body: { enrollment_token: "enroll-abc123", hostname: "laptop-01", ip: "192.168.1.55", os: "windows" }
-   → { agent_id: "uuid", agent_secret: "long-random-hex" }
-   Agent saves agent_id + agent_secret to local config (encrypted at rest)
+   → { agent_id: "uuid", client_cert: "<PEM>", client_key: "<PEM>", ca_cert: "<PEM>" }
 
-4. Enrollment token use count incremented; invalidated when max_uses reached or expires
+   The Manage Server calls Vault PKI to issue a short-lived client certificate
+   (TTL 90 days; CN = agent_id). Agent saves cert + key to local config (file-mode 0600).
+
+4. Enrollment token use count incremented; invalidated when max_uses reached or expires.
+
+5. All subsequent requests (poll, result) use the client certificate — mutual TLS.
 ```
 
 ### Agent Identity & Authentication
 
-After registration, the agent authenticates using `agent_id` + `agent_secret` (HMAC-SHA256 request signing or a simple `Authorization: Bearer {agent_secret}` header — simpler, sufficient for HTTPS-only transport).
+After registration, the agent authenticates via **mTLS** — it presents the Vault-issued client certificate on every request. The Manage Server validates the certificate against the Vault CA and looks up the agent by the certificate's Common Name (`agent_id`).
 
-The Manage Server stores:
+This reuses the existing `manage_agents` table, extended with a `host_id` column:
+
 ```sql
-CREATE TABLE manage_agents (
-  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id    UUID        NOT NULL,
-  host_id      UUID        REFERENCES manage_hosts(id),  -- linked after registration
-  hostname     TEXT        NOT NULL,
-  ip           TEXT,
-  os           TEXT,
-  agent_secret TEXT        NOT NULL,  -- bcrypt hash of the issued secret
-  last_seen_at TIMESTAMPTZ,
-  enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  status       TEXT        NOT NULL DEFAULT 'pending'  -- pending | active | revoked
-);
+-- Existing table (already in schema). New column added in this sprint:
+ALTER TABLE manage_agents
+  ADD COLUMN IF NOT EXISTS host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;
+
+-- Existing columns already present:
+-- id, tenant_id, hostname, ip, os, cert_fingerprint (or cert_serial), last_seen_at, status
 ```
 
 `host_id` is initially NULL — after registration, the Manage Server either:
@@ -196,12 +242,11 @@ CREATE TABLE manage_agents (
 
 ### Long-Poll Protocol
 
-The agent polls the Manage Server for tasks:
+The agent polls the Manage Server for tasks using mTLS (client certificate from enrollment):
 
 ```
 GET /api/v1/agent/poll
-Authorization: Bearer {agent_secret}
-X-Agent-ID: {agent_id}
+(mTLS — client certificate presented; server identifies agent via cert CN = agent_id)
 ```
 
 Server holds the connection open up to 30 seconds (long-poll). If no task is available, returns `204 No Content`. If a task is dispatched, returns `200 OK` with the task payload:
@@ -221,6 +266,8 @@ Agent re-polls immediately after completing a task or after a 30-second timeout.
 
 **Heartbeat:** The poll request itself serves as a heartbeat. `last_seen_at` on `manage_agents` is updated on every poll. Hosts not seen in 24h are shown as "offline" in the UI.
 
+**Certificate renewal:** Agent cert TTL is 90 days. Agent calls `POST /api/v1/agent/renew-cert` (mTLS) 7 days before expiry. Manage Server issues a new cert via Vault PKI and returns it. Old cert revoked in Vault CRL.
+
 ### Scan Execution on Agent
 
 1. Agent receives task via long-poll response.
@@ -229,8 +276,7 @@ Agent re-polls immediately after completing a task or after a 30-second timeout.
 
 ```
 POST /api/v1/agent/result
-Authorization: Bearer {agent_secret}
-X-Agent-ID: {agent_id}
+(mTLS — client certificate; agent identified via cert CN)
 Body: { task_id: "uuid", scan_result: { ... } }  (same JSON structure as normal scan result)
 ```
 
@@ -291,7 +337,7 @@ The install script downloads the correct `triton-agent` binary for the platform 
 ### New tables
 
 ```sql
--- Enrollment tokens
+-- Enrollment tokens (one-time secrets used only during agent registration)
 CREATE TABLE manage_enrollment_tokens (
   id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id  UUID        NOT NULL,
@@ -303,37 +349,30 @@ CREATE TABLE manage_enrollment_tokens (
   revoked    BOOL        NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Registered agents
-CREATE TABLE manage_agents (
-  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id    UUID        NOT NULL,
-  host_id      UUID        REFERENCES manage_hosts(id) ON DELETE SET NULL,
-  hostname     TEXT        NOT NULL,
-  ip           TEXT,
-  os           TEXT,
-  agent_secret TEXT        NOT NULL,   -- bcrypt hash
-  last_seen_at TIMESTAMPTZ,
-  enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  status       TEXT        NOT NULL DEFAULT 'pending'
-                 CHECK (status IN ('pending', 'active', 'revoked'))
-);
 ```
 
 ### Modified tables
 
 ```sql
--- manage_hosts
+-- manage_hosts: generic port + connection_type + bastion link
+ALTER TABLE manage_hosts
+  RENAME COLUMN access_port TO port;  -- was renamed from access_port in prior sprint
+
 ALTER TABLE manage_hosts
   ADD COLUMN connection_type TEXT NOT NULL DEFAULT 'ssh'
-    CHECK (connection_type IN ('ssh', 'ssh_bastion', 'agent')),
+    CHECK (connection_type IN ('ssh', 'ssh_bastion', 'winrm', 'agent')),
   ADD COLUMN bastion_host_id UUID REFERENCES manage_hosts(id);
 
--- manage_scan_jobs
+-- manage_agents: extend existing table with host_id (no new table needed)
+-- Existing table already has: id, tenant_id, hostname, ip, os, cert_fingerprint, last_seen_at, status
+ALTER TABLE manage_agents
+  ADD COLUMN IF NOT EXISTS host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;
+
+-- manage_scan_jobs: bastion connectivity fields
 ALTER TABLE manage_scan_jobs
   ADD COLUMN bastion_host_id         UUID REFERENCES manage_hosts(id),
   ADD COLUMN bastion_host_ip         TEXT,
-  ADD COLUMN bastion_ssh_port        INT,
+  ADD COLUMN bastion_port            INT,
   ADD COLUMN bastion_credentials_ref UUID REFERENCES manage_credentials(id);
 ```
 
@@ -345,35 +384,34 @@ ALTER TABLE manage_scan_jobs
 
 | Package | Responsibility |
 |---|---|
-| `pkg/manageserver/agentgateway/` | Agent registration, long-poll, result ingestion |
-| `pkg/manageserver/enrollmenttokens/` | Enrollment token CRUD |
+| `pkg/manageserver/agentgateway/` | Agent registration (mTLS), long-poll, result ingestion, cert renewal |
+| `pkg/manageserver/enrollmenttokens/` | Enrollment token CRUD (one-time registration secrets) |
 
 ### New files in existing packages
 
 | File | Change |
 |---|---|
-| `pkg/manageserver/hosts/types.go` | Add `ConnectionType`, `BastionHostID` to `Host` |
-| `pkg/manageserver/hosts/handlers_admin.go` | Validate connection_type + bastion_host_id |
-| `pkg/manageserver/scanjobs/types.go` | Add bastion fields to `ScanJob` |
+| `pkg/manageserver/hosts/types.go` | Add `ConnectionType`, `BastionHostID`, `Port` to `Host`; add `winrm` constant |
+| `pkg/manageserver/hosts/handlers_admin.go` | Validate `connection_type` + `bastion_host_id`; WinRM port default |
+| `pkg/manageserver/scanjobs/types.go` | Add bastion fields to `ScanJob`; rename `SSHPort` → `Port` |
 | `pkg/manageserver/scanjobs/handlers_admin.go` | Populate bastion fields at enqueue |
-| `pkg/manageserver/scanjobs/handlers_worker.go` | Include bastion fields in `ClaimResp` |
-| `pkg/scanrunner/runner.go` | If `BastinoIP` set, dial via SSH ProxyJump |
-| `pkg/manageserver/server.go` | Mount agentgateway + enrollmenttokens routes |
+| `pkg/manageserver/scanjobs/handlers_worker.go` | Include `port`, `bastion_port` in `ClaimResp` |
+| `pkg/scanrunner/runner.go` | If `BastionIP` set, dial via SSH ProxyJump; if `ConnectionType = winrm`, use WinRM client |
+| `pkg/manageserver/server.go` | Mount agentgateway + enrollmenttokens routes; configure mTLS listener for agent endpoints |
 
 ### New frontend files
 
 | File | Responsibility |
 |---|---|
 | `views/EnrollmentTokens.vue` | List tokens, generate new, revoke |
-| `views/AgentHosts.vue` | List agent-managed hosts, show online/offline status |
 | `stores/enrollmentTokens.ts` | Pinia store for token CRUD |
 
 ### Modified frontend files
 
 | File | Change |
 |---|---|
-| `views/modals/HostForm.vue` | Connection type selector; conditional bastion picker |
-| `views/Hosts.vue` | Connection type badge column |
+| `views/modals/HostForm.vue` | Connection type selector (SSH/Bastion/WinRM/Agent); conditional fields; port auto-fill |
+| `views/Hosts.vue` | Connection type badge; online/offline indicator for agent hosts |
 | `router.ts` | Add `/inventory/enrollment-tokens` route |
 | `nav.ts` | Add "Enrollment Tokens" nav item under Inventory |
 
@@ -381,13 +419,19 @@ ALTER TABLE manage_scan_jobs
 
 ## API Summary
 
-### Agent API (no JWT — uses agent_secret)
+### Agent API — registration (TLS server-auth only, enrollment token in body)
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/v1/agent/register` | First-time registration with enrollment token |
-| `GET` | `/api/v1/agent/poll` | Long-poll for next task (30s timeout) |
+| `POST` | `/api/v1/agent/register` | First-time registration; receives mTLS client cert from Vault PKI |
+
+### Agent API — post-registration (mTLS, client cert required)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/agent/poll` | Long-poll for next task (30s timeout); updates `last_seen_at` |
 | `POST` | `/api/v1/agent/result` | Submit completed scan result |
+| `POST` | `/api/v1/agent/renew-cert` | Renew client certificate before expiry |
 | `GET` | `/api/v1/agent/download/{os}/{arch}` | Download triton-agent binary |
 | `GET` | `/api/v1/agent/install.sh` | Linux/macOS install script |
 | `GET` | `/api/v1/agent/install.ps1` | Windows PowerShell install script |
@@ -400,7 +444,7 @@ ALTER TABLE manage_scan_jobs
 | `GET` | `/api/v1/admin/enrollment-tokens` | List enrollment tokens |
 | `DELETE` | `/api/v1/admin/enrollment-tokens/{id}` | Revoke token |
 | `GET` | `/api/v1/admin/agents` | List registered agents with status |
-| `DELETE` | `/api/v1/admin/agents/{id}` | Revoke agent registration |
+| `DELETE` | `/api/v1/admin/agents/{id}` | Revoke agent (marks cert as revoked in Vault CRL) |
 
 ---
 
@@ -413,10 +457,12 @@ ALTER TABLE manage_scan_jobs
 
 **Agent:**
 - Enrollment tokens are short-lived (24h default) and use-count limited — limits blast radius of a leaked token
-- Agent secret is bcrypt-hashed in the DB — Manage Server never stores the plaintext secret
+- Post-registration auth is mTLS — client certificate issued by Vault PKI, verified on every poll/result request; no shared secret in the DB
+- Certificate TTL is 90 days; renewal flow keeps certs fresh without re-enrollment
+- Revocation propagates via Vault CRL — revoked agents are refused on the next poll (no cached session beyond the active TLS handshake)
 - All agent communication is HTTPS — TLS required; HTTP rejected
 - Agent result endpoint validates `task_id` matches an outstanding task for that agent — prevents result injection
-- Revoked agents are refused on every poll — no cached session
+- Vault PKI CA is internal to the Manage Server deployment; agent certs are not trusted for any other service
 
 ---
 
@@ -424,15 +470,23 @@ ALTER TABLE manage_scan_jobs
 
 ### Bastion
 
-- Unit: `runners/runner.go` — mock SSH dialer; verify ProxyJump path taken when `BastinoIP` set
+- Unit: `scanrunner/runner.go` — mock SSH dialer; verify ProxyJump path taken when `BastionIP` set
 - Unit: `scanjobs/handlers_admin.go` — bastion fields populated correctly at enqueue
 - Integration: `TestBastionScan_EndToEnd` — requires two SSH containers (bastion + target); skip if `TRITON_TEST_BASTION` unset
 
+### WinRM
+
+- Unit: `hosts/handlers_admin.go` — `connection_type=winrm` requires `winrm-password` credential; defaults port to 5985
+- Unit: `scanrunner/runner.go` — WinRM client path taken when `ConnectionType = "winrm"`; port 5986 triggers HTTPS
+- Integration: `TestWinRMHost_CRUD` — create/update/delete host with `connection_type=winrm`; validation rejects SSH credential
+
 ### Agent
 
-- Unit: `agentgateway/register.go` — token hash check; auto-host-create; manual-link by hostname
-- Unit: `agentgateway/poll.go` — returns 204 on no task; returns task when enqueued; updates last_seen_at
-- Unit: `agentgateway/result.go` — task_id validation; result stored correctly
-- Unit: `enrollmenttokens/handlers.go` — expiry check; use_count limit; revoke
-- Integration: `TestAgentRegistration_EndToEnd` — real agent binary registers, polls, receives task, submits result
-- Integration: `TestEnrollmentToken_MaxUses` — token rejected after max_uses reached
+- Unit: `agentgateway/register.go` — token hash check; Vault PKI cert issued; auto-host-create; manual-link by hostname
+- Unit: `agentgateway/poll.go` — mTLS cert validated; returns 204 on no task; returns task when enqueued; updates `last_seen_at`
+- Unit: `agentgateway/result.go` — `task_id` validation; result stored correctly; agent identified via cert CN
+- Unit: `agentgateway/renew.go` — new cert issued; old cert added to Vault CRL
+- Unit: `enrollmenttokens/handlers.go` — expiry check; `use_count` limit; revoke
+- Integration: `TestAgentRegistration_EndToEnd` — agent registers with enrollment token, receives client cert, polls with mTLS, receives task, submits result
+- Integration: `TestEnrollmentToken_MaxUses` — token rejected after `max_uses` reached
+- Integration: `TestAgentRevocation` — agent's cert revoked; next poll returns 401

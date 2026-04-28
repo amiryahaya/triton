@@ -374,6 +374,10 @@ func (m *recordingMailer) SendInviteEmail(_ context.Context, data licenseserver.
 	return m.failWith
 }
 
+func (m *recordingMailer) SendExpiryWarningEmail(_ context.Context, _ string, _ licenseserver.ExpiryWarningEmailData) error {
+	return nil
+}
+
 // setupTestServerWithMailer builds a license server with both a fake
 // report server (for provisioning) and a recording mailer (for email).
 func setupTestServerWithMailer(t *testing.T, mailer licenseserver.Mailer) (*httptest.Server, *licensestore.PostgresStore) {

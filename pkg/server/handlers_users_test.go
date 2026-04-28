@@ -471,6 +471,10 @@ func (f *fakeMailer) SendInviteEmail(_ context.Context, data mailer.InviteEmailD
 	return f.sendErr
 }
 
+func (f *fakeMailer) SendExpiryWarningEmail(_ context.Context, _ string, _ mailer.ExpiryWarningEmailData) error {
+	return nil
+}
+
 // TestResendInvite_WithMailer_DropsTempPasswordFromBody verifies
 // Sprint 2 S2.7: when the report server is configured with a Mailer,
 // resend-invite pushes the temp password via email and the JSON

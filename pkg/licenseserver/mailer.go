@@ -10,9 +10,10 @@ import (
 // the Phase 5 Sprint 2 extraction. New code should import
 // internal/mailer directly.
 type (
-	Mailer          = mailer.Mailer
-	InviteEmailData = mailer.InviteEmailData
-	ResendMailer    = mailer.ResendMailer
+	Mailer                 = mailer.Mailer
+	InviteEmailData        = mailer.InviteEmailData
+	ExpiryWarningEmailData = mailer.ExpiryWarningEmailData
+	ResendMailer           = mailer.ResendMailer
 )
 
 // NewResendMailer constructs a Resend-backed Mailer. Thin re-export of

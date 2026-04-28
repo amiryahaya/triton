@@ -210,6 +210,39 @@ func TestWorkerSubmit_EnqueueError_Returns500(t *testing.T) {
 	}
 }
 
+func TestWorkerSubmit_UnknownSource_Returns400(t *testing.T) {
+	store := &stubWorkerStore{}
+	enqueuer := &stubResultEnqueuer{}
+	h := scanjobs.NewWorkerHandlersWithEnqueuer(store, &stubHostsStore{}, enqueuer)
+	h.SetSourceID(uuid.New())
+
+	body := `{"metadata":{"source":"evil-tool"}}`
+	w, r := routedRequest(http.MethodPost, "/", body, uuid.New())
+	h.Submit(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want 400", w.Code)
+	}
+}
+
+func TestWorkerSubmit_CompleteFailure_Still202(t *testing.T) {
+	jobID := uuid.New()
+	store := &stubWorkerStore{completeErr: errors.New("db timeout")}
+	enqueuer := &stubResultEnqueuer{}
+	h := scanjobs.NewWorkerHandlersWithEnqueuer(store, &stubHostsStore{}, enqueuer)
+	h.SetSourceID(uuid.New())
+
+	body := `{"metadata":{"source":"triton-portscan"}}`
+	w, r := routedRequest(http.MethodPost, "/", body, jobID)
+	h.Submit(w, r)
+	// Enqueue succeeded — Complete failure must not change the 202.
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status: got %d, want 202", w.Code)
+	}
+	if enqueuer.enqueued != 1 {
+		t.Errorf("enqueuer.enqueued: got %d, want 1", enqueuer.enqueued)
+	}
+}
+
 func TestWorkerKeyAuth_Rejects(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(scanjobs.WorkerKeyAuth("correct-key"))

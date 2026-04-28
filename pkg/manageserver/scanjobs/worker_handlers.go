@@ -257,8 +257,8 @@ func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceType := string(result.Metadata.Source)
-	switch sourceType {
-	case "triton-portscan", "triton-sshagent", "triton-agent":
+	switch model.ScanSource(sourceType) {
+	case model.ScanSourcePortscan, model.ScanSourceSSHAgent, model.ScanSourceAgent:
 	case "":
 		sourceType = "worker"
 	default:

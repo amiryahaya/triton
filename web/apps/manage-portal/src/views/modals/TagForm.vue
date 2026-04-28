@@ -39,7 +39,7 @@ function submit() {
     error.value = 'Name is required.';
     return;
   }
-  emit('submit', { name: name.value.trim(), color: color.value });
+  emit('submit', { name: name.value.trim().toLowerCase(), color: color.value });
 }
 </script>
 

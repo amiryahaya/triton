@@ -58,7 +58,7 @@ function parseJSON(): CreateHostReq[] | null {
         ? (row.tag_ids as unknown[]).filter((x): x is string => typeof x === 'string')
         : undefined,
       tags: Array.isArray(row.tags)
-        ? (row.tags as unknown[]).filter((x): x is string => typeof x === 'string')
+        ? (row.tags as unknown[]).filter((x): x is string => typeof x === 'string').map(t => t.trim().toLowerCase()).filter(Boolean)
         : undefined,
     });
   }
@@ -144,7 +144,7 @@ function parseCSV(raw: string): void {
     if (hostnameIdx !== -1 && cells[hostnameIdx]?.trim()) row.hostname = cells[hostnameIdx].trim();
     if (osIdx !== -1 && cells[osIdx]?.trim()) row.os = cells[osIdx].trim();
     if (tagsIdx !== -1 && cells[tagsIdx]?.trim()) {
-      row.tags = cells[tagsIdx].trim().split(',').map(t => t.trim()).filter(Boolean);
+      row.tags = cells[tagsIdx].trim().split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
     }
     rows.push(row);
   }

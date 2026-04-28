@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -253,6 +254,10 @@ func (s *PostgresStore) SetTags(ctx context.Context, hostID uuid.UUID, tagIDs []
 func (s *PostgresStore) ResolveTagNames(ctx context.Context, names []string, defaultColor string) ([]uuid.UUID, error) {
 	ids := make([]uuid.UUID, 0, len(names))
 	for _, name := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
 		var id uuid.UUID
 		err := s.pool.QueryRow(ctx,
 			`INSERT INTO manage_tags (name, color) VALUES ($1, $2)

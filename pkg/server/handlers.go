@@ -533,7 +533,8 @@ func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
 	machines := latestByHostname(summaries)
 
 	totalSafe, totalTrans, totalDepr, totalUnsafe, totalFindings := 0, 0, 0, 0, 0
-	for _, ss := range machines {
+	for i := range machines {
+		ss := &machines[i]
 		totalSafe += ss.Safe
 		totalTrans += ss.Transitional
 		totalDepr += ss.Deprecated
@@ -564,10 +565,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func latestByHostname(summaries []store.ScanSummary) []store.ScanSummary {
 	seen := make(map[string]struct{}, len(summaries))
 	out := make([]store.ScanSummary, 0, len(summaries))
-	for _, ss := range summaries {
+	for i := range summaries {
+		ss := &summaries[i]
 		if _, exists := seen[ss.Hostname]; !exists {
 			seen[ss.Hostname] = struct{}{}
-			out = append(out, ss)
+			out = append(out, *ss)
 		}
 	}
 	return out

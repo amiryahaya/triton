@@ -380,4 +380,59 @@ $$;`,
 	// is introduced; source validation is enforced at the application layer.
 	`ALTER TABLE manage_scan_results_queue
 		DROP CONSTRAINT IF EXISTS manage_scan_results_queue_source_type_check;`,
+
+	// Version 19: Rename access_port → ssh_port on manage_hosts; add
+	// connection_type (ssh|ssh_bastion|agent) and bastion_host_id for the
+	// host connectivity model (direct SSH, jump-host SSH, agent-managed).
+	`ALTER TABLE manage_hosts
+		RENAME COLUMN access_port TO ssh_port;
+	ALTER TABLE manage_hosts
+		ADD COLUMN IF NOT EXISTS connection_type TEXT NOT NULL DEFAULT 'ssh'
+			CHECK (connection_type IN ('ssh','ssh_bastion','agent')),
+		ADD COLUMN IF NOT EXISTS bastion_host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
+
+	// Version 20: Enrollment tokens + enrolled agents for agent-managed hosts.
+	// Enrollment tokens are short-lived, use-count-limited secrets that allow
+	// triton-agent to self-register without operator interaction per device.
+	// Enrolled agents are the registered identities; last_seen_at on the linked
+	// host row is used as the agent heartbeat timestamp.
+	`CREATE TABLE IF NOT EXISTS manage_enrollment_tokens (
+		id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id   UUID        NOT NULL,
+		label       TEXT        NOT NULL,
+		token_hash  TEXT        NOT NULL,
+		expires_at  TIMESTAMPTZ NOT NULL,
+		max_uses    INT         NOT NULL DEFAULT 1,
+		use_count   INT         NOT NULL DEFAULT 0,
+		revoked     BOOL        NOT NULL DEFAULT FALSE,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE TABLE IF NOT EXISTS manage_enrolled_agents (
+		id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id    UUID        NOT NULL,
+		host_id      UUID        REFERENCES manage_hosts(id) ON DELETE SET NULL,
+		hostname     TEXT        NOT NULL,
+		ip           TEXT,
+		os           TEXT,
+		secret_hash  TEXT        NOT NULL,
+		enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		status       TEXT        NOT NULL DEFAULT 'active'
+			CHECK (status IN ('active','revoked'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_enrolled_agents_host ON manage_enrolled_agents(host_id);
+	CREATE INDEX IF NOT EXISTS idx_enrolled_agents_tenant ON manage_enrolled_agents(tenant_id);`,
+
+	// Version 21: Discovery SSH-focus — replace ports[] with ssh_port + found_ips;
+	// strip host-metadata columns from candidates; add updated_at to manage_credentials.
+	`ALTER TABLE manage_discovery_jobs
+    ADD COLUMN IF NOT EXISTS ssh_port INT NOT NULL DEFAULT 22,
+    ADD COLUMN IF NOT EXISTS found_ips INT NOT NULL DEFAULT 0;
+ALTER TABLE manage_discovery_jobs DROP COLUMN IF EXISTS ports;
+ALTER TABLE manage_discovery_candidates
+    DROP COLUMN IF EXISTS open_ports,
+    DROP COLUMN IF EXISTS os,
+    DROP COLUMN IF EXISTS mac_address,
+    DROP COLUMN IF EXISTS mdns_name;
+ALTER TABLE manage_credentials
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
 }

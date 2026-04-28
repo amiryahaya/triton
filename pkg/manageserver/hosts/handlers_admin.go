@@ -121,17 +121,21 @@ func validateHost(h Host) error {
 	return nil
 }
 
-// List returns every host, or hosts filtered by ?tag_id=<uuid>.
+// List returns every host, or hosts filtered by ?tag_id=<uuid> (repeatable, OR semantics).
 func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
-	if tagStr := r.URL.Query().Get("tag_id"); tagStr != "" {
-		tagID, err := uuid.Parse(tagStr)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid tag_id")
-			return
+	if tagStrs := r.URL.Query()["tag_id"]; len(tagStrs) > 0 {
+		tagIDs := make([]uuid.UUID, 0, len(tagStrs))
+		for _, s := range tagStrs {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, "invalid tag_id: "+s)
+				return
+			}
+			tagIDs = append(tagIDs, id)
 		}
-		list, err := h.Store.ListByTag(r.Context(), tagID)
+		list, err := h.Store.ListByTags(r.Context(), tagIDs)
 		if err != nil {
-			internalErr(w, r, err, "list hosts by tag")
+			internalErr(w, r, err, "list hosts by tags")
 			return
 		}
 		writeJSON(w, http.StatusOK, list)

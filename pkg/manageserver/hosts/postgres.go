@@ -268,16 +268,16 @@ func (s *PostgresStore) ResolveTagNames(ctx context.Context, names []string, def
 	return ids, nil
 }
 
-func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host, error) {
+func (s *PostgresStore) ListByTags(ctx context.Context, tagIDs []uuid.UUID) ([]Host, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+hostSelectCols+` FROM manage_hosts h
+		`SELECT DISTINCT `+hostSelectCols+` FROM manage_hosts h
 		 JOIN manage_host_tags ht ON ht.host_id = h.id
-		 WHERE ht.tag_id = $1
+		 WHERE ht.tag_id = ANY($1)
 		 ORDER BY h.ip`,
-		tagID,
+		tagIDs,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list hosts by tag: %w", err)
+		return nil, fmt.Errorf("list hosts by tags: %w", err)
 	}
 	defer rows.Close()
 

@@ -36,7 +36,7 @@ type fakeStore struct {
 	// handler tests can drive the internal-error branch.
 	createErr error
 
-	// tags maps hostID → []tagID for SetTags/ListByTag.
+	// tags maps hostID → []tagID for SetTags/ListByTags.
 	tags map[uuid.UUID][]uuid.UUID
 }
 
@@ -146,16 +146,24 @@ func (f *fakeStore) ResolveTagNames(_ context.Context, names []string, _ string)
 	return ids, nil
 }
 
-func (f *fakeStore) ListByTag(_ context.Context, tagID uuid.UUID) ([]hosts.Host, error) {
+func (f *fakeStore) ListByTags(_ context.Context, tagIDs []uuid.UUID) ([]hosts.Host, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.recordCall("ListByTag")
+	f.recordCall("ListByTags")
+	want := map[uuid.UUID]struct{}{}
+	for _, id := range tagIDs {
+		want[id] = struct{}{}
+	}
+	seen := map[uuid.UUID]struct{}{}
 	out := make([]hosts.Host, 0)
-	for hostID, tagIDs := range f.tags {
-		for _, tid := range tagIDs {
-			if tid == tagID {
-				if h, ok := f.items[hostID]; ok {
-					out = append(out, h)
+	for hostID, hostTagIDs := range f.tags {
+		for _, tid := range hostTagIDs {
+			if _, ok := want[tid]; ok {
+				if _, dup := seen[hostID]; !dup {
+					if h, ok := f.items[hostID]; ok {
+						out = append(out, h)
+						seen[hostID] = struct{}{}
+					}
 				}
 				break
 			}
@@ -166,7 +174,7 @@ func (f *fakeStore) ListByTag(_ context.Context, tagID uuid.UUID) ([]hosts.Host,
 }
 
 func (f *fakeStore) CountByTag(_ context.Context, tagID uuid.UUID) (int64, error) {
-	list, _ := f.ListByTag(context.Background(), tagID)
+	list, _ := f.ListByTags(context.Background(), []uuid.UUID{tagID})
 	return int64(len(list)), nil
 }
 
@@ -357,10 +365,10 @@ func TestHostsAdmin_List_NoTagFilter_CallsList(t *testing.T) {
 	resp.Body.Close()
 
 	assert.Contains(t, store.calls, "List")
-	assert.NotContains(t, store.calls, "ListByTag")
+	assert.NotContains(t, store.calls, "ListByTags")
 }
 
-func TestHostsAdmin_List_WithTagFilter_CallsListByTag(t *testing.T) {
+func TestHostsAdmin_List_WithTagFilter_CallsListByTags(t *testing.T) {
 	store := newFakeStore()
 	ts := newTestServer(t, store)
 
@@ -382,7 +390,7 @@ func TestHostsAdmin_List_WithTagFilter_CallsListByTag(t *testing.T) {
 	assert.Len(t, list, 1)
 	assert.Equal(t, "10.0.0.1", list[0].IP)
 
-	assert.Contains(t, store.calls, "ListByTag")
+	assert.Contains(t, store.calls, "ListByTags")
 	assert.NotContains(t, store.calls, "List")
 }
 

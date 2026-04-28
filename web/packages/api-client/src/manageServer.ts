@@ -45,8 +45,10 @@ export function createManageApi(http: Http) {
       http.put<Host>(`/v1/admin/hosts/${hostID}/tags`, { tag_ids: tagIDs }),
 
     // Hosts
-    listHosts: (tagID?: string) => {
-      const qs = tagID ? `?tag_id=${encodeURIComponent(tagID)}` : '';
+    listHosts: (tagIDs?: string[]) => {
+      const qs = tagIDs && tagIDs.length
+        ? '?' + tagIDs.map(id => `tag_id=${encodeURIComponent(id)}`).join('&')
+        : '';
       return http.get<Host[]>(`/v1/admin/hosts/${qs}`);
     },
     createHost: (req: CreateHostReq) => http.post<Host>('/v1/admin/hosts/', req),

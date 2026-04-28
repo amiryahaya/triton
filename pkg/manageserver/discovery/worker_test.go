@@ -197,7 +197,7 @@ func (f *fakeHostsStore) ResolveTagNames(_ context.Context, names []string, _ st
 	return ids, nil
 }
 
-func (f *fakeHostsStore) ListByTag(_ context.Context, _ uuid.UUID) ([]hosts.Host, error) {
+func (f *fakeHostsStore) ListByTags(_ context.Context, _ []uuid.UUID) ([]hosts.Host, error) {
 	return nil, nil
 }
 

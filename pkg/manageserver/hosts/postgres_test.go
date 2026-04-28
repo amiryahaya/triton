@@ -90,7 +90,7 @@ func TestHosts_CreateListGetDelete(t *testing.T) {
 	assert.ErrorIs(t, err, hosts.ErrNotFound)
 }
 
-func TestHosts_SetTags_AndListByTag(t *testing.T) {
+func TestHosts_SetTags_AndListByTags(t *testing.T) {
 	pool := newTestPool(t)
 	s := hosts.NewPostgresStore(pool)
 	ctx := context.Background()
@@ -107,8 +107,8 @@ func TestHosts_SetTags_AndListByTag(t *testing.T) {
 	require.Len(t, list[0].Tags, 1)
 	assert.Equal(t, "production", list[0].Tags[0].Name)
 
-	// ListByTag
-	tagged, err := s.ListByTag(ctx, tagID)
+	// ListByTags (OR — single tag)
+	tagged, err := s.ListByTags(ctx, []uuid.UUID{tagID})
 	require.NoError(t, err)
 	require.Len(t, tagged, 1)
 	assert.Equal(t, h.ID, tagged[0].ID)

@@ -1,23 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   TButton,
   TDataTable,
   TConfirmDialog,
   TFormField,
-  TSelect,
   useToast,
   type Column,
 } from '@triton/ui';
 import type { CreateHostReq, Host } from '@triton/api-client';
 import { useHostsStore } from '../stores/hosts';
 import { useTagsStore } from '../stores/tags';
+import { useCredentialsStore } from '../stores/credentials';
 import HostForm from './modals/HostForm.vue';
 import HostBulkForm from './modals/HostBulkForm.vue';
 
 const hosts = useHostsStore();
 const tags = useTagsStore();
+const credStore = useCredentialsStore();
 const toast = useToast();
 const router = useRouter();
 
@@ -31,23 +32,36 @@ const columns: Column<Host>[] = [
   { key: 'ip', label: 'IP' },
   { key: 'hostname', label: 'Hostname' },
   { key: 'tags', label: 'Tags' },
-  { key: 'os', label: 'OS' },
+  { key: 'credentials_ref', label: 'Credential' },
   { key: 'last_seen_at', label: 'Last seen' },
   { key: 'id', label: '', width: '160px', align: 'right' },
 ];
 
-// TSelect requires a defined string modelValue; the store keeps tagID
-// optional. Normalise around an empty string for the dropdown.
-const filterTagID = ref(hosts.filter.tagID ?? '');
+const filterTagIDs = ref<string[]>(hosts.filter.tagIDs ?? []);
+const filterDropdownOpen = ref(false);
+const filterDropdownRef = ref<HTMLElement | null>(null);
 
-watch(filterTagID, (v) => {
-  hosts.filter.tagID = v || undefined;
+const filterSelectedTags = computed(() =>
+  tags.items.filter(t => filterTagIDs.value.includes(t.id))
+);
+
+watch(filterTagIDs, (v) => {
+  hosts.filter.tagIDs = v.length ? v : undefined;
   void hosts.fetch();
-});
+}, { deep: true });
+
+function onFilterClickOutside(e: MouseEvent) {
+  if (filterDropdownRef.value && !filterDropdownRef.value.contains(e.target as Node)) {
+    filterDropdownOpen.value = false;
+  }
+}
+
+onMounted(() => document.addEventListener('mousedown', onFilterClickOutside));
+onBeforeUnmount(() => document.removeEventListener('mousedown', onFilterClickOutside));
 
 onMounted(async () => {
-  // Load tags first so the filter dropdown + tag chips have data.
-  await Promise.all([tags.fetch(), hosts.fetch()]);
+  // Load tags + credentials first so filter dropdown, tag chips and credential names have data.
+  await Promise.all([tags.fetch(), credStore.fetch(), hosts.fetch()]);
 });
 
 function openNew() {
@@ -158,19 +172,58 @@ async function onRegisterSelf() {
     </header>
 
     <div class="hosts-filter">
-      <TFormField label="Filter by tag">
-        <TSelect v-model="filterTagID">
-          <option value="">
-            All tags
-          </option>
-          <option
-            v-for="t in tags.items"
-            :key="t.id"
-            :value="t.id"
+      <TFormField label="Filter by tags">
+        <div
+          ref="filterDropdownRef"
+          class="tag-dropdown"
+        >
+          <button
+            type="button"
+            class="tag-dropdown-toggle"
+            @click="filterDropdownOpen = !filterDropdownOpen"
           >
-            {{ t.name }}
-          </option>
-        </TSelect>
+            <span
+              v-if="filterSelectedTags.length === 0"
+              class="placeholder"
+            >All tags</span>
+            <div
+              v-else
+              class="selected-chips"
+            >
+              <span
+                v-for="t in filterSelectedTags"
+                :key="t.id"
+                class="tag-chip"
+                :style="{ background: t.color }"
+              >{{ t.name }}</span>
+            </div>
+            <span class="caret">▾</span>
+          </button>
+          <div
+            v-if="filterDropdownOpen"
+            class="tag-dropdown-list"
+          >
+            <label
+              v-for="tag in tags.items"
+              :key="tag.id"
+              class="tag-option"
+            >
+              <input
+                type="checkbox"
+                :value="tag.id"
+                v-model="filterTagIDs"
+              />
+              <span
+                class="tag-chip"
+                :style="{ background: tag.color }"
+              >{{ tag.name }}</span>
+            </label>
+            <span
+              v-if="!tags.items.length"
+              class="no-tags"
+            >No tags defined yet.</span>
+          </div>
+        </div>
       </TFormField>
     </div>
 
@@ -193,6 +246,15 @@ async function onRegisterSelf() {
             class="muted"
           >—</span>
         </div>
+      </template>
+      <template #[`cell:credentials_ref`]="{ row }">
+        <span v-if="row.credentials_ref">
+          {{ credStore.items.find(c => c.id === row.credentials_ref)?.name ?? '—' }}
+        </span>
+        <span
+          v-else
+          class="muted"
+        >—</span>
       </template>
       <template #[`cell:id`]="{ row }">
         <div class="hosts-actions">
@@ -274,7 +336,75 @@ async function onRegisterSelf() {
   gap: var(--space-2);
 }
 .hosts-filter {
-  max-width: 280px;
+  max-width: 320px;
+}
+
+/* ── Tag filter dropdown ──────────────────────────────────── */
+.tag-dropdown {
+  position: relative;
+}
+.tag-dropdown-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.tag-dropdown-toggle:focus {
+  outline: none;
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 2px var(--accent-muted);
+}
+.placeholder { color: var(--text-muted); }
+.selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  flex: 1;
+}
+.caret { color: var(--text-muted); font-size: 0.7rem; flex-shrink: 0; }
+.tag-dropdown-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.tag-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.tag-option:hover { background: var(--bg-sunken); }
+.tag-option input[type='checkbox'] {
+  accent-color: var(--accent-strong);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.no-tags {
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 .hosts-actions {
   display: flex;

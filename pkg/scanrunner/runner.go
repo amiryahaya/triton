@@ -80,7 +80,7 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, scanner 
 		Profile:      claim.Profile,
 		PortOverride: claim.PortOverride,
 		Credential:   cred,
-		AccessPort:   host.AccessPort,
+		SSHPort:      host.SSHPort,
 	}
 	var findings []Finding
 	if err := scanner.Scan(ctx, target, func(f Finding) {

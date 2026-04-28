@@ -61,19 +61,26 @@ func TestTags_CreateListGetUpdateDelete(t *testing.T) {
 	s := tags.NewPostgresStore(pool)
 	ctx := context.Background()
 
-	// Create
-	tag, err := s.Create(ctx, tags.Tag{Name: "production", Color: "#EF4444"})
+	// Create — use a name not in the 13 built-in tags seeded by migration v19
+	tag, err := s.Create(ctx, tags.Tag{Name: "z-test-tag", Color: "#EF4444"})
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, tag.ID)
-	assert.Equal(t, "production", tag.Name)
+	assert.Equal(t, "z-test-tag", tag.Name)
 	assert.Equal(t, "#EF4444", tag.Color)
 
-	// List — includes HostCount
+	// List — includes HostCount; 13 built-in tags + 1 just created
 	list, err := s.List(ctx)
 	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, tag.ID, list[0].ID)
-	assert.Equal(t, 0, list[0].HostCount)
+	require.Len(t, list, 14)
+	var found *tags.Tag
+	for i := range list {
+		if list[i].ID == tag.ID {
+			found = &list[i]
+			break
+		}
+	}
+	require.NotNil(t, found, "created tag must appear in list")
+	assert.Equal(t, 0, found.HostCount)
 
 	// Get
 	got, err := s.Get(ctx, tag.ID)
@@ -90,6 +97,10 @@ func TestTags_CreateListGetUpdateDelete(t *testing.T) {
 	require.NoError(t, s.Delete(ctx, tag.ID))
 	_, err = s.Get(ctx, tag.ID)
 	assert.ErrorIs(t, err, tags.ErrNotFound)
+	// 13 built-in tags remain after deleting the test tag
+	listAfter, err := s.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, listAfter, 13)
 }
 
 func TestTags_DuplicateName_Conflict(t *testing.T) {
@@ -123,7 +134,8 @@ func TestTags_List_HostCount(t *testing.T) {
 	s := tags.NewPostgresStore(pool)
 	ctx := context.Background()
 
-	tag, err := s.Create(ctx, tags.Tag{Name: "linux", Color: "#6366F1"})
+	// Use a name not in the 13 built-in tags seeded by migration v19
+	tag, err := s.Create(ctx, tags.Tag{Name: "z-test-linux", Color: "#6366F1"})
 	require.NoError(t, err)
 
 	// Insert a host and assign the tag directly via SQL
@@ -138,8 +150,17 @@ func TestTags_List_HostCount(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// 13 built-in tags + 1 test tag = 14 total; find the test tag by ID
 	list, err := s.List(ctx)
 	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, 1, list[0].HostCount)
+	require.Len(t, list, 14)
+	var found *tags.Tag
+	for i := range list {
+		if list[i].ID == tag.ID {
+			found = &list[i]
+			break
+		}
+	}
+	require.NotNil(t, found, "test tag must appear in list")
+	assert.Equal(t, 1, found.HostCount)
 }

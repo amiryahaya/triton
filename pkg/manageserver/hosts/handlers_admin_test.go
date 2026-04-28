@@ -322,13 +322,13 @@ func TestHostsAdmin_Create_MissingIP_Returns400(t *testing.T) {
 	resp.Body.Close()
 }
 
-// TestHostsAdmin_Create_MissingHostname_Returns400 keeps a placeholder test
-// that now verifies hostname-only requests are rejected (no ip).
+// TestHostsAdmin_Create_MissingHostname_Returns400 verifies that omitting
+// hostname is rejected with 400 before the store is reached.
 func TestHostsAdmin_Create_MissingHostname_Returns400(t *testing.T) {
 	ts := newTestServer(t, newFakeStore())
 
-	// Sending hostname without ip should be rejected (ip is now required).
-	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"hostname": "only-hostname"})
+	// ip present, hostname absent — must be rejected.
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"ip": "10.0.0.7"})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -338,12 +338,12 @@ func TestHostsAdmin_Create_ConflictReturns409(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	// First insert ok.
-	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"ip": "10.0.0.1"})
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"hostname": "conflict-host", "ip": "10.0.0.1"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
 	// Second insert with same ip conflicts.
-	resp = doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"ip": "10.0.0.1"})
+	resp = doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{"hostname": "conflict-host-2", "ip": "10.0.0.1"})
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -402,7 +402,7 @@ func TestHostsAdmin_BulkCreate_Success(t *testing.T) {
 		"hosts": []map[string]string{
 			{"ip": "10.0.0.1", "hostname": "bulk-1"},
 			{"ip": "10.0.0.2", "hostname": "bulk-2"},
-			{"ip": "10.0.0.3"},
+			{"ip": "10.0.0.3", "hostname": "bulk-3"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -423,14 +423,14 @@ func TestHostsAdmin_BulkCreate_ConflictRollsBackAll(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	// Pre-existing row that the batch will collide with.
-	_, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.99"})
+	_, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.99", Hostname: "existing-host"})
 	require.NoError(t, err)
 
 	body := map[string]any{
 		"hosts": []map[string]string{
-			{"ip": "10.0.0.1"},
-			{"ip": "10.0.0.99"}, // boom — collides with pre-existing
-			{"ip": "10.0.0.2"},
+			{"hostname": "host-1", "ip": "10.0.0.1"},
+			{"hostname": "host-99", "ip": "10.0.0.99"}, // boom — collides with pre-existing
+			{"hostname": "host-2", "ip": "10.0.0.2"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -464,7 +464,7 @@ func TestHostsAdmin_Patch_MissingReturns404(t *testing.T) {
 	ts := newTestServer(t, newFakeStore())
 
 	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+uuid.Must(uuid.NewV7()).String(),
-		map[string]string{"ip": "10.0.0.1"})
+		map[string]string{"hostname": "ghost-host", "ip": "10.0.0.1"})
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -484,9 +484,8 @@ func TestHostsAdmin_Update_EmptyIPRejected(t *testing.T) {
 	resp.Body.Close()
 }
 
-// TestHostsAdmin_Update_EmptyHostnameRejected is kept as a regression guard:
-// hostname is now optional, so sending an empty hostname with a valid ip must
-// succeed (not be rejected).
+// TestHostsAdmin_Update_EmptyHostnameRejected verifies that PATCH with a blank
+// (whitespace-only) hostname is rejected 400 — hostname is mandatory.
 func TestHostsAdmin_Update_EmptyHostnameRejected(t *testing.T) {
 	store := newFakeStore()
 	ts := newTestServer(t, store)
@@ -494,10 +493,10 @@ func TestHostsAdmin_Update_EmptyHostnameRejected(t *testing.T) {
 	h, err := store.Create(context.Background(), hosts.Host{IP: "10.0.0.1", Hostname: "seeded"})
 	require.NoError(t, err)
 
-	// Empty hostname with valid ip should now succeed (hostname is optional).
+	// Empty/whitespace hostname must be rejected with 400.
 	resp := doReq(t, http.MethodPatch, ts.URL+"/api/v1/admin/hosts/"+h.ID.String(),
 		map[string]string{"ip": "10.0.0.1", "hostname": "   "})
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 }
 
@@ -506,7 +505,8 @@ func TestHostsAdmin_Create_InvalidIPReturns400(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
-		"ip": "not-an-ip",
+		"hostname": "bad-ip-host",
+		"ip":       "not-an-ip",
 	})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
@@ -541,7 +541,8 @@ func TestHostsAdmin_Create_InternalError_NoLeakage(t *testing.T) {
 	ts := newTestServer(t, store)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/", map[string]string{
-		"ip": "10.0.0.1",
+		"hostname": "leak-test-host",
+		"ip":       "10.0.0.1",
 	})
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	var body map[string]string

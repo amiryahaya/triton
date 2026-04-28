@@ -122,7 +122,7 @@ func TestEnqueuePortSurvey_InheritsCredentialsRef(t *testing.T) {
 	uniqueIP := fmt.Sprintf("10.%d.%d.%d",
 		hostID[0], hostID[1], hostID[2])
 	_, err = pool.Exec(ctx,
-		`INSERT INTO manage_hosts (id, hostname, ip, credentials_ref, access_port)
+		`INSERT INTO manage_hosts (id, hostname, ip, credentials_ref, ssh_port)
          VALUES ($1, $2, $3, $4, 22)`,
 		hostID, "web-"+hostID.String()[:8], uniqueIP, credID,
 	)

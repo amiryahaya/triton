@@ -95,7 +95,7 @@ func TestHosts_SetTags_AndListByTag(t *testing.T) {
 	s := hosts.NewPostgresStore(pool)
 	ctx := context.Background()
 
-	tagID := insertTag(t, pool, "production", "#EF4444")
+	tagID := insertTag(t, pool, "test-tag", "#EF4444")
 	h, err := s.Create(ctx, hosts.Host{IP: "10.0.1.2", Hostname: "db-01", OS: "linux"})
 	require.NoError(t, err)
 
@@ -105,7 +105,7 @@ func TestHosts_SetTags_AndListByTag(t *testing.T) {
 	list, err := s.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list[0].Tags, 1)
-	assert.Equal(t, "production", list[0].Tags[0].Name)
+	assert.Equal(t, "test-tag", list[0].Tags[0].Name)
 
 	// ListByTag
 	tagged, err := s.ListByTag(ctx, tagID)

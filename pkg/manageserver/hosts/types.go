@@ -8,13 +8,13 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/tags"
 )
 
-// Host is a single scan target. Hostname and OS are optional.
-// IP is the required unique identifier; modelled as string where
-// the wire form matches PostgreSQL's host(ip)::text output.
+// Host is a single scan target. OS is optional; Hostname and IP are both required.
+// IP is the unique identifier; modelled as string where the wire form matches
+// PostgreSQL's host(ip)::text output.
 // Tags is populated on reads (List/Get); not stored on the host row.
 type Host struct {
 	ID             uuid.UUID  `json:"id"`
-	Hostname       string     `json:"hostname,omitempty"`
+	Hostname       string     `json:"hostname"`
 	IP             string     `json:"ip"`
 	Tags           []tags.Tag `json:"tags"`
 	OS             string     `json:"os,omitempty"`
@@ -22,5 +22,5 @@ type Host struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
-	AccessPort     int        `json:"access_port"`
+	SSHPort        int        `json:"ssh_port"`
 }

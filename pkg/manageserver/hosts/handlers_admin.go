@@ -84,11 +84,11 @@ type hostRequestBody struct {
 	// Tags is the name-based form (from CSV import via BulkCreate).
 	Tags           []string   `json:"tags"`
 	CredentialsRef *uuid.UUID `json:"credentials_ref"`
-	AccessPort     *int       `json:"access_port"`
+	SSHPort        *int       `json:"ssh_port"`
 }
 
 // toHost converts a request body into a Host without any server-managed
-// fields. AccessPort defaults to 22 when omitted from the request.
+// fields. SSHPort defaults to 22 when omitted from the request.
 func (b hostRequestBody) toHost() Host {
 	h := Host{
 		Hostname:       strings.TrimSpace(b.Hostname),
@@ -96,10 +96,10 @@ func (b hostRequestBody) toHost() Host {
 		OS:             b.OS,
 		LastSeenAt:     b.LastSeenAt,
 		CredentialsRef: b.CredentialsRef,
-		AccessPort:     22, // default SSH port
+		SSHPort:        22, // default SSH port
 	}
-	if b.AccessPort != nil {
-		h.AccessPort = *b.AccessPort
+	if b.SSHPort != nil {
+		h.SSHPort = *b.SSHPort
 	}
 	return h
 }
@@ -112,6 +112,9 @@ func (b hostRequestBody) toHost() Host {
 // reaches Postgres, so clients see a clean 400 instead of a 500 with
 // leaked pg error text.
 func validateHost(h Host) error {
+	if h.Hostname == "" {
+		return errors.New("hostname is required")
+	}
 	if h.IP == "" {
 		return errors.New("ip is required")
 	}

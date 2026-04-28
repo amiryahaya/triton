@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { TModal, TFormField, TInput, TSelect, TButton } from '@triton/ui';
+import { RouterLink } from 'vue-router';
 import type { Host, Tag, CreateHostReq } from '@triton/api-client';
 import { useCredentialsStore } from '../../stores/credentials';
 
@@ -21,9 +22,10 @@ const hostname = ref('');
 const ip = ref('');
 const os = ref('');
 const selectedTagIDs = ref<string[]>([]);
-const error = ref('');
+const hostnameError = ref('');
+const ipError = ref('');
 const credentialsRef = ref<string | null>(null);
-const accessPort = ref<number>(22);
+const sshPort = ref<number>(22);
 
 watch(
   () => [props.open, props.editing],
@@ -35,18 +37,19 @@ watch(
     os.value = props.editing?.os ?? '';
     selectedTagIDs.value = props.editing?.tags.map(t => t.id) ?? [];
     credentialsRef.value = props.editing?.credentials_ref ?? null;
-    accessPort.value = props.editing?.access_port ?? 22;
-    error.value = '';
+    sshPort.value = props.editing?.ssh_port ?? 22;
+    hostnameError.value = '';
+    ipError.value = '';
   },
   { immediate: true }
 );
 
 watch(credentialsRef, (id) => {
-  if (!id) { accessPort.value = 22; return; }
+  if (!id) { sshPort.value = 22; return; }
   const cred = credStore.items.find(c => c.id === id);
   if (!cred) return;
-  if (cred.auth_type === 'winrm-password') accessPort.value = 5985;
-  else accessPort.value = 22;
+  if (cred.auth_type === 'winrm-password') sshPort.value = 5985;
+  else sshPort.value = 22;
 });
 
 const credOptions = computed(() => [
@@ -55,17 +58,23 @@ const credOptions = computed(() => [
 ]);
 
 function submit() {
+  hostnameError.value = '';
+  ipError.value = '';
+  if (!hostname.value.trim()) {
+    hostnameError.value = 'Hostname is required.';
+    return;
+  }
   if (!ip.value.trim()) {
-    error.value = 'IP address is required.';
+    ipError.value = 'IP address is required.';
     return;
   }
   emit('submit', {
+    hostname: hostname.value.trim(),
     ip: ip.value.trim(),
-    hostname: hostname.value.trim() || undefined,
     os: os.value.trim() || undefined,
     tag_ids: selectedTagIDs.value,
     credentials_ref: credentialsRef.value ?? null,
-    access_port: accessPort.value,
+    ssh_port: sshPort.value,
   });
 }
 </script>
@@ -77,18 +86,22 @@ function submit() {
     @close="emit('close')"
   >
     <div class="host-form">
-      <TFormField label="Hostname">
-        <TInput v-model="hostname" />
+      <TFormField
+        label="Hostname"
+        required
+        :error="hostnameError"
+      >
+        <TInput v-model="hostname" placeholder="web-01.example.com" />
       </TFormField>
       <TFormField
         label="IP address"
         required
-        :error="error"
+        :error="ipError"
       >
-        <TInput v-model="ip" />
+        <TInput v-model="ip" placeholder="10.0.0.1" />
       </TFormField>
       <TFormField label="OS">
-        <TInput v-model="os" />
+        <TInput v-model="os" placeholder="linux" />
       </TFormField>
       <TFormField label="Tags">
         <div class="tag-multi-select">
@@ -123,10 +136,15 @@ function submit() {
             {{ opt.label }}
           </option>
         </TSelect>
+        <p v-if="credStore.items.length === 0" class="cred-nudge">
+          No credentials configured.
+          <RouterLink to="/credentials">Add credentials</RouterLink>
+          to enable SSH-based scanning.
+        </p>
       </TFormField>
-      <TFormField label="Access Port">
+      <TFormField label="SSH Port">
         <TInput
-          v-model.number="accessPort"
+          v-model.number="sshPort"
           type="number"
           :min="1"
           :max="65535"
@@ -187,5 +205,13 @@ function submit() {
 .no-tags {
   font-size: 0.78rem;
   color: var(--text-muted);
+}
+.cred-nudge {
+  font-size: 0.78rem;
+  color: var(--color-warning, #b45309);
+  margin-top: var(--space-1);
+}
+.cred-nudge a {
+  text-decoration: underline;
 }
 </style>

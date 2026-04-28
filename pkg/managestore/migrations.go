@@ -366,4 +366,18 @@ BEGIN
   END IF;
 END
 $$;`,
+
+	// Version 17: pending_command column on manage_agents for admin-queued
+	// scan commands. Agent atomically reads and clears on next poll.
+	`ALTER TABLE manage_agents
+		ADD COLUMN IF NOT EXISTS pending_command JSONB;`,
+
+	// Version 18: Drop the source_type CHECK constraint on manage_scan_results_queue.
+	// The v4 constraint only allowed ('manage','agent'). Worker binaries
+	// (triton-portscan, triton-sshagent) now submit through the same outbox,
+	// adding 'triton-portscan' and 'triton-sshagent' as valid source_type values.
+	// Dropping the constraint avoids a migration cycle every time a new source
+	// is introduced; source validation is enforced at the application layer.
+	`ALTER TABLE manage_scan_results_queue
+		DROP CONSTRAINT IF EXISTS manage_scan_results_queue_source_type_check;`,
 }

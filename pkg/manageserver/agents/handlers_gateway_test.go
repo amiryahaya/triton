@@ -311,3 +311,58 @@ func TestGateway_IngestFindings_Acks(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 }
+
+// TestGateway_PollCommand_NoPending asserts that an agent polling for a
+// command when none is queued receives 204 No Content.
+func TestGateway_PollCommand_NoPending(t *testing.T) {
+	f := newGatewayFixture(t)
+	bundle := f.enrolAgent(t, "edge-poll-01")
+	client := mTLSClient(t, bundle)
+
+	req, err := http.NewRequest(http.MethodGet, f.URL+"/api/v1/gateway/agents/commands", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
+
+// TestGateway_PollCommand_WithPending asserts that when a command is
+// queued the agent receives 200+JSON, and that a second poll returns
+// 204 (the command was atomically cleared on first pop).
+func TestGateway_PollCommand_WithPending(t *testing.T) {
+	f := newGatewayFixture(t)
+	bundle := f.enrolAgent(t, "edge-poll-02")
+	client := mTLSClient(t, bundle)
+
+	// Look up the agent so we can set a pending command.
+	list, err := f.AgentStore.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	agentID := list[0].ID
+
+	// Queue a command directly via the store.
+	want := &agents.AgentCommand{ScanProfile: "standard", JobID: "job-xyz"}
+	require.NoError(t, f.AgentStore.SetCommand(context.Background(), agentID, want))
+
+	// First poll — must return the command.
+	req1, err := http.NewRequest(http.MethodGet, f.URL+"/api/v1/gateway/agents/commands", nil)
+	require.NoError(t, err)
+	resp1, err := client.Do(req1)
+	require.NoError(t, err)
+	defer func() { _ = resp1.Body.Close() }()
+	assert.Equal(t, http.StatusOK, resp1.StatusCode)
+
+	var got agents.AgentCommand
+	require.NoError(t, json.NewDecoder(resp1.Body).Decode(&got))
+	assert.Equal(t, want.ScanProfile, got.ScanProfile)
+	assert.Equal(t, want.JobID, got.JobID)
+
+	// Second poll — command must be gone (atomically cleared).
+	req2, err := http.NewRequest(http.MethodGet, f.URL+"/api/v1/gateway/agents/commands", nil)
+	require.NoError(t, err)
+	resp2, err := client.Do(req2)
+	require.NoError(t, err)
+	defer func() { _ = resp2.Body.Close() }()
+	assert.Equal(t, http.StatusNoContent, resp2.StatusCode)
+}

@@ -807,6 +807,49 @@ func TestListScans_WithProfile(t *testing.T) {
 	assert.Len(t, summaries, 1)
 }
 
+func TestListScans_SourceFilter(t *testing.T) {
+	srv, db := testServer(t)
+
+	// Seed one agent scan and one portscan.
+	agent := testScanResult(testUUID(1), "host-a")
+	agent.Metadata.Source = model.ScanSourceAgent
+	require.NoError(t, db.SaveScan(context.Background(), agent))
+
+	other := testScanResult(testUUID(2), "host-b")
+	other.Metadata.Source = model.ScanSourcePortscan
+	require.NoError(t, db.SaveScan(context.Background(), other))
+
+	// Filter for triton-agent — should return exactly one scan.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/scans?source=triton-agent", nil)
+	srv.Router().ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var summaries []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summaries))
+	require.Len(t, summaries, 1)
+	assert.Equal(t, testUUID(1), summaries[0].ID)
+	assert.Equal(t, model.ScanSourceAgent, summaries[0].Source)
+
+	// Filter is case-insensitive.
+	w2 := httptest.NewRecorder()
+	r2 := httptest.NewRequest("GET", "/api/v1/scans?source=TRITON-AGENT", nil)
+	srv.Router().ServeHTTP(w2, r2)
+	assert.Equal(t, http.StatusOK, w2.Code)
+	var summaries2 []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &summaries2))
+	assert.Len(t, summaries2, 1)
+
+	// No source param → all scans returned.
+	w3 := httptest.NewRecorder()
+	r3 := httptest.NewRequest("GET", "/api/v1/scans", nil)
+	srv.Router().ServeHTTP(w3, r3)
+	assert.Equal(t, http.StatusOK, w3.Code)
+	var summaries3 []store.ScanSummary
+	require.NoError(t, json.Unmarshal(w3.Body.Bytes(), &summaries3))
+	assert.Len(t, summaries3, 2)
+}
+
 func TestListScans_EmptyResult(t *testing.T) {
 	srv, _ := testServer(t)
 	w := httptest.NewRecorder()

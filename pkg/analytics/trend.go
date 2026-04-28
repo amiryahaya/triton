@@ -28,14 +28,15 @@ func ComputeOrgTrend(scans []store.ScanSummary) store.TrendSummary {
 	// 1. Group by (month, hostname), keep the latest timestamp.
 	type key struct{ month, hostname string }
 	latest := make(map[key]store.ScanSummary)
-	for _, s := range scans {
+	for i := range scans {
+		s := &scans[i]
 		k := key{
 			month:    s.Timestamp.UTC().Format("2006-01"),
 			hostname: s.Hostname,
 		}
 		prev, exists := latest[k]
 		if !exists || s.Timestamp.After(prev.Timestamp) {
-			latest[k] = s
+			latest[k] = *s
 		}
 	}
 
@@ -45,14 +46,14 @@ func ComputeOrgTrend(scans []store.ScanSummary) store.TrendSummary {
 		total int
 	}
 	byMonth := make(map[string]*bucket)
-	for k, s := range latest {
+	for k := range latest {
 		b, exists := byMonth[k.month]
 		if !exists {
 			b = &bucket{}
 			byMonth[k.month] = b
 		}
-		b.safe += s.Safe
-		b.total += s.Safe + s.Transitional + s.Deprecated + s.Unsafe
+		b.safe += latest[k].Safe
+		b.total += latest[k].Safe + latest[k].Transitional + latest[k].Deprecated + latest[k].Unsafe
 	}
 
 	// 3. Sort months chronologically ("2026-01" < "2026-02"
@@ -113,15 +114,16 @@ func LatestByHostname(scans []store.ScanSummary) []store.ScanSummary {
 		return nil
 	}
 	latest := make(map[string]store.ScanSummary, len(scans))
-	for _, s := range scans {
+	for i := range scans {
+		s := &scans[i]
 		prev, exists := latest[s.Hostname]
 		if !exists || s.Timestamp.After(prev.Timestamp) {
-			latest[s.Hostname] = s
+			latest[s.Hostname] = *s
 		}
 	}
 	out := make([]store.ScanSummary, 0, len(latest))
-	for _, s := range latest {
-		out = append(out, s)
+	for k := range latest {
+		out = append(out, latest[k])
 	}
 	return out
 }

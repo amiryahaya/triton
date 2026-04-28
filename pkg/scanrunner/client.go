@@ -155,6 +155,21 @@ func (c *ManageClient) GetHost(ctx context.Context, hostID uuid.UUID) (HostInfo,
 	return h, err
 }
 
+// SubmitResult posts a ScanResult to POST /api/v1/worker/jobs/{id}/submit on
+// the Manage Server. The endpoint marks the job complete and enqueues the
+// result for drain to the Report Server.
+func (c *ManageClient) SubmitResult(ctx context.Context, jobID uuid.UUID, result *model.ScanResult) error {
+	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/api/v1/worker/jobs/%s/submit", jobID), result)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("submit result: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // GetCredential fetches the secret for a credential by ID.
 func (c *ManageClient) GetCredential(ctx context.Context, id uuid.UUID) (CredentialSecret, error) {
 	resp, err := c.req(ctx, http.MethodGet, fmt.Sprintf("/api/v1/worker/credentials/%s", id), nil)
@@ -204,8 +219,8 @@ func (c *ReportClient) Submit(ctx context.Context, result *model.ScanResult) err
 		return err
 	}
 	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("submit: status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("submit result: status %d", resp.StatusCode)
 	}
 	return nil
 }

@@ -53,4 +53,13 @@ type Store interface {
 	// Count returns the total number of agent rows (any status). Used
 	// by Batch H's licence-cap check.
 	Count(ctx context.Context) (int64, error)
+
+	// SetCommand stores a pending scan command for the agent. Overwrites
+	// any existing pending command. Pass nil to clear without popping.
+	SetCommand(ctx context.Context, id uuid.UUID, cmd *AgentCommand) error
+
+	// PopCommand atomically reads and clears the pending command for the
+	// agent. Returns (nil, nil) if no command is pending. Returns
+	// ErrNotFound if the agent row does not exist.
+	PopCommand(ctx context.Context, id uuid.UUID) (*AgentCommand, error)
 }

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -35,23 +36,31 @@ func isUniqueViolation(err error) bool {
 
 // agentSelectCols keeps the SELECT list consistent across single-row
 // lookups. Status is TEXT-typed in the DB; Scan into a string then
-// caller casts to AgentStatus.
+// caller casts to AgentStatus. PendingCommand is JSONB.
 const agentSelectCols = `id, name, cert_serial, cert_expires_at,
-	status, last_seen_at, created_at, updated_at`
+	status, last_seen_at, pending_command, created_at, updated_at`
 
 // scanAgent reads the agent columns from a pgx.Row into an Agent.
 // Extracted so List + Get + GetByCertSerial share column order.
 func scanAgent(row pgx.Row) (Agent, error) {
 	var a Agent
 	var status string
+	var rawCmd []byte // for pending_command JSONB
 	err := row.Scan(
 		&a.ID, &a.Name, &a.CertSerial, &a.CertExpiresAt,
-		&status, &a.LastSeenAt, &a.CreatedAt, &a.UpdatedAt,
+		&status, &a.LastSeenAt, &rawCmd, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		return Agent{}, err
 	}
 	a.Status = AgentStatus(status)
+	if rawCmd != nil {
+		var cmd AgentCommand
+		if err := json.Unmarshal(rawCmd, &cmd); err != nil {
+			return Agent{}, fmt.Errorf("agents: unmarshal pending_command: %w", err)
+		}
+		a.PendingCommand = &cmd
+	}
 	return a, nil
 }
 
@@ -203,4 +212,64 @@ func (s *PostgresStore) Count(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("count agents: %w", err)
 	}
 	return n, nil
+}
+
+// SetCommand stores a pending scan command on the agent row, overwriting
+// any previous value. Pass nil to clear without popping.
+func (s *PostgresStore) SetCommand(ctx context.Context, id uuid.UUID, cmd *AgentCommand) error {
+	var raw []byte
+	if cmd != nil {
+		var err error
+		raw, err = json.Marshal(cmd)
+		if err != nil {
+			return fmt.Errorf("agents: marshal command: %w", err)
+		}
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE manage_agents SET pending_command = $1, updated_at = NOW() WHERE id = $2`,
+		raw, id,
+	)
+	if err != nil {
+		return fmt.Errorf("agents: set command: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// PopCommand atomically reads and clears the pending command for the agent.
+// Returns (nil, nil) when no command is pending. Returns ErrNotFound when
+// the agent row does not exist.
+//
+// The CTE captures the old pending_command value before the UPDATE sets it
+// to NULL, because PostgreSQL's RETURNING reflects the new (post-update)
+// values, which would always be NULL here.
+func (s *PostgresStore) PopCommand(ctx context.Context, id uuid.UUID) (*AgentCommand, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx,
+		`WITH prev AS (
+			SELECT pending_command FROM manage_agents WHERE id = $1 FOR UPDATE
+		)
+		UPDATE manage_agents
+		SET pending_command = NULL, updated_at = NOW()
+		FROM prev
+		WHERE manage_agents.id = $1
+		RETURNING prev.pending_command`,
+		id,
+	).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("agents: pop command: %w", err)
+	}
+	if raw == nil {
+		return nil, nil
+	}
+	var cmd AgentCommand
+	if err := json.Unmarshal(raw, &cmd); err != nil {
+		return nil, fmt.Errorf("agents: unmarshal command: %w", err)
+	}
+	return &cmd, nil
 }

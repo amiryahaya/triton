@@ -307,3 +307,11 @@ func TestClassifyKeySize_UnknownAlgo(t *testing.T) {
 		t.Errorf("unknown algo should be TRANSITIONAL, got %s", result.Findings[0].CryptoAsset.PQCStatus)
 	}
 }
+
+func TestToScanResult_SetsSource(t *testing.T) {
+	findings := []scanrunner.Finding{{Port: 443, Service: "https", Banner: "nginx"}}
+	result := scanrunner.ToScanResult("host1", "192.168.1.1", "standard", findings)
+	if result.Metadata.Source != model.ScanSourcePortscan {
+		t.Errorf("expected ScanSourcePortscan, got %q", result.Metadata.Source)
+	}
+}

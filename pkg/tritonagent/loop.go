@@ -3,19 +3,19 @@ package tritonagent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
 	"time"
+
+	"github.com/amiryahaya/triton/pkg/model"
 )
 
-// EngineAPI is the interface the agent loop uses to communicate with the
-// engine's agent gateway. Implemented by *Client for production; stubbed
-// in tests.
-type EngineAPI interface {
-	Register(ctx context.Context, version string) error
+// ManageAPI is the interface the agent loop uses to communicate with the
+// Manage Server's agent gateway. Implemented by *Client for production;
+// stubbed in tests.
+type ManageAPI interface {
 	Heartbeat(ctx context.Context) error
-	PollScan(ctx context.Context) (*ScanCommand, error)
-	SubmitFindings(ctx context.Context, scanResult []byte) error
+	PollCommand(ctx context.Context) (*AgentCommand, error)
+	SubmitScan(ctx context.Context, jobID string, scanResult []byte) error
 }
 
 // Scanner abstracts local scan execution so that loop tests can avoid
@@ -35,9 +35,9 @@ type Config struct {
 	Scanner           Scanner
 }
 
-// Run is the main agent loop: register with retries, then heartbeat and
-// poll for scan commands in parallel. Blocks until ctx is cancelled.
-func Run(ctx context.Context, c EngineAPI, cfg Config) error {
+// Run is the main agent loop: heartbeat and poll for commands in parallel.
+// Blocks until ctx is cancelled.
+func Run(ctx context.Context, c ManageAPI, cfg Config) error {
 	if cfg.HeartbeatInterval == 0 {
 		cfg.HeartbeatInterval = 30 * time.Second
 	}
@@ -51,29 +51,7 @@ func Run(ctx context.Context, c EngineAPI, cfg Config) error {
 		cfg.Version = "unknown"
 	}
 
-	// 1. Register with exponential backoff.
-	backoff := 1 * time.Second
-	for {
-		if err := c.Register(ctx, cfg.Version); err == nil {
-			log.Printf("agent registered (version %s)", cfg.Version)
-			break
-		} else if ctx.Err() != nil {
-			return ctx.Err()
-		} else {
-			log.Printf("register: %v (retrying in %s)", err, backoff)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(backoff):
-			}
-			backoff *= 2
-			if backoff > time.Minute {
-				backoff = time.Minute
-			}
-		}
-	}
-
-	// 2. Heartbeat goroutine.
+	// 1. Heartbeat goroutine.
 	go func() {
 		t := time.NewTicker(cfg.HeartbeatInterval)
 		defer t.Stop()
@@ -83,28 +61,21 @@ func Run(ctx context.Context, c EngineAPI, cfg Config) error {
 				return
 			case <-t.C:
 				if err := c.Heartbeat(ctx); err != nil {
-					if errors.Is(err, ErrUnauthorized) {
-						log.Printf("heartbeat returned 401 — re-registering")
-						if regErr := c.Register(ctx, cfg.Version); regErr != nil {
-							log.Printf("re-register: %v", regErr)
-						}
-					} else {
-						log.Printf("heartbeat: %v", err)
-					}
+					log.Printf("heartbeat: %v", err)
 				}
 			}
 		}
 	}()
 
-	// 3. Scan poll loop.
+	// 2. Command poll loop.
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		cmd, err := c.PollScan(ctx)
+		cmd, err := c.PollCommand(ctx)
 		if err != nil {
-			log.Printf("poll scan: %v", err)
+			log.Printf("poll command: %v", err)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -128,7 +99,7 @@ func Run(ctx context.Context, c EngineAPI, cfg Config) error {
 			profile = cfg.DefaultProfile
 		}
 
-		log.Printf("scan command received: profile=%s", profile)
+		log.Printf("command received: profile=%s job_id=%s", profile, cmd.JobID)
 
 		if cfg.Scanner == nil {
 			log.Printf("no scanner configured, skipping scan")
@@ -145,16 +116,21 @@ func Run(ctx context.Context, c EngineAPI, cfg Config) error {
 			continue
 		}
 
+		// Stamp the source before marshaling.
+		if sr, ok := result.(*model.ScanResult); ok {
+			sr.Metadata.Source = model.ScanSourceAgent
+		}
+
 		resultJSON, err := json.Marshal(result)
 		if err != nil {
 			log.Printf("marshal scan result: %v", err)
 			continue
 		}
 
-		if err := c.SubmitFindings(ctx, resultJSON); err != nil {
-			log.Printf("submit findings: %v", err)
+		if err := c.SubmitScan(ctx, cmd.JobID, resultJSON); err != nil {
+			log.Printf("submit scan: %v", err)
 		} else {
-			log.Printf("scan findings submitted (%d bytes)", len(resultJSON))
+			log.Printf("scan submitted (%d bytes, job_id=%s)", len(resultJSON), cmd.JobID)
 		}
 	}
 }

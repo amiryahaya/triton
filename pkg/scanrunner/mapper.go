@@ -19,6 +19,7 @@ func ToScanResult(hostname, ip, profile string, findings []Finding) *model.ScanR
 			Timestamp:   time.Now(),
 			Hostname:    hostname,
 			ScanProfile: profile,
+			Source:      model.ScanSourcePortscan,
 		},
 		Findings: make([]model.Finding, 0, len(findings)),
 	}

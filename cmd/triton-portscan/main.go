@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -25,36 +26,26 @@ func run() error {
 	// CLI flags
 	manageURL := flag.String("manage-url", "", "Manage server base URL (required)")
 	jobIDStr := flag.String("job-id", "", "Job UUID to claim and run (required)")
-	reportURL := flag.String("report-url", "", "Report server base URL (optional; skip submission if empty)")
-	licenseToken := flag.String("license-token", "", "License token for the report server (env: TRITON_LICENSE_TOKEN)")
 	flag.Parse()
 
 	// Worker key from env (not flag — avoids ps exposure).
 	workerKey := os.Getenv("TRITON_WORKER_KEY")
 
-	// License token: flag wins over env var.
-	if *licenseToken == "" {
-		*licenseToken = os.Getenv("TRITON_LICENSE_TOKEN")
-	}
-
 	// Validate required inputs.
 	if *manageURL == "" {
-		log.Fatal("--manage-url is required")
+		return fmt.Errorf("--manage-url is required")
 	}
 	if workerKey == "" {
-		log.Fatal("TRITON_WORKER_KEY env var is required")
+		return fmt.Errorf("TRITON_WORKER_KEY env var is required")
 	}
 	jobID, err := uuid.Parse(*jobIDStr)
 	if err != nil {
-		log.Fatalf("invalid --job-id: %v", err)
+		return fmt.Errorf("invalid --job-id: %w", err)
 	}
 
-	// Build clients.
+	// Build client — results are submitted to the Manage Server, which
+	// relays them to the Report Server via the scanresults drain goroutine.
 	mc := scanrunner.NewManageClient(*manageURL, workerKey)
-	var rc *scanrunner.ReportClient
-	if *reportURL != "" {
-		rc = scanrunner.NewReportClient(*reportURL, *licenseToken)
-	}
 
 	// Build scanner.
 	scanner := portscan.NewFingerprintxScanner()
@@ -63,5 +54,5 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 
-	return scanrunner.RunOne(ctx, jobID, mc, rc, scanner)
+	return scanrunner.RunOne(ctx, jobID, mc, scanner)
 }

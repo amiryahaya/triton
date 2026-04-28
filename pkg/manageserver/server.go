@@ -86,6 +86,7 @@ type Server struct {
 	scanjobsStore   scanjobs.Store
 	resultsStore    scanresults.Store
 	hostsStore      *hosts.PostgresStore
+	workerHandlers  *scanjobs.WorkerHandlers // non-nil when WorkerKey is configured
 
 	// Batch F agent enrolment + gateway wiring. caStore owns the
 	// singleton CA + revocation cache; agentStore owns manage_agents
@@ -365,10 +366,14 @@ func (s *Server) buildRouter() chi.Router {
 	// WorkerKeyAuth middleware (inside MountWorkerRoutes) enforces the
 	// X-Worker-Key header on every route in this group, so triton-portscan
 	// subprocesses can call back without a user JWT.
+	// WorkerHandlers is stored on the struct so startScannerPipeline can
+	// call SetSourceID once instance_id is resolved.
 	if s.cfg.WorkerKey != "" {
-		workerHandlers := scanjobs.NewWorkerHandlers(s.scanjobsStore, s.hostsStore)
+		s.workerHandlers = scanjobs.NewWorkerHandlersWithEnqueuer(
+			s.scanjobsStore, s.hostsStore, s.resultsStore,
+		)
 		r.Route("/api/v1/worker", func(r chi.Router) {
-			scanjobs.MountWorkerRoutes(r, workerHandlers, s.cfg.WorkerKey)
+			scanjobs.MountWorkerRoutes(r, s.workerHandlers, s.cfg.WorkerKey)
 			credentials.MountWorkerRoutes(r, s.credWorker, s.cfg.WorkerKey)
 		})
 	}
@@ -515,6 +520,12 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	// license flow also calls Bootstrap when instance_id first lands.
 	s.bootstrapCA(ctx, instanceID.String())
 
+	// Wire the instance ID into the worker submit handler so results are
+	// stamped with the correct source. No-op when WorkerKey is not set.
+	if s.workerHandlers != nil {
+		s.workerHandlers.SetSourceID(instanceID)
+	}
+
 	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
 		Store:       s.scanjobsStore,
 		ResultStore: s.resultsStore,
@@ -541,12 +552,10 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 			manageURL = "http://localhost" + s.cfg.Listen
 		}
 		disp := scanjobs.NewDispatcher(scanjobs.DispatcherConfig{
-			Store:        s.scanjobsStore,
-			BinaryPath:   binaryPath,
-			ManageURL:    manageURL,
-			WorkerKey:    s.cfg.WorkerKey,
-			ReportURL:    s.cfg.ReportServer,
-			LicenseToken: s.cfg.ReportLicenseToken,
+			Store:      s.scanjobsStore,
+			BinaryPath: binaryPath,
+			ManageURL:  manageURL,
+			WorkerKey:  s.cfg.WorkerKey,
 		})
 		wg.Add(1)
 		go func() {

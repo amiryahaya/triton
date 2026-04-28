@@ -2,13 +2,14 @@ package agents
 
 import "github.com/go-chi/chi/v5"
 
-// MountAdminRoutes wires the agents CRUD + revoke endpoints onto r.
-// Callers must mount this under an already-authenticated, tenancy-
-// scoped subtree (typically /api/v1/admin/agents).
+// MountAdminRoutes wires the agents CRUD + revoke + command-dispatch
+// endpoints onto r. Callers must mount this under an already-authenticated,
+// tenancy-scoped subtree (typically /api/v1/admin/agents).
 func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	r.Get("/", h.List)
 	r.Get("/{id}", h.Get)
 	r.Delete("/{id}", h.Revoke)
+	r.Post("/{id}/commands", h.DispatchCommand)
 }
 
 // MountEnrolRoutes wires the agent-enrol endpoint onto r. Lives on a

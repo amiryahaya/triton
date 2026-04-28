@@ -31,9 +31,11 @@ func (s *stubScanner) Scan(_ context.Context, _ scanrunner.Target, onFinding fun
 	return nil
 }
 
-func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, completedPtr, failPtr *bool) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestRunOne_Success(t *testing.T) {
+	jobID, hostID := uuid.New(), uuid.New()
+	var submitted bool
+
+	manageSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/claim":
 			w.Header().Set("Content-Type", "application/json")
@@ -47,50 +49,24 @@ func buildManageServer(t *testing.T, jobID, hostID uuid.UUID, completedPtr, fail
 			})
 		case r.Method == http.MethodPatch:
 			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/complete":
-			if completedPtr != nil {
-				*completedPtr = true
-			}
-			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/fail":
-			if failPtr != nil {
-				*failPtr = true
-			} else {
-				t.Errorf("unexpected fail call: %s %s", r.Method, r.URL.Path)
-			}
-			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/worker/jobs/"+jobID.String()+"/submit":
+			submitted = true
+			w.WriteHeader(http.StatusAccepted)
 		default:
 			t.Errorf("unexpected manage request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-}
-
-func TestRunOne_Success(t *testing.T) {
-	jobID, hostID := uuid.New(), uuid.New()
-	var completed, submitted bool
-
-	manageSrv := buildManageServer(t, jobID, hostID, &completed, nil)
 	defer manageSrv.Close()
 
-	reportSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		submitted = true
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer reportSrv.Close()
-
 	manage := scanrunner.NewManageClient(manageSrv.URL, "key")
-	report := scanrunner.NewReportClient(reportSrv.URL, "token")
 	scanner := &stubScanner{findings: []scanrunner.Finding{{Port: 443, Service: "https", Banner: "nginx"}}}
 
-	if err := scanrunner.RunOne(context.Background(), jobID, manage, report, scanner); err != nil {
+	if err := scanrunner.RunOne(context.Background(), jobID, manage, scanner); err != nil {
 		t.Fatalf("RunOne: %v", err)
 	}
 	if !submitted {
-		t.Error("result not submitted to report server")
-	}
-	if !completed {
-		t.Error("complete not called on manage server")
+		t.Error("result not submitted to manage server")
 	}
 }
 
@@ -101,8 +77,7 @@ func TestRunOne_JobGone_ExitsClean(t *testing.T) {
 	defer manageSrv.Close()
 
 	manage := scanrunner.NewManageClient(manageSrv.URL, "key")
-	report := scanrunner.NewReportClient("http://127.0.0.1:1", "token")
-	err := scanrunner.RunOne(context.Background(), uuid.New(), manage, report, &stubScanner{})
+	err := scanrunner.RunOne(context.Background(), uuid.New(), manage, &stubScanner{})
 	if err != nil {
 		t.Fatalf("expected nil for job-not-found, got: %v", err)
 	}
@@ -148,10 +123,9 @@ func TestRunOne_ScanError_CallsFail(t *testing.T) {
 	defer manageSrv.Close()
 
 	manage := scanrunner.NewManageClient(manageSrv.URL, "key")
-	report := scanrunner.NewReportClient("http://127.0.0.1:1", "token")
 	scanner := &stubScanner{err: errors.New("port scan failed")}
 
-	err := scanrunner.RunOne(context.Background(), jobID, manage, report, scanner)
+	err := scanrunner.RunOne(context.Background(), jobID, manage, scanner)
 	if err == nil {
 		t.Fatal("expected non-nil error from scan failure")
 	}
@@ -199,23 +173,17 @@ func TestRunOne_CredentialFetched(t *testing.T) {
 			})
 		case r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/heartbeat"):
 			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/complete"):
-			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/submit"):
+			w.WriteHeader(http.StatusAccepted)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer srv.Close()
 
-	reportSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer reportSrv.Close()
-
 	manage := scanrunner.NewManageClient(srv.URL, "key")
-	report := scanrunner.NewReportClient(reportSrv.URL, "token")
 
-	if err := scanrunner.RunOne(context.Background(), jobID, manage, report, scanner); err != nil {
+	if err := scanrunner.RunOne(context.Background(), jobID, manage, scanner); err != nil {
 		t.Fatalf("RunOne: %v", err)
 	}
 	if scanner.received.Credential == nil {

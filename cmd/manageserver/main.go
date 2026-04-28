@@ -23,6 +23,8 @@
 //   - TRITON_MANAGE_HOST_IP             (host machine LAN IP for "+ This machine";
 //     required in containers where auto-detect returns the container IP)
 //   - TRITON_MANAGE_HOST_HOSTNAME       (host machine hostname; optional override)
+//   - TRITON_MANAGE_WORKER_KEY          (shared secret for dispatched workers;
+//     empty = worker submit endpoint not mounted)
 //
 // Reserved (unused; kept in the contract for future work):
 //
@@ -74,6 +76,7 @@ func run() error {
 	reportServiceKey := envOr("TRITON_MANAGE_REPORT_SERVICE_KEY", "")
 	hostIP := envOr("TRITON_MANAGE_HOST_IP", "")
 	hostHostname := envOr("TRITON_MANAGE_HOST_HOSTNAME", "")
+	workerKey := envOr("TRITON_MANAGE_WORKER_KEY", "")
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_MANAGE_DB_URL is required")
@@ -156,6 +159,7 @@ func run() error {
 		ReportServiceKey: reportServiceKey,
 		HostIP:           hostIP,
 		HostHostname:     hostHostname,
+		WorkerKey:        workerKey,
 	}
 
 	srv, err := manageserver.New(cfg, manageStore, pool)

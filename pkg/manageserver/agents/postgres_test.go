@@ -227,3 +227,74 @@ func TestAgents_Revoke_NotFound(t *testing.T) {
 	err := s.Revoke(ctx, uuid.Must(uuid.NewV7()))
 	assert.ErrorIs(t, err, agents.ErrNotFound)
 }
+
+func TestAgentStore_CommandRoundTrip(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := agents.NewPostgresStore(pool)
+
+	a := mkAgent("cmd-agent", "serial-cmd")
+	_, err := s.Create(ctx, a)
+	require.NoError(t, err)
+
+	// Initially no command.
+	cmd, err := s.PopCommand(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Nil(t, cmd, "expected nil command on fresh agent")
+
+	// Set a command.
+	want := &agents.AgentCommand{ScanProfile: "standard", JobID: "job-abc-123"}
+	require.NoError(t, s.SetCommand(ctx, a.ID, want))
+
+	// Pop returns the command and clears it.
+	got, err := s.PopCommand(ctx, a.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got, "expected command after SetCommand")
+	assert.Equal(t, want.ScanProfile, got.ScanProfile)
+	assert.Equal(t, want.JobID, got.JobID)
+
+	// Second pop returns nil (command was cleared).
+	cmd2, err := s.PopCommand(ctx, a.ID)
+	require.NoError(t, err)
+	assert.Nil(t, cmd2, "expected nil on second pop")
+}
+
+func TestAgentStore_SetCommand_Overwrites(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := agents.NewPostgresStore(pool)
+
+	a := mkAgent("cmd-agent-2", "serial-cmd-2")
+	_, err := s.Create(ctx, a)
+	require.NoError(t, err)
+
+	first := &agents.AgentCommand{ScanProfile: "quick", JobID: "job-first"}
+	require.NoError(t, s.SetCommand(ctx, a.ID, first))
+
+	second := &agents.AgentCommand{ScanProfile: "comprehensive", JobID: "job-second"}
+	require.NoError(t, s.SetCommand(ctx, a.ID, second))
+
+	got, err := s.PopCommand(ctx, a.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "comprehensive", got.ScanProfile, "SetCommand must overwrite previous")
+	assert.Equal(t, "job-second", got.JobID)
+}
+
+func TestAgentStore_SetCommand_NotFound(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := agents.NewPostgresStore(pool)
+
+	err := s.SetCommand(ctx, uuid.Must(uuid.NewV7()), &agents.AgentCommand{ScanProfile: "quick"})
+	assert.ErrorIs(t, err, agents.ErrNotFound)
+}
+
+func TestAgentStore_PopCommand_NotFound(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := agents.NewPostgresStore(pool)
+
+	_, err := s.PopCommand(ctx, uuid.Must(uuid.NewV7()))
+	assert.ErrorIs(t, err, agents.ErrNotFound)
+}

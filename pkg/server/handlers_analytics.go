@@ -268,7 +268,8 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 
 	// Fetch all scan results ONCE, reuse across all policies.
 	scanResults := make(map[string]*model.ScanResult, len(latestPerHost))
-	for _, summary := range latestPerHost {
+	for i := range latestPerHost {
+		summary := &latestPerHost[i]
 		scan, err := s.store.GetScan(ctx, summary.ID, orgID)
 		if err != nil {
 			return nil, fmt.Errorf("get scan %s: %w", summary.ID, err)
@@ -285,7 +286,8 @@ func (s *Server) computePolicyVerdicts(ctx context.Context, orgID string, latest
 
 		verdict := "PASS"
 		var totalViolations, totalFindings int
-		for _, summary := range latestPerHost {
+		for i := range latestPerHost {
+			summary := &latestPerHost[i]
 			result := policy.Evaluate(pol, scanResults[summary.ID], nil)
 			totalViolations += len(result.Violations)
 			totalFindings += result.FindingsChecked

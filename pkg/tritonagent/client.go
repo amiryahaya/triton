@@ -1,6 +1,6 @@
 // Package tritonagent implements the triton-agent daemon's core logic:
-// mTLS client, heartbeat loop, on-demand scan execution, and findings
-// submission to the engine's agent gateway.
+// mTLS client, heartbeat loop, on-demand scan execution, and scan result
+// submission to the Manage Server's mTLS gateway.
 package tritonagent
 
 import (
@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,37 +16,32 @@ import (
 	"time"
 )
 
-// ErrUnauthorized is returned when the engine responds with HTTP 401,
-// indicating the agent is not registered (e.g. after an engine restart
-// that cleared its in-memory agent store). The agent loop should
-// re-register when it receives this error.
-var ErrUnauthorized = errors.New("unauthorized")
-
-// ScanCommand describes a scan the agent should execute, received from
-// the engine's agent gateway via GET /agent/scan.
-type ScanCommand struct {
+// AgentCommand describes a scan the agent should execute, received from
+// the Manage Server's agent gateway via GET /agents/commands.
+type AgentCommand struct {
 	ScanProfile string   `json:"scan_profile"`
+	JobID       string   `json:"job_id,omitempty"`
 	Paths       []string `json:"paths,omitempty"`
 }
 
-// Client is the mTLS HTTP client that talks to the engine's agent gateway.
+// Client is the mTLS HTTP client that talks to the Manage Server's agent gateway.
 type Client struct {
-	EngineURL string
+	ManageURL string
 	HostID    string
 	HTTP      *http.Client
 }
 
 // NewClient creates a Client configured with mTLS credentials. The certPath
-// and keyPath are the agent's per-host cert/key; caPath is the engine's own
-// cert used as trust root.
-func NewClient(engineURL, certPath, keyPath, caPath, hostID string) (*Client, error) {
+// and keyPath are the agent's per-host cert/key; caPath is the Manage Server's
+// CA cert used as trust root.
+func NewClient(manageURL, certPath, keyPath, caPath, hostID string) (*Client, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("load agent cert: %w", err)
 	}
 	caCert, err := os.ReadFile(caPath)
 	if err != nil {
-		return nil, fmt.Errorf("load engine CA: %w", err)
+		return nil, fmt.Errorf("load manage server CA: %w", err)
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(caCert) {
@@ -57,15 +51,11 @@ func NewClient(engineURL, certPath, keyPath, caPath, hostID string) (*Client, er
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      pool,
-		// engine-ca.crt is the engine's own self-signed cert which IS the
-		// TLS server cert. A self-signed cert verifies against a pool
-		// containing itself, so RootCAs validation passes without
-		// InsecureSkipVerify.
-		MinVersion: tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS12,
 	}
 
 	return &Client{
-		EngineURL: engineURL,
+		ManageURL: manageURL,
 		HostID:    hostID,
 		HTTP: &http.Client{
 			Transport: &http.Transport{TLSClientConfig: tlsCfg},
@@ -74,20 +64,15 @@ func NewClient(engineURL, certPath, keyPath, caPath, hostID string) (*Client, er
 	}, nil
 }
 
-// Register calls POST /agent/register on the engine gateway.
-func (c *Client) Register(ctx context.Context, version string) error {
-	body := map[string]string{"host_id": c.HostID, "version": version}
-	return c.postJSON(ctx, "/agent/register", body)
-}
-
-// Heartbeat calls POST /agent/heartbeat on the engine gateway.
+// Heartbeat calls POST /agents/phone-home on the Manage Server gateway.
 func (c *Client) Heartbeat(ctx context.Context) error {
-	return c.postJSON(ctx, "/agent/heartbeat", nil)
+	return c.postJSON(ctx, "/agents/phone-home", map[string]string{"host_id": c.HostID})
 }
 
-// PollScan calls GET /agent/scan. Returns nil if no scan is pending (204).
-func (c *Client) PollScan(ctx context.Context) (*ScanCommand, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.EngineURL+"/agent/scan", http.NoBody)
+// PollCommand calls GET /agents/commands. Returns nil if no command is
+// pending (204 No Content).
+func (c *Client) PollCommand(ctx context.Context) (*AgentCommand, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.ManageURL+"/agents/commands", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -100,20 +85,22 @@ func (c *Client) PollScan(ctx context.Context) (*ScanCommand, error) {
 	case http.StatusNoContent:
 		return nil, nil
 	case http.StatusOK:
-		var cmd ScanCommand
-		if err := json.NewDecoder(resp.Body).Decode(&cmd); err != nil {
+		var cmd AgentCommand
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&cmd); err != nil {
 			return nil, err
 		}
 		return &cmd, nil
 	default:
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("poll scan: HTTP %d: %s", resp.StatusCode, b)
+		return nil, fmt.Errorf("poll command: HTTP %d: %s", resp.StatusCode, b)
 	}
 }
 
-// SubmitFindings calls POST /agent/submit with the scan result JSON.
-func (c *Client) SubmitFindings(ctx context.Context, scanResult []byte) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", c.EngineURL+"/agent/submit", bytes.NewReader(scanResult))
+// SubmitScan calls POST /agents/scans with the scan result JSON directly.
+// The already-marshaled scanResult bytes are posted as-is; IngestScan decodes
+// them as a flat model.ScanResult.
+func (c *Client) SubmitScan(ctx context.Context, _ string, scanResult []byte) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.ManageURL+"/agents/scans", bytes.NewReader(scanResult))
 	if err != nil {
 		return err
 	}
@@ -123,9 +110,9 @@ func (c *Client) SubmitFindings(ctx context.Context, scanResult []byte) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("submit findings: HTTP %d", resp.StatusCode)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("submit scan: HTTP %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -139,7 +126,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any) error {
 		}
 		bodyReader = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", c.EngineURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, "POST", c.ManageURL+path, bodyReader)
 	if err != nil {
 		return err
 	}
@@ -151,10 +138,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("%s: %w", path, ErrUnauthorized)
-	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
 	}

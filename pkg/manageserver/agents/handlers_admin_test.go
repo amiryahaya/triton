@@ -229,3 +229,120 @@ func TestAgentsAdmin_Get_NotFound(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestAdminHandlers_DispatchCommand_HappyPath asserts that a well-formed
+// POST to /admin/agents/{id}/commands returns 202 and the command is
+// retrievable via PopCommand.
+func TestAdminHandlers_DispatchCommand_HappyPath(t *testing.T) {
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch")
+	require.NoError(t, err)
+
+	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	srv := mountEnrol(t, h)
+
+	// Enrol an agent first so a valid row exists.
+	enrolReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
+		strings.NewReader(`{"name":"dispatch-target"}`))
+	enrolRec := httptest.NewRecorder()
+	srv.ServeHTTP(enrolRec, enrolReq)
+	require.Equal(t, http.StatusOK, enrolRec.Code, "enrol: %s", enrolRec.Body.String())
+
+	list, err := agentStore.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	agentID := list[0].ID
+
+	// Dispatch a command.
+	body := strings.NewReader(`{"scan_profile":"standard","job_id":"job-123"}`)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/admin/agents/"+agentID.String()+"/commands", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusAccepted, rec.Code, "body=%s", rec.Body.String())
+
+	// Verify the command is stored and poppable.
+	cmd, err := agentStore.PopCommand(context.Background(), agentID)
+	require.NoError(t, err)
+	require.NotNil(t, cmd)
+	assert.Equal(t, "standard", cmd.ScanProfile)
+	assert.Equal(t, "job-123", cmd.JobID)
+}
+
+// TestAdminHandlers_DispatchCommand_MissingProfile asserts 400 when
+// scan_profile is absent from the request body.
+func TestAdminHandlers_DispatchCommand_MissingProfile(t *testing.T) {
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch-badprofile")
+	require.NoError(t, err)
+
+	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	srv := mountEnrol(t, h)
+
+	enrolReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
+		strings.NewReader(`{"name":"target-noprofile"}`))
+	enrolRec := httptest.NewRecorder()
+	srv.ServeHTTP(enrolRec, enrolReq)
+	require.Equal(t, http.StatusOK, enrolRec.Code)
+
+	list, err := agentStore.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	agentID := list[0].ID
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/admin/agents/"+agentID.String()+"/commands",
+		strings.NewReader(`{"job_id":"job-only"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestAdminHandlers_DispatchCommand_NotFound asserts 404 when the agent
+// UUID does not exist.
+func TestAdminHandlers_DispatchCommand_NotFound(t *testing.T) {
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch-notfound")
+	require.NoError(t, err)
+
+	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	srv := mountEnrol(t, h)
+
+	id := uuid.Must(uuid.NewV7())
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/admin/agents/"+id.String()+"/commands",
+		strings.NewReader(`{"scan_profile":"quick"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestAdminHandlers_DispatchCommand_BadJSON asserts 400 on malformed body.
+func TestAdminHandlers_DispatchCommand_BadJSON(t *testing.T) {
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch-badjson")
+	require.NoError(t, err)
+
+	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	srv := mountEnrol(t, h)
+
+	id := uuid.Must(uuid.NewV7())
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/admin/agents/"+id.String()+"/commands",
+		strings.NewReader(`not-json`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

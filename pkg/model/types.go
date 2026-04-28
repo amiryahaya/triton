@@ -151,6 +151,8 @@ type ScanMetadata struct {
 	FilesSkipped       int64          `json:"filesSkipped,omitempty"`
 	PolicyResult       string         `json:"policyResult,omitempty"`
 	Source             ScanSource     `json:"source,omitempty"`
+	ManageServerID     string         `json:"manageServerID,omitempty"`
+	ManageServerName   string         `json:"manageServerName,omitempty"`
 }
 
 // ModuleMetric captures per-module-target scan performance metrics.

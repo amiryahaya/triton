@@ -240,8 +240,13 @@ var expiryThresholds = []struct {
 }
 
 // runExpiryNotifications ticks hourly and calls sendExpiryNotifications.
+// Exits immediately if no mailer is configured (to keep logs clean on
+// deployments that don't set TRITON_LICENSE_SERVER_RESEND_API_KEY).
 // Exits when ctx is cancelled (i.e., on Shutdown).
 func (s *Server) runExpiryNotifications(ctx context.Context) {
+	if s.config.Mailer == nil {
+		return
+	}
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -263,7 +268,6 @@ func (s *Server) TriggerExpiryCheck(ctx context.Context) {
 // emails to platform_admin users and the org contact for qualifying licenses.
 func (s *Server) sendExpiryNotifications(ctx context.Context) {
 	if s.config.Mailer == nil {
-		log.Printf("expiry notifications: mailer not configured, skipping")
 		return
 	}
 

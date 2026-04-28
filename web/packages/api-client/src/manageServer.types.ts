@@ -67,7 +67,7 @@ export interface UpdateTagReq {
 
 export interface Host {
   id: string;
-  hostname?: string;
+  hostname: string;
   ip: string;
   tags: Tag[];
   os?: string;
@@ -75,18 +75,18 @@ export interface Host {
   created_at: string;
   updated_at: string;
   credentials_ref?: string;
-  access_port: number;
+  ssh_port: number;
 }
 
 export interface CreateHostReq {
-  ip: string;          // required
-  hostname?: string;   // optional
+  ip: string;
+  hostname: string;
   os?: string;
   last_seen_at?: string;
   tag_ids?: string[];
   tags?: string[];  // name-based form for CSV import
   credentials_ref?: string | null;
-  access_port?: number;
+  ssh_port?: number;
 }
 
 export interface UpdateHostReq {
@@ -94,7 +94,7 @@ export interface UpdateHostReq {
   hostname?: string;
   os?: string;
   credentials_ref?: string | null;
-  access_port?: number;
+  ssh_port?: number;
 }
 
 export type CredentialAuthType = 'ssh-key' | 'ssh-password' | 'winrm-password';

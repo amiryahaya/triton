@@ -200,13 +200,14 @@ test.describe('Credentials — delete', () => {
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     // Try to delete the credential — should be blocked.
+    // Credentials.vue:remove() returns early with a toast when inUseCount > 0;
+    // it never sets confirmOpen = true, so the confirm dialog does NOT appear.
     await page.goto('/ui/#/inventory/credentials');
     await page.getByText('in-use-cred').locator('..').getByRole('button', { name: /delete/i }).click();
-    await page.getByRole('button', { name: /confirm|yes|delete/i }).click();
 
-    // Error message or the row remains.
-    await expect(page.getByText('in-use-cred')).toBeVisible();
+    // Toast error appears immediately; row remains visible.
     await expect(page.getByText(/in use/i)).toBeVisible();
+    await expect(page.getByText('in-use-cred')).toBeVisible();
   });
 });
 

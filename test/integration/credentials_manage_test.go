@@ -62,6 +62,12 @@ func fakeVaultServer(t *testing.T) *httptest.Server {
 		}
 		key := strings.TrimPrefix(r.URL.Path, prefix)
 
+		// C2: validate token so auth regressions in vault.go are caught.
+		if r.Header.Get("X-Vault-Token") == "" {
+			http.Error(w, "missing vault token", http.StatusForbidden)
+			return
+		}
+
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -241,11 +247,12 @@ func credDoWorker(t *testing.T, method, url, workerKey string) *http.Response {
 	return resp
 }
 
-// decodeBody reads and decodes a JSON response body, closing it.
+// credDecodeBody reads and decodes a JSON response body, closing it.
 func credDecodeBody(t *testing.T, resp *http.Response, out any) {
 	t.Helper()
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "read response body")
 	require.NoError(t, json.Unmarshal(b, out), "decode body: %s", b)
 }
 
@@ -295,6 +302,13 @@ func TestCredentials_CRUD(t *testing.T) {
 	var list2 []map[string]any
 	credDecodeBody(t, listResp2, &list2)
 	assert.Empty(t, list2)
+
+	// Vault must also be cleaned up: Worker API returns 404 for the deleted ID.
+	// If the handler omits the Vault delete step, this assertion catches it.
+	workerAfter := credDoWorker(t, http.MethodGet, h.url+"/api/v1/worker/credentials/"+credID, h.workerKey)
+	io.Copy(io.Discard, workerAfter.Body) //nolint:errcheck // test helper
+	workerAfter.Body.Close()
+	assert.Equal(t, http.StatusNotFound, workerAfter.StatusCode, "Vault entry must be gone after credential delete")
 }
 
 func TestCredentials_DeleteBlockedByHostReference(t *testing.T) {
@@ -341,6 +355,13 @@ func TestCredentials_DeleteBlockedByHostReference(t *testing.T) {
 	require.NoError(t, json.Unmarshal(delBody, &errBody))
 	errMsg, _ := errBody["error"].(string)
 	assert.Contains(t, errMsg, "in use", "error message should mention in-use")
+
+	// Credential must still exist after the blocked delete.
+	listAfter := credDo(t, http.MethodGet, h.url+"/api/v1/admin/credentials", h.jwt, nil)
+	var afterList []map[string]any
+	credDecodeBody(t, listAfter, &afterList)
+	require.Len(t, afterList, 1, "credential must still exist after blocked delete")
+	assert.Equal(t, credID, afterList[0]["id"])
 }
 
 func TestCredentials_PortSurveyJobInheritsCredentialsRef(t *testing.T) {
@@ -390,6 +411,9 @@ func TestCredentials_PortSurveyJobInheritsCredentialsRef(t *testing.T) {
 
 	jobCredRef, _ := job["credentials_ref"].(string)
 	assert.Equal(t, credID, jobCredRef, "job must inherit credentials_ref from host")
+
+	status, _ := job["status"].(string)
+	assert.Equal(t, "pending", status, "newly-enqueued job must be in pending state")
 }
 
 func TestCredentials_WorkerCanFetchSecret(t *testing.T) {
@@ -428,4 +452,45 @@ func TestCredentials_WorkerCanFetchSecret(t *testing.T) {
 	io.Copy(io.Discard, badResp.Body) //nolint:errcheck // test helper
 	badResp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, badResp.StatusCode)
+
+	// Unknown credential ID → 404.
+	notFoundResp := credDoWorker(t, http.MethodGet,
+		h.url+"/api/v1/worker/credentials/"+uuid.New().String(), h.workerKey)
+	io.Copy(io.Discard, notFoundResp.Body) //nolint:errcheck // test helper
+	notFoundResp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, notFoundResp.StatusCode)
+}
+
+// TestCredentials_DuplicateNameConflict verifies that creating a credential
+// with a name that already exists returns 409 and does not leave an orphaned
+// Vault secret (the handler must roll back the Vault write on DB conflict).
+func TestCredentials_DuplicateNameConflict(t *testing.T) {
+	h := requireCredManageServer(t)
+
+	createCred := func(name string) *http.Response {
+		return credDo(t, http.MethodPost, h.url+"/api/v1/admin/credentials", h.jwt, map[string]any{
+			"name":      name,
+			"auth_type": "ssh-password",
+			"username":  "u",
+			"password":  "p4ssw0rd!",
+		})
+	}
+
+	// First create succeeds.
+	first := createCred("dup-name")
+	firstBody, _ := io.ReadAll(first.Body)
+	first.Body.Close()
+	require.Equal(t, http.StatusCreated, first.StatusCode, "first create: %s", firstBody)
+
+	// Second create with the same name → 409.
+	second := createCred("dup-name")
+	io.Copy(io.Discard, second.Body) //nolint:errcheck // test helper
+	second.Body.Close()
+	assert.Equal(t, http.StatusConflict, second.StatusCode, "duplicate name must return 409")
+
+	// Exactly one credential in the DB — no orphaned records or Vault secrets.
+	listResp := credDo(t, http.MethodGet, h.url+"/api/v1/admin/credentials", h.jwt, nil)
+	var list []map[string]any
+	credDecodeBody(t, listResp, &list)
+	assert.Len(t, list, 1, "duplicate create must not leave extra records or orphaned Vault secrets")
 }

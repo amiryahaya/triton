@@ -30,10 +30,10 @@ type ClaimResp struct {
 
 // HostInfo holds the fields RunOne needs from GET /api/v1/worker/hosts/{id}.
 type HostInfo struct {
-	ID         uuid.UUID `json:"id"`
-	Hostname   string    `json:"hostname"`
-	IP         string    `json:"ip"`
-	SSHPort    int       `json:"ssh_port"`
+	ID       uuid.UUID `json:"id"`
+	Hostname string    `json:"hostname"`
+	IP       string    `json:"ip"`
+	SSHPort  int       `json:"ssh_port"`
 }
 
 // CredentialSecret is the scanner-side view of a credential secret

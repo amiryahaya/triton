@@ -44,7 +44,6 @@ func ipArg(ip string) any {
 	return ip
 }
 
-
 func isUniqueViolation(err error) bool {
 	var e *pgconn.PgError
 	return errors.As(err, &e) && e.Code == "23505"

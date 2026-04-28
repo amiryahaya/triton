@@ -514,8 +514,8 @@ func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 	// End-to-end: create a host+job, delete the host → job survives with host_id=NULL.
 	hostID := uuid.Must(uuid.NewV7()).String()
 	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_hosts (id, ip) VALUES ($1, $2::inet)`,
-		hostID, "10.99.0.1")
+		`INSERT INTO manage_hosts (id, ip, hostname) VALUES ($1, $2::inet, $3)`,
+		hostID, "10.99.0.1", "v6-test-host")
 	require.NoError(t, err)
 	jobID := uuid.Must(uuid.NewV7()).String()
 	tenantID := uuid.Must(uuid.NewV7()).String()
@@ -612,8 +612,8 @@ func TestMigrate_V7_QueueFKIsSetNull_DeadLetterHasNoFK(t *testing.T) {
 	// Note: manage_zones was dropped in v9; manage_hosts.ip is now NOT NULL.
 	hostID := uuid.Must(uuid.NewV7()).String()
 	_, err = s.ExecForTest(ctx,
-		`INSERT INTO manage_hosts (id, ip) VALUES ($1, $2::inet)`,
-		hostID, "10.99.1.1")
+		`INSERT INTO manage_hosts (id, ip, hostname) VALUES ($1, $2::inet, $3)`,
+		hostID, "10.99.1.1", "v7-test-host")
 	require.NoError(t, err)
 	jobID := uuid.Must(uuid.NewV7()).String()
 	tenantID := uuid.Must(uuid.NewV7()).String()

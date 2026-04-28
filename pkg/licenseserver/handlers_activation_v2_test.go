@@ -34,7 +34,7 @@ func decodeBase64URL(t *testing.T, s string) []byte {
 // createOrgAndLicenseV2 creates an org + v2 licence with explicit features and limits.
 func createOrgAndLicenseV2(t *testing.T, tsURL, jwt string, features licensestore.Features, limits licensestore.Limits) (orgID, licID string) {
 	t.Helper()
-	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "V2Org" + t.Name()})
+	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "V2Org" + t.Name(), "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID = orgIDOf(orgResult)

@@ -275,9 +275,11 @@ func TestCreateOrg_WithAdminProvisionsReportServer(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name":        "Acme Corp",
-		"admin_email": "alice@acme.com",
-		"admin_name":  "Alice Admin",
+		"name":          "Acme Corp",
+		"admin_email":   "alice@acme.com",
+		"admin_name":    "Alice Admin",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -325,7 +327,9 @@ func TestCreateOrg_WithoutAdminSkipsProvisioning(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name": "Legacy Org",
+		"name":          "Legacy Org",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -338,8 +342,10 @@ func TestCreateOrg_AdminEmailWithoutName(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name":        "Partial Org",
-		"admin_email": "alice@acme.com",
+		"name":          "Partial Org",
+		"admin_email":   "alice@acme.com",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 		// admin_name omitted
 	})
 	defer resp.Body.Close()
@@ -353,9 +359,11 @@ func TestCreateOrg_ProvisioningWithoutReportServerConfigured(t *testing.T) {
 	ts, store := setupTestServer(t) // no report server
 	jwt := quickAdminJWT(t, ts, store)
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name":        "Acme",
-		"admin_email": "alice@acme.com",
-		"admin_name":  "Alice",
+		"name":          "Acme",
+		"admin_email":   "alice@acme.com",
+		"admin_name":    "Alice",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
@@ -434,9 +442,11 @@ func TestCreateOrg_SendsInviteEmail(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name":        "Acme Corp",
-		"admin_email": "alice@acme.com",
-		"admin_name":  "Alice Admin",
+		"name":          "Acme Corp",
+		"admin_email":   "alice@acme.com",
+		"admin_name":    "Alice Admin",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -471,9 +481,11 @@ func TestCreateOrg_EmailFailureIsNonFatal(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name":        "Acme Corp",
-		"admin_email": "alice@acme.com",
-		"admin_name":  "Alice Admin",
+		"name":          "Acme Corp",
+		"admin_email":   "alice@acme.com",
+		"admin_name":    "Alice Admin",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "org creation must succeed despite email failure")
@@ -504,9 +516,11 @@ func TestCreateOrg_RollsBackOnProvisioningFailure(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]any{
-		"name":        "Will Rollback",
-		"admin_email": "alice@acme.com",
-		"admin_name":  "Alice",
+		"name":          "Will Rollback",
+		"admin_email":   "alice@acme.com",
+		"admin_name":    "Alice",
+		"contact_name":  "Test Contact",
+		"contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	// The report server returned 409 (duplicate email) — the license
@@ -532,8 +546,8 @@ func TestCreateOrg_RollsBackOnProvisioningFailure(t *testing.T) {
 func TestListOrgs(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
-	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org1"}).Body.Close()
-	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org2"}).Body.Close()
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org1", "contact_name": "Test Contact", "contact_email": "contact@test.com"}).Body.Close()
+	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "Org2", "contact_name": "Test Contact", "contact_email": "contact@test.com"}).Body.Close()
 
 	resp := adminReq(t, jwt, "GET", ts.URL+"/api/v1/admin/orgs", nil)
 	defer resp.Body.Close()
@@ -548,7 +562,7 @@ func TestDeleteOrg_WithLicenses(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	// Create org
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "CantDelete"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "CantDelete", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
@@ -570,7 +584,7 @@ func TestCreateLicense(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "TestOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "TestOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
@@ -589,7 +603,7 @@ func TestCreateLicense_InvalidTier(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "BadTierOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "BadTierOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
@@ -604,7 +618,7 @@ func TestRevokeLicense(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
@@ -626,7 +640,7 @@ func TestRevokeLicense(t *testing.T) {
 
 func createOrgAndLicense(t *testing.T, tsURL, jwt string) (orgID, licID string) {
 	t.Helper()
-	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "ActivOrg" + t.Name()})
+	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "ActivOrg" + t.Name(), "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID = orgIDOf(orgResult)
@@ -661,7 +675,7 @@ func TestActivate_SeatsFull(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "SmallOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "SmallOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
@@ -997,11 +1011,11 @@ func TestCreateOrg_DuplicateName(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 	adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
-		"name": "UniqueOrg",
+		"name": "UniqueOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com",
 	}).Body.Close()
 
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
-		"name": "UniqueOrg",
+		"name": "UniqueOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com",
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -1011,7 +1025,7 @@ func TestUpdateOrg(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 	createResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
-		"name": "OriginalName",
+		"name": "OriginalName", "contact_name": "Test Contact", "contact_email": "contact@test.com",
 	})
 	defer createResp.Body.Close()
 	orgResult := decodeJSON(t, createResp)
@@ -1032,7 +1046,7 @@ func TestUpdateOrg(t *testing.T) {
 func TestCreateLicense_NegativeDays(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NegDayOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NegDayOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
@@ -1046,7 +1060,7 @@ func TestCreateLicense_NegativeDays(t *testing.T) {
 func TestCreateLicense_PastExpiresAt(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "PastExpOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "PastExpOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 
@@ -1406,7 +1420,7 @@ func TestDownloadBinary_ExpiredLicense(t *testing.T) {
 	ctx := context.Background()
 
 	// Create org via API.
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "ExpiredOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "ExpiredOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	defer orgResp.Body.Close()
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)

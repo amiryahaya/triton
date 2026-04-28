@@ -2,13 +2,14 @@
 
 ## Goal
 
-Extend Triton's host connectivity model beyond direct SSH to support three enterprise patterns:
+Extend Triton's host connectivity model beyond direct SSH to support two enterprise patterns:
 
 1. **SSH via Bastion** — target host is in a private network; a hardened jump host (bastion) proxies the SSH connection.
-2. **WinRM** — Windows hosts managed via WinRM (HTTP port 5985 or HTTPS port 5986). No SSH needed.
-3. **Agent-managed** — target host has no SSH/WinRM port open (laptop, workstation, locked-down VM); a `triton-agent` binary installed on the endpoint initiates an outbound HTTPS connection to the Manage Server and runs scans locally.
+2. **Agent-managed** — target host has no inbound SSH port open (laptop, workstation, locked-down server); a `triton-agent` binary installed on the endpoint initiates an outbound HTTPS connection to the Manage Server and runs scans locally.
 
-All features share the `connection_type` field on `manage_hosts`. The `port` field (renamed from `access_port`) is generic — its meaning depends on `connection_type`.
+Both features share the `connection_type` field on `manage_hosts`. The `port` field (renamed from `access_port`) is generic — its meaning depends on `connection_type`.
+
+> **WinRM deferred:** `connection_type = 'winrm'` and `auth_type = 'winrm-password'` are reserved in the schema for future use but carry no scanning implementation. WinRM coverage (~35–45% of SSH) does not justify the implementation cost when agent deployment via GPO/Intune/Jamf is available for Windows hosts.
 
 ---
 
@@ -95,9 +96,8 @@ Accept and return two new optional fields:
 ```
 
 Validation:
-- `connection_type` must be one of `ssh`, `ssh_bastion`, `winrm`, `agent`
+- `connection_type` must be one of `ssh`, `ssh_bastion`, `agent` (or the reserved `winrm` — rejected with 422 until scanning is implemented)
 - If `ssh_bastion`, `bastion_host_id` must be provided and must reference a `ssh`-type host
-- If `winrm`, `bastion_host_id` must be absent; `port` defaults to 5985; `credentials_ref` must point to a `winrm-password` credential
 - If `agent`, `bastion_host_id` must be absent; `credentials_ref` must be absent
 
 ### UI Changes
@@ -107,18 +107,12 @@ Validation:
 ```
 Direct SSH          (default)
 SSH via Bastion
-WinRM
 Agent-managed
 ```
 
 When **SSH via Bastion** selected:
 - Show "Bastion Host" dropdown — lists only hosts with `connection_type = 'ssh'` that have a credential assigned
 - Credential picker filters to SSH credential types; Port field remains (default 22)
-
-When **WinRM** selected:
-- Hide Bastion Host field
-- Credential picker filters to `winrm-password` credentials only
-- Port auto-fills to 5985 (HTTP); operator can change to 5986 for HTTPS
 
 When **Agent-managed** selected:
 - Hide Credential, Port, Bastion Host fields
@@ -130,50 +124,11 @@ When **Agent-managed** selected:
 |---|---|
 | `SSH` | Direct SSH |
 | `Bastion` | SSH via jump host |
-| `WinRM` | Windows Remote Management |
 | `Agent` | Agent-managed |
 
 ---
 
-## Feature 2: WinRM
-
-### How It Works
-
-```
-Manage Server
-  └── HTTP(S) → Windows host (port 5985 HTTP / 5986 HTTPS)
-                    └── WinRM over SOAP/HTTP
-```
-
-Windows Remote Management (WinRM) is the Microsoft implementation of WS-Management — a SOAP-based protocol for remote machine management. It is enabled by default on Windows Server 2012 R2+ and is the standard alternative to SSH for Windows hosts.
-
-The Manage Server connects using the `winrm-password` credential type. The `port` field determines transport: **5985 = plain HTTP**, **5986 = HTTPS**. There is no separate `use_https` flag — the port is the single source of truth.
-
-### Scan Execution Flow
-
-When a scan job is dispatched for a `winrm` host:
-
-1. Worker claims job; `ClaimResp` includes `host_ip`, `port`, `credentials_ref`, `connection_type: "winrm"`.
-2. Worker calls `GET /api/v1/worker/credentials/{id}` → receives `{ type: "winrm-password", username, password }`.
-3. Worker establishes WinRM session: HTTP POST to `http(s)://{host_ip}:{port}/wsman`.
-4. Runs remote commands / WMI queries to collect cryptographic asset data.
-5. Posts result through normal scan result pipeline.
-
-HTTPS determination: if `port == 5986`, connect with TLS; if `port == 5985`, plain HTTP. No other configuration needed.
-
-### API Changes
-
-No new fields beyond what Feature 1 introduces. The `connection_type = 'winrm'` value plus the generic `port` field are sufficient.
-
-**Host CRUD:** same `/api/v1/admin/hosts` endpoint — `connection_type: "winrm"`, `port: 5985` (or 5986), `credentials_ref: <winrm-password uuid>`.
-
-### UI Changes
-
-Covered in Feature 1 UI section above — HostForm.vue shows WinRM option in the Connection Type selector, auto-fills port to 5985, and filters the credential picker to `winrm-password` credentials only.
-
----
-
-## Feature 3: Agent-Managed Hosts
+## Feature 2: Agent-Managed Hosts
 
 ### How It Works
 
@@ -391,12 +346,12 @@ ALTER TABLE manage_scan_jobs
 
 | File | Change |
 |---|---|
-| `pkg/manageserver/hosts/types.go` | Add `ConnectionType`, `BastionHostID`, `Port` to `Host`; add `winrm` constant |
-| `pkg/manageserver/hosts/handlers_admin.go` | Validate `connection_type` + `bastion_host_id`; WinRM port default |
+| `pkg/manageserver/hosts/types.go` | Add `ConnectionType`, `BastionHostID`, `Port` to `Host`; connection type constants |
+| `pkg/manageserver/hosts/handlers_admin.go` | Validate `connection_type` + `bastion_host_id`; reject `winrm` with 422 |
 | `pkg/manageserver/scanjobs/types.go` | Add bastion fields to `ScanJob`; rename `SSHPort` → `Port` |
 | `pkg/manageserver/scanjobs/handlers_admin.go` | Populate bastion fields at enqueue |
 | `pkg/manageserver/scanjobs/handlers_worker.go` | Include `port`, `bastion_port` in `ClaimResp` |
-| `pkg/scanrunner/runner.go` | If `BastionIP` set, dial via SSH ProxyJump; if `ConnectionType = winrm`, use WinRM client |
+| `pkg/scanrunner/runner.go` | If `BastionIP` set, dial via SSH ProxyJump |
 | `pkg/manageserver/server.go` | Mount agentgateway + enrollmenttokens routes; configure mTLS listener for agent endpoints |
 
 ### New frontend files
@@ -410,7 +365,7 @@ ALTER TABLE manage_scan_jobs
 
 | File | Change |
 |---|---|
-| `views/modals/HostForm.vue` | Connection type selector (SSH/Bastion/WinRM/Agent); conditional fields; port auto-fill |
+| `views/modals/HostForm.vue` | Connection type selector (SSH/Bastion/Agent); conditional bastion picker; port auto-fill |
 | `views/Hosts.vue` | Connection type badge; online/offline indicator for agent hosts |
 | `router.ts` | Add `/inventory/enrollment-tokens` route |
 | `nav.ts` | Add "Enrollment Tokens" nav item under Inventory |
@@ -473,12 +428,6 @@ ALTER TABLE manage_scan_jobs
 - Unit: `scanrunner/runner.go` — mock SSH dialer; verify ProxyJump path taken when `BastionIP` set
 - Unit: `scanjobs/handlers_admin.go` — bastion fields populated correctly at enqueue
 - Integration: `TestBastionScan_EndToEnd` — requires two SSH containers (bastion + target); skip if `TRITON_TEST_BASTION` unset
-
-### WinRM
-
-- Unit: `hosts/handlers_admin.go` — `connection_type=winrm` requires `winrm-password` credential; defaults port to 5985
-- Unit: `scanrunner/runner.go` — WinRM client path taken when `ConnectionType = "winrm"`; port 5986 triggers HTTPS
-- Integration: `TestWinRMHost_CRUD` — create/update/delete host with `connection_type=winrm`; validation rejects SSH credential
 
 ### Agent
 

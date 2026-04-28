@@ -1285,3 +1285,38 @@ func TestUpdateLicense_ScheduleFields(t *testing.T) {
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
 }
+
+func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Verify contact_name, contact_phone, contact_email columns exist on organizations
+	var colCount int
+	err := s.Pool().QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_name = 'organizations'
+		  AND column_name IN ('contact_name','contact_phone','contact_email')
+	`).Scan(&colCount)
+	require.NoError(t, err)
+	assert.Equal(t, 3, colCount, "expected contact_name, contact_phone, contact_email columns")
+
+	// Verify old 'contact' column no longer exists
+	var oldExists bool
+	err = s.Pool().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'organizations' AND column_name = 'contact'
+		)
+	`).Scan(&oldExists)
+	require.NoError(t, err)
+	assert.False(t, oldExists, "old 'contact' column should not exist after migration")
+
+	// Verify notified_30d_at, notified_7d_at, notified_1d_at columns exist on licenses
+	err = s.Pool().QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_name = 'licenses'
+		  AND column_name IN ('notified_30d_at','notified_7d_at','notified_1d_at')
+	`).Scan(&colCount)
+	require.NoError(t, err)
+	assert.Equal(t, 3, colCount, "expected notified_30d_at, notified_7d_at, notified_1d_at columns")
+}

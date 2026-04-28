@@ -797,6 +797,11 @@ func (s *PostgresStore) reapAndRecount(ctx context.Context, tx pgx.Tx, licenseID
 	return newCount, nil
 }
 
+// Pool returns the underlying pgxpool.Pool. Exposed for integration tests
+// that need to inspect schema state (e.g., verifying migration column counts)
+// without going through the Store interface. Not part of the Store interface.
+func (s *PostgresStore) Pool() *pgxpool.Pool { return s.pool }
+
 // ExecForTest exposes pool.Exec for integration tests that need to
 // manipulate rows directly (e.g., backdating last_seen_at for reap
 // tests). Not part of the Store interface — only available on the

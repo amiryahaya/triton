@@ -179,4 +179,19 @@ var migrations = []string{
 	// suspended=true blocks new activations and validation for all machines
 	// on any licence belonging to this org (hard suspend).
 	`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended BOOLEAN NOT NULL DEFAULT FALSE;`,
+
+	// Version 10: Structured contact fields on organizations + expiry notification
+	// tracking on licenses.
+	// contact → contact_name (rename); contact_phone and contact_email are new.
+	// notified_30d_at, notified_7d_at, notified_1d_at are nullable TIMESTAMPTZ;
+	// NULL means the notification has not been sent for this license cycle.
+	`ALTER TABLE organizations RENAME COLUMN contact TO contact_name;
+	ALTER TABLE organizations
+		ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT '',
+		ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT '';
+
+	ALTER TABLE licenses
+		ADD COLUMN IF NOT EXISTS notified_30d_at TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS notified_7d_at  TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS notified_1d_at  TIMESTAMPTZ;`,
 }

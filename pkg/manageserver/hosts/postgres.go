@@ -25,7 +25,7 @@ var _ Store = (*PostgresStore)(nil)
 
 // hostSelectCols selects host columns only (no tags). Tags are loaded
 // separately via loadTagsForHosts and attached by the caller.
-const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, access_port`
+const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, ssh_port`
 
 func scanHost(row pgx.Row) (Host, error) {
 	var h Host
@@ -102,9 +102,9 @@ func (s *PostgresStore) loadTagsForHosts(ctx context.Context, hostIDs []uuid.UUI
 
 func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, access_port)
+		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, ssh_port)
 		 VALUES ($1, $2::inet, $3, $4, $5, $6)
-		 RETURNING id, created_at, updated_at, credentials_ref, access_port`,
+		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
 		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
 		h.CredentialsRef, h.AccessPort,
 	)
@@ -182,9 +182,9 @@ func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_hosts
 		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4,
-		     credentials_ref = $5, access_port = $6, updated_at = NOW()
+		     credentials_ref = $5, ssh_port = $6, updated_at = NOW()
 		 WHERE id = $7
-		 RETURNING id, created_at, updated_at, credentials_ref, access_port`,
+		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
 		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
 		h.CredentialsRef, h.AccessPort, h.ID,
 	)
@@ -315,7 +315,7 @@ func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host,
 func (s *PostgresStore) GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, accessPort int, err error) {
 	var hn, ipv *string
 	err = s.pool.QueryRow(ctx,
-		`SELECT hostname, host(ip)::text, access_port FROM manage_hosts WHERE id = $1`, id,
+		`SELECT hostname, host(ip)::text, ssh_port FROM manage_hosts WHERE id = $1`, id,
 	).Scan(&hn, &ipv, &accessPort)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", 0, ErrNotFound
@@ -397,7 +397,7 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 		row := tx.QueryRow(ctx,
 			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
 			 VALUES ($1, $2::inet, $3, $4)
-			 RETURNING id, created_at, updated_at, credentials_ref, access_port`,
+			 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
 			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt,
 		)
 		dst := *src

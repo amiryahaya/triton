@@ -28,13 +28,16 @@ async function gotoDiscover(page) {
 }
 
 /**
- * Find the input inside a TFormField by matching the label text.
+ * Find the input inside a TFormField by matching the label text, scoped
+ * to the open modal so table cells with the same text don't collide.
  * TFormField renders: <div class="t-field"><label class="t-field-label">…</label><input></div>
  */
 function fieldInput(page, labelText) {
+  // Use a word-boundary regex so "OS" doesn't match "Hostname" (contains "os").
+  const exact = new RegExp(`^${labelText}\\*?$`);
   return page
-    .locator('.t-field')
-    .filter({ has: page.locator('.t-field-label', { hasText: labelText }) })
+    .locator('.t-modal .t-field')
+    .filter({ has: page.locator('.t-field-label').filter({ hasText: exact }) })
     .locator('input');
 }
 
@@ -63,9 +66,9 @@ test.describe('Hosts — manual form', () => {
     await expect(page.locator('.t-modal')).not.toBeVisible({ timeout: 5_000 });
     await expect(page.locator('text=Host created')).toBeVisible({ timeout: 5_000 });
 
-    // The new host appears in the table.
-    await expect(page.locator('text=form-host-01')).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator('text=10.42.0.1')).toBeVisible();
+    // The new host appears in the table (TDataTable renders cells as .t-tbl-c spans).
+    await expect(page.locator('.t-tbl-c', { hasText: 'form-host-01' })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.t-tbl-c', { hasText: '10.42.0.1' })).toBeVisible();
   });
 
   test('IP field is required — form shows error without closing modal', async ({ page }) => {

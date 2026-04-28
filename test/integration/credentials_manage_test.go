@@ -416,7 +416,7 @@ func TestCredentials_PortSurveyJobInheritsCredentialsRef(t *testing.T) {
 	assert.Equal(t, credID, jobCredRef, "job must inherit credentials_ref from host")
 
 	status, _ := job["status"].(string)
-	assert.Equal(t, "pending", status, "newly-enqueued job must be in pending state")
+	assert.Equal(t, "queued", status, "newly-enqueued job must be in queued state")
 }
 
 func TestCredentials_WorkerCanFetchSecret(t *testing.T) {

@@ -5,6 +5,7 @@ package licensestore_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync/atomic"
@@ -46,12 +47,13 @@ func makeOrg(t *testing.T) *licensestore.Organization {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &licensestore.Organization{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		Name:      "Test Org " + uuid.Must(uuid.NewV7()).String(),
-		Contact:   "admin@test.com",
-		Notes:     "test org",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Name:         "Test Org " + uuid.Must(uuid.NewV7()).String(),
+		ContactName:  "Test Contact",
+		ContactEmail: "contact@test.example",
+		Notes:        "test org",
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 }
 
@@ -99,7 +101,8 @@ func TestCreateOrg(t *testing.T) {
 	got, err := s.GetOrg(ctx, org.ID)
 	require.NoError(t, err)
 	assert.Equal(t, org.Name, got.Name)
-	assert.Equal(t, org.Contact, got.Contact)
+	assert.Equal(t, org.ContactName, got.ContactName)
+	assert.Equal(t, org.ContactEmail, got.ContactEmail)
 }
 
 func TestGetOrg_NotFound(t *testing.T) {
@@ -1284,4 +1287,245 @@ func TestUpdateLicense_ScheduleFields(t *testing.T) {
 	require.Error(t, err)
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
+}
+
+func TestOrgContactFields_CRUD(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	org := &licensestore.Organization{
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Name:         "Contact Test Org",
+		ContactName:  "Ahmad bin Ali",
+		ContactPhone: "+60123456789",
+		ContactEmail: "ahmad@nacsa.gov.my",
+		Notes:        "test",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	got, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Ahmad bin Ali", got.ContactName)
+	assert.Equal(t, "+60123456789", got.ContactPhone)
+	assert.Equal(t, "ahmad@nacsa.gov.my", got.ContactEmail)
+
+	got.ContactName = "Siti binti Rahmat"
+	got.ContactPhone = "+60198765432"
+	got.ContactEmail = "siti@nacsa.gov.my"
+	got.UpdatedAt = time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, s.UpdateOrg(ctx, got))
+
+	updated, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Siti binti Rahmat", updated.ContactName)
+	assert.Equal(t, "+60198765432", updated.ContactPhone)
+	assert.Equal(t, "siti@nacsa.gov.my", updated.ContactEmail)
+
+	// ListOrgs also returns the new fields
+	orgs, err := s.ListOrgs(ctx)
+	require.NoError(t, err)
+	var found *licensestore.Organization
+	for i := range orgs {
+		if orgs[i].ID == org.ID {
+			found = &orgs[i]
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, "Siti binti Rahmat", found.ContactName)
+	assert.Equal(t, "siti@nacsa.gov.my", found.ContactEmail)
+}
+
+// --- ListExpiringLicenses + MarkLicenseNotified Tests ---
+
+func TestListExpiringLicenses_WithinWindow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	org.ContactEmail = "tenant@example.com"
+	org.ContactName = "Tenant Contact"
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	// License expiring in 20 days — within 30d window
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(20 * 24 * time.Hour)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, lic.ID, results[0].LicenseID)
+	assert.Equal(t, "Tenant Contact", results[0].ContactName)
+	assert.Equal(t, "tenant@example.com", results[0].ContactEmail)
+	assert.Nil(t, results[0].Notified30dAt)
+}
+
+func TestListExpiringLicenses_ExcludesRevoked(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(5 * 24 * time.Hour)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+	require.NoError(t, s.RevokeLicense(ctx, lic.ID, "test-admin"))
+
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestListExpiringLicenses_ExcludesAlreadyExpired(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(-24 * time.Hour) // already expired
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestMarkLicenseNotified_SetsColumn(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(20 * 24 * time.Hour)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	// Before marking: all notified columns are nil
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	var before *licensestore.LicenseWithOrg
+	for i := range results {
+		if results[i].LicenseID == lic.ID {
+			before = &results[i]
+		}
+	}
+	require.NotNil(t, before)
+	assert.Nil(t, before.Notified30dAt)
+
+	// Mark 30d
+	require.NoError(t, s.MarkLicenseNotified(ctx, lic.ID, "30d"))
+
+	// After marking: Notified30dAt is set, others still nil
+	results2, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	var after *licensestore.LicenseWithOrg
+	for i := range results2 {
+		if results2[i].LicenseID == lic.ID {
+			after = &results2[i]
+		}
+	}
+	require.NotNil(t, after)
+	assert.NotNil(t, after.Notified30dAt)
+	assert.Nil(t, after.Notified7dAt)
+	assert.Nil(t, after.Notified1dAt)
+}
+
+func TestMarkLicenseNotified_InvalidInterval(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	err := s.MarkLicenseNotified(ctx, "00000000-0000-0000-0000-000000000001", "99d")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown interval")
+}
+
+func TestMarkLicenseNotified_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	err := s.MarkLicenseNotified(ctx, "00000000-0000-0000-0000-000000000001", "30d")
+	require.Error(t, err)
+	var notFound *licensestore.ErrNotFound
+	assert.True(t, errors.As(err, &notFound))
+}
+
+func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Verify contact_name, contact_phone, contact_email columns exist on organizations.
+	// Scope to current_schema() for test isolation (avoids matching stale tables in
+	// other schemas the way TestMigration_V5AddsV2ColumnsAndUsageTable does).
+	var colCount int
+	err := s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'organizations'
+		  AND column_name IN ('contact_name','contact_phone','contact_email')
+	`).Scan(&colCount)
+	require.NoError(t, err)
+	assert.Equal(t, 3, colCount, "expected contact_name, contact_phone, contact_email columns")
+
+	// Verify old 'contact' column no longer exists.
+	var oldExists bool
+	err = s.QueryRowForTest(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = current_schema()
+			  AND table_name = 'organizations'
+			  AND column_name = 'contact'
+		)
+	`).Scan(&oldExists)
+	require.NoError(t, err)
+	assert.False(t, oldExists, "old 'contact' column should not exist after migration")
+
+	// Verify notified_30d_at, notified_7d_at, notified_1d_at columns exist on licenses.
+	err = s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'licenses'
+		  AND column_name IN ('notified_30d_at','notified_7d_at','notified_1d_at')
+	`).Scan(&colCount)
+	require.NoError(t, err)
+	assert.Equal(t, 3, colCount, "expected notified_30d_at, notified_7d_at, notified_1d_at columns")
+
+	// Verify the three notified_*_at columns are nullable (IS_NULLABLE = 'YES').
+	var nullableCount int
+	err = s.QueryRowForTest(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'licenses'
+		  AND column_name IN ('notified_30d_at','notified_7d_at','notified_1d_at')
+		  AND is_nullable = 'YES'
+	`).Scan(&nullableCount)
+	require.NoError(t, err)
+	assert.Equal(t, 3, nullableCount, "notified_*_at columns must be nullable")
+
+	// Verify column defaults: a freshly inserted org row gets empty-string defaults
+	// for contact_phone and contact_email when those fields are omitted. Use a
+	// minimal org literal that leaves contact_phone and contact_email as zero
+	// strings so CreateOrg writes them as empty — the database column default is
+	// TEXT NOT NULL DEFAULT ''.
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	bareOrg := &licensestore.Organization{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Name:      "Bare Org " + uuid.Must(uuid.NewV7()).String(),
+		CreatedAt: now,
+		UpdatedAt: now,
+		// ContactPhone and ContactEmail are intentionally omitted (zero string)
+	}
+	require.NoError(t, s.CreateOrg(ctx, bareOrg))
+
+	var phone, email string
+	err = s.QueryRowForTest(ctx,
+		`SELECT contact_phone, contact_email FROM organizations WHERE id = $1`, bareOrg.ID,
+	).Scan(&phone, &email)
+	require.NoError(t, err)
+	assert.Equal(t, "", phone, "contact_phone default should be empty string")
+	assert.Equal(t, "", email, "contact_email default should be empty string")
 }

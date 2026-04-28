@@ -25,7 +25,7 @@ func createLicenseForBundle(t *testing.T) (tsURL string, jwt string, licID strin
 	jwt = quickAdminJWT(t, ts, store)
 	tsURL = ts.URL
 
-	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "BundleOrg"})
+	orgResp := adminReq(t, jwt, "POST", tsURL+"/api/v1/admin/orgs", map[string]string{"name": "BundleOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 

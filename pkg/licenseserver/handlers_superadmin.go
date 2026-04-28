@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -36,13 +37,19 @@ type updateSuperadminRequest struct {
 	Password string `json:"password,omitempty"` // omit to keep current
 }
 
-// validateEmail performs minimal email validation.
+// validateEmail validates email format per RFC 5322. The caller is responsible
+// for length enforcement using the appropriate constant (maxEmailLen for
+// superadmin addresses, maxContactEmailLen for org contact addresses).
 func validateEmail(email string) error {
-	if email == "" || !strings.Contains(email, "@") {
+	if email == "" {
 		return errors.New("valid email is required")
 	}
-	if tooLong(email, maxEmailLen) {
-		return errors.New("email exceeds maximum length")
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		// Reject display-name format ("John <j@x.com>") — only bare
+		// addresses ("j@x.com") are accepted so stored values are directly
+		// usable in email delivery without further parsing.
+		return errors.New("valid email is required")
 	}
 	return nil
 }
@@ -64,6 +71,10 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if tooLong(email, maxEmailLen) {
+		writeError(w, http.StatusBadRequest, "email exceeds maximum length")
+		return
+	}
 	if err := validateEmail(email); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

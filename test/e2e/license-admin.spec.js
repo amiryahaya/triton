@@ -455,3 +455,84 @@ test.describe('Detail Pages', () => {
     expect(orgCount).toBeGreaterThanOrEqual(2);       // Acme, Globex (+ E2E-NewOrg from earlier test)
   });
 });
+
+// --- New tests: Group F — Organization Contact Fields ---
+
+test.describe('Organization Contact Fields', () => {
+  test('org create form shows contact_name, contact_phone, contact_email fields', async ({ page }) => {
+    await page.goto('/ui/index.html#/orgs');
+    await page.waitForSelector('.t-panel-action button', { timeout: 10_000 });
+    await page.click('.t-panel-action button');
+
+    // Modal should open
+    await expect(page.locator('.t-modal')).toBeVisible({ timeout: 5_000 });
+
+    // All three new contact field labels must be present
+    await expect(page.locator('.t-modal .t-field-label', { hasText: 'Contact Name' })).toBeVisible();
+    await expect(page.locator('.t-modal .t-field-label', { hasText: 'Contact Email' })).toBeVisible();
+    await expect(page.locator('.t-modal .t-field-label', { hasText: 'Contact Phone' })).toBeVisible();
+
+    // Inputs are present with correct placeholders
+    await expect(page.locator('.t-modal input[placeholder="Full name"]')).toBeVisible();
+    await expect(page.locator('.t-modal input[placeholder="contact@example.com"]')).toBeVisible();
+    await expect(page.locator('.t-modal input[placeholder="+601234"]')).toBeVisible();
+  });
+
+  test('org create requires contact_name and contact_email', async ({ page }) => {
+    await page.goto('/ui/index.html#/orgs');
+    await page.waitForSelector('.t-panel-action button', { timeout: 10_000 });
+    await page.click('.t-panel-action button');
+    await expect(page.locator('.t-modal')).toBeVisible({ timeout: 5_000 });
+
+    // Fill name but leave contact_name empty — submit
+    await page.fill('.t-modal input:first-of-type', 'ValidOrgName');
+    await page.locator('.t-modal-foot button', { hasText: /Create/ }).click();
+    await expect(page.locator('.t-modal .t-field-error')).toBeVisible();
+    await expect(page.locator('.t-modal .t-field-error')).toContainText('Contact name is required');
+
+    // Now fill contact_name but leave contact_email empty — submit
+    await page.fill('.t-modal input[placeholder="Full name"]', 'Test Contact');
+    await page.locator('.t-modal-foot button', { hasText: /Create/ }).click();
+    await expect(page.locator('.t-modal .t-field-error')).toBeVisible();
+    await expect(page.locator('.t-modal .t-field-error')).toContainText('Contact email is required');
+
+    // Modal stays open
+    await expect(page.locator('.t-modal')).toBeVisible();
+  });
+
+  test('org detail page shows all three contact fields', async ({ page }) => {
+    // Create an org via API with all three contact fields so we have known data
+    const loginResp = await page.request.post('/api/v1/auth/login', {
+      data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+    });
+    const { token } = await loginResp.json();
+
+    const orgResp = await page.request.post('/api/v1/admin/orgs', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name: 'E2E-ContactOrg',
+        contact_name: 'Ahmad bin Ali',
+        contact_email: 'ahmad@test.local',
+        contact_phone: '+60123456789',
+      },
+    });
+    expect(orgResp.status()).toBe(201);
+    const { org } = await orgResp.json();
+
+    // Navigate to the org list and click the new org's row
+    await page.goto('/ui/index.html#/orgs');
+    await page.waitForSelector('.t-tbl-row', { timeout: 10_000 });
+    await page.locator('.t-tbl-row', { hasText: 'E2E-ContactOrg' }).click();
+
+    // Detail page should show all three contact fields
+    await page.waitForURL(`**/#/orgs/${org.id}`, { timeout: 10_000 });
+    await expect(page.locator('dt', { hasText: 'Contact Name' })).toBeVisible();
+    await expect(page.locator('dt', { hasText: 'Contact Email' })).toBeVisible();
+    await expect(page.locator('dt', { hasText: 'Contact Phone' })).toBeVisible();
+
+    // Values are displayed correctly
+    await expect(page.locator('dd', { hasText: 'Ahmad bin Ali' })).toBeVisible();
+    await expect(page.locator('dd', { hasText: 'ahmad@test.local' })).toBeVisible();
+    await expect(page.locator('dd', { hasText: '+60123456789' })).toBeVisible();
+  });
+});

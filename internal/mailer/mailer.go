@@ -29,6 +29,7 @@ import (
 // credential delivery (API response body, admin UI modal, etc.).
 type Mailer interface {
 	SendInviteEmail(ctx context.Context, data InviteEmailData) error
+	SendExpiryWarningEmail(ctx context.Context, to string, data ExpiryWarningEmailData) error
 }
 
 // InviteEmailData is the content of an admin/user-invite email.
@@ -38,6 +39,15 @@ type InviteEmailData struct {
 	OrgName      string // the org the recipient has been invited to
 	TempPassword string // one-time temporary password
 	LoginURL     string // where to log in (report server URL)
+}
+
+// ExpiryWarningEmailData is the content of a license expiry warning email.
+type ExpiryWarningEmailData struct {
+	RecipientName string // e.g. "Ahmad bin Ali" or "Platform Admin"
+	OrgName       string // e.g. "NACSA"
+	LicenseID     string
+	ExpiresAt     time.Time
+	DaysRemaining int // 30, 7, or 1
 }
 
 // ResendMailer sends email via the Resend API (https://resend.com).
@@ -142,6 +152,74 @@ You'll be prompted to change your password on first sign-in.
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Read a capped portion of the body for the error message.
+		limited := io.LimitReader(resp.Body, 4<<10)
+		respBody, _ := io.ReadAll(limited)
+		return fmt.Errorf("resend returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// SendExpiryWarningEmail constructs and sends a license expiry warning to
+// the given recipient address. The subject line varies based on
+// data.DaysRemaining (1, 7, or any other value). Returns a non-nil error
+// if the Resend API rejects the request or is unreachable.
+func (m *ResendMailer) SendExpiryWarningEmail(ctx context.Context, to string, data ExpiryWarningEmailData) error {
+	var subject string
+	switch data.DaysRemaining {
+	case 1:
+		subject = fmt.Sprintf("License expiring tomorrow — immediate action required (%s)", data.OrgName)
+	case 7:
+		subject = fmt.Sprintf("License expiring in 7 days — urgent (%s)", data.OrgName)
+	default:
+		subject = fmt.Sprintf("License expiring in %d days — action required (%s)", data.DaysRemaining, data.OrgName)
+	}
+
+	textBody := fmt.Sprintf(`Hi %s,
+
+This is a reminder that the Triton license for %s is expiring soon.
+
+License ID: %s
+Expiry date: %s
+Days remaining: %d
+
+Please contact your Triton administrator to arrange a renewal before the expiry date to avoid service disruption.
+
+— Triton License Server
+`, data.RecipientName, data.OrgName, data.LicenseID,
+		data.ExpiresAt.Format("2 Jan 2006"), data.DaysRemaining)
+
+	req := resendSendRequest{
+		From:    fmt.Sprintf("%s <%s>", m.fromName, m.fromEmail),
+		To:      []string{to},
+		Subject: subject,
+		Text:    textBody,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshalling expiry warning email: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, m.apiEndpoint(), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("building expiry warning request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+m.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	if reqID := middleware.GetReqID(ctx); reqID != "" {
+		httpReq.Header.Set("X-Request-ID", reqID)
+	}
+
+	resp, err := m.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("sending expiry warning: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		limited := io.LimitReader(resp.Body, 4<<10)
 		respBody, _ := io.ReadAll(limited)
 		return fmt.Errorf("resend returned status %d: %s", resp.StatusCode, string(respBody))

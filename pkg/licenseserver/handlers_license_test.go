@@ -61,7 +61,7 @@ func loginViaAPI(t *testing.T, tsURL, email, password string) string {
 // createOrgViaAPI creates an org and returns its ID.
 func createOrgViaAPI(t *testing.T, tsURL, jwt, name string) string {
 	t.Helper()
-	b, _ := json.Marshal(map[string]string{"name": name})
+	b, _ := json.Marshal(map[string]string{"name": name, "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	req, _ := http.NewRequest(http.MethodPost, tsURL+"/api/v1/admin/orgs", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+jwt)

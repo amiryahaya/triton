@@ -45,26 +45,26 @@ async function globalSetup() {
   // Create two organizations
   const org1Resp = await ctx.post('/api/v1/admin/orgs', {
     headers: authHeaders,
-    data: { name: 'Acme Corp', contact: 'admin@acme.com', notes: 'E2E test org' },
+    data: { name: 'Acme Corp', contact_name: 'Acme Admin', contact_email: 'admin@acme.com', notes: 'E2E test org' },
   });
   if (org1Resp.status() !== 201) {
     throw new Error(`Failed to create org1: ${org1Resp.status()} ${await org1Resp.text()}`);
   }
-  const org1 = await org1Resp.json();
+  const { org: org1 } = await org1Resp.json();
 
   const org2Resp = await ctx.post('/api/v1/admin/orgs', {
     headers: authHeaders,
-    data: { name: 'Globex Inc', contact: 'admin@globex.com' },
+    data: { name: 'Globex Inc', contact_name: 'Globex Admin', contact_email: 'admin@globex.com' },
   });
   if (org2Resp.status() !== 201) {
     throw new Error(`Failed to create org2: ${org2Resp.status()} ${await org2Resp.text()}`);
   }
-  const org2 = await org2Resp.json();
+  const { org: org2 } = await org2Resp.json();
 
   // Empty org for delete test (no licenses)
   const org3Resp = await ctx.post('/api/v1/admin/orgs', {
     headers: authHeaders,
-    data: { name: 'EmptyOrg Ltd', contact: 'admin@empty.com' },
+    data: { name: 'EmptyOrg Ltd', contact_name: 'Empty Admin', contact_email: 'admin@empty.com' },
   });
   if (org3Resp.status() !== 201) {
     throw new Error(`Failed to create org3: ${org3Resp.status()} ${await org3Resp.text()}`);

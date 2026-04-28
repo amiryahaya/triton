@@ -21,6 +21,7 @@ type stubAPI struct {
 	pendingOnce     sync.Once // deliver pendingCmd only once
 	submitCalls     int32     // atomic
 	submittedBodies [][]byte
+	submitErr       error
 }
 
 func (s *stubAPI) Heartbeat(_ context.Context) error {
@@ -42,7 +43,7 @@ func (s *stubAPI) SubmitScan(_ context.Context, _ string, body []byte) error {
 	s.mu.Lock()
 	s.submittedBodies = append(s.submittedBodies, body)
 	s.mu.Unlock()
-	return nil
+	return s.submitErr
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +127,30 @@ func TestRun_ExitsOnContextCancel(t *testing.T) {
 	err := Run(ctx, api, Config{Version: "1.0.0-test"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestRun_AuthFailedOnSubmit_ReturnsError(t *testing.T) {
+	api := &stubAPI{
+		pendingCmd: &AgentCommand{ScanProfile: "quick", JobID: "job-auth"},
+		submitErr:  ErrAuthFailed,
+	}
+	scanner := &stubScanner{result: map[string]string{"ok": "1"}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := Run(ctx, api, Config{
+		HeartbeatInterval: 500 * time.Millisecond,
+		PollInterval:      30 * time.Millisecond,
+		Version:           "test",
+		Scanner:           scanner,
+	})
+	if err == nil {
+		t.Fatal("expected non-nil error when submit returns ErrAuthFailed")
+	}
+	if !errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected ErrAuthFailed in error chain, got: %v", err)
 	}
 }
 

@@ -59,8 +59,8 @@ const (
 	DeliveryDelete DeliveryKind = "delete"
 )
 
-// Delivery is one queued payload for an engine to consume. Ciphertext
-// is the sealed-box blob from pkg/engine/crypto (nil for delete rows).
+// Delivery is one queued payload for a consumer. Ciphertext
+// is the sealed-box blob (nil for delete rows).
 //
 // JSON tags are REQUIRED — this struct is emitted verbatim on the
 // wire by GatewayHandlers.PollDelivery and the engine client decodes

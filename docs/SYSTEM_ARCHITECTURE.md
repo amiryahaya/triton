@@ -1267,9 +1267,11 @@ Seat enforcement via serializable transactions: `SELECT COUNT(*) WHERE active=TR
 
 ### 15.2 API
 
-**Admin API** (requires `X-Triton-Admin-Key`): Org CRUD, license CRUD + revoke, activation management, audit log, dashboard stats.
+**Auth API** (public): `POST /api/v1/auth/login` → JWT, refresh, logout, change-password; `GET/POST /api/v1/setup/*` for first-boot wizard.
 
-**Client API** (no auth): Activate (`POST /api/v1/license/activate`), deactivate, validate, health check.
+**Admin API** (JWT Bearer, `platform_admin` role): Org CRUD + suspend, license CRUD + revoke + update, activation management, superadmin CRUD + invite, audit log, dashboard stats, binary uploads.
+
+**Client API** (no auth, secured by license UUID + machine fingerprint): Activate, deactivate, validate, usage push, health check.
 
 ### 15.3 Online Validation Flow
 

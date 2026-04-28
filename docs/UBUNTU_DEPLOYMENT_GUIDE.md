@@ -239,12 +239,6 @@ openssl pkey -in /tmp/ed25519.pem -pubout -outform DER | tail -c 32 | xxd -p -c 
 rm /tmp/ed25519.pem
 ```
 
-### Admin API key (license server)
-
-```bash
-openssl rand -hex 32 | sudo tee /etc/triton/admin-key.hex > /dev/null
-```
-
 ### Triton server API key
 
 ```bash
@@ -277,18 +271,18 @@ Create an env file for the license server:
 ```bash
 # Read generated secrets
 SIGNING_KEY=$(sudo cat /etc/triton/signing-key.hex)
-ADMIN_KEY=$(sudo cat /etc/triton/admin-key.hex)
 
 sudo tee /etc/triton/license-server.env > /dev/null <<EOF
 TRITON_LICENSE_SERVER_DB_URL=postgres://triton:STRONG_PASSWORD_HERE@127.0.0.1:5432/triton_license?sslmode=disable
 TRITON_LICENSE_SERVER_LISTEN=:8081
-TRITON_LICENSE_SERVER_ADMIN_KEY=${ADMIN_KEY}
 TRITON_LICENSE_SERVER_SIGNING_KEY=${SIGNING_KEY}
+TRITON_LICENSE_SERVER_ADMIN_EMAIL=admin@localhost
+TRITON_LICENSE_SERVER_ADMIN_PASSWORD=CHANGE_ME_IMMEDIATELY
 EOF
 sudo chmod 600 /etc/triton/license-server.env
 ```
 
-> Replace `STRONG_PASSWORD_HERE` with the PostgreSQL password from [Section 5](#5-install-postgresql-18) and `<your-enterprise-license-token>` with your licence token.
+> Replace `STRONG_PASSWORD_HERE` with the PostgreSQL password from [Section 5](#5-install-postgresql-18). The `ADMIN_PASSWORD` is only used on first boot to seed the initial platform admin account — log in at `http://server:8081/ui/` and change the password immediately after first start.
 
 ### License server environment variables reference
 
@@ -296,8 +290,9 @@ sudo chmod 600 /etc/triton/license-server.env
 |----------|----------|---------|-------------|
 | `TRITON_LICENSE_SERVER_DB_URL` | Yes | — | PostgreSQL connection URL |
 | `TRITON_LICENSE_SERVER_LISTEN` | No | `:8081` | Listen address |
-| `TRITON_LICENSE_SERVER_ADMIN_KEY` | Yes | — | Admin API key (comma-separated for multiple) |
 | `TRITON_LICENSE_SERVER_SIGNING_KEY` | Yes | — | Ed25519 private key as hex (128 hex chars) |
+| `TRITON_LICENSE_SERVER_ADMIN_EMAIL` | No | `admin@localhost` | Bootstrap superadmin email (first boot only) |
+| `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` | Yes (first boot) | — | Bootstrap superadmin password — rotate immediately after first login |
 | `TRITON_LICENSE_SERVER_TLS_CERT` | No | — | TLS cert file (not needed with Nginx) |
 | `TRITON_LICENSE_SERVER_TLS_KEY` | No | — | TLS key file (not needed with Nginx) |
 
@@ -582,32 +577,35 @@ Open in a browser:
 
 ### Create first organization and license
 
-Read the admin key:
+Log in to get a JWT token:
 
 ```bash
-ADMIN_KEY=$(sudo cat /etc/triton/admin-key.hex)
+TOKEN=$(curl -s -X POST https://triton.yourdomain.com/license/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@localhost", "password": "your-bootstrap-password"}' \
+  | jq -r .token)
 ```
 
 Create an organization:
 
 ```bash
 curl -s -X POST https://triton.yourdomain.com/license/api/v1/admin/orgs \
-  -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "My Organization", "max_seats": 50}'
+  -d '{"name": "My Organization", "contact": "admin@myorg.com"}'
 ```
 
 Note the `id` from the response, then create a license:
 
 ```bash
 curl -s -X POST https://triton.yourdomain.com/license/api/v1/admin/licenses \
-  -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "org_id": "<org-uuid>",
+    "orgID": "<org-uuid>",
     "tier": "enterprise",
-    "max_seats": 10,
-    "expires_at": "2027-01-01T00:00:00Z"
+    "seats": 10,
+    "days": 365
   }'
 ```
 
@@ -749,7 +747,7 @@ curl -sf https://triton.yourdomain.com/api/v1/health || \
 | `connection refused` on :8081 | License server not running | `sudo systemctl status triton-license-server` — check logs |
 | `502 Bad Gateway` from Nginx | Backend service not started or crashed | Verify both services are running: `podman ps` |
 | `TRITON_LICENSE_SERVER_DB_URL is required` | Missing env file or empty variable | Check `/etc/triton/license-server.env` exists and has the DB URL |
-| `TRITON_LICENSE_SERVER_ADMIN_KEY is required` | Missing admin key | Verify admin key is set in `/etc/triton/license-server.env` |
+| `license server has no users and no bootstrap password set` | Empty DB with no `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` | Set the env var and restart the service |
 | `signing key must be 64 bytes` | Incorrect signing key hex | Regenerate with the commands in [Section 7](#7-generate-secrets) — must be 128 hex characters |
 | `opening database: failed to connect` | PostgreSQL not running or wrong credentials | Check `sudo systemctl status postgresql`, verify password in env files |
 | `FATAL: password authentication failed` | Wrong PostgreSQL password | Reset password: `sudo -u postgres psql -c "ALTER USER triton PASSWORD 'newpass';"` |
@@ -792,7 +790,7 @@ sudo ufw status numbered
 - [ ] **Ubuntu updated** — `apt update && apt upgrade` completed
 - [ ] **PostgreSQL credentials** — Strong password (not default `triton/triton`)
 - [ ] **PostgreSQL access** — `pg_hba.conf` restricts to localhost only
-- [ ] **Secrets generated** — Ed25519 keypair, admin key, server API key in `/etc/triton/`
+- [ ] **Secrets generated** — Ed25519 keypair and server API key in `/etc/triton/`; bootstrap admin password rotated after first login
 - [ ] **Secret permissions** — `/etc/triton/` is `700`, all `.hex` and `.env` files are `600`
 - [ ] **Container images pinned** — Using specific version tags (not `latest`)
 - [ ] **Systemd units enabled** — Both services start on boot

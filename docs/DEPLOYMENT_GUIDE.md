@@ -233,9 +233,9 @@ sudo rm -rf /opt/triton/.git
 #      openssl rand -hex 32  (for each key/secret field)
 #
 #    Required fields to set:
-#      TRITON_LICENSE_SERVER_ADMIN_KEY=<random hex>
 #      TRITON_LICENSE_SERVER_SIGNING_KEY=<Ed25519 64-byte hex — see §6d>
-#      TRITON_LICENSE_SERVER_ADMIN_PASSWORD=<strong password>
+#      TRITON_LICENSE_SERVER_ADMIN_EMAIL=admin@example.com
+#      TRITON_LICENSE_SERVER_ADMIN_PASSWORD=<strong password — rotate after first login>
 #      TRITON_LICENSE_SERVER_REPORT_KEY=<random hex>
 #      REPORT_SERVER_SERVICE_KEY=<same value as REPORT_KEY above>
 #      REPORT_SERVER_JWT_SIGNING_KEY=<random hex>
@@ -289,7 +289,7 @@ curl -s https://license.example.com/api/v1/health
 
 **First-time setup after deployment:**
 
-1. Open `https://license.example.com/ui/` — enter the admin key from `.env` (`TRITON_LICENSE_SERVER_ADMIN_KEY`)
+1. Open `https://license.example.com/ui/` — log in with the bootstrap admin email and password (`TRITON_LICENSE_SERVER_ADMIN_EMAIL` / `TRITON_LICENSE_SERVER_ADMIN_PASSWORD`)
 2. Create your first organization
 3. Create a license (enterprise tier, desired seat count, 365 days)
 4. Click **Download bundle** (pick the target platform) or **Copy install command**
@@ -497,8 +497,10 @@ The license server is the authority for:
 
 It exposes:
 
-- **Client API** (public): `/auth/login`, `/license/activate`, `/license/deactivate`, `/license/validate`, `/health`
-- **Admin API** (`X-Triton-Admin-Key`): full CRUD over orgs, licenses, activations, superadmins, audit log, binaries
+- **Auth API** (public): `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/change-password`
+- **Setup API** (public, first-boot only): `GET /api/v1/setup/status`, `POST /api/v1/setup/first-admin`
+- **Admin API** (JWT Bearer, `platform_admin` role): full CRUD over orgs, licenses, activations, superadmins, audit log, binaries
+- **Client API** (public, secured by license UUID + machine fingerprint): `/api/v1/license/*`, `/api/v1/health`
 
 ### 6b. Configuration
 
@@ -507,26 +509,27 @@ All license-server options are environment variables. See `cmd/licenseserver/mai
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TRITON_LICENSE_SERVER_LISTEN` | No | `:8081` | Bind address |
-| `TRITON_LICENSE_SERVER_DB_URL` | Yes | — | PostgreSQL URL (should use a dedicated DB or schema) |
-| `TRITON_LICENSE_SERVER_ADMIN_KEY` | Yes | — | Admin API key for the `X-Triton-Admin-Key` header; multiple comma-separated values allowed |
-| `TRITON_LICENSE_SERVER_SIGNING_KEY` | Yes | — | Hex-encoded Ed25519 private key (64 hex chars = 32-byte seed + 32-byte pubkey) used to sign license tokens AND superadmin JWTs |
-| `TRITON_LICENSE_SERVER_ADMIN_EMAIL` | No | `admin@localhost` | Bootstrap superadmin email (only used on first startup against empty users table) |
-| `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` | Yes (first boot) | — | Bootstrap superadmin password. Rotate immediately after first login. |
-| `TRITON_LICENSE_SERVER_TLS_CERT` | No | — | TLS certificate path (leave blank for plaintext / reverse proxy termination) |
+| `TRITON_LICENSE_SERVER_DB_URL` | Yes | — | PostgreSQL URL (dedicated DB or schema) |
+| `TRITON_LICENSE_SERVER_SIGNING_KEY` | Yes | — | Hex-encoded Ed25519 private key (64 hex chars) for signing license tokens and superadmin JWTs |
+| `TRITON_LICENSE_SERVER_ADMIN_EMAIL` | No | `admin@localhost` | Bootstrap superadmin email (only used on first startup when `users` table is empty) |
+| `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` | Yes (first boot) | — | Bootstrap superadmin password (min 12 chars). Rotate immediately after first login. |
+| `TRITON_LICENSE_SERVER_TLS_CERT` | No | — | TLS certificate path |
 | `TRITON_LICENSE_SERVER_TLS_KEY` | No | — | TLS key path |
-| `TRITON_LICENSE_SERVER_BINARIES_DIR` | No | `/opt/triton/binaries` | Directory for uploaded agent binaries (filesystem path inside the container) |
-| `TRITON_LICENSE_SERVER_REPORT_URL` | No | — | Internal URL the license server uses to reach the report server (e.g. `http://triton:8080` in compose). Used for cross-server provisioning. |
-| `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | No | — | Customer-facing report server URL baked into generated `agent.yaml` downloads (e.g. `https://reports.example.com`). Falls back to `TRITON_LICENSE_SERVER_REPORT_URL`. |
-| `TRITON_LICENSE_SERVER_REPORT_KEY` | No | — | Shared secret for cross-server provisioning. **Must match** `REPORT_SERVER_SERVICE_KEY` on the report server. |
-| `TRITON_LICENSE_SERVER_PUBLIC_URL` | No | — | The license server's own external URL (e.g. `https://license.example.com`). Required for one-liner install commands. If unset, the "Copy install command" button is disabled. |
-| `RESEND_API_KEY` | No | — | Resend API key for invite emails. **Note:** uses a generic prefix, NOT `TRITON_LICENSE_SERVER_RESEND_*`. |
-| `RESEND_FROM_EMAIL` | No | — | From address for invite emails |
-| `RESEND_FROM_NAME` | No | `Triton Reports` | From name for invite emails |
-| `REPORT_SERVER_INVITE_URL_BASE` | No | — | Login link embedded in invite emails. **Note:** the report server reads this as `REPORT_SERVER_INVITE_URL` (different name). |
+| `TRITON_LICENSE_SERVER_BINARIES_DIR` | No | `/opt/triton/binaries` | Directory for uploaded agent binaries |
+| `TRITON_LICENSE_SERVER_STALE_THRESHOLD` | No | `336h` | Age at which a stale activation is reaped |
+| `TRITON_LICENSE_SERVER_REPORT_URL` | No | — | Internal URL to reach the report server (e.g. `http://triton:8080`). Used for cross-server provisioning. Must be set with `TRITON_LICENSE_SERVER_REPORT_KEY`. |
+| `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | No | — | Customer-facing report server URL baked into generated `agent.yaml` downloads. Falls back to `TRITON_LICENSE_SERVER_REPORT_URL`. |
+| `TRITON_LICENSE_SERVER_REPORT_KEY` | No | — | Shared secret for cross-server provisioning. Must match `REPORT_SERVER_SERVICE_KEY` on the report server. |
+| `TRITON_LICENSE_SERVER_PUBLIC_URL` | No | — | License server's own external URL (e.g. `https://license.example.com`). Required for install command generation. |
+| `TRITON_LICENSE_SERVER_RESEND_API_KEY` | No | — | Resend API key for invite emails. Must be set with `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL`. |
+| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | No | — | Sender address for invite emails |
+| `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | No | `Triton License` | Sender display name |
+| `TRITON_LICENSE_SERVER_LOGIN_URL` | No | — | Login page URL embedded in invite emails |
+| `REPORT_SERVER_INVITE_URL_BASE` | No | — | Report server invite URL embedded in invite emails |
 
-**Admin key bootstrap:** on first startup against an empty database, the license server seeds an initial `platform_admin` user using `TRITON_LICENSE_SERVER_ADMIN_EMAIL` and `TRITON_LICENSE_SERVER_ADMIN_PASSWORD`. Change the bootstrap password immediately after first login.
+**First-boot:** on startup against an empty `users` table, the server seeds one `platform_admin` using the bootstrap env vars above. Subsequent boots skip this step. If the DB already has users and no `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` is set, the bootstrap is safely skipped.
 
-**Naming pitfalls:** the license server uses `RESEND_*` (generic prefix) for its mailer, while the report server uses `REPORT_SERVER_RESEND_*`. If both services need to send emails, set both sets of variables. Similarly, the invite URL is `REPORT_SERVER_INVITE_URL_BASE` on the license server but `REPORT_SERVER_INVITE_URL` on the report server. See `.env.example` for the complete mapping.
+**Naming pitfalls:** the license server uses `TRITON_LICENSE_SERVER_RESEND_*`, while the report server uses `REPORT_SERVER_RESEND_*`. Similarly, the invite URL base variable names differ between the two services. See `.env.example` for the mapping.
 
 ### 6c. Running the license server
 
@@ -534,8 +537,9 @@ All license-server options are environment variables. See `cmd/licenseserver/mai
 make build-licenseserver
 
 export TRITON_LICENSE_SERVER_DB_URL="postgres://triton:triton@localhost:5435/triton_license?sslmode=disable"
-export TRITON_LICENSE_SERVER_ADMIN_KEY="your-secret-admin-key"
 export TRITON_LICENSE_SERVER_SIGNING_KEY="<hex-encoded-ed25519-private-key>"
+export TRITON_LICENSE_SERVER_ADMIN_EMAIL="admin@example.com"   # first boot only
+export TRITON_LICENSE_SERVER_ADMIN_PASSWORD="change-me-now"    # first boot only
 
 ./bin/triton-license-server
 ```
@@ -592,7 +596,7 @@ The generated file contains:
 
 ```bash
 curl -X POST \
-  -H "X-Triton-Admin-Key: $TRITON_LICENSE_SERVER_ADMIN_KEY" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -o agent.yaml \
   -d '{}' \
@@ -727,7 +731,7 @@ When an agent is bound to a license server (`license_server:` + `license_id:` in
 
 ```bash
 curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
-     -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+     -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"schedule": "0 2 * * 0", "scheduleJitterSeconds": 60}'
 ```
@@ -738,7 +742,7 @@ A future PR will add these fields to the license admin UI; for now the admin API
 
 ```bash
 curl -X PATCH https://license.example.com/api/v1/admin/licenses/<license-id> \
-     -H "X-Triton-Admin-Key: $ADMIN_KEY" \
+     -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"schedule": "", "scheduleJitterSeconds": 0}'
 ```
@@ -1156,7 +1160,7 @@ written to disk, logs, findings, or reports.
 
 ### License server
 
-- [ ] `TRITON_LICENSE_SERVER_ADMIN_KEY` set to a strong random value, stored in a secrets manager
+- [ ] Bootstrap admin password (`TRITON_LICENSE_SERVER_ADMIN_PASSWORD`) rotated immediately after first login
 - [ ] `TRITON_LICENSE_SERVER_SIGNING_KEY` is a fresh Ed25519 keypair; backup kept offline
 - [ ] Bootstrap superadmin password rotated on first login
 - [ ] TLS terminated at the license server or an upstream proxy

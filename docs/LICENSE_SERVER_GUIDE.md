@@ -11,15 +11,16 @@ This guide covers deploying and managing the Triton License Server — a central
 3. [Quick Start](#3-quick-start)
 4. [Configuration](#4-configuration)
 5. [Keypair Generation](#5-keypair-generation)
-6. [Organization Management](#6-organization-management)
-7. [License Management](#7-license-management)
-8. [Client Activation](#8-client-activation)
-9. [Admin Web UI](#9-admin-web-ui)
-10. [Binary Downloads](#10-binary-downloads)
-11. [Offline Fallback](#11-offline-fallback)
-12. [API Reference](#12-api-reference)
-13. [Sizing & Capacity Planning](#13-sizing--capacity-planning)
-14. [Troubleshooting](#14-troubleshooting)
+6. [Authentication](#6-authentication)
+7. [Organization Management](#7-organization-management)
+8. [License Management](#8-license-management)
+9. [Client Activation](#9-client-activation)
+10. [Admin Web UI](#10-admin-web-ui)
+11. [Binary Downloads](#11-binary-downloads)
+12. [Offline Fallback](#12-offline-fallback)
+13. [API Reference](#13-api-reference)
+14. [Sizing & Capacity Planning](#14-sizing--capacity-planning)
+15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -76,13 +77,14 @@ make db-up
 
 ```bash
 export TRITON_LICENSE_SERVER_DB_URL="postgres://triton:triton@localhost:5434/triton_license?sslmode=disable"
-export TRITON_LICENSE_SERVER_ADMIN_KEY="your-secret-admin-key"
 export TRITON_LICENSE_SERVER_SIGNING_KEY="<hex-encoded-ed25519-private-key>"
+export TRITON_LICENSE_SERVER_ADMIN_EMAIL="admin@example.com"   # first-boot only
+export TRITON_LICENSE_SERVER_ADMIN_PASSWORD="change-me-now"    # first-boot only
 
 ./bin/triton-license-server
 ```
 
-The server starts on `:8081` by default. Open `http://localhost:8081/ui/` for the admin dashboard.
+The server starts on `:8081` by default. On a fresh database it seeds an initial platform admin user using the bootstrap credentials above — subsequent boots ignore those env vars once the user exists. Open `http://localhost:8081/ui/` and log in with the bootstrap email and password.
 
 ### Using Docker Compose
 
@@ -100,19 +102,60 @@ make container-stop-licenseserver
 
 All configuration is via environment variables:
 
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `TRITON_LICENSE_SERVER_DB_URL` | PostgreSQL connection URL |
+| `TRITON_LICENSE_SERVER_SIGNING_KEY` | Ed25519 private key (hex-encoded, 64 bytes) |
+
+### Server
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TRITON_LICENSE_SERVER_LISTEN` | `:8081` | Listen address |
-| `TRITON_LICENSE_SERVER_DB_URL` | (required) | PostgreSQL connection URL |
-| `TRITON_LICENSE_SERVER_ADMIN_KEY` | (required) | API key for admin endpoints |
-| `TRITON_LICENSE_SERVER_SIGNING_KEY` | (required) | Ed25519 private key (hex-encoded) |
-| `TRITON_LICENSE_SERVER_TLS_CERT` | (optional) | TLS certificate file path |
-| `TRITON_LICENSE_SERVER_TLS_KEY` | (optional) | TLS private key file path |
-| `TRITON_LICENSE_SERVER_BINARIES_DIR` | `/opt/triton/binaries` | Directory for uploaded binary files |
+| `TRITON_LICENSE_SERVER_TLS_CERT` | (none) | TLS certificate file path (enables HTTPS) |
+| `TRITON_LICENSE_SERVER_TLS_KEY` | (none) | TLS private key file path |
+| `TRITON_LICENSE_SERVER_BINARIES_DIR` | `/opt/triton/binaries` | Directory for uploaded binaries |
+| `TRITON_LICENSE_SERVER_STALE_THRESHOLD` | `336h` (14 days) | Age at which a stale activation is reaped |
+| `TRITON_LICENSE_SERVER_PUBLIC_URL` | (none) | Public base URL (used in invite emails) |
+
+### First-Boot Admin Bootstrap
+
+These only take effect when the `users` table has no rows (idempotent — ignored on subsequent boots once any user exists):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRITON_LICENSE_SERVER_ADMIN_EMAIL` | `admin@localhost` | Bootstrap superadmin email |
+| `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` | (required on empty DB) | Bootstrap superadmin password (min 12 chars) |
+
+### Report Server Integration (optional)
+
+Both must be set together — a partial pair logs a warning and disables provisioning:
+
+| Variable | Description |
+|----------|-------------|
+| `TRITON_LICENSE_SERVER_REPORT_URL` | Internal Report Server URL (service-mesh name, e.g. `http://triton:8080`) |
+| `TRITON_LICENSE_SERVER_REPORT_KEY` | Shared service key for Manage→Report calls |
+| `TRITON_LICENSE_SERVER_REPORT_PUBLIC_URL` | Public Report Server URL embedded in agent.yaml downloads and invite emails |
+
+### Email (Resend — optional)
+
+Both must be set together — a partial pair logs a warning and disables email:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRITON_LICENSE_SERVER_RESEND_API_KEY` | (none) | Resend API key |
+| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | (none) | Sender email address |
+| `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | `Triton License` | Sender display name |
+| `TRITON_LICENSE_SERVER_LOGIN_URL` | (none) | Frontend login page URL embedded in invite emails |
+| `REPORT_SERVER_INVITE_URL_BASE` | (none) | Report Server invite URL base |
 
 ### Database Setup
 
-The server auto-migrates its schema on startup. It uses its own tables (`organizations`, `licenses`, `activations`, `audit_log`) with a separate version tracker (`license_schema_version`), so it can share a PostgreSQL instance with the Triton scan server without conflicts.
+The server auto-migrates its schema on startup. It uses its own tables with a separate version tracker (`license_schema_version`), so it can share a PostgreSQL instance with the Triton scan server without conflicts.
+
+**Tables**: `organizations`, `licenses`, `activations`, `audit_log`, `users`, `sessions`
 
 ---
 
@@ -133,42 +176,147 @@ The hex-encoded private key goes in `TRITON_LICENSE_SERVER_SIGNING_KEY`. The cor
 
 ---
 
-## 6. Organization Management
+## 6. Authentication
+
+The admin web UI and all `/api/v1/admin/*` endpoints require a **JWT Bearer token**. There is no static admin API key — all access is through user accounts with the `platform_admin` role.
+
+### First-Boot Setup
+
+On a fresh database the server seeds one superadmin using the bootstrap env vars (`TRITON_LICENSE_SERVER_ADMIN_EMAIL` / `TRITON_LICENSE_SERVER_ADMIN_PASSWORD`). If the DB already has users the bootstrap vars are ignored.
+
+Alternatively, the setup wizard at `POST /api/v1/setup/first-admin` can create the initial admin when no users exist yet:
+
+```bash
+# Check whether first-time setup is needed
+curl http://localhost:8081/api/v1/setup/status
+# → {"setupRequired": true}  or  {"setupRequired": false}
+
+# Create the first platform admin (only works when setupRequired = true)
+curl -X POST http://localhost:8081/api/v1/setup/first-admin \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "name": "Admin", "password": "secure-password-here"}'
+```
+
+### Login
+
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "your-password"}'
+# → {"token": "<jwt>", "expiresAt": "...", "mustChangePassword": false}
+```
+
+Tokens are valid for 24 hours. Store the `token` value and pass it as `Authorization: Bearer <token>` on all subsequent admin requests.
+
+### Token Refresh
+
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/refresh \
+  -H "Authorization: Bearer <old-token>"
+# → {"token": "<new-jwt>", "expiresAt": "..."}
+```
+
+Call this before the 24-hour TTL expires to keep a session alive without re-entering credentials.
+
+### Logout
+
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/logout \
+  -H "Authorization: Bearer <token>"
+```
+
+### Change Password
+
+Required when `mustChangePassword: true` is returned at login (e.g., after an admin invite):
+
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/change-password \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"current": "temp-password", "next": "new-secure-password"}'
+# → {"token": "<new-jwt>", "expiresAt": "..."}
+```
+
+The response contains a fresh token — old sessions are revoked immediately.
+
+### Managing Platform Admins
+
+Platform admins can invite additional superadmins. The server generates a temporary password and (if Resend is configured) emails it to the new admin:
+
+```bash
+# Invite a new platform admin
+curl -X POST http://localhost:8081/api/v1/admin/superadmins \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ops@example.com", "name": "Ops Team"}'
+# → {"user": {...}, "tempPassword": "...", "emailSent": true}
+
+# List all platform admins
+curl http://localhost:8081/api/v1/admin/superadmins \
+  -H "Authorization: Bearer <token>"
+
+# Resend invite (rotates temp password, revokes old sessions)
+curl -X POST http://localhost:8081/api/v1/admin/superadmins/<id>/resend-invite \
+  -H "Authorization: Bearer <token>"
+
+# Delete a platform admin (cannot delete self or the last admin)
+curl -X DELETE http://localhost:8081/api/v1/admin/superadmins/<id> \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## 7. Organization Management
+
+All org endpoints require `Authorization: Bearer <token>`.
 
 ### Create an Organization
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/admin/orgs \
-  -H "X-Triton-Admin-Key: your-admin-key" \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Acme Corp", "contact": "admin@acme.com"}'
+  -d '{"name": "Acme Corp", "contact": "John Smith, +60 12-345 6789"}'
 ```
+
+`contact` is a free-text notes field (not validated as email).
 
 ### List Organizations
 
 ```bash
 curl http://localhost:8081/api/v1/admin/orgs \
-  -H "X-Triton-Admin-Key: your-admin-key"
+  -H "Authorization: Bearer <token>"
 ```
 
 ### Update an Organization
 
 ```bash
 curl -X PUT http://localhost:8081/api/v1/admin/orgs/<org-id> \
-  -H "X-Triton-Admin-Key: your-admin-key" \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Acme Corp Updated", "contact": "new@acme.com"}'
+  -d '{"name": "Acme Corp Updated", "contact": "Jane Doe"}'
+```
+
+### Suspend an Organization
+
+Suspending an org blocks all new activations for its licenses while preserving existing ones:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/admin/orgs/<org-id>/suspend \
+  -H "Authorization: Bearer <token>"
 ```
 
 ---
 
-## 7. License Management
+## 8. License Management
+
+All license endpoints require `Authorization: Bearer <token>`.
 
 ### Create a License
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/admin/licenses \
-  -H "X-Triton-Admin-Key: your-admin-key" \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"orgID": "<org-id>", "tier": "pro", "seats": 10, "days": 365}'
 ```
@@ -176,7 +324,7 @@ curl -X POST http://localhost:8081/api/v1/admin/licenses \
 Parameters:
 - `orgID` — Organization UUID
 - `tier` — `free`, `pro`, or `enterprise`
-- `seats` — Maximum concurrent machine activations
+- `seats` — Maximum concurrent machine activations (0 = unlimited)
 - `days` — License validity in days (default: 365)
 
 ### List Licenses
@@ -184,11 +332,20 @@ Parameters:
 ```bash
 # All licenses
 curl http://localhost:8081/api/v1/admin/licenses \
-  -H "X-Triton-Admin-Key: your-admin-key"
+  -H "Authorization: Bearer <token>"
 
 # Filter by org
 curl "http://localhost:8081/api/v1/admin/licenses?org=<org-id>" \
-  -H "X-Triton-Admin-Key: your-admin-key"
+  -H "Authorization: Bearer <token>"
+```
+
+### Update a License
+
+```bash
+curl -X PATCH http://localhost:8081/api/v1/admin/licenses/<license-id> \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"seats": 20}'
 ```
 
 ### Revoke a License
@@ -197,12 +354,22 @@ Revoking deactivates all machines and prevents new activations:
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/admin/licenses/<license-id>/revoke \
-  -H "X-Triton-Admin-Key: your-admin-key"
+  -H "Authorization: Bearer <token>"
+```
+
+### Generate Install Token
+
+Creates a short-lived token for self-service client download and activation:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/admin/licenses/<license-id>/install-token \
+  -H "Authorization: Bearer <token>"
+# → {"token": "<install-token>", "url": "https://license-server:8081/api/v1/install/<token>/"}
 ```
 
 ---
 
-## 8. Client Activation
+## 9. Client Activation
 
 ### Activate a Machine
 
@@ -254,11 +421,11 @@ export TRITON_LICENSE_SERVER=http://license-server:8081
 
 ---
 
-## 9. Admin Web UI
+## 10. Admin Web UI
 
 Access the admin dashboard at `http://localhost:8081/ui/`.
 
-On first visit, you'll be prompted for the admin API key. The key is stored in the browser's localStorage.
+On first visit you are shown a login page. Enter your platform admin email and password. The session token is stored in the browser and refreshed automatically. If `mustChangePassword` is set (new admin invite), you are redirected to a password-change screen before accessing the dashboard.
 
 ### Dashboard
 
@@ -282,7 +449,7 @@ Chronological log of all actions: org creation, license creation, activations, d
 
 ---
 
-## 10. Binary Downloads
+## 11. Binary Downloads
 
 The license server can host Triton CLI binaries for client self-service download. This eliminates the need to share binaries manually — clients visit a download page, enter their license ID, and get the correct binary for their platform.
 
@@ -295,7 +462,7 @@ Upload binaries via the admin API or the admin web UI.
 ```bash
 # Upload a Linux amd64 binary
 curl -X POST https://license-server:8081/api/v1/admin/binaries \
-  -H "X-Triton-Admin-Key: your-admin-key" \
+  -H "Authorization: Bearer <token>" \
   -F "file=@bin/triton" \
   -F "version=3.1" \
   -F "os=linux" \
@@ -303,7 +470,7 @@ curl -X POST https://license-server:8081/api/v1/admin/binaries \
 
 # Upload a Windows amd64 binary
 curl -X POST https://license-server:8081/api/v1/admin/binaries \
-  -H "X-Triton-Admin-Key: your-admin-key" \
+  -H "Authorization: Bearer <token>" \
   -F "file=@bin/triton.exe" \
   -F "version=3.1" \
   -F "os=windows" \
@@ -326,7 +493,7 @@ The server computes a SHA-256 checksum and stores the binary at `{BinariesDir}/{
 
 **Automated CI/CD upload:**
 
-If `LICENSE_SERVER_URL` and `LICENSE_SERVER_ADMIN_KEY` are configured in your GitHub repository settings, the release workflow automatically uploads binaries after each tagged release.
+If `LICENSE_SERVER_URL` and `LICENSE_SERVER_TOKEN` are configured in your GitHub repository secrets, the release workflow can automatically upload binaries after each tagged release using a service account JWT.
 
 ### Admin: Managing Binaries
 
@@ -334,14 +501,14 @@ If `LICENSE_SERVER_URL` and `LICENSE_SERVER_ADMIN_KEY` are configured in your Gi
 
 ```bash
 curl https://license-server:8081/api/v1/admin/binaries \
-  -H "X-Triton-Admin-Key: your-admin-key"
+  -H "Authorization: Bearer <token>"
 ```
 
 **Delete a specific binary:**
 
 ```bash
 curl -X DELETE https://license-server:8081/api/v1/admin/binaries/3.1/linux/amd64 \
-  -H "X-Triton-Admin-Key: your-admin-key"
+  -H "Authorization: Bearer <token>"
 ```
 
 ### Client: Downloading Binaries
@@ -417,7 +584,7 @@ podman run -v /opt/triton/binaries:/opt/triton/binaries ...
 
 ---
 
-## 11. Offline Fallback
+## 12. Offline Fallback
 
 When the license server is unreachable, the Triton CLI uses cached validation:
 
@@ -431,11 +598,28 @@ Cache metadata is stored at `~/.triton/license.meta` and is updated on every suc
 
 ---
 
-## 12. API Reference
+## 13. API Reference
 
 ### Admin API
 
-All admin endpoints require the `X-Triton-Admin-Key` header.
+### Auth API
+
+No authentication required for login; JWT required for logout, refresh, and change-password.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/setup/status` | None | Check if first-boot setup is needed |
+| POST | `/api/v1/setup/first-admin` | None | Create first platform admin (only when no users exist) |
+| POST | `/api/v1/auth/login` | None | Email + password login → JWT |
+| POST | `/api/v1/auth/logout` | Bearer | Invalidate current session |
+| POST | `/api/v1/auth/refresh` | Bearer | Rotate JWT before expiry |
+| POST | `/api/v1/auth/change-password` | Bearer | Change password + rotate token |
+
+### Admin API
+
+All `/api/v1/admin/*` endpoints require `Authorization: Bearer <token>` (platform admin role).
+
+**Organizations**
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -444,17 +628,56 @@ All admin endpoints require the `X-Triton-Admin-Key` header.
 | GET | `/api/v1/admin/orgs/{id}` | Get organization detail |
 | PUT | `/api/v1/admin/orgs/{id}` | Update organization |
 | DELETE | `/api/v1/admin/orgs/{id}` | Delete organization |
+| POST | `/api/v1/admin/orgs/{id}/suspend` | Suspend organization |
+
+**Licenses**
+
+| Method | Path | Description |
+|--------|------|-------------|
 | POST | `/api/v1/admin/licenses` | Create license |
-| GET | `/api/v1/admin/licenses` | List licenses |
+| GET | `/api/v1/admin/licenses` | List licenses (optional `?org=<id>`) |
 | GET | `/api/v1/admin/licenses/{id}` | License detail + activations |
+| PATCH | `/api/v1/admin/licenses/{id}` | Update license (seats, schedule, etc.) |
 | POST | `/api/v1/admin/licenses/{id}/revoke` | Revoke license |
+| POST | `/api/v1/admin/licenses/{id}/install-token` | Generate self-service install token |
+| POST | `/api/v1/admin/licenses/{id}/agent-yaml` | Download agent.yaml for Manage Server |
+| POST | `/api/v1/admin/licenses/{id}/bundle` | Download agent bundle (yaml + binary) |
+
+**Activations & Audit**
+
+| Method | Path | Description |
+|--------|------|-------------|
 | GET | `/api/v1/admin/activations` | List all activations |
-| POST | `/api/v1/admin/activations/{id}/deactivate` | Force-deactivate |
+| POST | `/api/v1/admin/activations/{id}/deactivate` | Force-deactivate a machine |
 | GET | `/api/v1/admin/audit` | Audit log |
 | GET | `/api/v1/admin/stats` | Dashboard statistics |
+
+**Platform Admins (Superadmins)**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/admin/superadmins` | Invite new platform admin |
+| GET | `/api/v1/admin/superadmins` | List all platform admins |
+| GET | `/api/v1/admin/superadmins/{id}` | Get platform admin |
+| PUT | `/api/v1/admin/superadmins/{id}` | Update name or password |
+| DELETE | `/api/v1/admin/superadmins/{id}` | Delete platform admin (cannot delete self or last admin) |
+| POST | `/api/v1/admin/superadmins/{id}/resend-invite` | Rotate temp password + resend invite email |
+
+**Binaries**
+
+| Method | Path | Description |
+|--------|------|-------------|
 | POST | `/api/v1/admin/binaries` | Upload binary (multipart form) |
 | GET | `/api/v1/admin/binaries` | List uploaded binaries |
 | DELETE | `/api/v1/admin/binaries/{version}/{os}/{arch}` | Delete a binary |
+
+### Install API (self-service, no auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/install/{token}/` | Install script (bash/PowerShell) |
+| GET | `/api/v1/install/{token}/binary/{os}/{arch}` | Download binary via install token |
+| GET | `/api/v1/install/{token}/agent-yaml` | Download agent.yaml via install token |
 
 ### Client API
 
@@ -464,14 +687,14 @@ No authentication required (secured by license UUID + machine fingerprint).
 |--------|------|-------------|
 | POST | `/api/v1/license/activate` | Activate machine |
 | POST | `/api/v1/license/deactivate` | Deactivate machine |
-| POST | `/api/v1/license/validate` | Validate token |
-| GET | `/api/v1/license/download/latest-version` | Latest version + platforms |
-| GET | `/api/v1/license/download/{version}/{os}/{arch}?license_id=UUID` | Download binary |
+| POST | `/api/v1/license/validate` | Validate token (also pushes schedule overrides) |
+| POST | `/api/v1/license/usage` | Push near-real-time usage metrics |
+| GET | `/api/v1/license/download/latest-version` | Latest version + available platforms |
 | GET | `/api/v1/health` | Health check |
 
 ---
 
-## 13. Sizing & Capacity Planning
+## 14. Sizing & Capacity Planning
 
 This section provides resource sizing recommendations based on the license server's architecture and runtime characteristics.
 
@@ -592,7 +815,7 @@ For deployments above 100 concurrent requests, place the license server behind a
 
 ### PostgreSQL Sizing Detail
 
-The license server uses 4 tables plus a version tracker:
+The license server uses 6 tables plus a version tracker:
 
 | Table | Row Size (avg) | Growth Rate | Index Pressure |
 |-------|---------------|-------------|----------------|
@@ -600,6 +823,8 @@ The license server uses 4 tables plus a version tracker:
 | `licenses` | ~300 B | Slow (admin creates) | Low |
 | `activations` | ~400 B | 1 row per machine | Medium |
 | `audit_log` | ~500 B | 3-5 rows per activation event | **High** |
+| `users` | ~300 B | Static (platform admin CRUD) | Low |
+| `sessions` | ~200 B | 1 row per active browser session; pruned on logout/expiry | Low |
 
 **Audit log is the primary storage driver.** Estimate:
 
@@ -666,7 +891,7 @@ For production deployments:
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 | Problem | Cause | Solution |
 |---------|-------|----------|
@@ -675,7 +900,9 @@ For production deployments:
 | `activation failed: license revoked` | License was revoked | Create a new license |
 | `license server unreachable` | Network issue or server down | Check server is running; CLI will use offline cache if available |
 | `Cache Status: stale` | Server unreachable for >7 days | Restore server connectivity; re-activate if needed |
-| `401 Unauthorized` on admin API | Wrong or missing admin key | Verify `X-Triton-Admin-Key` matches `TRITON_LICENSE_SERVER_ADMIN_KEY` |
+| `401 Unauthorized` on admin API | Missing/expired JWT or wrong credentials | Log in via `POST /api/v1/auth/login` to get a fresh token |
+| `429 Too Many Requests` on login | Too many failed login attempts | Wait for `Retry-After` seconds before retrying |
+| `license server has no users and no bootstrap password set` | Fresh DB with no `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` env var | Set the env var and restart, or use `POST /api/v1/setup/first-admin` |
 | `database: failed to connect` | PostgreSQL unreachable | Check `TRITON_LICENSE_SERVER_DB_URL` and database availability |
 
 ### Diagnostic Commands

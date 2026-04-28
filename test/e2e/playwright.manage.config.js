@@ -26,7 +26,7 @@ module.exports = defineConfig({
   globalSetup: './manage-global-setup.js',
 
   webServer: {
-    command: 'go run ./test/e2e/cmd/managetestserver/main.go',
+    command: 'MANAGE_E2E_RESET=1 go run ./test/e2e/cmd/managetestserver/main.go',
     cwd: '../../',
     url: 'http://localhost:8082/api/v1/health',
     reuseExistingServer: !process.env.CI,

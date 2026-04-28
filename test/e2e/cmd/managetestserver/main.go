@@ -58,19 +58,24 @@ func run() error {
 	}
 	defer pool.Close()
 
-	// Wipe manage tables so count-based assertions are deterministic.
-	if err := truncateManageTables(ctx, pool); err != nil {
-		return fmt.Errorf("truncate: %w", err)
-	}
-
-	// Run schema migrations.
+	// Run schema migrations first.
 	if err := managestore.Migrate(ctx, pool); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
+	// Only truncate when MANAGE_E2E_RESET=1 (set by Playwright test runner).
+	// Manual "go run" sessions skip truncation so data persists across restarts.
+	if os.Getenv("MANAGE_E2E_RESET") == "1" {
+		if err := truncateManageTables(ctx, pool); err != nil {
+			return fmt.Errorf("truncate: %w", err)
+		}
+	}
+
 	store := managestore.NewPostgresStoreFromPool(pool)
 
-	// Mark setup complete so RequireOperational passes.
+	// These seed operations are idempotent: MarkAdminCreated is a no-op when
+	// already set; SaveLicenseActivation upserts; seedAdmin/seedDiscovery skip
+	// when data already exists.
 	if err := store.MarkAdminCreated(ctx); err != nil {
 		return fmt.Errorf("mark admin created: %w", err)
 	}
@@ -79,16 +84,11 @@ func run() error {
 	); err != nil {
 		return fmt.Errorf("save license activation: %w", err)
 	}
-
-	// Seed admin user for login.
 	if err := seedAdmin(ctx, store); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
-
-	// Seed a completed discovery job with two candidates so the Discovery
-	// E2E tests can import without running a real network scan.
 	discStore := discovery.NewPostgresStore(pool)
-	if err := seedDiscovery(ctx, discStore); err != nil {
+	if err := seedDiscovery(ctx, pool, discStore); err != nil {
 		return fmt.Errorf("seed discovery: %w", err)
 	}
 
@@ -150,6 +150,10 @@ func truncateManageTables(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func seedAdmin(ctx context.Context, store *managestore.PostgresStore) error {
+	// Skip if the admin user already exists.
+	if _, err := store.GetUserByEmail(ctx, seedAdminEmail); err == nil {
+		return nil
+	}
 	hash, err := manageserver.HashPassword(seedAdminPassword)
 	if err != nil {
 		return err
@@ -164,10 +168,17 @@ func seedAdmin(ctx context.Context, store *managestore.PostgresStore) error {
 	return store.CreateUser(ctx, u)
 }
 
-func seedDiscovery(ctx context.Context, ds *discovery.PostgresStore) error {
-	tenantID := uuid.MustParse(testInstanceID)
+func seedDiscovery(ctx context.Context, pool *pgxpool.Pool, ds *discovery.PostgresStore) error {
+	// Skip if any discovery job already exists for this tenant.
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_discovery_jobs WHERE tenant_id = $1`,
+		testInstanceID,
+	).Scan(&n); err != nil || n > 0 {
+		return nil
+	}
 
-	// Create a completed job.
+	tenantID := uuid.MustParse(testInstanceID)
 	job, err := ds.CreateJob(ctx, discovery.EnqueueReq{
 		CIDR:     "10.99.0.0/30",
 		Ports:    []int{22, 80, 443},
@@ -188,7 +199,6 @@ func seedDiscovery(ctx context.Context, ds *discovery.PostgresStore) error {
 	}
 
 	hostname1 := "e2e-host-01"
-	// Candidate 1: new host (not yet in inventory).
 	if err := ds.InsertCandidate(ctx, discovery.Candidate{
 		JobID:     job.ID,
 		IP:        "10.99.0.1",
@@ -198,8 +208,6 @@ func seedDiscovery(ctx context.Context, ds *discovery.PostgresStore) error {
 	}); err != nil {
 		return fmt.Errorf("insert candidate 1: %w", err)
 	}
-
-	// Candidate 2: no hostname — tests the inline-hostname-edit path.
 	if err := ds.InsertCandidate(ctx, discovery.Candidate{
 		JobID:     job.ID,
 		IP:        "10.99.0.2",
@@ -207,6 +215,5 @@ func seedDiscovery(ctx context.Context, ds *discovery.PostgresStore) error {
 	}); err != nil {
 		return fmt.Errorf("insert candidate 2: %w", err)
 	}
-
 	return nil
 }

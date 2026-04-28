@@ -270,9 +270,11 @@ func (s *PostgresStore) ResolveTagNames(ctx context.Context, names []string, def
 
 func (s *PostgresStore) ListByTags(ctx context.Context, tagIDs []uuid.UUID) ([]Host, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT `+hostSelectCols+` FROM manage_hosts h
-		 JOIN manage_host_tags ht ON ht.host_id = h.id
-		 WHERE ht.tag_id = ANY($1)
+		`SELECT `+hostSelectCols+` FROM manage_hosts h
+		 WHERE EXISTS (
+		   SELECT 1 FROM manage_host_tags ht
+		   WHERE ht.host_id = h.id AND ht.tag_id = ANY($1)
+		 )
 		 ORDER BY h.ip`,
 		tagIDs,
 	)

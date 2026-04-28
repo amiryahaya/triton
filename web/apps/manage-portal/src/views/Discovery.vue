@@ -26,6 +26,11 @@ function hostnameFor(c: DiscoveryCandidate): string {
   return c.hostname ?? c.ip;
 }
 
+// Only show candidates not already in inventory.
+const newCandidates = computed(() =>
+  store.candidates.filter(c => !c.existing_host_id)
+);
+
 // Whether all selected candidates have a hostname (from DNS or override)
 const importReady = computed(() =>
   selected.value.size > 0 &&
@@ -136,8 +141,8 @@ onUnmounted(() => store.stopPolling());
     </section>
 
     <!-- Results table -->
-    <section v-if="store.candidates.length > 0" class="results-section card">
-      <h2 class="section-title">Discovered Hosts ({{ store.candidates.length }})</h2>
+    <section v-if="newCandidates.length > 0" class="results-section card">
+      <h2 class="section-title">New Hosts ({{ newCandidates.length }})</h2>
       <table class="results-table">
         <thead>
           <tr>
@@ -146,21 +151,18 @@ onUnmounted(() => store.stopPolling());
             <th class="col-mac">MAC</th>
             <th class="col-mdns">mDNS Name</th>
             <th class="col-hostname">Hostname</th>
-            <th class="col-status">Status</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="c in store.candidates"
+            v-for="c in newCandidates"
             :key="c.id"
-            :class="{ 'row-existing': c.existing_host_id }"
           >
             <td class="col-check">
               <input
                 type="checkbox"
                 :checked="selected.has(c.id)"
-                :disabled="!!c.existing_host_id"
-                @change="toggleSelect(c.id, !!c.existing_host_id)"
+                @change="toggleSelect(c.id, false)"
               />
             </td>
             <td class="col-ip mono">{{ c.ip }}</td>
@@ -168,26 +170,23 @@ onUnmounted(() => store.stopPolling());
             <td class="col-mdns">{{ c.mdns_name || '—' }}</td>
             <td class="col-hostname">
               <input
-                v-if="!c.existing_host_id"
                 type="text"
                 :value="hostnameFor(c)"
                 @input="hostnameOverrides[c.id] = ($event.target as HTMLInputElement).value"
                 placeholder="hostname or IP"
                 class="hostname-input"
               />
-              <span v-else class="dimmed">{{ c.hostname ?? c.ip }}</span>
-            </td>
-            <td class="col-status">
-              <span v-if="c.existing_host_id" class="badge badge-grey">Already in inventory</span>
-              <span v-else class="badge badge-blue">New</span>
             </td>
           </tr>
         </tbody>
       </table>
     </section>
+    <section v-else-if="store.isDone && store.candidates.length > 0" class="results-section card">
+      <p class="all-known">All discovered hosts are already in inventory.</p>
+    </section>
 
     <!-- Import bar (shown when done) -->
-    <div v-if="store.isDone && store.candidates.length > 0" class="import-bar card">
+    <div v-if="store.isDone && newCandidates.length > 0" class="import-bar card">
       <span class="import-count">{{ selected.size }} host{{ selected.size === 1 ? '' : 's' }} selected</span>
       <TButton variant="primary" :disabled="!importReady" @click="onImport">
         Import Selected
@@ -277,26 +276,12 @@ td {
   font-family: monospace;
 }
 
-.row-existing {
-  opacity: 0.6;
+.all-known {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0;
 }
 
-.badge {
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.badge-blue {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.badge-grey {
-  background: #f1f5f9;
-  color: #64748b;
-}
 
 .hostname-input {
   width: 100%;
@@ -333,7 +318,4 @@ td {
 .col-mac { min-width: 140px; font-size: 0.8rem; }
 .col-mdns { min-width: 140px; }
 
-.dimmed {
-  color: var(--text-muted);
-}
 </style>

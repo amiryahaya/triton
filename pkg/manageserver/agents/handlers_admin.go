@@ -283,8 +283,10 @@ func (h *AdminHandlers) DispatchCommand(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if cmd.ScanProfile == "" {
-		writeErr(w, http.StatusBadRequest, "scan_profile is required")
+	switch cmd.ScanProfile {
+	case "quick", "standard", "comprehensive":
+	default:
+		writeErr(w, http.StatusBadRequest, "scan_profile must be quick, standard, or comprehensive")
 		return
 	}
 	if err := h.AgentStore.SetCommand(r.Context(), id, &cmd); err != nil {

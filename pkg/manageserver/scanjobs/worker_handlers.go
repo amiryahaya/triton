@@ -239,6 +239,10 @@ func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	defer r.Body.Close() //nolint:errcheck // MaxBytesReader already closed on limit; error not actionable here
 
+	// NOTE: OrgID is not stamped here. The Manage Server operates in
+	// single-tenant mode where OrgID="" is intentional; the Report Server
+	// skips findings-table insertion for empty-org scans (scan row still
+	// persists). Multi-tenant OrgID stamping is a follow-up task.
 	var result model.ScanResult
 	if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
 		// Distinguish oversized body from malformed JSON.
@@ -252,8 +256,13 @@ func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceType := string(result.Metadata.Source)
-	if sourceType == "" {
+	switch sourceType {
+	case "triton-portscan", "triton-sshagent", "triton-agent":
+	case "":
 		sourceType = "worker"
+	default:
+		http.Error(w, "bad request: unrecognised source "+sourceType, http.StatusBadRequest)
+		return
 	}
 	if err := h.enqueuer.Enqueue(r.Context(), id, sourceType, h.getSourceID(), &result); err != nil {
 		http.Error(w, "enqueue result: "+err.Error(), http.StatusInternalServerError)

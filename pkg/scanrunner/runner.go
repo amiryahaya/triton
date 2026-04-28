@@ -12,9 +12,9 @@ import (
 )
 
 // RunOne executes the full lifecycle for one scan job:
-// claim → resolve host → scan → submit → complete.
-// Results are submitted to the Manage Server via POST /worker/jobs/{id}/submit,
-// which enqueues them for relay to the Report Server.
+// claim → resolve host → scan → submit (Manage Server marks job complete).
+// Results are submitted via POST /worker/jobs/{id}/submit, which enqueues
+// them in the scanresults outbox for async relay to the Report Server.
 // Returns nil when the job is not found or already claimed (exit 0 case).
 // Returns non-nil on scan or submission failure (caller should exit 1).
 func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, scanner Scanner) error {

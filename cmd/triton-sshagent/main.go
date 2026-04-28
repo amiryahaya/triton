@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -32,14 +33,14 @@ func run() error {
 	workerKey := os.Getenv("TRITON_WORKER_KEY")
 
 	if *manageURL == "" {
-		log.Fatal("--manage-url is required")
+		return fmt.Errorf("--manage-url is required")
 	}
 	if workerKey == "" {
-		log.Fatal("TRITON_WORKER_KEY env var is required")
+		return fmt.Errorf("TRITON_WORKER_KEY env var is required")
 	}
 	jobID, err := uuid.Parse(*jobIDStr)
 	if err != nil {
-		log.Fatalf("invalid --job-id: %v", err)
+		return fmt.Errorf("invalid --job-id: %w", err)
 	}
 
 	mc := sshagent.NewClient(*manageURL, workerKey)

@@ -67,7 +67,8 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if strings.TrimSpace(req.ContactName) == "" {
+	req.ContactName = strings.TrimSpace(req.ContactName)
+	if req.ContactName == "" {
 		writeError(w, http.StatusBadRequest, "contact_name is required")
 		return
 	}
@@ -218,7 +219,8 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if strings.TrimSpace(req.ContactName) == "" {
+	req.ContactName = strings.TrimSpace(req.ContactName)
+	if req.ContactName == "" {
 		writeError(w, http.StatusBadRequest, "contact_name is required")
 		return
 	}

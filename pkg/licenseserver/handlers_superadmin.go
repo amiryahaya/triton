@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -36,13 +37,16 @@ type updateSuperadminRequest struct {
 	Password string `json:"password,omitempty"` // omit to keep current
 }
 
-// validateEmail performs minimal email validation.
+// validateEmail validates email format per RFC 5322.
 func validateEmail(email string) error {
-	if email == "" || !strings.Contains(email, "@") {
+	if email == "" {
 		return errors.New("valid email is required")
 	}
 	if tooLong(email, maxEmailLen) {
 		return errors.New("email exceeds maximum length")
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return errors.New("valid email is required")
 	}
 	return nil
 }

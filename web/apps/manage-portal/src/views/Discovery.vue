@@ -146,8 +146,6 @@ onUnmounted(() => store.stopPolling());
             <th class="col-mac">MAC</th>
             <th class="col-mdns">mDNS Name</th>
             <th class="col-hostname">Hostname</th>
-            <th class="col-os">OS</th>
-            <th class="col-ports">Open Ports</th>
             <th class="col-status">Status</th>
           </tr>
         </thead>
@@ -178,10 +176,6 @@ onUnmounted(() => store.stopPolling());
                 class="hostname-input"
               />
               <span v-else class="dimmed">{{ c.hostname ?? c.ip }}</span>
-            </td>
-            <td class="col-os">{{ c.os || '—' }}</td>
-            <td class="col-ports">
-              <span v-for="p in c.open_ports" :key="p" class="port-badge">{{ p }}</span>
             </td>
             <td class="col-status">
               <span v-if="c.existing_host_id" class="badge badge-grey">Already in inventory</span>
@@ -287,16 +281,6 @@ td {
   opacity: 0.6;
 }
 
-.port-badge {
-  display: inline-block;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  background: var(--accent-muted, #e0e7ff);
-  color: var(--accent);
-  font-size: 0.75rem;
-  margin-right: 0.25rem;
-}
-
 .badge {
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
@@ -348,7 +332,6 @@ td {
 
 .col-mac { min-width: 140px; font-size: 0.8rem; }
 .col-mdns { min-width: 140px; }
-.col-os { min-width: 100px; }
 
 .dimmed {
   color: var(--text-muted);

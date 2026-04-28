@@ -348,12 +348,14 @@ const maxRequestBody = 1 << 20
 
 // Input length limits.
 const (
-	maxNameLen     = 255
-	maxContactLen  = 255
-	maxNotesLen    = 1000
-	maxHostnameLen = 255
-	maxVersionLen  = 50
-	maxReasonLen   = 500
+	maxNameLen         = 255
+	maxContactNameLen  = 100
+	maxContactPhoneLen = 50
+	maxContactEmailLen = 325
+	maxNotesLen        = 1000
+	maxHostnameLen     = 255
+	maxVersionLen      = 50
+	maxReasonLen       = 500
 )
 
 // tooLong checks if a string exceeds the specified maximum length.

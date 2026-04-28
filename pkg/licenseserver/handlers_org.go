@@ -67,7 +67,20 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
+	if strings.TrimSpace(req.ContactName) == "" {
+		writeError(w, http.StatusBadRequest, "contact_name is required")
+		return
+	}
+	req.ContactEmail = strings.ToLower(strings.TrimSpace(req.ContactEmail))
+	if req.ContactEmail == "" {
+		writeError(w, http.StatusBadRequest, "contact_email is required")
+		return
+	}
+	if err := validateEmail(req.ContactEmail); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
+		return
+	}
+	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactNameLen) || tooLong(req.ContactPhone, maxContactPhoneLen) || tooLong(req.ContactEmail, maxContactEmailLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
 		return
 	}
@@ -205,7 +218,20 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
+	if strings.TrimSpace(req.ContactName) == "" {
+		writeError(w, http.StatusBadRequest, "contact_name is required")
+		return
+	}
+	req.ContactEmail = strings.ToLower(strings.TrimSpace(req.ContactEmail))
+	if req.ContactEmail == "" {
+		writeError(w, http.StatusBadRequest, "contact_email is required")
+		return
+	}
+	if err := validateEmail(req.ContactEmail); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
+		return
+	}
+	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactNameLen) || tooLong(req.ContactPhone, maxContactPhoneLen) || tooLong(req.ContactEmail, maxContactEmailLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
 		return
 	}

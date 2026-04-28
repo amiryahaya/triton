@@ -486,13 +486,13 @@ test.describe('Organization Contact Fields', () => {
 
     // Fill name but leave contact_name empty — submit
     await page.fill('.t-modal input:first-of-type', 'ValidOrgName');
-    await page.click('.t-modal button', { hasText: /Create/ });
+    await page.locator('.t-modal-foot button', { hasText: /Create/ }).click();
     await expect(page.locator('.t-modal .t-field-error')).toBeVisible();
     await expect(page.locator('.t-modal .t-field-error')).toContainText('Contact name is required');
 
     // Now fill contact_name but leave contact_email empty — submit
     await page.fill('.t-modal input[placeholder="Full name"]', 'Test Contact');
-    await page.click('.t-modal button', { hasText: /Create/ });
+    await page.locator('.t-modal-foot button', { hasText: /Create/ }).click();
     await expect(page.locator('.t-modal .t-field-error')).toBeVisible();
     await expect(page.locator('.t-modal .t-field-error')).toContainText('Contact email is required');
 
@@ -517,7 +517,7 @@ test.describe('Organization Contact Fields', () => {
       },
     });
     expect(orgResp.status()).toBe(201);
-    const org = await orgResp.json();
+    const { org } = await orgResp.json();
 
     // Navigate to the org list and click the new org's row
     await page.goto('/ui/index.html#/orgs');

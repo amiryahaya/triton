@@ -50,7 +50,7 @@ async function globalSetup() {
   if (org1Resp.status() !== 201) {
     throw new Error(`Failed to create org1: ${org1Resp.status()} ${await org1Resp.text()}`);
   }
-  const org1 = await org1Resp.json();
+  const { org: org1 } = await org1Resp.json();
 
   const org2Resp = await ctx.post('/api/v1/admin/orgs', {
     headers: authHeaders,
@@ -59,7 +59,7 @@ async function globalSetup() {
   if (org2Resp.status() !== 201) {
     throw new Error(`Failed to create org2: ${org2Resp.status()} ${await org2Resp.text()}`);
   }
-  const org2 = await org2Resp.json();
+  const { org: org2 } = await org2Resp.json();
 
   // Empty org for delete test (no licenses)
   const org3Resp = await ctx.post('/api/v1/admin/orgs', {

@@ -139,7 +139,8 @@ func TestScanner_NetworkAndBroadcastSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan error: %v", err)
 	}
-	for range candidates {}
+	for range candidates {
+	}
 	<-done
 
 	if progCount != 2 {
@@ -172,7 +173,8 @@ func TestScanner_ProgressCountMatchesHostsProbed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan error: %v", err)
 	}
-	for range candidates {}
+	for range candidates {
+	}
 	<-done
 
 	if count != 6 {

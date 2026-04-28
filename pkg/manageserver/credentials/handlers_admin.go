@@ -58,8 +58,9 @@ type createReq struct {
 	PrivateKey string   `json:"private_key"`
 	Passphrase string   `json:"passphrase"`
 	Password   string   `json:"password"`
-	UseHTTPS   bool     `json:"use_https"`
 }
+
+var errWinRMReserved = errors.New("winrm-password auth_type is reserved and not supported")
 
 func (req createReq) validate() error {
 	if strings.TrimSpace(req.Name) == "" {
@@ -89,12 +90,14 @@ func (req createReq) validate() error {
 		if !hasKeyHeader {
 			return errors.New("private_key must be a PEM-encoded OpenSSH, RSA, EC, or PKCS#8 private key")
 		}
-	case AuthTypeSSHPassword, AuthTypeWinRM:
+	case AuthTypeSSHPassword:
 		if req.Password == "" {
 			return errors.New("password is required")
 		}
+	case AuthTypeWinRM:
+		return errWinRMReserved
 	default:
-		return fmt.Errorf("auth_type must be one of ssh-key|ssh-password|winrm-password")
+		return fmt.Errorf("auth_type must be ssh-key or ssh-password")
 	}
 	return nil
 }
@@ -107,9 +110,6 @@ func (req createReq) toPayload() SecretPayload {
 		p.Passphrase = req.Passphrase
 	case AuthTypeSSHPassword:
 		p.Password = req.Password
-	case AuthTypeWinRM:
-		p.Password = req.Password
-		p.UseHTTPS = req.UseHTTPS
 	}
 	return p
 }
@@ -142,7 +142,11 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := req.validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		status := http.StatusBadRequest
+		if errors.Is(err, errWinRMReserved) {
+			status = http.StatusUnprocessableEntity
+		}
+		writeErr(w, status, err.Error())
 		return
 	}
 	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
@@ -177,6 +181,75 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// Update rotates the Vault secret for an existing credential (name + auth_type are
+// immutable). Writes a new KV v2 version and bumps updated_at in the DB.
+func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
+	if h.vault == nil {
+		writeErr(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid credential id")
+		return
+	}
+
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, "tenant not set")
+		return
+	}
+
+	var req createReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := req.validate(); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, errWinRMReserved) {
+			status = http.StatusUnprocessableEntity
+		}
+		writeErr(w, status, err.Error())
+		return
+	}
+
+	cred, err := h.store.Get(r.Context(), id)
+	if errors.Is(err, ErrCredentialNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		internalErr(w, r, err, "get credential for update")
+		return
+	}
+	// Treat cross-tenant access as 404 to not leak existence.
+	if cred.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.vault.Write(r.Context(), cred.VaultPath, req.toPayload()); err != nil {
+		log.Printf("credentials: vault write for update: %v", err)
+		writeErr(w, http.StatusBadGateway, "vault write failed")
+		return
+	}
+
+	if err := h.store.Update(r.Context(), id, req.toPayload()); err != nil {
+		internalErr(w, r, err, "update credential")
+		return
+	}
+
+	updated, err := h.store.Get(r.Context(), id)
+	if err != nil {
+		internalErr(w, r, err, "get credential after update")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // Delete blocks when the credential is in use, then removes Vault secret + DB row.

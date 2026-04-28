@@ -24,6 +24,7 @@ type Credential struct {
 	VaultPath  string    `json:"-"`
 	InUseCount int       `json:"in_use_count"`
 	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // SecretPayload is the secret material stored in Vault KV v2.
@@ -33,5 +34,4 @@ type SecretPayload struct {
 	PrivateKey string `json:"private_key,omitempty"`
 	Passphrase string `json:"passphrase,omitempty"`
 	Password   string `json:"password,omitempty"`
-	UseHTTPS   bool   `json:"use_https,omitempty"`
 }

@@ -53,6 +53,9 @@ func (s *stubStore) Delete(_ context.Context, id uuid.UUID) error {
 	delete(s.items, id)
 	return nil
 }
+func (s *stubStore) Update(_ context.Context, _ uuid.UUID, _ credentials.SecretPayload) error {
+	return nil
+}
 func (s *stubStore) CountHosts(_ context.Context, id uuid.UUID) (int64, error) {
 	return s.hostCounts[id], nil
 }

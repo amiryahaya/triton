@@ -12,6 +12,13 @@ import (
 // IP is the required unique identifier; modelled as string where
 // the wire form matches PostgreSQL's host(ip)::text output.
 // Tags is populated on reads (List/Get); not stored on the host row.
+// ConnectionType values for Host.ConnectionType.
+const (
+	ConnectionTypeSSH     = "ssh"
+	ConnectionTypeBastion = "ssh_bastion"
+	ConnectionTypeAgent   = "agent"
+)
+
 type Host struct {
 	ID             uuid.UUID  `json:"id"`
 	Hostname       string     `json:"hostname,omitempty"`
@@ -22,5 +29,7 @@ type Host struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
-	AccessPort     int        `json:"access_port"`
+	SSHPort        int        `json:"ssh_port"`
+	ConnectionType string     `json:"connection_type"`
+	BastionHostID  *uuid.UUID `json:"bastion_host_id,omitempty"`
 }

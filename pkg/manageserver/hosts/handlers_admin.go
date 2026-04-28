@@ -84,39 +84,51 @@ type hostRequestBody struct {
 	// Tags is the name-based form (from CSV import via BulkCreate).
 	Tags           []string   `json:"tags"`
 	CredentialsRef *uuid.UUID `json:"credentials_ref"`
-	AccessPort     *int       `json:"access_port"`
+	SSHPort        *int       `json:"ssh_port"`
+	ConnectionType string     `json:"connection_type"`
+	BastionHostID  *uuid.UUID `json:"bastion_host_id"`
 }
 
 // toHost converts a request body into a Host without any server-managed
-// fields. AccessPort defaults to 22 when omitted from the request.
+// fields. SSHPort defaults to 22 when omitted from the request.
 func (b hostRequestBody) toHost() Host {
+	ct := b.ConnectionType
+	if ct == "" {
+		ct = ConnectionTypeSSH
+	}
 	h := Host{
 		Hostname:       strings.TrimSpace(b.Hostname),
 		IP:             strings.TrimSpace(b.IP),
 		OS:             b.OS,
 		LastSeenAt:     b.LastSeenAt,
 		CredentialsRef: b.CredentialsRef,
-		AccessPort:     22, // default SSH port
+		SSHPort:        22,
+		ConnectionType: ct,
+		BastionHostID:  b.BastionHostID,
 	}
-	if b.AccessPort != nil {
-		h.AccessPort = *b.AccessPort
+	if b.SSHPort != nil {
+		h.SSHPort = *b.SSHPort
 	}
 	return h
 }
 
+var errWinRMReserved = errors.New("connection_type 'winrm' is reserved and not supported")
+
 // validateHost checks the handler-layer invariants that must hold before
-// the Host reaches the store: ip is required and must parse. Callers
-// should have already applied toHost() so whitespace is trimmed.
-//
-// Keeping this above the store boundary means malformed input never
-// reaches Postgres, so clients see a clean 400 instead of a 500 with
-// leaked pg error text.
+// the Host reaches the store: ip is required and must parse, winrm is
+// rejected, and ssh_bastion requires bastion_host_id.
 func validateHost(h Host) error {
 	if h.IP == "" {
 		return errors.New("ip is required")
 	}
 	if ip := net.ParseIP(h.IP); ip == nil {
 		return fmt.Errorf("invalid ip address %q", h.IP)
+	}
+	if h.ConnectionType == "winrm" {
+		return errWinRMReserved
+	}
+	if h.ConnectionType == ConnectionTypeBastion && h.BastionHostID == nil {
+		return errors.New("bastion_host_id is required when connection_type is ssh_bastion")
 	}
 	return nil
 }
@@ -161,7 +173,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	host := body.toHost()
 	if err := validateHost(host); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeValidationErr(w, err)
 		return
 	}
 
@@ -261,7 +273,7 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	host := body.toHost()
 	host.ID = id
 	if err := validateHost(host); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeValidationErr(w, err)
 		return
 	}
 	updated, err := h.Store.Update(r.Context(), host)
@@ -321,10 +333,14 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	batch := make([]Host, 0, len(body.Hosts))
-	for i, row := range body.Hosts {
-		host := row.toHost()
+	for i := range body.Hosts {
+		host := body.Hosts[i].toHost()
 		if err := validateHost(host); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error()+" (index "+strconv.Itoa(i)+")")
+			if errors.Is(err, errWinRMReserved) {
+				writeErr(w, http.StatusUnprocessableEntity, err.Error())
+			} else {
+				writeErr(w, http.StatusBadRequest, err.Error()+" (index "+strconv.Itoa(i)+")")
+			}
 			return
 		}
 		batch = append(batch, host)
@@ -368,12 +384,12 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	// Set tags for each host that supplied them, then reload so response
 	// includes the populated Tags field (SetTags modifies DB but not the
 	// in-memory slice).
-	for i, row := range body.Hosts {
+	for i := range body.Hosts {
 		var tagIDs []uuid.UUID
-		if len(row.TagIDs) > 0 {
-			tagIDs = row.TagIDs
-		} else if len(row.Tags) > 0 {
-			resolved, err := h.Store.ResolveTagNames(r.Context(), row.Tags, "#6366F1")
+		if len(body.Hosts[i].TagIDs) > 0 {
+			tagIDs = body.Hosts[i].TagIDs
+		} else if len(body.Hosts[i].Tags) > 0 {
+			resolved, err := h.Store.ResolveTagNames(r.Context(), body.Hosts[i].Tags, "#6366F1")
 			if err != nil {
 				log.Printf("manageserver/hosts: resolve tag names for bulk host %d: %v", i, err)
 				continue
@@ -524,6 +540,14 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // writeErr writes a JSON error body {"error": msg} with the given status.
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeValidationErr(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, errWinRMReserved) {
+		status = http.StatusUnprocessableEntity
+	}
+	writeErr(w, status, err.Error())
 }
 
 // internalErr logs the underlying error with operation context and

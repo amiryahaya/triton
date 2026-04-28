@@ -26,14 +26,14 @@ var _ Store = (*PostgresStore)(nil)
 
 // hostSelectCols selects host columns only (no tags). Tags are loaded
 // separately via loadTagsForHosts and attached by the caller.
-const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, ssh_port`
+const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, ssh_port, connection_type, bastion_host_id`
 
 func scanHost(row pgx.Row) (Host, error) {
 	var h Host
-	var hostname *string // nullable now
+	var hostname *string
 	var ip *string
 	if err := row.Scan(&h.ID, &hostname, &ip, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt,
-		&h.CredentialsRef, &h.AccessPort); err != nil {
+		&h.CredentialsRef, &h.SSHPort, &h.ConnectionType, &h.BastionHostID); err != nil {
 		return Host{}, err
 	}
 	if hostname != nil {
@@ -41,6 +41,9 @@ func scanHost(row pgx.Row) (Host, error) {
 	}
 	if ip != nil {
 		h.IP = *ip
+	}
+	if h.ConnectionType == "" {
+		h.ConnectionType = ConnectionTypeSSH
 	}
 	h.Tags = []tags.Tag{}
 	return h, nil
@@ -102,14 +105,17 @@ func (s *PostgresStore) loadTagsForHosts(ctx context.Context, hostIDs []uuid.UUI
 }
 
 func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
+	if h.ConnectionType == "" {
+		h.ConnectionType = ConnectionTypeSSH
+	}
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, ssh_port)
-		 VALUES ($1, $2::inet, $3, $4, $5, $6)
-		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
+		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, ssh_port, connection_type, bastion_host_id)
+		 VALUES ($1, $2::inet, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, connection_type, bastion_host_id`,
 		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
-		h.CredentialsRef, h.AccessPort,
+		h.CredentialsRef, h.SSHPort, h.ConnectionType, h.BastionHostID,
 	)
-	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.AccessPort); err != nil {
+	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.SSHPort, &h.ConnectionType, &h.BastionHostID); err != nil {
 		if isUniqueViolation(err) {
 			return Host{}, fmt.Errorf("%w: ip %q", ErrConflict, h.IP)
 		}
@@ -180,16 +186,20 @@ func (s *PostgresStore) List(ctx context.Context) ([]Host, error) {
 }
 
 func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
+	if h.ConnectionType == "" {
+		h.ConnectionType = ConnectionTypeSSH
+	}
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_hosts
 		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4,
-		     credentials_ref = $5, ssh_port = $6, updated_at = NOW()
-		 WHERE id = $7
-		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
+		     credentials_ref = $5, ssh_port = $6, connection_type = $7,
+		     bastion_host_id = $8, updated_at = NOW()
+		 WHERE id = $9
+		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, connection_type, bastion_host_id`,
 		hostnameArg(h.Hostname), ipArg(h.IP), h.OS, h.LastSeenAt,
-		h.CredentialsRef, h.AccessPort, h.ID,
+		h.CredentialsRef, h.SSHPort, h.ConnectionType, h.BastionHostID, h.ID,
 	)
-	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.AccessPort); err != nil {
+	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.SSHPort, &h.ConnectionType, &h.BastionHostID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Host{}, ErrNotFound
 		}
@@ -401,14 +411,17 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 	out := make([]Host, len(hosts))
 	for i := range hosts {
 		src := &hosts[i]
+		if src.ConnectionType == "" {
+			src.ConnectionType = ConnectionTypeSSH
+		}
 		row := tx.QueryRow(ctx,
-			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
-			 VALUES ($1, $2::inet, $3, $4)
-			 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
-			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt,
+			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, connection_type)
+			 VALUES ($1, $2::inet, $3, $4, $5)
+			 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, connection_type, bastion_host_id`,
+			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt, src.ConnectionType,
 		)
 		dst := *src
-		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt, &dst.CredentialsRef, &dst.AccessPort); err != nil {
+		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt, &dst.CredentialsRef, &dst.SSHPort, &dst.ConnectionType, &dst.BastionHostID); err != nil {
 			if isUniqueViolation(err) {
 				return nil, fmt.Errorf("%w: ip %q (index %d)", ErrConflict, src.IP, i)
 			}

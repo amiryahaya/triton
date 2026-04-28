@@ -12,8 +12,8 @@ func TestHost_CredentialsRefAndAccessPortFields(t *testing.T) {
 	var h hosts.Host
 	credID := uuid.New()
 	h.CredentialsRef = &credID
-	h.AccessPort = 2222
-	if h.AccessPort != 2222 {
+	h.SSHPort = 2222
+	if h.SSHPort != 2222 {
 		t.Error("AccessPort not settable")
 	}
 	if h.CredentialsRef == nil || *h.CredentialsRef != credID {

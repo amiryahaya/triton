@@ -175,6 +175,9 @@ func (d *Dispatcher) spawnOne(ctx context.Context, j Job) {
 	case err := <-done:
 		if err != nil {
 			log.Printf("dispatcher: job %s exited with error: %v", j.ID, err)
+			if ferr := d.cfg.Store.Fail(context.Background(), j.ID, fmt.Sprintf("subprocess: %v", err)); ferr != nil {
+				log.Printf("dispatcher: mark job %s failed: %v", j.ID, ferr)
+			}
 		}
 	case <-ctx.Done():
 		// Graceful shutdown: send SIGTERM to the subprocess.
@@ -183,7 +186,8 @@ func (d *Dispatcher) spawnOne(ctx context.Context, j Job) {
 				log.Printf("dispatcher: SIGTERM job %s: %v", j.ID, err)
 			}
 		}
-		// Wait for the process to actually exit.
+		// Wait for the process to actually exit. On graceful shutdown we do
+		// not mark the job failed — the stale-job reaper will revert it.
 		if err := <-done; err != nil {
 			log.Printf("dispatcher: job %s after SIGTERM: %v", j.ID, err)
 		}

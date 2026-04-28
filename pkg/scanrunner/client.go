@@ -30,9 +30,20 @@ type ClaimResp struct {
 
 // HostInfo holds the fields RunOne needs from GET /api/v1/worker/hosts/{id}.
 type HostInfo struct {
-	ID       uuid.UUID `json:"id"`
-	Hostname string    `json:"hostname"`
-	IP       string    `json:"ip"`
+	ID         uuid.UUID `json:"id"`
+	Hostname   string    `json:"hostname"`
+	IP         string    `json:"ip"`
+	AccessPort int       `json:"access_port"`
+}
+
+// CredentialSecret is the scanner-side view of a credential secret
+// returned by GET /api/v1/worker/credentials/{id}.
+type CredentialSecret struct {
+	Username   string `json:"username"`
+	PrivateKey string `json:"private_key,omitempty"`
+	Passphrase string `json:"passphrase,omitempty"`
+	Password   string `json:"password,omitempty"`
+	UseHTTPS   bool   `json:"use_https,omitempty"`
 }
 
 // ManageClient makes authenticated requests to the manage server Worker API.
@@ -142,6 +153,22 @@ func (c *ManageClient) GetHost(ctx context.Context, hostID uuid.UUID) (HostInfo,
 	var h HostInfo
 	err = json.NewDecoder(resp.Body).Decode(&h)
 	return h, err
+}
+
+// GetCredential fetches the secret for a credential by ID.
+func (c *ManageClient) GetCredential(ctx context.Context, id uuid.UUID) (CredentialSecret, error) {
+	resp, err := c.req(ctx, http.MethodGet, fmt.Sprintf("/api/v1/worker/credentials/%s", id), nil)
+	if err != nil {
+		return CredentialSecret{}, err
+	}
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return CredentialSecret{}, fmt.Errorf("get credential: status %d", resp.StatusCode)
+	}
+	var sec CredentialSecret
+	err = json.NewDecoder(resp.Body).Decode(&sec)
+	return sec, err
 }
 
 // ReportClient submits scan results directly to the report server.

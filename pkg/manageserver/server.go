@@ -22,6 +22,7 @@ import (
 	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/agents"
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
+	"github.com/amiryahaya/triton/pkg/manageserver/credentials"
 	"github.com/amiryahaya/triton/pkg/manageserver/discovery"
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
 	"github.com/amiryahaya/triton/pkg/manageserver/scanjobs"
@@ -97,6 +98,12 @@ type Server struct {
 	agentsAdmin   *agents.AdminHandlers
 	agentsGateway *agents.GatewayHandlers
 
+	// Credential management — Vault-backed secret store for SSH/WinRM creds.
+	// credAdmin is nil-vault-safe (returns 503 when VaultAddr not configured).
+	credStore  *credentials.PostgresStore
+	credAdmin  *credentials.AdminHandlers
+	credWorker *credentials.WorkerHandler
+
 	// watcherRunning guards the single-watcher invariant for the
 	// deactivation watcher goroutine. CompareAndSwap ensures at most
 	// one goroutine is running at any time, preventing TOCTOU races
@@ -167,6 +174,23 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 
 	agentsGateway := agents.NewGatewayHandlers(caStore, agentStore, resultsStore)
 
+	// Vault credential client — nil when not configured; handlers degrade to 503.
+	vaultMount := cfg.VaultMount
+	if vaultMount == "" {
+		vaultMount = "secret"
+	}
+	var vaultClient *credentials.VaultClient
+	if cfg.VaultAddr != "" {
+		var vaultErr error
+		vaultClient, vaultErr = credentials.NewVaultClient(
+			cfg.VaultAddr, vaultMount, cfg.VaultToken, cfg.VaultRoleID, cfg.VaultSecretID,
+		)
+		if vaultErr != nil {
+			log.Printf("manageserver: vault init: %v (credential API will return 503)", vaultErr)
+		}
+	}
+	credStore := credentials.NewPostgresStore(pool)
+
 	srv := &Server{
 		cfg:             cfg,
 		store:           store,
@@ -180,6 +204,9 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		caStore:         caStore,
 		agentStore:      agentStore,
 		agentsGateway:   agentsGateway,
+		credStore:       credStore,
+		credAdmin:       credentials.NewAdminHandlers(credStore, vaultClient),
+		credWorker:      credentials.NewWorkerHandler(credStore, vaultClient),
 	}
 	// Guard providers close over srv so sub-handlers see the current
 	// licence snapshot without a shared field write (race-free by
@@ -306,6 +333,7 @@ func (s *Server) buildRouter() chi.Router {
 		})
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
+		r.Route("/credentials", func(r chi.Router) { credentials.MountAdminRoutes(r, s.credAdmin) })
 		r.Get("/gateway-health", s.handleGatewayHealth)
 		r.Get("/licence", s.handleLicenceSummary)
 		r.Get("/settings", s.handleSettings)
@@ -341,6 +369,7 @@ func (s *Server) buildRouter() chi.Router {
 		workerHandlers := scanjobs.NewWorkerHandlers(s.scanjobsStore, s.hostsStore)
 		r.Route("/api/v1/worker", func(r chi.Router) {
 			scanjobs.MountWorkerRoutes(r, workerHandlers, s.cfg.WorkerKey)
+			credentials.MountWorkerRoutes(r, s.credWorker, s.cfg.WorkerKey)
 		})
 	}
 

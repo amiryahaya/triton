@@ -11,6 +11,7 @@ import type {
   SecurityEventsResponse,
   LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
   DiscoveryJob, DiscoveryStatus, DiscoveryImportReq, DiscoveryImportResp,
+  Credential, CreateCredentialReq,
 } from './manageServer.types';
 
 /**
@@ -137,6 +138,11 @@ export function createManageApi(http: Http) {
       http.post<void>('/v1/admin/discovery/cancel', {}),
     importDiscovery: (req: DiscoveryImportReq) =>
       http.post<DiscoveryImportResp>('/v1/admin/discovery/import', req),
+
+    // Credentials
+    listCredentials: () => http.get<Credential[]>('/v1/admin/credentials/'),
+    createCredential: (req: CreateCredentialReq) => http.post<Credential>('/v1/admin/credentials/', req),
+    deleteCredential: (id: string) => http.del<void>(`/v1/admin/credentials/${id}`),
   };
 }
 

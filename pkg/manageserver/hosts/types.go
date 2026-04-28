@@ -13,12 +13,14 @@ import (
 // the wire form matches PostgreSQL's host(ip)::text output.
 // Tags is populated on reads (List/Get); not stored on the host row.
 type Host struct {
-	ID         uuid.UUID  `json:"id"`
-	Hostname   string     `json:"hostname,omitempty"`
-	IP         string     `json:"ip"`
-	Tags       []tags.Tag `json:"tags"`
-	OS         string     `json:"os,omitempty"`
-	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ID             uuid.UUID  `json:"id"`
+	Hostname       string     `json:"hostname,omitempty"`
+	IP             string     `json:"ip"`
+	Tags           []tags.Tag `json:"tags"`
+	OS             string     `json:"os,omitempty"`
+	LastSeenAt     *time.Time `json:"last_seen_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
+	AccessPort     int        `json:"access_port"`
 }

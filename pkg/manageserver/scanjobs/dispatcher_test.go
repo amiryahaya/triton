@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,15 +24,24 @@ import (
 type stubDispatcherStore struct {
 	scanjobs.Store // embed for unimplemented methods
 
+	mu            sync.Mutex
 	listQueued    []scanjobs.Job
 	listQueuedErr error
 	listCallCount atomic.Int32
+	returnOnce    bool // if true, jobs are returned only on the first call
 
 	claimErr error // if non-nil, ClaimByID returns this error
 }
 
 func (s *stubDispatcherStore) ListQueued(_ context.Context, _ []string, _ int) ([]scanjobs.Job, error) {
 	s.listCallCount.Add(1)
+	if s.returnOnce {
+		s.mu.Lock()
+		jobs := s.listQueued
+		s.listQueued = nil
+		s.mu.Unlock()
+		return jobs, s.listQueuedErr
+	}
 	return s.listQueued, s.listQueuedErr
 }
 
@@ -77,6 +87,7 @@ func TestDispatcher_SpawnsProcess(t *testing.T) {
 		listQueued: []scanjobs.Job{
 			{ID: jobID, JobType: scanjobs.JobTypePortSurvey},
 		},
+		returnOnce: true, // prevent re-spawning the same job on subsequent polls
 	}
 
 	cfg := scanjobs.DispatcherConfig{

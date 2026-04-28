@@ -33,8 +33,8 @@ type stubHostsStore struct {
 	err      error
 }
 
-func (s *stubHostsStore) GetHostBasic(_ context.Context, _ uuid.UUID) (string, string, error) {
-	return s.hostname, s.ip, s.err
+func (s *stubHostsStore) GetHostBasic(_ context.Context, _ uuid.UUID) (string, string, int, error) {
+	return s.hostname, s.ip, 22, s.err
 }
 
 func (s *stubWorkerStore) ClaimByID(_ context.Context, _ uuid.UUID, _ string) (scanjobs.Job, error) {

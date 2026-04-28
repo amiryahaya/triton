@@ -157,6 +157,33 @@ function onCSVInput(): void {
 
 const validRows = computed(() => preview.value.filter(r => !r._error));
 
+// ── template download ─────────────────────────────────────────────────────────
+const CSV_TEMPLATE = `ip,hostname,tags
+10.0.0.10,web-01,"production,web"
+10.0.0.20,db-01,production
+10.0.0.30,,
+`;
+
+const JSON_TEMPLATE = JSON.stringify([
+  { ip: '10.0.0.10', hostname: 'web-01', tags: ['production', 'web'] },
+  { ip: '10.0.0.20', hostname: 'db-01', tags: ['production'] },
+  { ip: '10.0.0.30' },
+], null, 2) + '\n';
+
+function downloadTemplate() {
+  const isCSV = activeTab.value === 'csv';
+  const content = isCSV ? CSV_TEMPLATE : JSON_TEMPLATE;
+  const mime = isCSV ? 'text/csv' : 'application/json';
+  const filename = isCSV ? 'hosts-template.csv' : 'hosts-template.json';
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── shared ───────────────────────────────────────────────────────────────────
 watch(
   () => props.open,
@@ -228,11 +255,20 @@ function onSubmit(): void {
         v-if="activeTab === 'csv'"
         class="bulk-tab-panel"
       >
-        <p class="bulk-hint">
-          Columns: <code>ip</code> (required), <code>hostname</code>, <code>os</code>,
-          <code>tags</code> (comma-separated tag names; quote if multiple:
-          <code>"production,web"</code>)
-        </p>
+        <div class="bulk-hint-row">
+          <p class="bulk-hint">
+            Columns: <code>ip</code> (required), <code>hostname</code>,
+            <code>tags</code> (comma-separated names; quote if multiple:
+            <code>"production,web"</code>)
+          </p>
+          <button
+            type="button"
+            class="template-btn"
+            @click="downloadTemplate"
+          >
+            ↓ Download template
+          </button>
+        </div>
         <TFormField
           label="CSV data"
           required
@@ -284,11 +320,20 @@ function onSubmit(): void {
         v-else
         class="bulk-tab-panel"
       >
-        <p class="bulk-hint">
-          Paste a JSON array of host objects. Each entry must include
-          <code>ip</code>; <code>hostname</code>, <code>os</code>, <code>tag_ids</code>
-          (UUID array), and <code>tags</code> (name array) are optional.
-        </p>
+        <div class="bulk-hint-row">
+          <p class="bulk-hint">
+            Paste a JSON array of host objects. Each entry must include
+            <code>ip</code>; <code>hostname</code> and <code>tags</code>
+            (name array) are optional.
+          </p>
+          <button
+            type="button"
+            class="template-btn"
+            @click="downloadTemplate"
+          >
+            ↓ Download template
+          </button>
+        </div>
         <TFormField
           label="JSON payload"
           required
@@ -334,10 +379,32 @@ function onSubmit(): void {
   flex-direction: column;
   gap: var(--space-3);
 }
+.bulk-hint-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
 .bulk-hint {
   font-size: 0.78rem;
   color: var(--text-muted);
   margin: 0;
+  flex: 1;
+}
+.template-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 3px var(--space-2);
+  font-size: 0.72rem;
+  font-family: var(--font-body);
+  color: var(--accent-strong);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.template-btn:hover {
+  background: var(--bg-sunken);
 }
 .bulk-hint code {
   font-family: var(--font-mono);

@@ -1337,8 +1337,6 @@ func makeIntegrationLicense(t *testing.T, store *licensestore.PostgresStore, org
 func TestOrgContactFields_CreateAndRead(t *testing.T) {
 	baseURL, _, _, _ := requireLicenseServer(t)
 	jwt := licGetJWT(t, baseURL)
-	ctx := context.Background()
-	_ = ctx
 
 	resp := doLicAdminReqRaw(t, "POST", baseURL+"/api/v1/admin/orgs", jwt, `{
 		"name": "Contact Test Org",
@@ -1368,6 +1366,7 @@ func TestOrgContactFields_CreateAndRead(t *testing.T) {
 	require.NoError(t, json.NewDecoder(get.Body).Decode(&org))
 	get.Body.Close()
 	assert.Equal(t, "Ahmad bin Ali", org["contact_name"])
+	assert.Equal(t, "+60123456789", org["contact_phone"])
 	assert.Equal(t, "ahmad@nacsa.gov.my", org["contact_email"])
 }
 

@@ -228,7 +228,7 @@ The old `contact` JSON key is removed from create/update payloads. Read response
 | `TestSendExpiryNotifications_SkipsIfAlreadyNotified` | Does not re-send when column is set |
 | `TestSendExpiryNotifications_SkipsEmptyContactEmail` | No send when `contact_email` is empty |
 | `TestSendExpiryNotifications_NilMailer` | Returns early without panic |
-| `TestOrgAPI_CreateValidation_RequiresContactNameAndEmail` | 422 on missing required fields |
+| `TestOrgAPI_CreateValidation_RequiresContactNameAndEmail` | 400 on missing required fields |
 
 ### 7.2 Integration tests (`test/integration/`)
 
@@ -238,7 +238,7 @@ The old `contact` JSON key is removed from create/update payloads. Read response
 | `TestExpiryNotifications_AlreadyNotified_NoResend` | `notified_30d_at` set → no second send |
 | `TestExpiryNotifications_ContactEmailSkippedIfEmpty` | Org with no `contact_email` → only admin emails sent |
 | `TestOrgContactFields_CRUD` | Create/read/update org with all 3 contact fields round-trip correctly |
-| `TestOrgContactFields_Validation` | Missing `contact_name` or `contact_email` → 422 |
+| `TestOrgContactFields_Validation` | Missing `contact_name` or `contact_email` → 400 |
 | `TestOrgContactFields_MigrationCompat` | Existing row with empty contact fields → readable without error |
 
 ### 7.3 E2E tests (`test/e2e/license-admin.spec.js`)

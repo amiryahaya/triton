@@ -300,7 +300,7 @@ func TestLicenseServer_AdminCRUD(t *testing.T) {
 
 	// Create org
 	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "CRUD-Org", "contact": "admin@crud.com",
+		"name": "CRUD-Org", "contact_name": "CRUD Admin", "contact_email": "admin@crud.com",
 	})
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	var org map[string]any
@@ -312,7 +312,7 @@ func TestLicenseServer_AdminCRUD(t *testing.T) {
 
 	// Update org
 	resp = licAdminReq(t, "PUT", serverURL+"/api/v1/admin/orgs/"+orgID, map[string]string{
-		"name": "CRUD-Org-Updated", "contact": "admin@crud.com",
+		"name": "CRUD-Org-Updated", "contact_name": "CRUD Admin", "contact_email": "admin@crud.com",
 	})
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()

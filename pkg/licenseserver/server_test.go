@@ -230,7 +230,7 @@ func TestCreateOrg(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 	resp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
-		"name": "Acme Corp", "contact": "admin@acme.com",
+		"name": "Acme Corp", "contact_name": "Acme Admin", "contact_email": "admin@acme.com",
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -966,7 +966,7 @@ func TestGetOrg(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 	createResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{
-		"name": "GetMeOrg", "contact": "get@me.org",
+		"name": "GetMeOrg", "contact_name": "Get Me", "contact_email": "get@me.org",
 	})
 	defer createResp.Body.Close()
 	orgResult := decodeJSON(t, createResp)
@@ -977,7 +977,8 @@ func TestGetOrg(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	result := decodeJSON(t, resp)
 	assert.Equal(t, "GetMeOrg", result["name"])
-	assert.Equal(t, "get@me.org", result["contact"])
+	assert.Equal(t, "Get Me", result["contact_name"])
+	assert.Equal(t, "get@me.org", result["contact_email"])
 }
 
 func TestGetOrg_NotFound(t *testing.T) {
@@ -1013,7 +1014,7 @@ func TestUpdateOrg(t *testing.T) {
 	orgID := orgIDOf(orgResult)
 
 	resp := adminReq(t, jwt, "PUT", ts.URL+"/api/v1/admin/orgs/"+orgID, map[string]string{
-		"name": "UpdatedName", "contact": "new@contact.com",
+		"name": "UpdatedName", "contact_name": "New Contact", "contact_email": "new@contact.com",
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

@@ -1320,6 +1320,7 @@ func TestOrgContactFields_CRUD(t *testing.T) {
 	updated, err := s.GetOrg(ctx, org.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Siti binti Rahmat", updated.ContactName)
+	assert.Equal(t, "+60198765432", updated.ContactPhone)
 	assert.Equal(t, "siti@nacsa.gov.my", updated.ContactEmail)
 
 	// ListOrgs also returns the new fields

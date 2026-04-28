@@ -259,7 +259,8 @@ function onSubmit(): void {
           <p class="bulk-hint">
             Columns: <code>ip</code> (required), <code>hostname</code>,
             <code>tags</code> (comma-separated names; quote if multiple:
-            <code>"production,web"</code>)
+            <code>"production,web"</code>). Tag names are matched by name —
+            new tags are created automatically with a default color.
           </p>
           <button
             type="button"
@@ -324,7 +325,8 @@ function onSubmit(): void {
           <p class="bulk-hint">
             Paste a JSON array of host objects. Each entry must include
             <code>ip</code>; <code>hostname</code> and <code>tags</code>
-            (name array) are optional.
+            (name array) are optional. Tag names are matched by name —
+            new tags are created automatically with a default color.
           </p>
           <button
             type="button"

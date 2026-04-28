@@ -173,12 +173,16 @@ func (s *PostgresStore) EnqueuePortSurvey(ctx context.Context, req PortSurveyEnq
 	for _, hid := range req.HostIDs {
 		row := tx.QueryRow(ctx,
 			`INSERT INTO manage_scan_jobs
-			   (tenant_id, host_id, profile, job_type, scheduled_at, port_override)
-			 VALUES ($1, $2, $3, 'port_survey', $4, $5)
+			   (tenant_id, host_id, profile, job_type, scheduled_at, port_override, credentials_ref)
+			 SELECT $1, $2, $3, 'port_survey', $4, $5, h.credentials_ref
+			 FROM manage_hosts h WHERE h.id = $2
 			 RETURNING `+jobSelectCols,
 			req.TenantID, hid, string(req.Profile), req.ScheduledAt, portOverride,
 		)
 		j, err := scanJob(row)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("insert port survey job for host %s: %w", hid, ErrNotFound)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("insert port survey job for host %s: %w", hid, err)
 		}

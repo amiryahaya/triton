@@ -46,6 +46,16 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, scanner 
 		return fail(fmt.Errorf("runner: host %s has no IP address", claim.HostID))
 	}
 
+	// Fetch credential if assigned.
+	var cred *CredentialSecret
+	if claim.CredentialsRef != nil {
+		secret, err := manage.GetCredential(ctx, *claim.CredentialsRef)
+		if err != nil {
+			return fail(fmt.Errorf("runner: get credential %s: %w", *claim.CredentialsRef, err))
+		}
+		cred = &secret
+	}
+
 	// Step 3: Heartbeat goroutine.
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()
@@ -69,6 +79,8 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, scanner 
 		IP:           host.IP,
 		Profile:      claim.Profile,
 		PortOverride: claim.PortOverride,
+		Credential:   cred,
+		AccessPort:   host.AccessPort,
 	}
 	var findings []Finding
 	if err := scanner.Scan(ctx, target, func(f Finding) {

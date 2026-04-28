@@ -334,12 +334,45 @@ ALTER TABLE manage_scan_jobs
 	`ALTER TABLE manage_scan_jobs
 	 ADD COLUMN IF NOT EXISTS port_override INTEGER[];`,
 
-	// Version 16: pending_command column on manage_agents for admin-queued
+	// Version 16: Host credentials vault — manage_credentials table + credential columns on hosts.
+	`CREATE TABLE IF NOT EXISTS manage_credentials (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID        NOT NULL,
+    name        TEXT        NOT NULL,
+    auth_type   TEXT        NOT NULL CHECK (auth_type IN ('ssh-key', 'ssh-password', 'winrm-password')),
+    vault_path  TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (tenant_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_manage_credentials_tenant ON manage_credentials(tenant_id);
+
+-- manage_credentials must exist (created above) before this FK reference is valid.
+ALTER TABLE manage_hosts
+  ADD COLUMN IF NOT EXISTS credentials_ref UUID REFERENCES manage_credentials(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS access_port     INT  NOT NULL DEFAULT 22;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    WHERE n.nspname = current_schema()
+      AND c.conname = 'manage_scan_jobs_credentials_ref_fkey'
+  ) THEN
+    ALTER TABLE manage_scan_jobs
+      ADD CONSTRAINT manage_scan_jobs_credentials_ref_fkey
+      FOREIGN KEY (credentials_ref) REFERENCES manage_credentials(id) ON DELETE SET NULL;
+  END IF;
+END
+$$;`,
+
+	// Version 17: pending_command column on manage_agents for admin-queued
 	// scan commands. Agent atomically reads and clears on next poll.
 	`ALTER TABLE manage_agents
 		ADD COLUMN IF NOT EXISTS pending_command JSONB;`,
 
-	// Version 17: Drop the source_type CHECK constraint on manage_scan_results_queue.
+	// Version 18: Drop the source_type CHECK constraint on manage_scan_results_queue.
 	// The v4 constraint only allowed ('manage','agent'). Worker binaries
 	// (triton-portscan, triton-sshagent) now submit through the same outbox,
 	// adding 'triton-portscan' and 'triton-sshagent' as valid source_type values.

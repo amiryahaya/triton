@@ -30,9 +30,20 @@ type ClaimResp struct {
 
 // HostInfo holds the fields RunOne needs from GET /api/v1/worker/hosts/{id}.
 type HostInfo struct {
-	ID       uuid.UUID `json:"id"`
-	Hostname string    `json:"hostname"`
-	IP       string    `json:"ip"`
+	ID         uuid.UUID `json:"id"`
+	Hostname   string    `json:"hostname"`
+	IP         string    `json:"ip"`
+	AccessPort int       `json:"access_port"`
+}
+
+// CredentialSecret is the scanner-side view of a credential secret
+// returned by GET /api/v1/worker/credentials/{id}.
+type CredentialSecret struct {
+	Username   string `json:"username"`
+	PrivateKey string `json:"private_key,omitempty"`
+	Passphrase string `json:"passphrase,omitempty"`
+	Password   string `json:"password,omitempty"`
+	UseHTTPS   bool   `json:"use_https,omitempty"`
 }
 
 // ManageClient makes authenticated requests to the manage server Worker API.
@@ -149,6 +160,61 @@ func (c *ManageClient) GetHost(ctx context.Context, hostID uuid.UUID) (HostInfo,
 // result for drain to the Report Server.
 func (c *ManageClient) SubmitResult(ctx context.Context, jobID uuid.UUID, result *model.ScanResult) error {
 	resp, err := c.req(ctx, http.MethodPost, fmt.Sprintf("/api/v1/worker/jobs/%s/submit", jobID), result)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck // body close error is not actionable
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("submit result: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// GetCredential fetches the secret for a credential by ID.
+func (c *ManageClient) GetCredential(ctx context.Context, id uuid.UUID) (CredentialSecret, error) {
+	resp, err := c.req(ctx, http.MethodGet, fmt.Sprintf("/api/v1/worker/credentials/%s", id), nil)
+	if err != nil {
+		return CredentialSecret{}, err
+	}
+	defer resp.Body.Close() //nolint:errcheck // close error is not actionable
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return CredentialSecret{}, fmt.Errorf("get credential: status %d", resp.StatusCode)
+	}
+	var sec CredentialSecret
+	err = json.NewDecoder(resp.Body).Decode(&sec)
+	return sec, err
+}
+
+// ReportClient submits scan results directly to the report server.
+type ReportClient struct {
+	base  string
+	token string
+	http  *http.Client
+}
+
+// NewReportClient constructs a ReportClient with a 60 s timeout.
+func NewReportClient(baseURL, licenseToken string) *ReportClient {
+	return &ReportClient{
+		base:  baseURL,
+		token: licenseToken,
+		http:  &http.Client{Timeout: 60 * time.Second},
+	}
+}
+
+// Submit posts a ScanResult to POST /api/v1/scans.
+func (c *ReportClient) Submit(ctx context.Context, result *model.ScanResult) error {
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/scans", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Triton-License-Token", c.token)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}

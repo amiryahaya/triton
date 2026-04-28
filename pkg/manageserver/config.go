@@ -76,4 +76,25 @@ type Config struct {
 	// via --manage-url so they can call back into the Worker API. If empty,
 	// the Dispatcher uses http://localhost together with the Listen port.
 	ManageURL string
+
+	// ReportLicenseToken is the Triton licence token forwarded to port-survey
+	// subprocesses via TRITON_LICENSE_TOKEN so they can submit scan results
+	// to the Report Server. Leave empty to skip token forwarding.
+	ReportLicenseToken string
+
+	// VaultAddr is the base URL of the HashiCorp Vault instance (e.g. https://vault.internal:8200).
+	// Read from TRITON_VAULT_ADDR. When empty, all credential API endpoints return 503.
+	VaultAddr string
+
+	// VaultMount is the KV v2 mount path. Read from TRITON_VAULT_MOUNT. Default: "secret".
+	VaultMount string
+
+	// VaultToken is a static Vault token. Read from TRITON_VAULT_TOKEN.
+	// Prefer AppRole (VaultRoleID + VaultSecretID) for production deployments.
+	VaultToken string
+
+	// VaultRoleID and VaultSecretID are the AppRole credentials.
+	// Read from TRITON_VAULT_ROLE_ID and TRITON_VAULT_SECRET_ID.
+	VaultRoleID   string
+	VaultSecretID string
 }

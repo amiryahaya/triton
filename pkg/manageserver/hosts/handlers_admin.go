@@ -82,18 +82,26 @@ type hostRequestBody struct {
 	// TagIDs is the UUID-based form (from the host form modal).
 	TagIDs []uuid.UUID `json:"tag_ids"`
 	// Tags is the name-based form (from CSV import via BulkCreate).
-	Tags []string `json:"tags"`
+	Tags           []string   `json:"tags"`
+	CredentialsRef *uuid.UUID `json:"credentials_ref"`
+	AccessPort     *int       `json:"access_port"`
 }
 
 // toHost converts a request body into a Host without any server-managed
-// fields.
+// fields. AccessPort defaults to 22 when omitted from the request.
 func (b hostRequestBody) toHost() Host {
-	return Host{
-		Hostname:   strings.TrimSpace(b.Hostname),
-		IP:         strings.TrimSpace(b.IP),
-		OS:         b.OS,
-		LastSeenAt: b.LastSeenAt,
+	h := Host{
+		Hostname:       strings.TrimSpace(b.Hostname),
+		IP:             strings.TrimSpace(b.IP),
+		OS:             b.OS,
+		LastSeenAt:     b.LastSeenAt,
+		CredentialsRef: b.CredentialsRef,
+		AccessPort:     22, // default SSH port
 	}
+	if b.AccessPort != nil {
+		h.AccessPort = *b.AccessPort
+	}
+	return h
 }
 
 // validateHost checks the handler-layer invariants that must hold before

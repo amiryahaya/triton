@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -82,6 +83,24 @@ func TestRunOne_JobGone_ExitsClean(t *testing.T) {
 	}
 }
 
+func TestRunOne_TargetHasCredentialField(t *testing.T) {
+	target := scanrunner.Target{
+		IP:      "10.0.0.1",
+		Profile: "standard",
+		Credential: &scanrunner.CredentialSecret{
+			Username: "ubuntu",
+			Password: "pw",
+		},
+		AccessPort: 22,
+	}
+	if target.Credential == nil {
+		t.Error("Credential field is nil")
+	}
+	if target.AccessPort != 22 {
+		t.Errorf("AccessPort: got %d, want 22", target.AccessPort)
+	}
+}
+
 func TestRunOne_ScanError_CallsFail(t *testing.T) {
 	jobID, hostID := uuid.New(), uuid.New()
 	var failCalled bool
@@ -112,5 +131,65 @@ func TestRunOne_ScanError_CallsFail(t *testing.T) {
 	}
 	if !failCalled {
 		t.Error("Fail was not called on manage server after scan error")
+	}
+}
+
+// capturingScanner captures the Target it receives so tests can inspect it.
+type capturingScanner struct {
+	received scanrunner.Target
+}
+
+func (s *capturingScanner) Scan(_ context.Context, t scanrunner.Target, _ func(scanrunner.Finding)) error {
+	s.received = t
+	return nil
+}
+
+func TestRunOne_CredentialFetched(t *testing.T) {
+	jobID := uuid.New()
+	hostID := uuid.New()
+	credID := uuid.New()
+
+	scanner := &capturingScanner{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/claim"):
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"job_id":          jobID,
+				"host_id":         hostID,
+				"profile":         "standard",
+				"credentials_ref": credID,
+			})
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/hosts/"):
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"id": hostID, "hostname": "web-01", "ip": "10.0.0.1", "access_port": 22,
+			})
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/credentials/"):
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+				"username": "ubuntu", "password": "secret",
+			})
+		case r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/heartbeat"):
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/submit"):
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	manage := scanrunner.NewManageClient(srv.URL, "key")
+
+	if err := scanrunner.RunOne(context.Background(), jobID, manage, scanner); err != nil {
+		t.Fatalf("RunOne: %v", err)
+	}
+	if scanner.received.Credential == nil {
+		t.Fatal("Credential is nil — RunOne did not fetch the credential")
+	}
+	if scanner.received.Credential.Username != "ubuntu" {
+		t.Errorf("Credential.Username = %q, want %q", scanner.received.Credential.Username, "ubuntu")
 	}
 }

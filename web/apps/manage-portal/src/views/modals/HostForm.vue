@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { TModal, TFormField, TInput, TButton } from '@triton/ui';
+import { ref, computed, watch } from 'vue';
+import { TModal, TFormField, TInput, TSelect, TButton } from '@triton/ui';
 import type { Host, Tag, CreateHostReq } from '@triton/api-client';
+import { useCredentialsStore } from '../../stores/credentials';
 
 const props = defineProps<{
   open: boolean;
@@ -14,24 +15,44 @@ const emit = defineEmits<{
   submit: [payload: CreateHostReq];
 }>();
 
+const credStore = useCredentialsStore();
+
 const hostname = ref('');
 const ip = ref('');
 const os = ref('');
 const selectedTagIDs = ref<string[]>([]);
 const error = ref('');
+const credentialsRef = ref<string | null>(null);
+const accessPort = ref<number>(22);
 
 watch(
   () => [props.open, props.editing],
   () => {
     if (!props.open) return;
+    credStore.fetch();
     hostname.value = props.editing?.hostname ?? '';
     ip.value = props.editing?.ip ?? '';
     os.value = props.editing?.os ?? '';
     selectedTagIDs.value = props.editing?.tags.map(t => t.id) ?? [];
+    credentialsRef.value = props.editing?.credentials_ref ?? null;
+    accessPort.value = props.editing?.access_port ?? 22;
     error.value = '';
   },
   { immediate: true }
 );
+
+watch(credentialsRef, (id) => {
+  if (!id) { accessPort.value = 22; return; }
+  const cred = credStore.items.find(c => c.id === id);
+  if (!cred) return;
+  if (cred.auth_type === 'winrm-password') accessPort.value = 5985;
+  else accessPort.value = 22;
+});
+
+const credOptions = computed(() => [
+  { value: null, label: '— none —' },
+  ...credStore.items.map(c => ({ value: c.id, label: `${c.name} (${c.auth_type})` })),
+]);
 
 function submit() {
   if (!ip.value.trim()) {
@@ -43,6 +64,8 @@ function submit() {
     hostname: hostname.value.trim() || undefined,
     os: os.value.trim() || undefined,
     tag_ids: selectedTagIDs.value,
+    credentials_ref: credentialsRef.value ?? null,
+    access_port: accessPort.value,
   });
 }
 </script>
@@ -89,6 +112,25 @@ function submit() {
             class="no-tags"
           >No tags defined yet.</span>
         </div>
+      </TFormField>
+      <TFormField label="Credential">
+        <TSelect v-model="credentialsRef">
+          <option
+            v-for="opt in credOptions"
+            :key="opt.value ?? '__none__'"
+            :value="opt.value"
+          >
+            {{ opt.label }}
+          </option>
+        </TSelect>
+      </TFormField>
+      <TFormField label="Access Port">
+        <TInput
+          v-model.number="accessPort"
+          type="number"
+          :min="1"
+          :max="65535"
+        />
       </TFormField>
     </div>
     <template #footer>

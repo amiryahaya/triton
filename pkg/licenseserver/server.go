@@ -233,10 +233,11 @@ func (s *Server) Router() chi.Router {
 var expiryThresholds = []struct {
 	within   time.Duration
 	interval string
+	days     int
 }{
-	{30 * 24 * time.Hour, "30d"},
-	{7 * 24 * time.Hour, "7d"},
-	{24 * time.Hour, "1d"},
+	{30 * 24 * time.Hour, "30d", 30},
+	{7 * 24 * time.Hour, "7d", 7},
+	{24 * time.Hour, "1d", 1},
 }
 
 // runExpiryNotifications ticks hourly and calls sendExpiryNotifications.
@@ -289,12 +290,11 @@ func (s *Server) sendExpiryNotifications(ctx context.Context) {
 				continue
 			}
 
-			daysRemaining := int(time.Until(lic.ExpiresAt).Hours() / 24)
 			data := ExpiryWarningEmailData{
 				OrgName:       lic.OrgName,
 				LicenseID:     lic.LicenseID,
 				ExpiresAt:     lic.ExpiresAt,
-				DaysRemaining: daysRemaining,
+				DaysRemaining: threshold.days,
 			}
 
 			for _, admin := range admins {
@@ -313,6 +313,9 @@ func (s *Server) sendExpiryNotifications(ctx context.Context) {
 				}
 			}
 
+			// Mark regardless of individual send errors: at-most-once semantics.
+			// A transient Resend outage suppresses this interval's notification
+			// rather than causing a retry storm on the next hourly tick.
 			if markErr := s.store.MarkLicenseNotified(ctx, lic.LicenseID, threshold.interval); markErr != nil {
 				log.Printf("expiry notifications [%s]: mark license %s: %v", threshold.interval, lic.LicenseID, markErr)
 			}

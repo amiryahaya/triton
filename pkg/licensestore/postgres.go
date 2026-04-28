@@ -487,7 +487,8 @@ func (s *PostgresStore) ListExpiringLicenses(ctx context.Context, within time.Du
 		       l.expires_at, l.notified_30d_at, l.notified_7d_at, l.notified_1d_at
 		FROM   licenses l
 		JOIN   organizations o ON o.id = l.org_id
-		WHERE  l.revoked_at IS NULL
+		WHERE  l.revoked = FALSE
+		  AND  o.suspended = FALSE
 		  AND  l.expires_at > NOW()
 		  AND  l.expires_at <= NOW() + $1::interval
 		ORDER  BY l.expires_at`,

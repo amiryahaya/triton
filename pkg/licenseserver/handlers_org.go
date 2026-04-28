@@ -63,6 +63,7 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
@@ -77,12 +78,12 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "contact_email is required")
 		return
 	}
-	if err := validateEmail(req.ContactEmail); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
-		return
-	}
 	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactNameLen) || tooLong(req.ContactPhone, maxContactPhoneLen) || tooLong(req.ContactEmail, maxContactEmailLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
+		return
+	}
+	if err := validateEmail(req.ContactEmail); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
 		return
 	}
 
@@ -215,6 +216,7 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
@@ -229,12 +231,12 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "contact_email is required")
 		return
 	}
-	if err := validateEmail(req.ContactEmail); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
-		return
-	}
 	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactNameLen) || tooLong(req.ContactPhone, maxContactPhoneLen) || tooLong(req.ContactEmail, maxContactEmailLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
+		return
+	}
+	if err := validateEmail(req.ContactEmail); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
 		return
 	}
 

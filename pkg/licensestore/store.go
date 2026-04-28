@@ -81,11 +81,13 @@ type Store interface {
 
 // Organization represents a customer organization.
 type Organization struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Contact   string `json:"contact"`
-	Notes     string `json:"notes"`
-	Suspended bool   `json:"suspended"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ContactName  string `json:"contact_name"`
+	ContactPhone string `json:"contact_phone"`
+	ContactEmail string `json:"contact_email"`
+	Notes        string `json:"notes"`
+	Suspended    bool   `json:"suspended"`
 	// ActiveActivations and HasSeatedLicenses are read-only computed fields
 	// populated by ListOrgs — never written to the database directly.
 	ActiveActivations int       `json:"activeActivations"`

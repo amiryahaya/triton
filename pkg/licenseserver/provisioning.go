@@ -19,11 +19,13 @@ import (
 // effects occur. If present, both AdminEmail and AdminName must be
 // validated by the caller BEFORE calling ProvisionOrgWithAdmin.
 type ProvisionOrgInput struct {
-	Name       string
-	Contact    string
-	Notes      string
-	AdminEmail string // optional — leave empty to skip admin provisioning
-	AdminName  string // required iff AdminEmail is non-empty
+	Name         string
+	ContactName  string
+	ContactPhone string
+	ContactEmail string
+	Notes        string
+	AdminEmail   string // optional — leave empty to skip admin provisioning
+	AdminName    string // required iff AdminEmail is non-empty
 }
 
 // ProvisionResult is what ProvisionOrgWithAdmin returns on success. The
@@ -71,12 +73,14 @@ func (s *Server) ProvisionOrgWithAdmin(ctx context.Context, input ProvisionOrgIn
 
 	now := time.Now().UTC()
 	org := &licensestore.Organization{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		Name:      input.Name,
-		Contact:   input.Contact,
-		Notes:     input.Notes,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Name:         input.Name,
+		ContactName:  input.ContactName,
+		ContactPhone: input.ContactPhone,
+		ContactEmail: input.ContactEmail,
+		Notes:        input.Notes,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if storeErr := s.store.CreateOrg(ctx, org); storeErr != nil {

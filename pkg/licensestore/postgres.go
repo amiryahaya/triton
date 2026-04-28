@@ -150,9 +150,10 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 
 func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO organizations (id, name, contact, notes, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		org.ID, org.Name, org.Contact, org.Notes, org.CreatedAt, org.UpdatedAt,
+		`INSERT INTO organizations (id, name, contact_name, contact_phone, contact_email, notes, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		org.ID, org.Name, org.ContactName, org.ContactPhone, org.ContactEmail,
+		org.Notes, org.CreatedAt, org.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -167,10 +168,10 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, error) {
 	var org Organization
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, contact, notes, suspended, created_at, updated_at
+		`SELECT id, name, contact_name, contact_phone, contact_email, notes, suspended, created_at, updated_at
 		 FROM organizations WHERE id = $1`, id,
-	).Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
-		&org.CreatedAt, &org.UpdatedAt)
+	).Scan(&org.ID, &org.Name, &org.ContactName, &org.ContactPhone, &org.ContactEmail,
+		&org.Notes, &org.Suspended, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "organization", ID: id}
 	}
@@ -185,7 +186,7 @@ func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, e
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			o.id, o.name, o.contact, o.notes, o.suspended,
+			o.id, o.name, o.contact_name, o.contact_phone, o.contact_email, o.notes, o.suspended,
 			o.created_at, o.updated_at,
 			EXISTS (
 				SELECT 1 FROM licenses l WHERE l.org_id = o.id AND l.seats > 0
@@ -208,7 +209,7 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	for rows.Next() {
 		var org Organization
 		if err := rows.Scan(
-			&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
+			&org.ID, &org.Name, &org.ContactName, &org.ContactPhone, &org.ContactEmail, &org.Notes, &org.Suspended,
 			&org.CreatedAt, &org.UpdatedAt,
 			&org.HasSeatedLicenses, &org.ActiveActivations,
 		); err != nil {
@@ -221,9 +222,11 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 
 func (s *PostgresStore) UpdateOrg(ctx context.Context, org *Organization) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE organizations SET name = $2, contact = $3, notes = $4, updated_at = $5
+		`UPDATE organizations SET name = $2, contact_name = $3, contact_phone = $4,
+		 contact_email = $5, notes = $6, updated_at = $7
 		 WHERE id = $1`,
-		org.ID, org.Name, org.Contact, org.Notes, org.UpdatedAt,
+		org.ID, org.Name, org.ContactName, org.ContactPhone, org.ContactEmail,
+		org.Notes, org.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError

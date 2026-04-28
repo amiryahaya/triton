@@ -46,12 +46,13 @@ func makeOrg(t *testing.T) *licensestore.Organization {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	return &licensestore.Organization{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		Name:      "Test Org " + uuid.Must(uuid.NewV7()).String(),
-		Contact:   "admin@test.com",
-		Notes:     "test org",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Name:         "Test Org " + uuid.Must(uuid.NewV7()).String(),
+		ContactName:  "Test Contact",
+		ContactEmail: "contact@test.example",
+		Notes:        "test org",
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 }
 
@@ -99,7 +100,8 @@ func TestCreateOrg(t *testing.T) {
 	got, err := s.GetOrg(ctx, org.ID)
 	require.NoError(t, err)
 	assert.Equal(t, org.Name, got.Name)
-	assert.Equal(t, org.Contact, got.Contact)
+	assert.Equal(t, org.ContactName, got.ContactName)
+	assert.Equal(t, org.ContactEmail, got.ContactEmail)
 }
 
 func TestGetOrg_NotFound(t *testing.T) {
@@ -1284,6 +1286,54 @@ func TestUpdateLicense_ScheduleFields(t *testing.T) {
 	require.Error(t, err)
 	var nf *licensestore.ErrNotFound
 	assert.ErrorAs(t, err, &nf)
+}
+
+func TestOrgContactFields_CRUD(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	org := &licensestore.Organization{
+		ID:           uuid.Must(uuid.NewV7()).String(),
+		Name:         "Contact Test Org",
+		ContactName:  "Ahmad bin Ali",
+		ContactPhone: "+60123456789",
+		ContactEmail: "ahmad@nacsa.gov.my",
+		Notes:        "test",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	got, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Ahmad bin Ali", got.ContactName)
+	assert.Equal(t, "+60123456789", got.ContactPhone)
+	assert.Equal(t, "ahmad@nacsa.gov.my", got.ContactEmail)
+
+	got.ContactName = "Siti binti Rahmat"
+	got.ContactPhone = "+60198765432"
+	got.ContactEmail = "siti@nacsa.gov.my"
+	got.UpdatedAt = time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, s.UpdateOrg(ctx, got))
+
+	updated, err := s.GetOrg(ctx, org.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Siti binti Rahmat", updated.ContactName)
+	assert.Equal(t, "siti@nacsa.gov.my", updated.ContactEmail)
+
+	// ListOrgs also returns the new fields
+	orgs, err := s.ListOrgs(ctx)
+	require.NoError(t, err)
+	var found *licensestore.Organization
+	for i := range orgs {
+		if orgs[i].ID == org.ID {
+			found = &orgs[i]
+		}
+	}
+	require.NotNil(t, found)
+	assert.Equal(t, "Siti binti Rahmat", found.ContactName)
+	assert.Equal(t, "siti@nacsa.gov.my", found.ContactEmail)
 }
 
 func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {

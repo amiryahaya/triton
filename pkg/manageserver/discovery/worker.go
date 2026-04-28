@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,9 +71,8 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 	}
 
 	// Step 4: consume candidates and progress ticks concurrently.
-	foundCount := 0
-	scannedCount := 0
-	cancelled := false
+	// Both goroutines update these counters; use atomics to avoid a data race.
+	var foundCount, scannedCount atomic.Int64
 
 	// Drain the progress channel in a background goroutine so it never blocks
 	// the scanner. We tally scanned IPs and fire periodic store updates here.
@@ -81,9 +81,9 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 	go func() {
 		defer progressWg.Done()
 		for range progress {
-			scannedCount++
-			if scannedCount%50 == 0 {
-				_ = w.Store.UpdateProgress(ctx, job.ID, scannedCount, foundCount)
+			sc := scannedCount.Add(1)
+			if sc%50 == 0 {
+				_ = w.Store.UpdateProgress(ctx, job.ID, int(sc), int(foundCount.Load()))
 				j, err := w.Store.GetCurrentJob(ctx, job.TenantID)
 				if err == nil && j.CancelRequested {
 					cancelScan()
@@ -102,7 +102,7 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 			log.Printf("discovery worker: insert candidate %s: %v", c.IP, err)
 			// continue — don't abort the scan on a single insert failure
 		} else {
-			foundCount++
+			foundCount.Add(1)
 		}
 	}
 
@@ -113,7 +113,7 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 
 	// Step 6: check if we were cancelled.
 	j, _ := w.Store.GetCurrentJob(ctx, job.TenantID)
-	if j.CancelRequested || cancelled {
+	if j.CancelRequested {
 		fin := time.Now()
 		_ = w.Store.UpdateStatus(ctx, StatusUpdate{
 			JobID:      job.ID,
@@ -136,7 +136,7 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 	}
 
 	// Final progress update + completed status.
-	_ = w.Store.UpdateProgress(ctx, job.ID, scannedCount, foundCount)
+	_ = w.Store.UpdateProgress(ctx, job.ID, int(scannedCount.Load()), int(foundCount.Load()))
 	_ = w.Store.UpdateStatus(ctx, StatusUpdate{
 		JobID:      job.ID,
 		Status:     "completed",

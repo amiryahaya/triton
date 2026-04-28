@@ -415,10 +415,11 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 			src.ConnectionType = ConnectionTypeSSH
 		}
 		row := tx.QueryRow(ctx,
-			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, connection_type)
-			 VALUES ($1, $2::inet, $3, $4, $5)
+			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, ssh_port, connection_type, bastion_host_id)
+			 VALUES ($1, $2::inet, $3, $4, $5, $6, $7, $8)
 			 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, connection_type, bastion_host_id`,
-			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt, src.ConnectionType,
+			hostnameArg(src.Hostname), ipArg(src.IP), src.OS, src.LastSeenAt,
+			src.CredentialsRef, src.SSHPort, src.ConnectionType, src.BastionHostID,
 		)
 		dst := *src
 		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt, &dst.CredentialsRef, &dst.SSHPort, &dst.ConnectionType, &dst.BastionHostID); err != nil {

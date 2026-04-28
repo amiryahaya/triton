@@ -24,6 +24,15 @@ type Store interface {
 	RevokeLicense(ctx context.Context, id, revokedBy string) error
 	UpdateLicense(ctx context.Context, id string, upd LicenseUpdate) error
 
+	// ListExpiringLicenses returns non-revoked licenses whose expires_at falls
+	// between NOW() and NOW()+within. Includes notified_*d_at so callers can
+	// filter without a second query.
+	ListExpiringLicenses(ctx context.Context, within time.Duration) ([]LicenseWithOrg, error)
+
+	// MarkLicenseNotified sets the notified_*d_at column for the given interval
+	// ("30d", "7d", or "1d") to NOW(). Returns an error for unknown intervals.
+	MarkLicenseNotified(ctx context.Context, licenseID string, interval string) error
+
 	// Activations
 	Activate(ctx context.Context, act *Activation) error
 	Deactivate(ctx context.Context, licenseID, machineID string) error
@@ -140,6 +149,22 @@ type LicenseRecord struct {
 	OrgName   string `json:"orgName"`
 	SeatsUsed int    `json:"seatsUsed"`
 	IsExpired bool   `json:"isExpired"`
+}
+
+// LicenseWithOrg is a read-only projection used by the expiry notification
+// goroutine. It joins the license row with the owning organization's contact
+// fields so the caller can send emails without a second query.
+type LicenseWithOrg struct {
+	LicenseID    string
+	OrgID        string
+	OrgName      string
+	ContactName  string
+	ContactPhone string
+	ContactEmail string
+	ExpiresAt    time.Time
+	Notified30dAt *time.Time
+	Notified7dAt  *time.Time
+	Notified1dAt  *time.Time
 }
 
 // Activation represents a machine activation record.

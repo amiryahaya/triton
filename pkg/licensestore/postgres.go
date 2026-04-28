@@ -481,6 +481,61 @@ func (s *PostgresStore) UpdateLicense(ctx context.Context, id string, upd Licens
 	return nil
 }
 
+func (s *PostgresStore) ListExpiringLicenses(ctx context.Context, within time.Duration) ([]LicenseWithOrg, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT l.id, l.org_id, o.name, o.contact_name, o.contact_phone, o.contact_email,
+		       l.expires_at, l.notified_30d_at, l.notified_7d_at, l.notified_1d_at
+		FROM   licenses l
+		JOIN   organizations o ON o.id = l.org_id
+		WHERE  l.revoked_at IS NULL
+		  AND  l.expires_at > NOW()
+		  AND  l.expires_at <= NOW() + $1::interval
+		ORDER  BY l.expires_at`,
+		fmt.Sprintf("%d seconds", int(within.Seconds())),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing expiring licenses: %w", err)
+	}
+	defer rows.Close()
+
+	var results []LicenseWithOrg
+	for rows.Next() {
+		var r LicenseWithOrg
+		if err := rows.Scan(
+			&r.LicenseID, &r.OrgID, &r.OrgName,
+			&r.ContactName, &r.ContactPhone, &r.ContactEmail,
+			&r.ExpiresAt,
+			&r.Notified30dAt, &r.Notified7dAt, &r.Notified1dAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning expiring license: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID string, interval string) error {
+	var col string
+	switch interval {
+	case "30d":
+		col = "notified_30d_at"
+	case "7d":
+		col = "notified_7d_at"
+	case "1d":
+		col = "notified_1d_at"
+	default:
+		return fmt.Errorf("unknown interval %q: must be 30d, 7d, or 1d", interval)
+	}
+	_, err := s.pool.Exec(ctx,
+		fmt.Sprintf(`UPDATE licenses SET %s = NOW() WHERE id = $1`, col),
+		licenseID,
+	)
+	if err != nil {
+		return fmt.Errorf("marking license notified (%s): %w", interval, err)
+	}
+	return nil
+}
+
 // --- Activations ---
 
 func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {

@@ -1337,6 +1337,113 @@ func TestOrgContactFields_CRUD(t *testing.T) {
 	assert.Equal(t, "siti@nacsa.gov.my", found.ContactEmail)
 }
 
+// --- ListExpiringLicenses + MarkLicenseNotified Tests ---
+
+func TestListExpiringLicenses_WithinWindow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	org.ContactEmail = "tenant@example.com"
+	org.ContactName = "Tenant Contact"
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	// License expiring in 20 days — within 30d window
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(20 * 24 * time.Hour)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, lic.ID, results[0].LicenseID)
+	assert.Equal(t, "Tenant Contact", results[0].ContactName)
+	assert.Equal(t, "tenant@example.com", results[0].ContactEmail)
+	assert.Nil(t, results[0].Notified30dAt)
+}
+
+func TestListExpiringLicenses_ExcludesRevoked(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(5 * 24 * time.Hour)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+	require.NoError(t, s.RevokeLicense(ctx, lic.ID, "test-admin"))
+
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestListExpiringLicenses_ExcludesAlreadyExpired(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(-24 * time.Hour) // already expired
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestMarkLicenseNotified_SetsColumn(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+
+	lic := makeLicense(t, org.ID)
+	lic.ExpiresAt = time.Now().UTC().Add(20 * 24 * time.Hour)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	// Before marking: all notified columns are nil
+	results, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	var before *licensestore.LicenseWithOrg
+	for i := range results {
+		if results[i].LicenseID == lic.ID {
+			before = &results[i]
+		}
+	}
+	require.NotNil(t, before)
+	assert.Nil(t, before.Notified30dAt)
+
+	// Mark 30d
+	require.NoError(t, s.MarkLicenseNotified(ctx, lic.ID, "30d"))
+
+	// After marking: Notified30dAt is set, others still nil
+	results2, err := s.ListExpiringLicenses(ctx, 30*24*time.Hour)
+	require.NoError(t, err)
+	var after *licensestore.LicenseWithOrg
+	for i := range results2 {
+		if results2[i].LicenseID == lic.ID {
+			after = &results2[i]
+		}
+	}
+	require.NotNil(t, after)
+	assert.NotNil(t, after.Notified30dAt)
+	assert.Nil(t, after.Notified7dAt)
+	assert.Nil(t, after.Notified1dAt)
+}
+
+func TestMarkLicenseNotified_InvalidInterval(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	err := s.MarkLicenseNotified(ctx, "00000000-0000-0000-0000-000000000001", "99d")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown interval")
+}
+
 func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -1390,14 +1497,23 @@ func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {
 	assert.Equal(t, 3, nullableCount, "notified_*_at columns must be nullable")
 
 	// Verify column defaults: a freshly inserted org row gets empty-string defaults
-	// for contact_phone and contact_email.  We insert via raw SQL to bypass any
-	// struct-level field that might supply a non-empty value.
-	org := makeOrg(t)
-	require.NoError(t, s.CreateOrg(ctx, org))
+	// for contact_phone and contact_email when those fields are omitted. Use a
+	// minimal org literal that leaves contact_phone and contact_email as zero
+	// strings so CreateOrg writes them as empty — the database column default is
+	// TEXT NOT NULL DEFAULT ''.
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	bareOrg := &licensestore.Organization{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		Name:      "Bare Org " + uuid.Must(uuid.NewV7()).String(),
+		CreatedAt: now,
+		UpdatedAt: now,
+		// ContactPhone and ContactEmail are intentionally omitted (zero string)
+	}
+	require.NoError(t, s.CreateOrg(ctx, bareOrg))
 
 	var phone, email string
 	err = s.QueryRowForTest(ctx,
-		`SELECT contact_phone, contact_email FROM organizations WHERE id = $1`, org.ID,
+		`SELECT contact_phone, contact_email FROM organizations WHERE id = $1`, bareOrg.ID,
 	).Scan(&phone, &email)
 	require.NoError(t, err)
 	assert.Equal(t, "", phone, "contact_phone default should be empty string")

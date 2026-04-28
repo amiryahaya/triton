@@ -40,6 +40,17 @@ type GatewayHandlers struct {
 	CAStore      ca.Store
 	AgentStore   Store
 	ResultsStore ResultEnqueuer
+
+	instanceID   string
+	instanceName string
+}
+
+// SetInstanceInfo stores the Manage Server's UUID and display name so
+// IngestScan can stamp them on every relayed scan's metadata. Call this
+// once from startScannerPipeline after instance_id is resolved.
+func (h *GatewayHandlers) SetInstanceInfo(id, name string) {
+	h.instanceID = id
+	h.instanceName = name
 }
 
 // NewGatewayHandlers wires the gateway handlers. All three stores are
@@ -125,6 +136,11 @@ func (h *GatewayHandlers) IngestScan(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &scan); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
+	}
+
+	if h.instanceID != "" {
+		scan.Metadata.ManageServerID = h.instanceID
+		scan.Metadata.ManageServerName = h.instanceName
 	}
 
 	if err := h.ResultsStore.Enqueue(r.Context(), uuid.Nil, "agent", agentID, &scan); err != nil {

@@ -500,7 +500,7 @@ test.describe('Organization Contact Fields', () => {
     await expect(page.locator('.t-modal')).toBeVisible();
   });
 
-  test('org detail shows all three contact fields', async ({ page }) => {
+  test('org detail page shows all three contact fields', async ({ page }) => {
     // Create an org via API with all three contact fields so we have known data
     const loginResp = await page.request.post('/api/v1/auth/login', {
       data: { email: TEST_EMAIL, password: TEST_PASSWORD },

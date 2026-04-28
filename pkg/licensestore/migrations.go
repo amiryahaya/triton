@@ -185,7 +185,14 @@ var migrations = []string{
 	// contact → contact_name (rename); contact_phone and contact_email are new.
 	// notified_30d_at, notified_7d_at, notified_1d_at are nullable TIMESTAMPTZ;
 	// NULL means the notification has not been sent for this license cycle.
-	`ALTER TABLE organizations RENAME COLUMN contact TO contact_name;
+	`DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.columns
+		           WHERE table_schema = current_schema()
+		             AND table_name = 'organizations'
+		             AND column_name = 'contact') THEN
+			ALTER TABLE organizations RENAME COLUMN contact TO contact_name;
+		END IF;
+	END $$;
 	ALTER TABLE organizations
 		ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT '',
 		ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT '';

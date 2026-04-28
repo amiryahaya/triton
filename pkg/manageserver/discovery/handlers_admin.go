@@ -17,10 +17,6 @@ import (
 	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 )
 
-// defaultPorts is the set of ports probed when the caller omits the
-// "ports" field in a Start request.
-var defaultPorts = []int{22, 443, 3389, 5555, 5985, 5986, 8008, 8009}
-
 // HostCapGuard is the narrow licence-guard surface the discovery admin
 // handler consults before importing new hosts. Kept minimal so tests
 // can inject a one-method fake without constructing a real *license.Guard.
@@ -84,8 +80,8 @@ func (h *AdminHandlers) HandleStart(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
 
 	var body struct {
-		CIDR  string `json:"cidr"`
-		Ports []int  `json:"ports"`
+		CIDR    string `json:"cidr"`
+		SSHPort int    `json:"ssh_port"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -108,10 +104,10 @@ func (h *AdminHandlers) HandleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default ports when caller omits the field.
-	ports := body.Ports
-	if len(ports) == 0 {
-		ports = defaultPorts
+	// Default SSH port when caller omits the field.
+	sshPort := body.SSHPort
+	if sshPort == 0 {
+		sshPort = 22
 	}
 
 	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
@@ -136,7 +132,7 @@ func (h *AdminHandlers) HandleStart(w http.ResponseWriter, r *http.Request) {
 
 	req := EnqueueReq{
 		CIDR:     body.CIDR,
-		Ports:    ports,
+		SSHPort:  sshPort,
 		TotalIPs: totalIPs,
 	}
 
@@ -311,7 +307,6 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 		hostList = append(hostList, hosts.Host{
 			Hostname: hostname,
 			IP:       toImport[i].IP,
-			OS:       toImport[i].OS,
 		})
 	}
 

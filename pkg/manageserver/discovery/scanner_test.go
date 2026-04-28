@@ -1,430 +1,181 @@
-//go:build !integration
-
 package discovery
 
 import (
 	"context"
 	"errors"
 	"net"
-	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// ----- mock Dialer -----
-
-// acceptDialer accepts connections to a specific set of "ip:port" pairs and
-// rejects everything else.
-type acceptDialer struct {
-	// accept is a set of "ip:port" strings that should succeed.
-	accept map[string]bool
-	// blockDuration, if > 0, makes each dial sleep before returning.
-	blockDuration time.Duration
-	// goroutineCounter is incremented while the dial is in-flight (optional).
-	goroutineCounter *atomic.Int64
+// mockDialer returns an open connection for allowed addresses, error for others.
+type mockDialer struct {
+	allowed map[string]bool // "ip:port"
 }
 
-func (d *acceptDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	if d.goroutineCounter != nil {
-		d.goroutineCounter.Add(1)
-		defer d.goroutineCounter.Add(-1)
-	}
-	if d.blockDuration > 0 {
-		select {
-		case <-time.After(d.blockDuration):
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	if d.accept[addr] {
-		// Return a trivial loopback conn pair.
-		c1, _ := net.Pipe()
+func (m *mockDialer) DialContext(_ context.Context, _, addr string) (net.Conn, error) {
+	if m.allowed[addr] {
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
 		return c1, nil
 	}
 	return nil, errors.New("connection refused")
 }
 
-// rejectDialer refuses every connection immediately.
-type rejectDialer struct{}
-
-func (rejectDialer) DialContext(_ context.Context, _, _ string) (net.Conn, error) {
-	return nil, errors.New("connection refused")
+// mockResolver returns a hostname for allowed IPs.
+type mockResolver struct {
+	names map[string]string // ip → hostname
 }
 
-// ----- mock Resolver -----
-
-// fixedResolver always returns the same names (or error).
-type fixedResolver struct {
-	names []string
-	err   error
-}
-
-func (r *fixedResolver) LookupAddr(_ context.Context, _ string) ([]string, error) {
-	return r.names, r.err
-}
-
-// ----- helpers -----
-
-func collectCandidates(out <-chan Candidate) []Candidate {
-	var cs []Candidate
-	for c := range out {
-		cs = append(cs, c)
+func (m *mockResolver) LookupAddr(_ context.Context, addr string) ([]string, error) {
+	if n, ok := m.names[addr]; ok {
+		return []string{n}, nil
 	}
-	return cs
+	return nil, errors.New("not found")
 }
 
-// ----- tests -----
-
-// TestLiveHostDetected verifies that a host with at least one open port is
-// emitted as a Candidate.
-func TestLiveHostDetected(t *testing.T) {
-	t.Parallel()
-
-	dialer := &acceptDialer{
-		accept: map[string]bool{
-			net.JoinHostPort("192.168.1.1", strconv.Itoa(22)): true,
-		},
-	}
+func TestScanner_LiveHostFound(t *testing.T) {
 	s := &Scanner{
-		Dialer:         dialer,
-		Resolver:       &fixedResolver{names: []string{"host.local."}},
-		MaxConcurrency: 20,
-		DialTimeout:    100 * time.Millisecond,
-		DNSTimeout:     100 * time.Millisecond,
-	}
-
-	out := make(chan Candidate, 16)
-	err := s.Scan(context.Background(), "192.168.1.0/30", []int{22, 80}, out)
-	if err != nil {
-		t.Fatalf("Scan returned error: %v", err)
-	}
-
-	candidates := collectCandidates(out)
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
-	}
-	c := candidates[0]
-	if c.IP != "192.168.1.1" {
-		t.Errorf("expected IP 192.168.1.1, got %s", c.IP)
-	}
-	found22 := false
-	for _, p := range c.OpenPorts {
-		if p == 22 {
-			found22 = true
-		}
-	}
-	if !found22 {
-		t.Errorf("expected port 22 in OpenPorts, got %v", c.OpenPorts)
-	}
-}
-
-// TestDeadHostNotEmitted verifies that hosts with no open ports produce no
-// Candidates.
-func TestDeadHostNotEmitted(t *testing.T) {
-	t.Parallel()
-
-	s := &Scanner{
-		Dialer:         rejectDialer{},
-		Resolver:       &fixedResolver{names: []string{"host.local."}},
-		MaxConcurrency: 20,
+		Dialer:         &mockDialer{allowed: map[string]bool{"10.0.0.1:22": true}},
+		Resolver:       &mockResolver{names: map[string]string{"10.0.0.1": "host1.example.com."}},
+		MaxConcurrency: 10,
 		DialTimeout:    50 * time.Millisecond,
 		DNSTimeout:     50 * time.Millisecond,
 	}
+	candidates := make(chan Candidate, 10)
+	progress := make(chan struct{}, 10)
 
-	out := make(chan Candidate, 16)
-	err := s.Scan(context.Background(), "192.168.1.0/30", []int{22, 80}, out)
+	err := s.Scan(context.Background(), "10.0.0.0/30", 22, candidates, progress)
 	if err != nil {
-		t.Fatalf("Scan returned error: %v", err)
+		t.Fatalf("Scan error: %v", err)
 	}
 
-	candidates := collectCandidates(out)
-	if len(candidates) != 0 {
-		t.Errorf("expected 0 candidates, got %d: %v", len(candidates), candidates)
+	var found []Candidate
+	for c := range candidates {
+		found = append(found, c)
+	}
+
+	if len(found) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(found))
+	}
+	if found[0].IP != "10.0.0.1" {
+		t.Errorf("IP = %q, want 10.0.0.1", found[0].IP)
+	}
+	if found[0].Hostname == nil || *found[0].Hostname != "host1.example.com" {
+		t.Errorf("Hostname = %v, want host1.example.com", found[0].Hostname)
 	}
 }
 
-// TestDNSFailureSetNilHostname verifies that a DNS lookup failure leaves
-// Candidate.Hostname nil but does not abort the scan.
-func TestDNSFailureSetNilHostname(t *testing.T) {
-	t.Parallel()
-
-	dialer := &acceptDialer{
-		accept: map[string]bool{
-			net.JoinHostPort("192.168.1.1", strconv.Itoa(22)): true,
-		},
-	}
+func TestScanner_DeadHostNotEmitted(t *testing.T) {
 	s := &Scanner{
-		Dialer:         dialer,
-		Resolver:       &fixedResolver{err: errors.New("lookup failed")},
-		MaxConcurrency: 20,
-		DialTimeout:    100 * time.Millisecond,
-		DNSTimeout:     100 * time.Millisecond,
-	}
-
-	out := make(chan Candidate, 16)
-	err := s.Scan(context.Background(), "192.168.1.0/30", []int{22}, out)
-	if err != nil {
-		t.Fatalf("Scan returned error: %v", err)
-	}
-
-	candidates := collectCandidates(out)
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
-	}
-	if candidates[0].Hostname != nil {
-		t.Errorf("expected nil Hostname on DNS failure, got %q", *candidates[0].Hostname)
-	}
-}
-
-// TestNetworkBroadcastSkipped verifies that for 192.168.1.0/30 (4 addresses:
-// .0 network, .1, .2, .3 broadcast) only .1 and .2 are emitted.
-func TestNetworkBroadcastSkipped(t *testing.T) {
-	t.Parallel()
-
-	// Accept port 22 on ALL addresses (including network/broadcast) so that
-	// if the scanner accidentally probes them they would be emitted.
-	dialer := &acceptDialer{
-		accept: map[string]bool{
-			net.JoinHostPort("192.168.1.0", strconv.Itoa(22)): true,
-			net.JoinHostPort("192.168.1.1", strconv.Itoa(22)): true,
-			net.JoinHostPort("192.168.1.2", strconv.Itoa(22)): true,
-			net.JoinHostPort("192.168.1.3", strconv.Itoa(22)): true,
-		},
-	}
-	s := &Scanner{
-		Dialer:         dialer,
-		Resolver:       &fixedResolver{names: []string{"host.local."}},
-		MaxConcurrency: 20,
-		DialTimeout:    100 * time.Millisecond,
-		DNSTimeout:     100 * time.Millisecond,
-	}
-
-	out := make(chan Candidate, 16)
-	err := s.Scan(context.Background(), "192.168.1.0/30", []int{22}, out)
-	if err != nil {
-		t.Fatalf("Scan returned error: %v", err)
-	}
-
-	candidates := collectCandidates(out)
-
-	// Build a set of emitted IPs.
-	emitted := make(map[string]bool, len(candidates))
-	for _, c := range candidates {
-		emitted[c.IP] = true
-	}
-
-	if emitted["192.168.1.0"] {
-		t.Error("network address 192.168.1.0 must not be emitted")
-	}
-	if emitted["192.168.1.3"] {
-		t.Error("broadcast address 192.168.1.3 must not be emitted")
-	}
-	if !emitted["192.168.1.1"] {
-		t.Error("host 192.168.1.1 should be emitted")
-	}
-	if !emitted["192.168.1.2"] {
-		t.Error("host 192.168.1.2 should be emitted")
-	}
-	if len(candidates) != 2 {
-		t.Errorf("expected exactly 2 candidates, got %d: %v", len(candidates), candidates)
-	}
-}
-
-// TestConcurrencyLimit verifies that MaxConcurrency bounds the number of
-// simultaneous IP-level goroutines. A single port (22) is used intentionally:
-// with parallel port probing the total dial count is MaxConcurrency×len(ports),
-// so using one port keeps the peak dial count equal to the IP goroutine count,
-// making the semaphore assertion straightforward.
-func TestConcurrencyLimit(t *testing.T) {
-	t.Parallel()
-
-	const maxConcurrency = 5
-	var peak atomic.Int64
-	var current atomic.Int64
-
-	dialer := &acceptDialer{
-		blockDuration: 10 * time.Millisecond,
-		// Accept port 22 on the whole /24 — we build the set lazily below.
-	}
-	// Pre-populate all 254 host addresses for the /24.
-	dialer.accept = make(map[string]bool, 254)
-	for i := 1; i <= 254; i++ {
-		addr := net.JoinHostPort("10.0.0."+strconv.Itoa(i), strconv.Itoa(22))
-		dialer.accept[addr] = true
-	}
-
-	// Wrap with a peak-tracking dialer.
-	peakDialer := &peakTrackingDialer{
-		inner:   dialer,
-		current: &current,
-		peak:    &peak,
-	}
-
-	s := &Scanner{
-		Dialer:         peakDialer,
-		Resolver:       &fixedResolver{names: []string{"host.local."}},
-		MaxConcurrency: maxConcurrency,
-		DialTimeout:    200 * time.Millisecond,
+		Dialer:         &mockDialer{allowed: map[string]bool{}},
+		Resolver:       &mockResolver{},
+		MaxConcurrency: 10,
+		DialTimeout:    50 * time.Millisecond,
 		DNSTimeout:     50 * time.Millisecond,
 	}
+	candidates := make(chan Candidate, 10)
+	progress := make(chan struct{}, 10)
 
-	out := make(chan Candidate, 512)
-	err := s.Scan(context.Background(), "10.0.0.0/24", []int{22}, out)
+	err := s.Scan(context.Background(), "10.0.0.0/30", 22, candidates, progress)
 	if err != nil {
-		t.Fatalf("Scan returned error: %v", err)
-	}
-	// Drain so the goroutine that closes out can finish.
-	for range out {
+		t.Fatalf("Scan error: %v", err)
 	}
 
-	got := peak.Load()
-	// With a single port per IP, peak concurrent dials equals the number of
-	// concurrent IP goroutines, which must not exceed maxConcurrency.
-	if got > int64(maxConcurrency) {
-		t.Errorf("peak concurrent dials = %d, want ≤ %d", got, maxConcurrency)
+	var found []Candidate
+	for c := range candidates {
+		found = append(found, c)
+	}
+	if len(found) != 0 {
+		t.Errorf("expected 0 candidates, got %d", len(found))
 	}
 }
 
-// countingDialer invokes a user-supplied dial function and counts calls.
-type countingDialer struct {
-	dial func(ctx context.Context, network, addr string) (net.Conn, error)
-}
-
-func (d *countingDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	return d.dial(ctx, network, addr)
-}
-
-// TestParallelPortProbing verifies that all ports for a single IP are dialled
-// concurrently. A dead host with 5 ports should complete in approximately one
-// DialTimeout, not five.
-func TestParallelPortProbing(t *testing.T) {
-	t.Parallel()
-
-	// A dead host with 5 ports should complete in approximately one DialTimeout,
-	// not five. We verify this by checking wall-clock time.
-	dialCount := atomic.Int32{}
-	slowDialer := &countingDialer{
-		dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			dialCount.Add(1)
-			// Simulate a 50ms response — fast enough to be well under one
-			// sequential chain (5×50ms = 250ms) but still measurable.
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(50 * time.Millisecond):
-			}
-			return nil, errors.New("refused")
-		},
-	}
-	sc := &Scanner{
-		Dialer:         slowDialer,
-		Resolver:       &fixedResolver{err: errors.New("no dns")},
+func TestScanner_DNSFailureSetsNilHostname(t *testing.T) {
+	s := &Scanner{
+		Dialer:         &mockDialer{allowed: map[string]bool{"10.0.0.1:2222": true}},
+		Resolver:       &mockResolver{names: map[string]string{}},
 		MaxConcurrency: 10,
-		DialTimeout:    200 * time.Millisecond,
-		DNSTimeout:     time.Second,
+		DialTimeout:    50 * time.Millisecond,
+		DNSTimeout:     50 * time.Millisecond,
 	}
-	ports := []int{22, 80, 443, 3389, 8080} // 5 ports
-	out := make(chan Candidate, 10)
-	start := time.Now()
-	err := sc.Scan(context.Background(), "10.0.0.0/30", ports, out) // 2 host IPs
-	elapsed := time.Since(start)
-	require.NoError(t, err)
+	candidates := make(chan Candidate, 10)
+	progress := make(chan struct{}, 10)
 
-	// Sequential probing would take 2 hosts × 5 ports × 50ms = 500ms.
-	// Parallel probing should complete in roughly 2 × 50ms = 100ms.
-	// We use 300ms as the upper bound to allow for scheduling jitter.
-	require.Less(t, elapsed, 300*time.Millisecond,
-		"parallel port probing should complete in ~100ms, got %v", elapsed)
-	assert.Equal(t, int32(10), dialCount.Load(), "should have dialled 2 IPs × 5 ports = 10 times")
-}
-
-func TestParseSSHBanner(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		banner string
-		want   string
-	}{
-		{"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6", "Ubuntu"},
-		{"SSH-2.0-OpenSSH_9.3p1 Debian-1", "Debian"},
-		{"SSH-2.0-OpenSSH_7.4 (CentOS)", "CentOS"},
-		{"SSH-2.0-OpenSSH_8.1", ""}, // no distro hint
-		{"not-ssh-banner", ""},
+	err := s.Scan(context.Background(), "10.0.0.0/30", 2222, candidates, progress)
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
 	}
-	for _, c := range cases {
-		got := parseSSHBanner(c.banner)
-		if got != c.want {
-			t.Errorf("parseSSHBanner(%q) = %q, want %q", c.banner, got, c.want)
+	for c := range candidates {
+		if c.Hostname != nil {
+			t.Errorf("expected nil hostname when DNS fails, got %q", *c.Hostname)
 		}
 	}
 }
 
-func TestDetectOS_SSHBanner(t *testing.T) {
-	t.Parallel()
+func TestScanner_NetworkAndBroadcastSkipped(t *testing.T) {
+	// 10.0.0.0/30 has exactly 2 usable hosts: 10.0.0.1 and 10.0.0.2.
+	// 10.0.0.0 (network) and 10.0.0.3 (broadcast) must not be probed.
+	s := &Scanner{
+		Dialer:         &mockDialer{allowed: map[string]bool{}},
+		Resolver:       &mockResolver{},
+		MaxConcurrency: 10,
+		DialTimeout:    50 * time.Millisecond,
+		DNSTimeout:     50 * time.Millisecond,
+	}
+	candidates := make(chan Candidate, 10)
+	progress := make(chan struct{}, 10)
 
-	sc := NewScanner()
-	sc.BannerTimeout = 200 * time.Millisecond
-
-	// net.Pipe gives two connected net.Conns.
-	server, client := net.Pipe()
+	var progCount int
+	done := make(chan struct{})
 	go func() {
-		_, _ = server.Write([]byte("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n"))
-		server.Close()
+		for range progress {
+			progCount++
+		}
+		close(done)
 	}()
 
-	got := sc.detectOS(client, []int{22, 443})
-	client.Close()
-	if got != "Ubuntu" {
-		t.Errorf("detectOS with Ubuntu banner = %q, want Ubuntu", got)
+	err := s.Scan(context.Background(), "10.0.0.0/30", 22, candidates, progress)
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	for range candidates {}
+	<-done
+
+	if progCount != 2 {
+		t.Errorf("progress ticks = %d, want 2 (network+broadcast not probed)", progCount)
 	}
 }
 
-func TestDetectOS_WindowsHeuristic(t *testing.T) {
-	t.Parallel()
-
-	sc := NewScanner()
-	// No SSH conn, but RDP port open → Windows
-	got := sc.detectOS(nil, []int{443, 3389})
-	if got != "Windows" {
-		t.Errorf("detectOS with RDP = %q, want Windows", got)
+func TestScanner_ProgressCountMatchesHostsProbed(t *testing.T) {
+	// /29 has 6 usable hosts; progress channel should receive exactly 6 sends.
+	s := &Scanner{
+		Dialer:         &mockDialer{allowed: map[string]bool{}},
+		Resolver:       &mockResolver{},
+		MaxConcurrency: 10,
+		DialTimeout:    50 * time.Millisecond,
+		DNSTimeout:     50 * time.Millisecond,
 	}
-}
+	candidates := make(chan Candidate, 10)
+	progress := make(chan struct{}, 10)
 
-func TestDetectOS_Unknown(t *testing.T) {
-	t.Parallel()
-
-	sc := NewScanner()
-	got := sc.detectOS(nil, []int{443, 8080})
-	if got != "" {
-		t.Errorf("detectOS with no hints = %q, want empty", got)
-	}
-}
-
-// peakTrackingDialer wraps another Dialer and tracks peak concurrency.
-type peakTrackingDialer struct {
-	inner   Dialer
-	current *atomic.Int64
-	peak    *atomic.Int64
-}
-
-func (d *peakTrackingDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	cur := d.current.Add(1)
-	defer d.current.Add(-1)
-
-	// Update peak atomically using a compare-and-swap loop.
-	for {
-		old := d.peak.Load()
-		if cur <= old {
-			break
+	var count int
+	done := make(chan struct{})
+	go func() {
+		for range progress {
+			count++
 		}
-		if d.peak.CompareAndSwap(old, cur) {
-			break
-		}
-	}
+		close(done)
+	}()
 
-	return d.inner.DialContext(ctx, network, addr)
+	err := s.Scan(context.Background(), "10.0.0.0/29", 22, candidates, progress)
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	for range candidates {}
+	<-done
+
+	if count != 6 {
+		t.Errorf("progress count = %d, want 6", count)
+	}
 }

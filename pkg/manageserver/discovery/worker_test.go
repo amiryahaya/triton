@@ -55,7 +55,7 @@ func (f *fakeStore) SetCancelRequested(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
 
-func (f *fakeStore) UpdateProgress(_ context.Context, _ uuid.UUID, scannedIPs int) error {
+func (f *fakeStore) UpdateProgress(_ context.Context, _ uuid.UUID, scannedIPs, _ int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.progress = append(f.progress, scannedIPs)
@@ -224,11 +224,16 @@ type fakeScanner struct {
 	err        error
 }
 
-func (fs *fakeScanner) Scan(_ context.Context, _ string, _ []int, out chan<- Candidate) error {
+func (fs *fakeScanner) Scan(_ context.Context, _ string, _ int, out chan<- Candidate, progress chan<- struct{}) error {
 	for _, c := range fs.candidates {
 		out <- c
+		select {
+		case progress <- struct{}{}:
+		default:
+		}
 	}
 	close(out)
+	close(progress)
 	return fs.err
 }
 
@@ -241,7 +246,7 @@ func newJob(tenantID uuid.UUID) Job {
 		ID:       uuid.New(),
 		TenantID: tenantID,
 		CIDR:     "10.0.0.0/24",
-		Ports:    []int{22, 443},
+		SSHPort:  22,
 		Status:   "queued",
 	}
 }
@@ -250,9 +255,8 @@ func makeCandidates(n int) []Candidate {
 	cs := make([]Candidate, n)
 	for i := range cs {
 		cs[i] = Candidate{
-			ID:        uuid.New(),
-			IP:        fmt.Sprintf("10.0.%d.%d", i/254, (i%254)+1),
-			OpenPorts: []int{22},
+			ID: uuid.New(),
+			IP: fmt.Sprintf("10.0.%d.%d", i/254, (i%254)+1),
 		}
 	}
 	return cs
@@ -368,7 +372,7 @@ func TestWorkerExistingHostIDSet(t *testing.T) {
 
 	fs := &fakeScanner{
 		candidates: []Candidate{
-			{ID: uuid.New(), IP: "10.0.0.1", OpenPorts: []int{22}},
+			{ID: uuid.New(), IP: "10.0.0.1"},
 		},
 	}
 
@@ -402,9 +406,9 @@ func TestWorkerDBInsertErrorSkipped(t *testing.T) {
 
 	fs := &fakeScanner{
 		candidates: []Candidate{
-			{ID: uuid.New(), IP: "10.0.0.1", OpenPorts: []int{22}},
-			{ID: uuid.New(), IP: "10.0.0.2", OpenPorts: []int{22}},
-			{ID: uuid.New(), IP: "10.0.0.3", OpenPorts: []int{22}},
+			{ID: uuid.New(), IP: "10.0.0.1"},
+			{ID: uuid.New(), IP: "10.0.0.2"},
+			{ID: uuid.New(), IP: "10.0.0.3"},
 		},
 	}
 

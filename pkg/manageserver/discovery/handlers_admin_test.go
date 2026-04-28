@@ -153,7 +153,7 @@ func TestHandleStart_201(t *testing.T) {
 
 	h := NewAdminHandlers(store, &fakeHostsStore{}, &noopWorker{}, nil)
 
-	body := `{"cidr":"192.168.1.0/24","ports":[22,80]}`
+	body := `{"cidr":"192.168.1.0/24","ssh_port":22}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req = withTenant(req, tenantID)
@@ -171,21 +171,21 @@ func TestHandleStart_201(t *testing.T) {
 	if resp.CIDR != "192.168.1.0/24" {
 		t.Errorf("expected cidr=192.168.1.0/24, got %q", resp.CIDR)
 	}
-	if len(resp.Ports) != 2 {
-		t.Errorf("expected 2 ports, got %v", resp.Ports)
+	if resp.SSHPort != 22 {
+		t.Errorf("expected ssh_port=22, got %d", resp.SSHPort)
 	}
 }
 
-func TestHandleStart_DefaultPorts(t *testing.T) {
+func TestHandleStart_DefaultSSHPort(t *testing.T) {
 	tenantID := uuid.New()
 	job := newJob(tenantID)
-	job.Ports = defaultPorts
+	job.SSHPort = 22
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
 	store.activeExists = false
 
 	h := NewAdminHandlers(store, &fakeHostsStore{}, &noopWorker{}, nil)
 
-	// No ports field supplied.
+	// No ssh_port field supplied — should default to 22.
 	body := `{"cidr":"10.1.0.0/24"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -226,8 +226,8 @@ func TestHandleGet_200(t *testing.T) {
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
 	// Seed two candidates.
 	store.candidates = []Candidate{
-		{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}},
-		{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.2", OpenPorts: []int{443}},
+		{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1"},
+		{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.2"},
 	}
 
 	h := NewAdminHandlers(store, &fakeHostsStore{}, &noopWorker{}, nil)
@@ -330,8 +330,8 @@ func TestHandleImport_SkipsExisting(t *testing.T) {
 	job := newJob(tenantID)
 
 	existingHostID := uuid.New()
-	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}}
-	candB := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.2", OpenPorts: []int{22}, ExistingHostID: &existingHostID}
+	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1"}
+	candB := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.2", ExistingHostID: &existingHostID}
 
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
 	store.candidates = []Candidate{candA, candB}
@@ -372,7 +372,7 @@ func TestHandleImport_400MissingHostname(t *testing.T) {
 	tenantID := uuid.New()
 	job := newJob(tenantID)
 
-	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}}
+	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1"}
 
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
 	store.candidates = []Candidate{candA}
@@ -401,7 +401,7 @@ func TestHandleImport_403CapExceeded(t *testing.T) {
 	tenantID := uuid.New()
 	job := newJob(tenantID)
 
-	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1", OpenPorts: []int{22}}
+	candA := Candidate{ID: uuid.New(), JobID: job.ID, IP: "10.0.0.1"}
 
 	store := &handlerFakeStore{fakeStore: fakeStore{job: job, insertErrFor: map[string]bool{}}, hasJob: true}
 	store.candidates = []Candidate{candA}

@@ -401,11 +401,14 @@ func TestCredentials_PortSurveyJobInheritsCredentialsRef(t *testing.T) {
 	jobResp.Body.Close()
 	require.Equal(t, http.StatusCreated, jobResp.StatusCode, "enqueue port survey: %s", jobBody)
 
-	var jobs []map[string]any
-	require.NoError(t, json.Unmarshal(jobBody, &jobs))
-	require.Len(t, jobs, 1, "expected exactly one job created")
+	// EnqueuePortSurvey returns {"jobs": [...]}, not a bare array.
+	var jobsResp struct {
+		Jobs []map[string]any `json:"jobs"`
+	}
+	require.NoError(t, json.Unmarshal(jobBody, &jobsResp), "decode jobs response: %s", jobBody)
+	require.Len(t, jobsResp.Jobs, 1, "expected exactly one job created")
 
-	job := jobs[0]
+	job := jobsResp.Jobs[0]
 	assert.Equal(t, "port_survey", job["job_type"])
 	assert.Equal(t, hostID, job["host_id"])
 

@@ -5,6 +5,7 @@ package licensestore_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync/atomic"
@@ -1442,6 +1443,15 @@ func TestMarkLicenseNotified_InvalidInterval(t *testing.T) {
 	err := s.MarkLicenseNotified(ctx, "00000000-0000-0000-0000-000000000001", "99d")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown interval")
+}
+
+func TestMarkLicenseNotified_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	err := s.MarkLicenseNotified(ctx, "00000000-0000-0000-0000-000000000001", "30d")
+	require.Error(t, err)
+	var notFound *licensestore.ErrNotFound
+	assert.True(t, errors.As(err, &notFound))
 }
 
 func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {

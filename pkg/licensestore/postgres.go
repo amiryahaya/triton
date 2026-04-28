@@ -526,12 +526,15 @@ func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID strin
 	default:
 		return fmt.Errorf("unknown interval %q: must be 30d, 7d, or 1d", interval)
 	}
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		fmt.Sprintf(`UPDATE licenses SET %s = NOW() WHERE id = $1`, col),
 		licenseID,
 	)
 	if err != nil {
 		return fmt.Errorf("marking license notified (%s): %w", interval, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "license", ID: licenseID}
 	}
 	return nil
 }

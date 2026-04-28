@@ -522,7 +522,7 @@ All license-server options are environment variables. See `cmd/licenseserver/mai
 | `TRITON_LICENSE_SERVER_REPORT_KEY` | No | — | Shared secret for cross-server provisioning. Must match `REPORT_SERVER_SERVICE_KEY` on the report server. |
 | `TRITON_LICENSE_SERVER_PUBLIC_URL` | No | — | License server's own external URL (e.g. `https://license.example.com`). Required for install command generation. |
 | `TRITON_LICENSE_SERVER_RESEND_API_KEY` | No | — | Resend API key for invite emails and license expiry warning emails. Must be set with `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL`. |
-| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | No | — | Sender address for invite emails |
+| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | No | — | Sender address for invite and expiry warning emails |
 | `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | No | `Triton License` | Sender display name |
 | `TRITON_LICENSE_SERVER_LOGIN_URL` | No | — | Login page URL embedded in invite emails |
 | `REPORT_SERVER_INVITE_URL_BASE` | No | — | Report server invite URL embedded in invite emails |

@@ -145,8 +145,8 @@ Both must be set together — a partial pair logs a warning and disables email:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TRITON_LICENSE_SERVER_RESEND_API_KEY` | (none) | Resend API key |
-| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | (none) | Sender email address |
+| `TRITON_LICENSE_SERVER_RESEND_API_KEY` | (none) | Resend API key for invite emails and license expiry warning emails |
+| `TRITON_LICENSE_SERVER_RESEND_FROM_EMAIL` | (none) | Sender address for invite and expiry warning emails |
 | `TRITON_LICENSE_SERVER_RESEND_FROM_NAME` | `Triton License` | Sender display name |
 | `TRITON_LICENSE_SERVER_LOGIN_URL` | (none) | Frontend login page URL embedded in invite emails |
 | `REPORT_SERVER_INVITE_URL_BASE` | (none) | Report Server invite URL base |

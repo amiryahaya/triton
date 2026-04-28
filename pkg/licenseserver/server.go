@@ -285,8 +285,9 @@ func (s *Server) sendExpiryNotifications(ctx context.Context) {
 			continue
 		}
 
-		for _, lic := range licenses {
-			if !s.needsNotification(lic, threshold.interval) {
+		for i := range licenses {
+			lic := &licenses[i]
+			if !s.needsNotification(*lic, threshold.interval) {
 				continue
 			}
 
@@ -297,7 +298,8 @@ func (s *Server) sendExpiryNotifications(ctx context.Context) {
 				DaysRemaining: threshold.days,
 			}
 
-			for _, admin := range admins {
+			for j := range admins {
+				admin := &admins[j]
 				d := data
 				d.RecipientName = admin.Name
 				if sendErr := s.config.Mailer.SendExpiryWarningEmail(ctx, admin.Email, d); sendErr != nil {

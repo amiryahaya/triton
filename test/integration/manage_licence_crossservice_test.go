@@ -97,7 +97,7 @@ func newCSFixture(t *testing.T) *csFixture {
 	})
 
 	// Create org. Response: {"org": {"id": "...", ...}, "admin": ...}
-	resp := csLSAdminReq(t, f, "POST", "/api/v1/admin/orgs", map[string]string{"name": "CS-Test-Org"})
+	resp := csLSAdminReq(t, f, "POST", "/api/v1/admin/orgs", map[string]string{"name": "CS-Test-Org", "contact_name": "CS Admin", "contact_email": "cs@example.com"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "create org")
 	var orgOut map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgOut))

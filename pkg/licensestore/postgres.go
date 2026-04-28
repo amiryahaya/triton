@@ -515,7 +515,7 @@ func (s *PostgresStore) ListExpiringLicenses(ctx context.Context, within time.Du
 	return results, rows.Err()
 }
 
-func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID string, interval string) error {
+func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID, interval string) error {
 	var col string
 	switch interval {
 	case "30d":

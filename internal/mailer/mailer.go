@@ -43,8 +43,8 @@ type InviteEmailData struct {
 
 // ExpiryWarningEmailData is the content of a license expiry warning email.
 type ExpiryWarningEmailData struct {
-	RecipientName string    // e.g. "Ahmad bin Ali" or "Platform Admin"
-	OrgName       string    // e.g. "NACSA"
+	RecipientName string // e.g. "Ahmad bin Ali" or "Platform Admin"
+	OrgName       string // e.g. "NACSA"
 	LicenseID     string
 	ExpiresAt     time.Time
 	DaysRemaining int // 30, 7, or 1

@@ -31,7 +31,7 @@ type Store interface {
 
 	// MarkLicenseNotified sets the notified_*d_at column for the given interval
 	// ("30d", "7d", or "1d") to NOW(). Returns an error for unknown intervals.
-	MarkLicenseNotified(ctx context.Context, licenseID string, interval string) error
+	MarkLicenseNotified(ctx context.Context, licenseID, interval string) error
 
 	// Activations
 	Activate(ctx context.Context, act *Activation) error
@@ -155,13 +155,13 @@ type LicenseRecord struct {
 // goroutine. It joins the license row with the owning organization's contact
 // fields so the caller can send emails without a second query.
 type LicenseWithOrg struct {
-	LicenseID    string
-	OrgID        string
-	OrgName      string
-	ContactName  string
-	ContactPhone string
-	ContactEmail string
-	ExpiresAt    time.Time
+	LicenseID     string
+	OrgID         string
+	OrgName       string
+	ContactName   string
+	ContactPhone  string
+	ContactEmail  string
+	ExpiresAt     time.Time
 	Notified30dAt *time.Time
 	Notified7dAt  *time.Time
 	Notified1dAt  *time.Time

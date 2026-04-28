@@ -56,9 +56,18 @@ func TestDrain_DeadLetterAfter400(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for the stub to receive one POST.
+	// Wait until the row has left the queue, not just until the stub
+	// receives the HTTP request. Cancelling on receipt introduces a
+	// race: the drain still needs to write the dead-letter DB row after
+	// pushOne returns, and a cancelled context makes that write fail
+	// silently. Polling QueueDepth avoids the race (same approach as
+	// TestDrain_DeadLetterAfterMaxRetries).
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && received.Load() < 1 {
+	for time.Now().Before(deadline) {
+		d, _ := store.QueueDepth(ctx)
+		if d == 0 {
+			break
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()

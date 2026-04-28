@@ -112,6 +112,9 @@ func (b hostRequestBody) toHost() Host {
 // reaches Postgres, so clients see a clean 400 instead of a 500 with
 // leaked pg error text.
 func validateHost(h Host) error {
+	if h.Hostname == "" {
+		return errors.New("hostname is required")
+	}
 	if h.IP == "" {
 		return errors.New("ip is required")
 	}

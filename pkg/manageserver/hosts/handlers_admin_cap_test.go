@@ -63,7 +63,7 @@ func TestHostsAdmin_Create_CapExceeded_Returns403(t *testing.T) {
 	})
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"ip": "10.0.0.4"})
+		map[string]string{"hostname": "cap-test-host", "ip": "10.0.0.4"})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 
@@ -91,8 +91,11 @@ func TestHostsAdmin_BulkCreate_CapExceeded_Returns403_WithShortfall(t *testing.T
 
 	body := map[string]any{
 		"hosts": []map[string]string{
-			{"ip": "10.0.1.1"}, {"ip": "10.0.1.2"}, {"ip": "10.0.1.3"},
-			{"ip": "10.0.1.4"}, {"ip": "10.0.1.5"},
+			{"hostname": "cap-bulk-1", "ip": "10.0.1.1"},
+			{"hostname": "cap-bulk-2", "ip": "10.0.1.2"},
+			{"hostname": "cap-bulk-3", "ip": "10.0.1.3"},
+			{"hostname": "cap-bulk-4", "ip": "10.0.1.4"},
+			{"hostname": "cap-bulk-5", "ip": "10.0.1.5"},
 		},
 	}
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/bulk", body)
@@ -122,7 +125,7 @@ func TestHostsAdmin_Create_NoGuard_Unrestricted(t *testing.T) {
 	ts := newTestServerWithGuard(t, store, nil)
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"ip": "192.168.255.255"})
+		map[string]string{"hostname": "no-guard-host", "ip": "192.168.255.255"})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode,
 		"nil guard must disable cap enforcement")
@@ -137,7 +140,7 @@ func TestHostsAdmin_Create_UnlimitedCap_Unrestricted(t *testing.T) {
 	})
 
 	resp := doReq(t, http.MethodPost, ts.URL+"/api/v1/admin/hosts/",
-		map[string]string{"ip": "10.0.0.1"})
+		map[string]string{"hostname": "unlimited-cap-host", "ip": "10.0.0.1"})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 }

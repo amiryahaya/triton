@@ -380,4 +380,24 @@ $$;`,
 	// is introduced; source validation is enforced at the application layer.
 	`ALTER TABLE manage_scan_results_queue
 		DROP CONSTRAINT IF EXISTS manage_scan_results_queue_source_type_check;`,
+
+	// Version 19: Make hostname NOT NULL, rename access_port→ssh_port, seed 13 built-in tags.
+	`UPDATE manage_hosts SET hostname = host(ip)::text WHERE hostname IS NULL OR hostname = '';
+ALTER TABLE manage_hosts ALTER COLUMN hostname SET NOT NULL;
+ALTER TABLE manage_hosts RENAME COLUMN access_port TO ssh_port;
+INSERT INTO manage_tags (id, name, color) VALUES
+    (gen_random_uuid(), 'production',  '#EF4444'),
+    (gen_random_uuid(), 'staging',     '#F97316'),
+    (gen_random_uuid(), 'development', '#22C55E'),
+    (gen_random_uuid(), 'web',         '#3B82F6'),
+    (gen_random_uuid(), 'database',    '#8B5CF6'),
+    (gen_random_uuid(), 'windows',     '#0EA5E9'),
+    (gen_random_uuid(), 'linux',       '#15803D'),
+    (gen_random_uuid(), 'unix',        '#4B5563'),
+    (gen_random_uuid(), 'server',      '#1D4ED8'),
+    (gen_random_uuid(), 'laptop',      '#0891B2'),
+    (gen_random_uuid(), 'workstation', '#7C3AED'),
+    (gen_random_uuid(), 'critical',    '#DC2626'),
+    (gen_random_uuid(), 'pqc-scope',   '#F59E0B')
+ON CONFLICT (name) DO NOTHING;`,
 }

@@ -227,10 +227,7 @@ type fakeScanner struct {
 func (fs *fakeScanner) Scan(_ context.Context, _ string, _ int, out chan<- Candidate, progress chan<- struct{}) error {
 	for _, c := range fs.candidates {
 		out <- c
-		select {
-		case progress <- struct{}{}:
-		default:
-		}
+		progress <- struct{}{}
 	}
 	close(out)
 	close(progress)

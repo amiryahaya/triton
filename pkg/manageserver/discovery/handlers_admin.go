@@ -300,13 +300,22 @@ func (h *AdminHandlers) HandleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get current job to retrieve ssh_port for imported hosts.
+	job, err := h.store.GetCurrentJob(r.Context(), tenantID)
+	if err != nil {
+		internalErr(w, r, err, "get current job for import")
+		return
+	}
+
 	// Build hosts.Host slice from toImport.
 	hostList := make([]hosts.Host, 0, len(toImport))
 	for i := range toImport {
 		hostname := strings.TrimSpace(importByID[toImport[i].ID].Hostname)
 		hostList = append(hostList, hosts.Host{
-			Hostname: hostname,
-			IP:       toImport[i].IP,
+			Hostname:       hostname,
+			IP:             toImport[i].IP,
+			ConnectionType: hosts.ConnectionTypeSSH,
+			SSHPort:        job.SSHPort,
 		})
 	}
 

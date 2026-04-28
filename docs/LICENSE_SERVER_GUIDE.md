@@ -151,6 +151,24 @@ Both must be set together — a partial pair logs a warning and disables email:
 | `TRITON_LICENSE_SERVER_LOGIN_URL` | (none) | Frontend login page URL embedded in invite emails |
 | `REPORT_SERVER_INVITE_URL_BASE` | (none) | Report Server invite URL base |
 
+### License Expiry Notifications
+
+When `TRITON_LICENSE_SERVER_RESEND_API_KEY` is set, the server automatically sends expiry warning emails at three intervals before each license's expiry date:
+
+| Interval | Subject |
+|----------|---------|
+| 30 days  | `License expiring in 30 days — action required` |
+| 7 days   | `License expiring in 7 days — urgent` |
+| 1 day    | `License expiring tomorrow — immediate action required` |
+
+Recipients for each license:
+- All **platform_admin** users (their stored email addresses)
+- The **organization's `contact_email`** (if non-empty)
+
+Notifications are tracked in the database (`notified_30d_at`, `notified_7d_at`, `notified_1d_at` columns on the `licenses` table). Each interval fires at most once per license cycle — if the column is already set, no duplicate is sent.
+
+If `TRITON_LICENSE_SERVER_RESEND_API_KEY` is not configured, expiry notifications are silently skipped; all other functionality is unaffected.
+
 ### Database Setup
 
 The server auto-migrates its schema on startup. It uses its own tables with a separate version tracker (`license_schema_version`), so it can share a PostgreSQL instance with the Triton scan server without conflicts.
@@ -276,10 +294,15 @@ All org endpoints require `Authorization: Bearer <token>`.
 curl -X POST http://localhost:8081/api/v1/admin/orgs \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Acme Corp", "contact": "John Smith, +60 12-345 6789"}'
+  -d '{
+    "name": "Acme Corp",
+    "contact_name": "John Smith",
+    "contact_email": "john.smith@acme.com",
+    "contact_phone": "+60 12-345 6789"
+  }'
 ```
 
-`contact` is a free-text notes field (not validated as email).
+`contact_name` and `contact_email` are required. `contact_phone` is optional. `contact_email` must be a valid RFC 5322 address (bare address, no display-name format). Expiry warning emails are sent to `contact_email` when a license is 30, 7, or 1 day from expiry.
 
 ### List Organizations
 
@@ -294,7 +317,7 @@ curl http://localhost:8081/api/v1/admin/orgs \
 curl -X PUT http://localhost:8081/api/v1/admin/orgs/<org-id> \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Acme Corp Updated", "contact": "Jane Doe"}'
+  -d '{"name": "Acme Corp Updated", "contact_name": "Jane Doe", "contact_email": "jane.doe@acme.com"}'
 ```
 
 ### Suspend an Organization
@@ -433,7 +456,7 @@ Overview statistics: total organizations, licenses, active seats, revoked/expire
 
 ### Organizations
 
-Create, view, and delete organizations.
+Create, view, and delete organizations. Each organization requires a **contact name** and **contact email** address; an optional **contact phone** field is also available. The contact email receives expiry warning emails at 30, 7, and 1 day before the license expires.
 
 ### Licenses
 

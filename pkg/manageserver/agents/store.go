@@ -54,6 +54,11 @@ type Store interface {
 	// by Batch H's licence-cap check.
 	Count(ctx context.Context) (int64, error)
 
+	// Delete permanently removes an agent row. Used for seat-full rollback
+	// during Enrol — the agent was never made active so no cert revocation
+	// is needed. Returns ErrNotFound when no row with that id exists.
+	Delete(ctx context.Context, id uuid.UUID) error
+
 	// SetCommand stores a pending scan command for the agent. Overwrites
 	// any existing pending command. Pass nil to clear without popping.
 	SetCommand(ctx context.Context, id uuid.UUID, cmd *AgentCommand) error

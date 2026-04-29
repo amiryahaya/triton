@@ -4,6 +4,7 @@ package agents_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync/atomic"
@@ -296,5 +297,33 @@ func TestAgentStore_PopCommand_NotFound(t *testing.T) {
 	s := agents.NewPostgresStore(pool)
 
 	_, err := s.PopCommand(ctx, uuid.Must(uuid.NewV7()))
+	assert.ErrorIs(t, err, agents.ErrNotFound)
+}
+
+func TestAgentDelete(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := agents.NewPostgresStore(pool)
+
+	a := mkAgent("delete-me", "deadbeef01")
+	_, err := s.Create(ctx, a)
+	require.NoError(t, err)
+
+	if err := s.Delete(ctx, a.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	_, err = s.Get(ctx, a.ID)
+	if !errors.Is(err, agents.ErrNotFound) {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestAgentDelete_NotFound(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	s := agents.NewPostgresStore(pool)
+
+	err := s.Delete(ctx, uuid.Must(uuid.NewV7()))
 	assert.ErrorIs(t, err, agents.ErrNotFound)
 }

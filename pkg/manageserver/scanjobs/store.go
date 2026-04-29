@@ -136,4 +136,9 @@ type BatchStore interface {
 	// ListBatches returns the most recent batches for a tenant, newest first.
 	// limit <= 0 falls back to 50.
 	ListBatches(ctx context.Context, tenantID uuid.UUID, limit int) ([]Batch, error)
+
+	// CountPendingJobs returns the number of manage_scan_jobs rows in
+	// queued or running state across all tenants. Used by EnqueueBatch to
+	// enforce the 10,000-job saturation cap.
+	CountPendingJobs(ctx context.Context) (int64, error)
 }

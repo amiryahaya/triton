@@ -73,6 +73,17 @@ func (h *BatchHandlers) EnqueueBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	const maxPending = 10_000
+	pending, err := h.store.CountPendingJobs(r.Context())
+	if err != nil {
+		internalErr(w, r, err, "check queue capacity")
+		return
+	}
+	if pending >= maxPending {
+		writeErr(w, http.StatusServiceUnavailable, "queue is saturated; try again later")
+		return
+	}
+
 	rawHosts, err := h.hostsStore.GetByIDs(r.Context(), req.HostIDs)
 	if err != nil {
 		internalErr(w, r, err, "resolve hosts for batch")

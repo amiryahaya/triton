@@ -645,6 +645,19 @@ func (s *PostgresStore) ClaimByID(ctx context.Context, id uuid.UUID, workerID st
 // Compile-time assertion: PostgresStore must implement BatchStore.
 var _ BatchStore = (*PostgresStore)(nil)
 
+// CountPendingJobs returns the total number of manage_scan_jobs rows in queued
+// or running state across all tenants. Used by the EnqueueBatch handler to
+// enforce the 10,000-job saturation cap before inserting new work.
+func (s *PostgresStore) CountPendingJobs(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM manage_scan_jobs WHERE status IN ('queued','running')`).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count pending jobs: %w", err)
+	}
+	return n, nil
+}
+
 func jobTypesToStrings(jts []JobType) []string {
 	out := make([]string, len(jts))
 	for i, jt := range jts {

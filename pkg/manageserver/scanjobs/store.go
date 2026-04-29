@@ -131,13 +131,15 @@ type ScheduleStore interface {
 	ListSchedules(ctx context.Context, tenantID uuid.UUID) ([]Schedule, error)
 
 	// PatchSchedule applies non-nil fields from req. If CronExpr changes,
-	// next_run_at is recomputed. Returns ErrNotFound when the schedule does not exist.
-	PatchSchedule(ctx context.Context, id uuid.UUID, req SchedulePatchReq) (Schedule, error)
+	// next_run_at is recomputed. Returns ErrNotFound when the schedule does not
+	// exist or does not belong to tenantID (prevents cross-tenant IDOR).
+	PatchSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID, req SchedulePatchReq) (Schedule, error)
 
 	// DeleteSchedule removes the schedule row. Existing batches that reference
 	// it will have schedule_id set to NULL (ON DELETE SET NULL). Returns
-	// ErrNotFound when the schedule does not exist.
-	DeleteSchedule(ctx context.Context, id uuid.UUID) error
+	// ErrNotFound when the schedule does not exist or does not belong to tenantID
+	// (prevents cross-tenant IDOR).
+	DeleteSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID) error
 
 	// ClaimDueSchedules atomically claims all schedules where enabled=true AND
 	// next_run_at <= NOW() by advancing next_run_at to the next cron tick in

@@ -871,7 +871,7 @@ func (s *PostgresStore) ListSchedules(ctx context.Context, tenantID uuid.UUID) (
 	return out, rows.Err()
 }
 
-func (s *PostgresStore) PatchSchedule(ctx context.Context, id uuid.UUID, req SchedulePatchReq) (Schedule, error) {
+func (s *PostgresStore) PatchSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID, req SchedulePatchReq) (Schedule, error) {
 	set := []string{}
 	args := []any{}
 	pos := 1
@@ -899,13 +899,15 @@ func (s *PostgresStore) PatchSchedule(ctx context.Context, id uuid.UUID, req Sch
 		pos++
 	}
 	if len(set) == 0 {
-		return s.getSchedule(ctx, id)
+		return s.getSchedule(ctx, tenantID, id)
 	}
 	args = append(args, id)
+	args = append(args, tenantID)
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_scan_schedules SET `+
 			strings.Join(set, ", ")+
 			` WHERE id = $`+strconv.Itoa(pos)+
+			` AND tenant_id = $`+strconv.Itoa(pos+1)+
 			` RETURNING `+schedSelectCols,
 		args...,
 	)
@@ -919,18 +921,18 @@ func (s *PostgresStore) PatchSchedule(ctx context.Context, id uuid.UUID, req Sch
 	return sc, nil
 }
 
-func (s *PostgresStore) getSchedule(ctx context.Context, id uuid.UUID) (Schedule, error) {
+func (s *PostgresStore) getSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID) (Schedule, error) {
 	sc, err := scanSchedule(s.pool.QueryRow(ctx,
-		`SELECT `+schedSelectCols+` FROM manage_scan_schedules WHERE id = $1`, id))
+		`SELECT `+schedSelectCols+` FROM manage_scan_schedules WHERE id = $1 AND tenant_id = $2`, id, tenantID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Schedule{}, ErrNotFound
 	}
 	return sc, err
 }
 
-func (s *PostgresStore) DeleteSchedule(ctx context.Context, id uuid.UUID) error {
+func (s *PostgresStore) DeleteSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM manage_scan_schedules WHERE id = $1`, id)
+		`DELETE FROM manage_scan_schedules WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete schedule: %w", err)
 	}

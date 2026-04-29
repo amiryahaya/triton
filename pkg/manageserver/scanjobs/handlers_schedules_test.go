@@ -84,21 +84,45 @@ func TestScheduleHandler_Create_InvalidCron_Returns400(t *testing.T) {
 
 func TestScheduleHandler_List_TenantScoped(t *testing.T) {
 	url, _, _ := setupScheduleServer(t)
-	// Create one schedule, then list — should see exactly one.
+	url2, _, _ := setupScheduleServer(t) // different tenantID
+
+	// Create one schedule in each tenant.
 	body, _ := json.Marshal(map[string]any{
 		"name": "Listed", "job_types": []string{"port_survey"},
 		"host_ids": []string{uuid.New().String()}, "profile": "quick",
 		"cron_expr": "0 * * * *",
 	})
-	_, _ = http.Post(url+"/", "application/json", bytes.NewReader(body))
+	resp1, err := http.Post(url+"/", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp1.Body.Close()
+	require.Equal(t, http.StatusCreated, resp1.StatusCode)
 
+	resp2, err := http.Post(url2+"/", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	require.Equal(t, http.StatusCreated, resp2.StatusCode)
+
+	// Listing from tenant 1 should see only its own schedule.
 	listResp, err := http.Get(url + "/")
 	require.NoError(t, err)
 	defer listResp.Body.Close()
 	assert.Equal(t, http.StatusOK, listResp.StatusCode)
 	var list []scanjobs.Schedule
 	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&list))
-	assert.Len(t, list, 1)
+	assert.Len(t, list, 1, "tenant 1 must see only its own schedule")
+}
+
+func TestScheduleHandler_Create_InvalidProfile_Returns400(t *testing.T) {
+	url, _, _ := setupScheduleServer(t)
+	body, _ := json.Marshal(map[string]any{
+		"name": "bad-profile", "job_types": []string{"port_survey"},
+		"host_ids": []string{uuid.New().String()}, "profile": "ultra",
+		"cron_expr": "0 * * * *",
+	})
+	resp, err := http.Post(url+"/", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestScheduleHandler_Patch_Toggle(t *testing.T) {

@@ -58,7 +58,7 @@ func TestPatchSchedule_DisablesSchedule(t *testing.T) {
 	sched, _ := s.CreateSchedule(ctx, makeScheduleReq(uuid.New(), "0 * * * *"))
 
 	disabled := false
-	patched, err := s.PatchSchedule(ctx, sched.ID, scanjobs.SchedulePatchReq{Enabled: &disabled})
+	patched, err := s.PatchSchedule(ctx, sched.TenantID, sched.ID, scanjobs.SchedulePatchReq{Enabled: &disabled})
 	require.NoError(t, err)
 	assert.False(t, patched.Enabled)
 }
@@ -69,7 +69,7 @@ func TestPatchSchedule_UpdatesCronRecomputesNextRunAt(t *testing.T) {
 	sched, _ := s.CreateSchedule(ctx, makeScheduleReq(uuid.New(), "0 * * * *"))
 
 	newCron := "0 3 * * 1"
-	patched, err := s.PatchSchedule(ctx, sched.ID, scanjobs.SchedulePatchReq{CronExpr: &newCron})
+	patched, err := s.PatchSchedule(ctx, sched.TenantID, sched.ID, scanjobs.SchedulePatchReq{CronExpr: &newCron})
 	require.NoError(t, err)
 	assert.Equal(t, "0 3 * * 1", patched.CronExpr)
 	assert.True(t, patched.NextRunAt.After(time.Now()))
@@ -80,7 +80,7 @@ func TestDeleteSchedule_RemovesRow(t *testing.T) {
 	ctx := context.Background()
 	sched, _ := s.CreateSchedule(ctx, makeScheduleReq(uuid.New(), "0 * * * *"))
 
-	require.NoError(t, s.DeleteSchedule(ctx, sched.ID))
+	require.NoError(t, s.DeleteSchedule(ctx, sched.TenantID, sched.ID))
 	list, _ := s.ListSchedules(ctx, sched.TenantID)
 	assert.Empty(t, list)
 }

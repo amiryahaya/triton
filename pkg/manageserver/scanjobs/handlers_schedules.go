@@ -51,6 +51,16 @@ func (h *ScheduleHandlers) CreateSchedule(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, "host_ids must not be empty")
 		return
 	}
+	if req.Profile == "" {
+		req.Profile = ProfileStandard
+	}
+	switch req.Profile {
+	case ProfileQuick, ProfileStandard, ProfileComprehensive:
+		// valid
+	default:
+		writeErr(w, http.StatusBadRequest, "profile must be one of quick|standard|comprehensive")
+		return
+	}
 	if req.CronExpr == "" {
 		writeErr(w, http.StatusBadRequest, "cron_expr is required")
 		return
@@ -89,6 +99,11 @@ func (h *ScheduleHandlers) ListSchedules(w http.ResponseWriter, r *http.Request)
 // PatchSchedule handles PATCH /api/v1/admin/scan-schedules/{id}.
 // Only non-nil fields in the body are applied.
 func (h *ScheduleHandlers) PatchSchedule(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "missing tenant")
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid schedule id")
@@ -106,7 +121,7 @@ func (h *ScheduleHandlers) PatchSchedule(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	sched, err := h.store.PatchSchedule(r.Context(), id, req)
+	sched, err := h.store.PatchSchedule(r.Context(), tenantID, id, req)
 	if errors.Is(err, ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
@@ -120,12 +135,17 @@ func (h *ScheduleHandlers) PatchSchedule(w http.ResponseWriter, r *http.Request)
 
 // DeleteSchedule handles DELETE /api/v1/admin/scan-schedules/{id}.
 func (h *ScheduleHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "missing tenant")
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid schedule id")
 		return
 	}
-	if err := h.store.DeleteSchedule(r.Context(), id); errors.Is(err, ErrNotFound) {
+	if err := h.store.DeleteSchedule(r.Context(), tenantID, id); errors.Is(err, ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
 	} else if err != nil {

@@ -184,7 +184,7 @@ export interface NacsaHostRow {
 export interface NacsaCBOMRow {
   algorithm: string;
   key_size?: number;
-  pqc_status: string;
+  pqc_status: PqcStatus;
   asset_count: number;
   module: string;
 }

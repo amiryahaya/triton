@@ -134,6 +134,7 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LicenseServerURL string `json:"license_server_url"`
 		LicenseKey       string `json:"license_key"`
+		ServerName       string `json:"server_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
 		req.LicenseServerURL == "" || req.LicenseKey == "" {
@@ -153,12 +154,22 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	req.ServerName = strings.TrimSpace(req.ServerName)
+	if req.ServerName == "" {
+		writeError(w, http.StatusBadRequest, "server_name is required")
+		return
+	}
+	if len(req.ServerName) > 100 {
+		writeError(w, http.StatusBadRequest, "server_name must be 100 characters or fewer")
+		return
+	}
+
 	// Activate against the License Server. The client is v1-shaped: it accepts
 	// just the licence ID and computes machine binding internally. The v2
 	// response fields (features, limits, product_scope) are populated when
 	// the server is v2-capable; Manage enforces product scope client-side.
 	client := license.NewServerClient(req.LicenseServerURL)
-	resp, err := client.Activate(req.LicenseKey, license.ActivationTypeManageServer, "")
+	resp, err := client.Activate(req.LicenseKey, license.ActivationTypeManageServer, req.ServerName)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "activation failed: "+err.Error())
 		return
@@ -170,7 +181,7 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 
 	instanceID := uuid.Must(uuid.NewV7()).String()
 	if err := s.store.SaveLicenseActivation(r.Context(),
-		req.LicenseServerURL, req.LicenseKey, resp.Token, instanceID, ""); err != nil {
+		req.LicenseServerURL, req.LicenseKey, resp.Token, instanceID, req.ServerName); err != nil {
 		writeError(w, http.StatusInternalServerError, "save activation: "+err.Error())
 		return
 	}
@@ -188,15 +199,17 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 	// via (future) /api/v1/admin/report/enrol when that endpoint lands.
 	// Skipped entirely when ReportServer or ReportServiceKey are empty.
 	if s.cfg.ReportServer != "" && s.cfg.ReportServiceKey != "" {
-		if enrolErr := s.autoEnrolWithReport(r.Context(), instanceID, req.LicenseKey); enrolErr != nil {
+		if enrolErr := s.autoEnrolWithReport(r.Context(), instanceID, req.LicenseKey, req.ServerName); enrolErr != nil {
 			log.Printf("manageserver: Report auto-enrol failed (best-effort, continuing): %v", enrolErr)
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"features": resp.Features,
-		"limits":   resp.Limits,
+		"ok":          true,
+		"features":    resp.Features,
+		"limits":      resp.Limits,
+		"instance_id": instanceID,
+		"server_name": req.ServerName,
 	})
 }
 
@@ -209,7 +222,7 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 // Any failure is wrapped and returned; the caller logs it and continues —
 // the whole flow is best-effort so a transient Report outage during
 // /setup/license doesn't brick the operator's activation.
-func (s *Server) autoEnrolWithReport(ctx context.Context, instanceID, licenseKey string) error {
+func (s *Server) autoEnrolWithReport(ctx context.Context, instanceID, licenseKey, serverName string) error {
 	if s.resultsStore == nil {
 		return errors.New("scan-results store not wired")
 	}
@@ -242,6 +255,7 @@ func (s *Server) autoEnrolWithReport(ctx context.Context, instanceID, licenseKey
 		"manage_instance_id": instanceID,
 		"license_key":        licenseKey,
 		"public_key_pem":     string(pubPEM),
+		"server_name":        serverName,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal enrol body: %w", err)

@@ -161,7 +161,8 @@ func TestSetupLicense_PersistsAndExitsSetupMode(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 		"license_server_url": %q,
-		"license_key":        "lic-uuid"
+		"license_key":        "lic-uuid",
+		"server_name":        "Test Manage Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -175,6 +176,8 @@ func TestSetupLicense_PersistsAndExitsSetupMode(t *testing.T) {
 	features, ok := out["features"].(map[string]any)
 	require.True(t, ok, "features should be an object in response")
 	assert.Equal(t, true, features["manage"])
+	assert.Equal(t, "Test Manage Server", out["server_name"])
+	assert.NotEmpty(t, out["instance_id"], "instance_id must be present in response")
 
 	// DB state reflects activation.
 	state, err := store.GetSetup(context.Background())
@@ -218,7 +221,8 @@ func TestSetupLicense_RejectsWhenFeatureManageFalse(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 		"license_server_url": %q,
-		"license_key":        "lic-report-only"
+		"license_key":        "lic-report-only",
+		"server_name":        "Test Manage Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -250,7 +254,8 @@ func TestSetupLicense_ReturnsBadRequestWhenLicenseServerUnreachable(t *testing.T
 	// immediately, keeping the test hermetic (no DNS, no external traffic).
 	body := `{
 		"license_server_url": "http://127.0.0.1:1/",
-		"license_key":        "lic-unreachable"
+		"license_key":        "lic-unreachable",
+		"server_name":        "Test Manage Server"
 	}`
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -286,7 +291,8 @@ func TestSetupLicense_RejectsBeforeAdmin(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 		"license_server_url": %q,
-		"license_key":        "any"
+		"license_key":        "any",
+		"server_name":        "Test Manage Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -339,7 +345,7 @@ func TestSetupLicense_AllowsHTTPWhenEnvSet(t *testing.T) {
 	}`))
 
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json", strings.NewReader(fmt.Sprintf(`{
-		"license_server_url":%q,"license_key":"abc"
+		"license_server_url":%q,"license_key":"abc","server_name":"Test Manage Server"
 	}`, ls.URL)))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -369,6 +375,131 @@ func TestSetupLicense_RejectsMissingScheme(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestSetupLicense_RequiresServerName — omitting server_name from the request body
+// must return 400. The field is mandatory so the Manage Server has a human-readable
+// identity in both the Report enrol payload and the response.
+func TestSetupLicense_RequiresServerName(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
+	srv, store, cleanup := openSetupServer(t)
+	defer cleanup()
+
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ls := newStubLicenseServer(t, fakeActivateResponse{
+		Token:    "tok",
+		Features: map[string]any{"manage": true},
+	})
+	defer ls.Close()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	// No server_name field.
+	body := fmt.Sprintf(`{"license_server_url":%q,"license_key":"k1"}`, ls.URL)
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
+		"missing server_name must return 400")
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Contains(t, fmt.Sprintf("%v", out["error"]), "server_name")
+}
+
+// TestSetupLicense_RejectsBlankServerName — a whitespace-only server_name is
+// equivalent to omitting it.
+func TestSetupLicense_RejectsBlankServerName(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
+	srv, store, cleanup := openSetupServer(t)
+	defer cleanup()
+
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ls := newStubLicenseServer(t, fakeActivateResponse{
+		Token:    "tok",
+		Features: map[string]any{"manage": true},
+	})
+	defer ls.Close()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	body := fmt.Sprintf(`{"license_server_url":%q,"license_key":"k1","server_name":"   "}`, ls.URL)
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
+		"blank server_name must return 400")
+}
+
+// TestSetupLicense_RejectsTooLongServerName — server_name exceeding 100 chars
+// must return 400.
+func TestSetupLicense_RejectsTooLongServerName(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
+	srv, store, cleanup := openSetupServer(t)
+	defer cleanup()
+
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ls := newStubLicenseServer(t, fakeActivateResponse{
+		Token:    "tok",
+		Features: map[string]any{"manage": true},
+	})
+	defer ls.Close()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	tooLong := strings.Repeat("a", 101)
+	body := fmt.Sprintf(`{"license_server_url":%q,"license_key":"k1","server_name":%q}`, ls.URL, tooLong)
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
+		"server_name > 100 chars must return 400")
+}
+
+// TestSetupLicense_ReturnsInstanceIDAndServerName — a successful activation
+// must echo back instance_id and server_name in the response body.
+func TestSetupLicense_ReturnsInstanceIDAndServerName(t *testing.T) {
+	t.Setenv("TRITON_MANAGE_ALLOW_INSECURE_LICENSE_SERVER", "true")
+	srv, store, cleanup := openSetupServer(t)
+	defer cleanup()
+
+	require.NoError(t, store.MarkAdminCreated(context.Background()))
+	srv.RefreshSetupMode(context.Background())
+
+	ls := newStubLicenseServer(t, fakeActivateResponse{
+		Token:    "signed-token",
+		Features: map[string]any{"manage": true},
+	})
+	defer ls.Close()
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	body := fmt.Sprintf(`{"license_server_url":%q,"license_key":"k1","server_name":"My Manage Server"}`, ls.URL)
+	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
+		strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Equal(t, true, out["ok"])
+	assert.NotEmpty(t, out["instance_id"], "instance_id must be present in response")
+	assert.Equal(t, "My Manage Server", out["server_name"],
+		"server_name must be echoed back in response")
 }
 
 // openSetupServer returns a fresh-DB Server+Store in setup mode (no admin,

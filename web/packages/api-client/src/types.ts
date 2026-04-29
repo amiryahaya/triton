@@ -68,6 +68,7 @@ export interface Activation {
   deactivatedAt?: string | null;
   active: boolean;
   activationType: ActivationType;
+  displayName: string;
 }
 
 export interface AuditEntry {

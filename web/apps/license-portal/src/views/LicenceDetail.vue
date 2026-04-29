@@ -21,6 +21,7 @@ interface ActRow {
   id: string;
   hostname: string;
   activationType: string;
+  displayName: string;
   machineIDShort: string;
   platform: string;
   activatedAt: string;
@@ -30,25 +31,27 @@ interface ActRow {
 }
 
 const actColumns: Column<ActRow>[] = [
-  { key: 'hostname', label: 'Hostname', width: '1.2fr' },
-  { key: 'activationType', label: 'Type', width: '110px' },
-  { key: 'machineIDShort', label: 'Machine ID', width: '1fr' },
-  { key: 'platform', label: 'OS/Arch', width: '0.8fr' },
-  { key: 'activatedAt', label: 'Activated', width: '1fr' },
-  { key: 'lastSeenAt', label: 'Last seen', width: '1fr' },
-  { key: 'active', label: 'Status', width: '100px' },
+  { key: 'hostname',       label: 'Hostname',   width: '1.2fr' },
+  { key: 'activationType', label: 'Type',       width: '110px' },
+  { key: 'displayName',    label: 'Name',       width: '1fr'   },
+  { key: 'machineIDShort', label: 'Machine ID', width: '1fr'   },
+  { key: 'platform',       label: 'OS/Arch',    width: '0.8fr' },
+  { key: 'activatedAt',    label: 'Activated',  width: '1fr'   },
+  { key: 'lastSeenAt',     label: 'Last seen',  width: '1fr'   },
+  { key: 'active',         label: 'Status',     width: '100px' },
 ];
 
 const actRows = computed<ActRow[]>(() =>
   activations.value.map((a) => ({
-    id: a.id,
-    hostname: a.hostname,
+    id:             a.id,
+    hostname:       a.hostname,
     activationType: a.activationType,
+    displayName:    a.displayName,
     machineIDShort: a.machineID.slice(0, 12),
-    platform: `${a.os}/${a.arch}`,
-    activatedAt: a.activatedAt,
-    lastSeenAt: a.lastSeenAt,
-    active: a.active,
+    platform:       `${a.os}/${a.arch}`,
+    activatedAt:    a.activatedAt,
+    lastSeenAt:     a.lastSeenAt,
+    active:         a.active,
   })),
 );
 
@@ -195,6 +198,10 @@ const visibleLimits = computed(() => licence.value?.limits ?? []);
             {{ row.activationType === 'report_server' ? 'Report Server' : row.activationType === 'manage_server' ? 'Manage Server' : 'Agent' }}
           </TPill>
         </template>
+        <template #[`cell:displayName`]="{ row }">
+          <span v-if="row.displayName" class="name-cell">{{ row.displayName }}</span>
+          <span v-else class="muted">—</span>
+        </template>
         <template #[`cell:active`]="{ row }">
           <TPill :variant="row.active ? 'safe' : 'neutral'">
             {{ row.active ? 'Active' : 'Inactive' }}
@@ -269,6 +276,7 @@ const visibleLimits = computed(() => licence.value?.limits ?? []);
   gap: var(--space-2);
 }
 .muted { color: var(--text-muted); font-size: 0.78rem; }
+.name-cell { color: var(--text-primary); }
 .limits {
   width: 100%;
   border-collapse: collapse;

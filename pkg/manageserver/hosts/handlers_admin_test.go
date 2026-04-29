@@ -229,6 +229,22 @@ func (f *fakeStore) BulkCreate(_ context.Context, batch []hosts.Host) ([]hosts.H
 	return out, nil
 }
 
+func (f *fakeStore) GetByIDs(_ context.Context, ids []uuid.UUID) ([]hosts.Host, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recordCall("GetByIDs")
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var out []hosts.Host
+	for _, id := range ids {
+		if h, ok := f.items[id]; ok {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func newTestServer(t *testing.T, s hosts.Store) *httptest.Server {

@@ -181,3 +181,28 @@ func TestHosts_BulkCreate_Conflict_RollsBack(t *testing.T) {
 		assert.NotEqual(t, "10.0.1.31", h.IP)
 	}
 }
+
+func TestGetByIDs(t *testing.T) {
+	pool := newTestPool(t)
+	s := hosts.NewPostgresStore(pool)
+	ctx := context.Background()
+
+	h1, err := s.Create(ctx, hosts.Host{Hostname: "alpha", IP: "10.0.0.1"})
+	require.NoError(t, err)
+	h2, err := s.Create(ctx, hosts.Host{Hostname: "beta", IP: "10.0.0.2"})
+	require.NoError(t, err)
+	_, err = s.Create(ctx, hosts.Host{Hostname: "gamma", IP: "10.0.0.3"})
+	require.NoError(t, err)
+
+	got, err := s.GetByIDs(ctx, []uuid.UUID{h1.ID, h2.ID})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	gotIDs := []uuid.UUID{got[0].ID, got[1].ID}
+	assert.Contains(t, gotIDs, h1.ID)
+	assert.Contains(t, gotIDs, h2.ID)
+
+	// empty input returns empty slice without error
+	none, err := s.GetByIDs(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

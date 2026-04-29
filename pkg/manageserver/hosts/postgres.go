@@ -398,6 +398,29 @@ func (s *PostgresStore) ListByHostnames(ctx context.Context, names []string) ([]
 	return out, nil
 }
 
+func (s *PostgresStore) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]Host, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+hostSelectCols+` FROM manage_hosts WHERE id = ANY($1)`,
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("hosts: get by ids: %w", err)
+	}
+	defer rows.Close()
+	var out []Host
+	for rows.Next() {
+		h, err := scanHost(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, error) {
 	if len(hosts) == 0 {
 		return []Host{}, nil

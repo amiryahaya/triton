@@ -74,7 +74,7 @@ func TestAdminHandlers_GuardRaceFree(t *testing.T) {
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
 		"http://localhost:0", "lic-uuid-race", signed,
-		"00000000-0000-0000-0000-0000000000e1"))
+		"00000000-0000-0000-0000-0000000000e1", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",

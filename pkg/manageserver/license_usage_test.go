@@ -63,7 +63,7 @@ func TestCollectUsage_RecordsScansIntoGuard(t *testing.T) {
 	instanceID := uuid.Must(uuid.NewV7())
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		"http://localhost:0", "lic-uuid-d1", signed, instanceID.String()))
+		"http://localhost:0", "lic-uuid-d1", signed, instanceID.String(), ""))
 
 	// Seed one tag + 5 hosts linked to it. Enqueue 5 jobs against that
 	// tenant, then mark them running + completed so finished_at >= monthStart.

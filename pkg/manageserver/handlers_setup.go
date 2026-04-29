@@ -170,7 +170,7 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 
 	instanceID := uuid.Must(uuid.NewV7()).String()
 	if err := s.store.SaveLicenseActivation(r.Context(),
-		req.LicenseServerURL, req.LicenseKey, resp.Token, instanceID); err != nil {
+		req.LicenseServerURL, req.LicenseKey, resp.Token, instanceID, ""); err != nil {
 		writeError(w, http.StatusInternalServerError, "save activation: "+err.Error())
 		return
 	}

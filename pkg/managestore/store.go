@@ -36,6 +36,7 @@ type SetupState struct {
 	LicenseKey          string
 	SignedToken         string
 	InstanceID          string
+	ServerName          string   // added in migration v20
 	PendingDeactivation bool
 	UpdatedAt           time.Time
 }
@@ -65,7 +66,7 @@ type Store interface {
 	// Setup
 	GetSetup(ctx context.Context) (*SetupState, error)
 	MarkAdminCreated(ctx context.Context) error
-	SaveLicenseActivation(ctx context.Context, serverURL, key, signedToken, instanceID string) error
+	SaveLicenseActivation(ctx context.Context, serverURL, key, signedToken, instanceID, serverName string) error
 	// UpdateLicenseToken replaces only the signed token after a licence refresh.
 	UpdateLicenseToken(ctx context.Context, token string) error
 	// UpdateLicenseKey replaces the licence key and signed token together.

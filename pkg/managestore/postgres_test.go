@@ -296,7 +296,7 @@ func TestSaveLicenseActivation(t *testing.T) {
 	signedToken := "signed.token.value"
 	instanceID := uuid.Must(uuid.NewV7()).String()
 
-	require.NoError(t, s.SaveLicenseActivation(ctx, serverURL, key, signedToken, instanceID))
+	require.NoError(t, s.SaveLicenseActivation(ctx, serverURL, key, signedToken, instanceID, ""))
 
 	state, err := s.GetSetup(ctx)
 	require.NoError(t, err)
@@ -317,7 +317,7 @@ func TestSaveLicenseActivation_BeforeAdmin(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, state.AdminCreated, "precondition: admin not yet created")
 
-	err = s.SaveLicenseActivation(ctx, "https://ls.example.com", "k", "tok", uuid.Must(uuid.NewV7()).String())
+	err = s.SaveLicenseActivation(ctx, "https://ls.example.com", "k", "tok", uuid.Must(uuid.NewV7()).String(), "")
 	require.NoError(t, err, "SaveLicenseActivation should succeed even before MarkAdminCreated")
 }
 
@@ -847,6 +847,26 @@ func TestSetPendingDeactivation(t *testing.T) {
 	assert.False(t, state.PendingDeactivation)
 }
 
+func TestSetupServerName(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.MarkAdminCreated(ctx); err != nil {
+		t.Fatalf("mark admin: %v", err)
+	}
+	instanceID := uuid.Must(uuid.NewV7()).String()
+	if err := s.SaveLicenseActivation(ctx, "https://lic.example", "key123", "token456", instanceID, "KL HQ Server"); err != nil {
+		t.Fatalf("save activation: %v", err)
+	}
+	state, err := s.GetSetup(ctx)
+	if err != nil {
+		t.Fatalf("get setup: %v", err)
+	}
+	if state.ServerName != "KL HQ Server" {
+		t.Errorf("got ServerName %q, want %q", state.ServerName, "KL HQ Server")
+	}
+}
+
 func TestClearLicenseActivation(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
@@ -854,7 +874,7 @@ func TestClearLicenseActivation(t *testing.T) {
 	// Seed an activation first.
 	instanceID := uuid.Must(uuid.NewV7()).String()
 	require.NoError(t, store.SaveLicenseActivation(ctx,
-		"https://license.example.com", "key-abc", "signed-tok", instanceID))
+		"https://license.example.com", "key-abc", "signed-tok", instanceID, ""))
 
 	// Verify it was saved.
 	state, err := store.GetSetup(ctx)

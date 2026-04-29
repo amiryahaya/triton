@@ -100,9 +100,13 @@ func run() error {
 	if err := seedAdmin(ctx, store); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
-	discStore := discovery.NewPostgresStore(pool)
-	if err := seedDiscovery(ctx, pool, discStore); err != nil {
-		return fmt.Errorf("seed discovery: %w", err)
+	// Only seed discovery fixture data when explicitly requested (E2E tests).
+	// Manual "go run" sessions skip it so the Discovery page starts clean.
+	if os.Getenv("MANAGE_E2E_SEED_DISCOVERY") == "1" {
+		discStore := discovery.NewPostgresStore(pool)
+		if err := seedDiscovery(ctx, pool, discStore); err != nil {
+			return fmt.Errorf("seed discovery: %w", err)
+		}
 	}
 
 	// Start Vault dev container for credentials tests.
@@ -196,13 +200,17 @@ func startVaultDev(ctx context.Context) error {
 	// Remove any leftover container from a previous run.
 	_ = exec.CommandContext(ctx, "podman", "rm", "-f", vaultContainerName).Run()
 
+	// Use --entrypoint vault to bypass the docker-entrypoint.sh which calls
+	// setcap cap_ipc_lock — that syscall is blocked on some container runtimes.
+	// Running vault server -dev directly is equivalent and avoids the cap issue.
 	cmd := exec.CommandContext(ctx, "podman", "run", "--rm", "-d",
+		"--entrypoint", "vault",
 		"--name", vaultContainerName,
 		"-p", "8210:8200",
-		"-e", "VAULT_DEV_ROOT_TOKEN_ID="+vaultRootToken,
-		"-e", "VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200",
-		"--cap-add=IPC_LOCK",
 		"hashicorp/vault:latest",
+		"server", "-dev",
+		"-dev-root-token-id="+vaultRootToken,
+		"-dev-listen-address=0.0.0.0:8200",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman run vault: %w\n%s", err, out)

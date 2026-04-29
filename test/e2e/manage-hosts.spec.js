@@ -57,7 +57,6 @@ test.describe('Hosts — manual form', () => {
     // Fill in the form fields.
     await fieldInput(page, 'Hostname').fill('form-host-01');
     await fieldInput(page, 'IP address').fill('10.42.0.1');
-    await fieldInput(page, 'OS').fill('linux');
 
     // Submit.
     await page.locator('.t-modal').getByRole('button', { name: 'Create' }).click();
@@ -200,11 +199,12 @@ test.describe('Hosts — discovery scan import', () => {
     await expect(rows.nth(1).locator('td.col-ip')).toHaveText('10.99.0.2');
   });
 
-  test('both candidates show "New" badge (not in inventory yet)', async ({ page }) => {
+  test('both candidates have a checkbox and are selectable', async ({ page }) => {
     await gotoDiscover(page);
     await expect(page.locator('table.results-table')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.locator('.badge.badge-blue', { hasText: 'New' })).toHaveCount(2);
+    const checkboxes = page.locator('table.results-table tbody tr input[type="checkbox"]');
+    await expect(checkboxes).toHaveCount(2);
   });
 
   test('selecting candidate with hostname and importing redirects to Hosts', async ({ page }) => {

@@ -172,7 +172,6 @@ onUnmounted(() => store.stopPolling());
             <th class="col-check"></th>
             <th class="col-ip">IP Address</th>
             <th class="col-hostname">Hostname</th>
-            <th class="col-status">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -196,9 +195,6 @@ onUnmounted(() => store.stopPolling());
                 placeholder="hostname or IP"
                 class="hostname-input"
               />
-            </td>
-            <td class="col-status">
-              <span class="badge badge-blue">New</span>
             </td>
           </tr>
         </tbody>
@@ -377,17 +373,4 @@ td {
   color: #991b1b;
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-.badge-blue {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
 </style>

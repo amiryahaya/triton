@@ -210,8 +210,14 @@ func TestDeleteLastSuperadminRefused(t *testing.T) {
 	onlyID := userFromCreateResp(t, created)["id"].(string)
 	onlyTempPwd := created["tempPassword"].(string)
 
-	// Log in as the solo admin (so it has a valid session).
+	// Log in as the solo admin and change the temp password so that
+	// BlockUntilPasswordChanged lets subsequent admin-API calls through.
 	onlyJWT := loginViaAPI(t, ts.URL, "only@example.com", onlyTempPwd)
+	const onlyNewPwd = "OnlyNewPwd1234!"
+	chg := authedDo(t, ts.URL, onlyJWT, http.MethodPost, "/api/v1/auth/change-password",
+		map[string]string{"current": onlyTempPwd, "next": onlyNewPwd})
+	require.Equal(t, http.StatusOK, chg.Code)
+	onlyJWT = chg.Body["token"].(string)
 
 	// The solo admin deletes the setup admin (cross-delete — not self-delete).
 	// After this, "only@example.com" is the sole remaining platform_admin.

@@ -14,5 +14,5 @@ import "time"
 // Extracted to its own helper file so the primary audit test
 // reads linearly without a poll-sleep helper muddling the flow.
 func waitForAudit() {
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
 }

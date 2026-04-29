@@ -49,6 +49,12 @@ export type {
   ReportUserCreate,
   ReportUserUpdate,
   TenantResponse,
+  NacsaSummary,
+  NacsaServerRow,
+  NacsaHostRow,
+  NacsaCBOMRow,
+  NacsaRiskRow,
+  NacsaMigResponse,
 } from './reportServer';
 export { createManageApi } from './manageServer';
 export type { ManageApi } from './manageServer';

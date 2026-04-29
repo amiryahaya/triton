@@ -25,7 +25,6 @@ type CacheMeta struct {
 	Limits        licensestore.Limits   `json:"limits,omitempty"`
 	SoftBufferPct int                   `json:"soft_buffer_pct,omitempty"`
 	ProductScope  string                `json:"product_scope,omitempty"`
-
 }
 
 // GracePeriodDays is the number of days a cached token remains valid

@@ -36,7 +36,7 @@ type SetupState struct {
 	LicenseKey          string
 	SignedToken         string
 	InstanceID          string
-	ServerName          string   // added in migration v20
+	ServerName          string // added in migration v20
 	PendingDeactivation bool
 	UpdatedAt           time.Time
 }

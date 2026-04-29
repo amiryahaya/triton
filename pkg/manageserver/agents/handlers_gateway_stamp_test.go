@@ -44,9 +44,9 @@ func (f *fakeAgentStoreUnit) MarkActive(_ context.Context, _ uuid.UUID) error {
 func (f *fakeAgentStoreUnit) UpdateCert(_ context.Context, _ uuid.UUID, _ string, _ time.Time) error {
 	return nil
 }
-func (f *fakeAgentStoreUnit) Revoke(_ context.Context, _ uuid.UUID) error  { return nil }
-func (f *fakeAgentStoreUnit) Delete(_ context.Context, _ uuid.UUID) error  { return nil }
-func (f *fakeAgentStoreUnit) Count(_ context.Context) (int64, error)       { return 0, nil }
+func (f *fakeAgentStoreUnit) Revoke(_ context.Context, _ uuid.UUID) error { return nil }
+func (f *fakeAgentStoreUnit) Delete(_ context.Context, _ uuid.UUID) error { return nil }
+func (f *fakeAgentStoreUnit) Count(_ context.Context) (int64, error)      { return 0, nil }
 func (f *fakeAgentStoreUnit) SetCommand(_ context.Context, _ uuid.UUID, _ *AgentCommand) error {
 	return nil
 }

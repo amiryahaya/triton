@@ -48,7 +48,7 @@ func TestAgentsAdmin_Enrol_Returns_Gzip(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-test")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
@@ -110,7 +110,7 @@ func TestAgentsAdmin_Enrol_MissingName(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
@@ -126,7 +126,7 @@ func TestAgentsAdmin_Enrol_CAUnbootstrapped_503(t *testing.T) {
 	agentStore := agents.NewPostgresStore(pool)
 	// Intentionally skip Bootstrap.
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
@@ -143,7 +143,7 @@ func TestAgentsAdmin_List_Empty(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/agents/", nil)
@@ -160,7 +160,7 @@ func TestAgentsAdmin_Revoke_EndToEnd(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	// Enrol an agent so we have a row + serial to revoke.
@@ -203,7 +203,7 @@ func TestAgentsAdmin_Revoke_NotFound(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	id := uuid.Must(uuid.NewV7())
@@ -220,7 +220,7 @@ func TestAgentsAdmin_Get_NotFound(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	id := uuid.Must(uuid.NewV7())
@@ -240,7 +240,7 @@ func TestAdminHandlers_DispatchCommand_HappyPath(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	// Enrol an agent first so a valid row exists.
@@ -281,7 +281,7 @@ func TestAdminHandlers_DispatchCommand_MissingProfile(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch-badprofile")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	enrolReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
@@ -313,7 +313,7 @@ func TestAdminHandlers_DispatchCommand_NotFound(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch-notfound")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	id := uuid.Must(uuid.NewV7())
@@ -334,7 +334,7 @@ func TestAdminHandlers_DispatchCommand_BadJSON(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-dispatch-badjson")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	id := uuid.Must(uuid.NewV7())

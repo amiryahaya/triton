@@ -130,7 +130,7 @@ func newGatewayFixture(t *testing.T) *gatewayFixture {
 	// Admin handler on top of the same stores so tests can enrol + revoke
 	// without a second TLS listener. Not the real server — just enough
 	// to serve /enrol + /agents/{id}.
-	adminHandlers := agents.NewAdminHandlers(caStore, agentStore,
+	adminHandlers := agents.NewAdminHandlers(caStore, agentStore, nil,
 		"https://127.0.0.1"+portFromAddr(ln.Addr()), 60*time.Second, nil)
 	ar := chi.NewRouter()
 	ar.Route("/api/v1/admin/agents", func(r chi.Router) {

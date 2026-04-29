@@ -79,10 +79,10 @@ function onServerClick(row: NacsaServerRow) {
 }
 
 function onHostClick(row: NacsaHostRow) {
+  cbomStatusFilters.value = [];
   nacsa.drillToHost(row.hostname);
   activeTab.value = 'cbom';
-  void nacsa.fetchCBOM();
-  void nacsa.fetchRisk();
+  // fetchCBOM and fetchRisk are triggered by the watch(activeTab) handler below.
 }
 
 // ── CBOM tab ──────────────────────────────────────────────────────────────────
@@ -158,7 +158,8 @@ onMounted(() => {
 watch(activeTab, (tab) => {
   if (tab === 'cbom')      void nacsa.fetchCBOM(cbomStatusFilters.value.join(',') || undefined);
   if (tab === 'risk')      void nacsa.fetchRisk(riskSort.value);
-  if (tab === 'migration') void nacsa.fetchMigration();
+  // Only fetch migration if not already loaded — it's scope-independent.
+  if (tab === 'migration' && !nacsa.migration) void nacsa.fetchMigration();
 });
 </script>
 
@@ -299,7 +300,9 @@ watch(activeTab, (tab) => {
             <td>{{ row.module }}</td>
           </tr>
           <tr v-if="!nacsa.cbom.length">
-            <td colspan="5" class="empty">No crypto assets found for this scope.</td>
+            <td colspan="5" class="empty">
+              {{ nacsa.scope.hostname ? 'No crypto assets found for this host.' : 'Select a host from the Inventory tab to view its CBOM.' }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -347,7 +350,9 @@ watch(activeTab, (tab) => {
             </tr>
           </template>
           <tr v-if="!nacsa.risk.length">
-            <td colspan="6" class="empty">No risk items in this scope.</td>
+            <td colspan="6" class="empty">
+              {{ nacsa.scope.hostname ? 'No risk items found for this host.' : 'Select a host from the Inventory tab to view its risk register.' }}
+            </td>
           </tr>
         </tbody>
       </table>

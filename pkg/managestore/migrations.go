@@ -447,7 +447,7 @@ ALTER TABLE manage_credentials
 
 	// Version 23: Recurring scan schedules — manage_scan_schedules table.
 	// Created before manage_scan_batches (v24) which FKs to it.
-	`CREATE TABLE manage_scan_schedules (
+	`CREATE TABLE IF NOT EXISTS manage_scan_schedules (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       UUID NOT NULL,
   name            TEXT NOT NULL,
@@ -468,7 +468,7 @@ CREATE INDEX idx_manage_scan_schedules_next
   WHERE enabled = TRUE;`,
 
 	// Version 24: Scan batches — parent/child grouping + resource limits on jobs.
-	`CREATE TABLE manage_scan_batches (
+	`CREATE TABLE IF NOT EXISTS manage_scan_batches (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       UUID NOT NULL,
   job_types       TEXT[] NOT NULL,

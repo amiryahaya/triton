@@ -263,9 +263,16 @@ func (s *PostgresStore) RequestCancel(ctx context.Context, id uuid.UUID) error {
 // Uses FOR UPDATE SKIP LOCKED on an inner SELECT so concurrent workers
 // pick different rows. The RETURNING clause pulls the full Job row
 // post-UPDATE, so the caller sees status='running' and the stamped
-// worker_id / started_at.
+// worker_id / started_at. The batch status rollup is applied within
+// the same transaction so the batch row reflects 'running' immediately.
 func (s *PostgresStore) ClaimNext(ctx context.Context, workerID string) (Job, bool, error) {
-	row := s.pool.QueryRow(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Job{}, false, fmt.Errorf("claim next: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	row := tx.QueryRow(ctx,
 		`UPDATE manage_scan_jobs
 		    SET status = 'running',
 		        started_at = NOW(),
@@ -290,7 +297,12 @@ func (s *PostgresStore) ClaimNext(ctx context.Context, workerID string) (Job, bo
 	if err != nil {
 		return Job{}, false, fmt.Errorf("claim next scan job: %w", err)
 	}
-	return j, true, nil
+	if j.BatchID != nil {
+		if err := recomputeBatchStatus(ctx, tx, *j.BatchID); err != nil {
+			return Job{}, false, fmt.Errorf("claim next: recompute batch: %w", err)
+		}
+	}
+	return j, true, tx.Commit(ctx)
 }
 
 // Heartbeat refreshes running_heartbeat_at + progress_text on a running
@@ -331,36 +343,103 @@ func (s *PostgresStore) IsCancelRequested(ctx context.Context, id uuid.UUID) (bo
 	return requested, nil
 }
 
+// recomputeBatchStatus updates the batch rollup atomically within an open
+// transaction. It is a no-op when the batch is already in a terminal state
+// (completed/failed/cancelled). The CASE expression mirrors the DB lifecycle:
+//
+//   - Any child running          → batch running
+//   - All terminal, any failed   → batch failed
+//   - All cancelled              → batch cancelled
+//   - All terminal, none failed  → batch completed
+//   - Otherwise (e.g. mix of queued+terminal) → leave batch status as-is
+func recomputeBatchStatus(ctx context.Context, tx pgx.Tx, batchID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE manage_scan_batches b
+		SET
+		  status = (
+		    SELECT CASE
+		      WHEN bool_or(j.status = 'running')  THEN 'running'
+		      WHEN bool_and(j.status IN ('completed','failed','cancelled'))
+		           AND bool_or(j.status = 'failed')   THEN 'failed'
+		      WHEN bool_and(j.status = 'cancelled')   THEN 'cancelled'
+		      WHEN bool_and(j.status IN ('completed','failed','cancelled'))
+		           AND NOT bool_or(j.status = 'failed') THEN 'completed'
+		      ELSE b.status
+		    END
+		    FROM manage_scan_jobs j
+		    WHERE j.batch_id = b.id
+		  ),
+		  finished_at = CASE
+		    WHEN (
+		      SELECT bool_and(j.status IN ('completed','failed','cancelled'))
+		      FROM manage_scan_jobs j
+		      WHERE j.batch_id = b.id
+		    ) AND b.finished_at IS NULL THEN NOW()
+		    ELSE b.finished_at
+		  END
+		WHERE b.id = $1
+		  AND b.status NOT IN ('completed','failed','cancelled')`,
+		batchID,
+	)
+	return err
+}
+
 // Complete transitions running→completed. The status guard makes the
 // call idempotent: a second Complete after Cancel is a silent no-op
 // (RowsAffected=0) but not an error — terminal-state collisions are
 // expected in the orchestrator's cancel race.
 func (s *PostgresStore) Complete(ctx context.Context, id uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("complete: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var batchID *uuid.UUID
+	err = tx.QueryRow(ctx,
 		`UPDATE manage_scan_jobs
 		    SET status = 'completed', finished_at = NOW()
-		  WHERE id = $1 AND status = 'running'`,
+		  WHERE id = $1 AND status = 'running'
+		  RETURNING batch_id`,
 		id,
-	)
-	if err != nil {
+	).Scan(&batchID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("complete scan job: %w", err)
 	}
-	return nil
+	if batchID != nil {
+		if err := recomputeBatchStatus(ctx, tx, *batchID); err != nil {
+			return fmt.Errorf("complete: recompute batch: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // Fail transitions running→failed and stores errMsg for audit.
 // Like Complete, the status guard makes it idempotent.
 func (s *PostgresStore) Fail(ctx context.Context, id uuid.UUID, errMsg string) error {
-	_, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("fail: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var batchID *uuid.UUID
+	err = tx.QueryRow(ctx,
 		`UPDATE manage_scan_jobs
 		    SET status = 'failed', finished_at = NOW(), error_message = $2
-		  WHERE id = $1 AND status = 'running'`,
+		  WHERE id = $1 AND status = 'running'
+		  RETURNING batch_id`,
 		id, errMsg,
-	)
-	if err != nil {
+	).Scan(&batchID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("fail scan job: %w", err)
 	}
-	return nil
+	if batchID != nil {
+		if err := recomputeBatchStatus(ctx, tx, *batchID); err != nil {
+			return fmt.Errorf("fail: recompute batch: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // Cancel transitions queued|running→cancelled. Guarded on the non-
@@ -368,16 +447,29 @@ func (s *PostgresStore) Fail(ctx context.Context, id uuid.UUID, errMsg string) e
 // completed the scan a microsecond before the admin cancelled it) are
 // silent no-ops rather than errors.
 func (s *PostgresStore) Cancel(ctx context.Context, id uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("cancel: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var batchID *uuid.UUID
+	err = tx.QueryRow(ctx,
 		`UPDATE manage_scan_jobs
 		    SET status = 'cancelled', finished_at = NOW()
-		  WHERE id = $1 AND status IN ('queued','running')`,
+		  WHERE id = $1 AND status IN ('queued','running')
+		  RETURNING batch_id`,
 		id,
-	)
-	if err != nil {
+	).Scan(&batchID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("cancel scan job: %w", err)
 	}
-	return nil
+	if batchID != nil {
+		if err := recomputeBatchStatus(ctx, tx, *batchID); err != nil {
+			return fmt.Errorf("cancel: recompute batch: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // PlanEnqueueCount runs the same tag/host expansion query as
@@ -501,9 +593,16 @@ func (s *PostgresStore) ListQueued(ctx context.Context, jobTypes []string, limit
 // stamps worker_id + started_at + running_heartbeat_at. Returns ErrNotFound
 // when no row with the given id exists, or ErrAlreadyClaimed when the row
 // exists but is no longer in 'queued' status (race with another worker or a
-// prior cancel/complete).
+// prior cancel/complete). The batch status rollup is applied within the same
+// transaction so the batch row reflects 'running' immediately.
 func (s *PostgresStore) ClaimByID(ctx context.Context, id uuid.UUID, workerID string) (Job, error) {
-	row := s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Job{}, fmt.Errorf("claim by id: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	row := tx.QueryRow(ctx, `
 		UPDATE manage_scan_jobs
 		SET status = 'running',
 		    worker_id = $2,
@@ -515,14 +614,23 @@ func (s *PostgresStore) ClaimByID(ctx context.Context, id uuid.UUID, workerID st
 	)
 	j, err := scanJob(row)
 	if err == nil {
+		if j.BatchID != nil {
+			if rerr := recomputeBatchStatus(ctx, tx, *j.BatchID); rerr != nil {
+				return Job{}, fmt.Errorf("claim by id: recompute batch: %w", rerr)
+			}
+		}
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return Job{}, fmt.Errorf("claim by id: commit: %w", cerr)
+		}
 		return j, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, fmt.Errorf("claim scan job by id: %w", err)
 	}
 	// ErrNoRows: distinguish job-not-found from job-already-claimed atomically.
+	// Use the open transaction for the existence check to avoid a separate roundtrip.
 	var total, queued int
-	if qerr := s.pool.QueryRow(ctx,
+	if qerr := tx.QueryRow(ctx,
 		`SELECT COUNT(*) FILTER (WHERE TRUE),
 		        COUNT(*) FILTER (WHERE status = 'queued')
 		 FROM manage_scan_jobs WHERE id = $1`, id).Scan(&total, &queued); qerr != nil {

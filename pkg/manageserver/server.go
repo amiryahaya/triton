@@ -83,6 +83,8 @@ type Server struct {
 	// construction stays side-effect-free and testable.
 	scanjobsAdmin   *scanjobs.AdminHandlers
 	batchAdmin      *scanjobs.BatchHandlers
+	scheduleAdmin   *scanjobs.ScheduleHandlers
+	scheduleRunner  *scanjobs.ScheduleRunner
 	pushStatusAdmin *scanresults.AdminHandlers
 	scanjobsStore   scanjobs.Store
 	resultsStore    scanresults.Store
@@ -223,6 +225,12 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	})
 	srv.scanjobsAdmin = scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, srv.scanGuardProvider)
 	srv.batchAdmin = scanjobs.NewBatchHandlers(scanjobsStore, hostsStore)
+	srv.scheduleAdmin = scanjobs.NewScheduleHandlers(scanjobsStore)
+	srv.scheduleRunner = scanjobs.NewScheduleRunner(scanjobs.ScheduleRunnerConfig{
+		ScheduleStore: scanjobsStore,
+		BatchStore:    scanjobsStore,
+		HostsStore:    hostsStore,
+	})
 	srv.agentsAdmin = agents.NewAdminHandlers(
 		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
 	)
@@ -337,6 +345,10 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/scan-batches", func(r chi.Router) {
 			r.Use(s.rejectWhenDeactivationPending)
 			scanjobs.MountBatchRoutes(r, s.batchAdmin)
+		})
+		r.Route("/scan-schedules", func(r chi.Router) {
+			r.Use(s.rejectWhenDeactivationPending)
+			scanjobs.MountScheduleRoutes(r, s.scheduleAdmin)
 		})
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })
@@ -543,6 +555,12 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	go func() {
 		defer wg.Done()
 		orch.Run(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.scheduleRunner.Run(ctx)
 	}()
 
 	// Dispatcher spawns triton-portscan subprocesses for port_survey jobs.

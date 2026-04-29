@@ -39,6 +39,19 @@ func MountBatchRoutes(r chi.Router, h *BatchHandlers) {
 	r.Get("/", h.ListBatches)
 }
 
+// MountScheduleRoutes wires the recurring schedule admin API onto r.
+//
+//	POST   /       - create schedule → 201 Schedule
+//	GET    /       - list schedules for tenant → 200 []Schedule
+//	PATCH  /{id}   - toggle enabled / update name+cron → 200 Schedule
+//	DELETE /{id}   - delete schedule → 204
+func MountScheduleRoutes(r chi.Router, h *ScheduleHandlers) {
+	r.Post("/", h.CreateSchedule)
+	r.Get("/", h.ListSchedules)
+	r.Patch("/{id}", h.PatchSchedule)
+	r.Delete("/{id}", h.DeleteSchedule)
+}
+
 // MountWorkerRoutes wires the Worker API onto r under whatever parent path it's
 // mounted on (Manage server uses /api/v1/worker).
 // key is the shared X-Worker-Key secret.

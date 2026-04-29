@@ -1,7 +1,9 @@
 export interface Organisation {
   id: string;
   name: string;
-  contact: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
   notes: string;
   suspended: boolean;
   activeActivations: number;

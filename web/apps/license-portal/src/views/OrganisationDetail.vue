@@ -6,6 +6,7 @@ import {
 } from '@triton/ui';
 import type { Organisation, Licence } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
+import OrganisationForm, { type OrgFormPayload } from './modals/OrganisationForm.vue';
 
 const api = useApiClient();
 const toast = useToast();
@@ -14,6 +15,7 @@ const id = computed(() => String(route.params.id));
 
 const org = ref<Organisation | null>(null);
 const licences = ref<Licence[]>([]);
+const editOpen = ref(false);
 
 type LicenceStatus = 'Active' | 'Revoked' | 'Expired';
 
@@ -86,6 +88,18 @@ async function toggleSuspend() {
     toast.error({ title: 'Action failed', description: String(err) });
   }
 }
+
+async function onEditSubmit(payload: OrgFormPayload) {
+  if (!org.value) return;
+  try {
+    const updated = await api.get().updateOrg(org.value.id, payload);
+    org.value = updated;
+    editOpen.value = false;
+    toast.success({ title: 'Organisation updated' });
+  } catch (err) {
+    toast.error({ title: 'Update failed', description: String(err) });
+  }
+}
 </script>
 
 <template>
@@ -98,6 +112,14 @@ async function toggleSuspend() {
         <TButton
           variant="secondary"
           size="sm"
+          data-test="org-detail-edit"
+          @click="editOpen = true"
+        >
+          Edit
+        </TButton>
+        <TButton
+          variant="secondary"
+          size="sm"
           data-test="org-detail-suspend"
           @click="toggleSuspend"
         >
@@ -106,7 +128,9 @@ async function toggleSuspend() {
       </template>
       <dl class="kv">
         <dt>ID</dt><dd class="mono">{{ org.id }}</dd>
-        <dt>Contact</dt><dd>{{ org.contact || '—' }}</dd>
+        <dt>Contact Name</dt><dd>{{ org.contact_name || '—' }}</dd>
+        <dt>Contact Email</dt><dd>{{ org.contact_email || '—' }}</dd>
+        <dt>Contact Phone</dt><dd>{{ org.contact_phone || '—' }}</dd>
         <dt>Notes</dt><dd>{{ org.notes || '—' }}</dd>
         <dt>Status</dt>
         <dd>
@@ -142,6 +166,13 @@ async function toggleSuspend() {
     </TPanel>
   </div>
   <p v-else>Loading…</p>
+
+  <OrganisationForm
+    :open="editOpen"
+    :org="org ?? undefined"
+    @close="editOpen = false"
+    @submit="onEditSubmit"
+  />
 </template>
 
 <style scoped>

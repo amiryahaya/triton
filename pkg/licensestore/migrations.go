@@ -201,4 +201,9 @@ var migrations = []string{
 		ADD COLUMN IF NOT EXISTS notified_30d_at TIMESTAMPTZ,
 		ADD COLUMN IF NOT EXISTS notified_7d_at  TIMESTAMPTZ,
 		ADD COLUMN IF NOT EXISTS notified_1d_at  TIMESTAMPTZ;`,
+
+	// Version 11: activation_type on activations — differentiates report_server,
+	// manage_server, and agent seat holders.
+	`ALTER TABLE activations ADD COLUMN IF NOT EXISTS activation_type TEXT NOT NULL DEFAULT 'agent'
+ CHECK (activation_type IN ('report_server', 'manage_server', 'agent'));`,
 }

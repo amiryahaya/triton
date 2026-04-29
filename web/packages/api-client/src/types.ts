@@ -65,6 +65,7 @@ export interface Activation {
   lastSeenAt: string;
   deactivatedAt?: string | null;
   active: boolean;
+  activationType: string;
 }
 
 export interface AuditEntry {

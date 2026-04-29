@@ -169,7 +169,7 @@ func TestPortalScheduleLifecycle(t *testing.T) {
 
 	// 2. Activate a machine.
 	sc := license.NewServerClient(serverURL)
-	act, err := sc.Activate(licID)
+	act, err := sc.Activate(licID, license.ActivationTypeAgent)
 	require.NoError(t, err, "Activate")
 	require.NotEmpty(t, act.Token)
 

@@ -178,8 +178,9 @@ type Activation struct {
 	Token         string     `json:"token"`
 	ActivatedAt   time.Time  `json:"activatedAt"`
 	LastSeenAt    time.Time  `json:"lastSeenAt"`
-	DeactivatedAt *time.Time `json:"deactivatedAt,omitempty"`
-	Active        bool       `json:"active"`
+	DeactivatedAt  *time.Time `json:"deactivatedAt,omitempty"`
+	Active         bool       `json:"active"`
+	ActivationType string     `json:"activationType"`
 }
 
 // AuditEntry represents a single audit log entry.

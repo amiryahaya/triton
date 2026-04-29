@@ -591,9 +591,9 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 		if existingActive {
 			// Already active — just update last_seen and return existing info
 			if _, err := tx.Exec(ctx,
-				`UPDATE activations SET last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5
+				`UPDATE activations SET last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5, activation_type = $6
 				 WHERE id = $1`,
-				existingID, act.Hostname, act.OS, act.Arch, act.Token,
+				existingID, act.Hostname, act.OS, act.Arch, act.Token, act.ActivationType,
 			); err != nil {
 				_ = tx.Rollback(ctx)
 				return fmt.Errorf("updating activation: %w", err)
@@ -623,9 +623,9 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE activations SET active = TRUE, deactivated_at = NULL,
-			 last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5
+			 last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5, activation_type = $6
 			 WHERE id = $1`,
-			existingID, act.Hostname, act.OS, act.Arch, act.Token,
+			existingID, act.Hostname, act.OS, act.Arch, act.Token, act.ActivationType,
 		); err != nil {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("re-activating: %w", err)
@@ -659,10 +659,10 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 
 	// Insert new activation
 	_, err = tx.Exec(ctx,
-		`INSERT INTO activations (id, license_id, machine_id, hostname, os, arch, token, activated_at, last_seen_at, active)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)`,
+		`INSERT INTO activations (id, license_id, machine_id, hostname, os, arch, token, activated_at, last_seen_at, active, activation_type)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10)`,
 		act.ID, act.LicenseID, act.MachineID, act.Hostname, act.OS, act.Arch, act.Token,
-		act.ActivatedAt, act.LastSeenAt,
+		act.ActivatedAt, act.LastSeenAt, act.ActivationType,
 	)
 	if err != nil {
 		_ = tx.Rollback(ctx)
@@ -691,10 +691,10 @@ func (s *PostgresStore) GetActivation(ctx context.Context, id string) (*Activati
 	var act Activation
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, license_id, machine_id, hostname, os, arch, token,
-		        activated_at, last_seen_at, deactivated_at, active
+		        activated_at, last_seen_at, deactivated_at, active, activation_type
 		 FROM activations WHERE id = $1`, id,
 	).Scan(&act.ID, &act.LicenseID, &act.MachineID, &act.Hostname, &act.OS, &act.Arch, &act.Token,
-		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active,
+		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active, &act.ActivationType,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "activation", ID: id}
@@ -709,10 +709,10 @@ func (s *PostgresStore) GetActivationByMachine(ctx context.Context, licenseID, m
 	var act Activation
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, license_id, machine_id, hostname, os, arch, token,
-		        activated_at, last_seen_at, deactivated_at, active
+		        activated_at, last_seen_at, deactivated_at, active, activation_type
 		 FROM activations WHERE license_id = $1 AND machine_id = $2`, licenseID, machineID,
 	).Scan(&act.ID, &act.LicenseID, &act.MachineID, &act.Hostname, &act.OS, &act.Arch, &act.Token,
-		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active,
+		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active, &act.ActivationType,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "activation", ID: licenseID + "/" + machineID}
@@ -725,7 +725,7 @@ func (s *PostgresStore) GetActivationByMachine(ctx context.Context, licenseID, m
 
 func (s *PostgresStore) ListActivations(ctx context.Context, filter ActivationFilter) ([]Activation, error) {
 	query := `SELECT id, license_id, machine_id, hostname, os, arch, token,
-	                 activated_at, last_seen_at, deactivated_at, active
+	                 activated_at, last_seen_at, deactivated_at, active, activation_type
 	          FROM activations WHERE 1=1`
 	var args []any
 	paramIdx := 0
@@ -758,7 +758,7 @@ func (s *PostgresStore) ListActivations(ctx context.Context, filter ActivationFi
 	for rows.Next() {
 		var act Activation
 		if err := rows.Scan(&act.ID, &act.LicenseID, &act.MachineID, &act.Hostname, &act.OS, &act.Arch, &act.Token,
-			&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active,
+			&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active, &act.ActivationType,
 		); err != nil {
 			return nil, fmt.Errorf("scanning activation: %w", err)
 		}

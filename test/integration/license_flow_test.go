@@ -58,7 +58,7 @@ func createOrgAndLicenseWithTier(t *testing.T, serverURL, tier string, seats, da
 func activateAndGetToken(t *testing.T, serverURL, licenseID string) string {
 	t.Helper()
 	client := license.NewServerClient(serverURL)
-	actResp, err := client.Activate(licenseID)
+	actResp, err := client.Activate(licenseID, license.ActivationTypeAgent)
 	require.NoError(t, err)
 	require.NotEmpty(t, actResp.Token)
 	return actResp.Token

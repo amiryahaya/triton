@@ -13,6 +13,13 @@ import (
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
+// ActivationType constants identify which kind of service holds a licence seat.
+const (
+	ActivationTypeAgent        = "agent"
+	ActivationTypeReportServer = "report_server"
+	ActivationTypeManageServer = "manage_server"
+)
+
 // ServerClient communicates with the Triton License Server.
 type ServerClient struct {
 	baseURL    string
@@ -77,14 +84,15 @@ type ValidateResponse struct {
 }
 
 // Activate registers this machine with the license server.
-func (c *ServerClient) Activate(licenseID string) (*ActivateResponse, error) {
+func (c *ServerClient) Activate(licenseID, activationType string) (*ActivateResponse, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]string{
-		"licenseID": licenseID,
-		"machineID": MachineFingerprint(),
-		"hostname":  hostname,
-		"os":        runtime.GOOS,
-		"arch":      runtime.GOARCH,
+		"licenseID":       licenseID,
+		"machineID":       MachineFingerprint(),
+		"hostname":        hostname,
+		"os":              runtime.GOOS,
+		"arch":            runtime.GOARCH,
+		"activation_type": activationType,
 	}
 
 	data, err := json.Marshal(body)
@@ -184,10 +192,11 @@ func (c *ServerClient) Validate(licenseID, token string) (*ValidateResponse, err
 // ActivateForTenant activates a licence with a custom machineID.
 // The Report Portal uses machineID = instanceID + "/" + tenantID so that
 // each (deployment, tenant) pair occupies a unique activation seat.
-func (c *ServerClient) ActivateForTenant(licenceKey, machineID string) (*ActivateResponse, error) {
+func (c *ServerClient) ActivateForTenant(licenceKey, machineID, activationType string) (*ActivateResponse, error) {
 	body := map[string]string{
-		"licenseID": licenceKey,
-		"machineID": machineID,
+		"licenseID":       licenceKey,
+		"machineID":       machineID,
+		"activation_type": activationType,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

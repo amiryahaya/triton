@@ -188,7 +188,7 @@ func TestLicenseServer_FullLifecycle(t *testing.T) {
 	client := license.NewServerClient(serverURL)
 
 	// Activate
-	actResp, err := client.Activate(licID)
+	actResp, err := client.Activate(licID, license.ActivationTypeAgent)
 	require.NoError(t, err)
 	assert.NotEmpty(t, actResp.Token)
 	assert.Equal(t, "pro", actResp.Tier)
@@ -259,10 +259,10 @@ func TestLicenseServer_Reactivation(t *testing.T) {
 
 	client := license.NewServerClient(serverURL)
 
-	_, err := client.Activate(licID)
+	_, err := client.Activate(licID, license.ActivationTypeAgent)
 	require.NoError(t, err)
 	require.NoError(t, client.Deactivate(licID))
-	resp, err := client.Activate(licID)
+	resp, err := client.Activate(licID, license.ActivationTypeAgent)
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Token)
 	assert.Equal(t, 1, resp.SeatsUsed)
@@ -350,7 +350,7 @@ func TestLicenseServer_AuditTrail(t *testing.T) {
 	_, licID := createTestOrgAndLicense(t, serverURL, 5)
 
 	client := license.NewServerClient(serverURL)
-	_, _ = client.Activate(licID)
+	_, _ = client.Activate(licID, license.ActivationTypeAgent)
 	_ = client.Deactivate(licID)
 
 	resp := licAdminReq(t, "GET", serverURL+"/api/v1/admin/audit?limit=20", nil)
@@ -470,7 +470,7 @@ func TestLicenseServer_ExpiredLicense(t *testing.T) {
 	require.NoError(t, store.CreateLicense(context.Background(), lic))
 
 	client := license.NewServerClient(serverURL)
-	_, err := client.Activate(expiredLicID)
+	_, err := client.Activate(expiredLicID, license.ActivationTypeAgent)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expired")
 }
@@ -844,7 +844,7 @@ func TestLicenseServer_AuditFilter_ByEventType(t *testing.T) {
 	_, licID := createTestOrgAndLicense(t, serverURL, 5)
 
 	client := license.NewServerClient(serverURL)
-	_, err := client.Activate(licID)
+	_, err := client.Activate(licID, license.ActivationTypeAgent)
 	require.NoError(t, err)
 	require.NoError(t, client.Deactivate(licID))
 
@@ -1036,7 +1036,7 @@ func TestLicenseServer_ClientLib_FullRoundTrip(t *testing.T) {
 	require.NoError(t, client.Health())
 
 	// Activate
-	actResp, err := client.Activate(licID)
+	actResp, err := client.Activate(licID, license.ActivationTypeAgent)
 	require.NoError(t, err)
 	assert.NotEmpty(t, actResp.Token)
 	assert.Equal(t, "pro", actResp.Tier)
@@ -1082,14 +1082,14 @@ func TestLicenseServer_ClientLib_ActivateErrors(t *testing.T) {
 	client := license.NewServerClient(serverURL)
 
 	// Invalid license ID → not found
-	_, err := client.Activate(uuid.Must(uuid.NewV7()).String())
+	_, err := client.Activate(uuid.Must(uuid.NewV7()).String(), license.ActivationTypeAgent)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 
 	// Revoked license → denied
 	resp = licAdminReq(t, "POST", serverURL+"/api/v1/admin/licenses/"+licID+"/revoke", nil)
 	resp.Body.Close()
-	_, err = client.Activate(licID)
+	_, err = client.Activate(licID, license.ActivationTypeAgent)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "denied")
 
@@ -1112,7 +1112,7 @@ func TestLicenseServer_ClientLib_ActivateErrors(t *testing.T) {
 	rawResp.Body.Close()
 
 	// Now client (different machine fingerprint) should fail
-	_, err = client.Activate(licID2)
+	_, err = client.Activate(licID2, license.ActivationTypeAgent)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "seats")
 }

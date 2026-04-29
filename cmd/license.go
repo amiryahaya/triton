@@ -125,7 +125,7 @@ func runLicenseActivate(_ *cobra.Command, _ []string) error {
 	fmt.Printf("Activating machine with license server at %s...\n", serverURL)
 	fmt.Printf("Machine fingerprint: %s\n", license.MachineFingerprint())
 
-	resp, err := client.Activate(licenseID)
+	resp, err := client.Activate(licenseID, license.ActivationTypeAgent)
 	if err != nil {
 		return fmt.Errorf("activation failed: %w", err)
 	}

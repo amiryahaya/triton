@@ -31,7 +31,7 @@ func (s *Server) handleLicenceRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := license.NewServerClient(state.LicenseServerURL)
-	resp, err := client.Activate(state.LicenseKey)
+	resp, err := client.Activate(state.LicenseKey, license.ActivationTypeManageServer)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -76,7 +76,7 @@ func (s *Server) handleLicenceReplace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := license.NewServerClient(state.LicenseServerURL)
-	resp, err := client.Activate(req.LicenseKey)
+	resp, err := client.Activate(req.LicenseKey, license.ActivationTypeManageServer)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return

@@ -225,6 +225,10 @@ LIMIT 5`, cte2)
 		return NacsaSummary{}, err
 	}
 
+	if blockers == nil {
+		blockers = []NacsaBlocker{}
+	}
+
 	return NacsaSummary{
 		ReadinessPct:    nacsaReadinessPct(safe, total),
 		TargetPct:       80,
@@ -257,6 +261,9 @@ func (s *PostgresStore) listNacsaPhasesSummary(ctx context.Context, orgID string
 			return nil, err
 		}
 		phases = append(phases, p)
+	}
+	if phases == nil {
+		phases = []NacsaPhase{}
 	}
 	return phases, rows.Err()
 }
@@ -512,6 +519,10 @@ func (s *PostgresStore) GetNacsaMigration(ctx context.Context, orgID string) (Na
 	}
 	if err := aRows.Err(); err != nil {
 		return NacsaMigResponse{}, err
+	}
+
+	if phases == nil {
+		phases = []NacsaMigPhase{}
 	}
 
 	return NacsaMigResponse{Phases: phases}, nil

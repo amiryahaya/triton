@@ -30,7 +30,10 @@ var _ Store = (*PostgresStore)(nil)
 // jobSelectCols lists the columns expected by scanJob. COALESCE on
 // worker_id lets us read the nullable TEXT column into a plain
 // `string` Go field (empty-string = not-yet-claimed).
-const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested, COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at, progress_text, error_message, COALESCE(job_type,'filesystem'), scheduled_at, port_override`
+const jobSelectCols = `id, tenant_id, host_id, profile, credentials_ref, status, cancel_requested,
+	COALESCE(worker_id,''), enqueued_at, started_at, finished_at, running_heartbeat_at,
+	progress_text, error_message, COALESCE(job_type,'filesystem'), scheduled_at, port_override,
+	batch_id, max_cpu_pct, max_memory_mb, max_duration_s`
 
 // defaultListLimit is the fallback page size for List when a non-positive
 // limit is supplied. 100 keeps API responses bounded without operator
@@ -55,6 +58,7 @@ func scanJob(row pgx.Row) (Job, error) {
 		&j.StartedAt, &j.FinishedAt, &j.RunningHeartbeatAt,
 		&j.ProgressText, &j.ErrorMessage,
 		&jobTypeStr, &j.ScheduledAt, &portOverride,
+		&j.BatchID, &j.MaxCPUPct, &j.MaxMemoryMB, &j.MaxDurationS,
 	); err != nil {
 		return Job{}, err
 	}
@@ -528,4 +532,142 @@ func (s *PostgresStore) ClaimByID(ctx context.Context, id uuid.UUID, workerID st
 		return Job{}, ErrNotFound
 	}
 	return Job{}, ErrAlreadyClaimed
+}
+
+// Compile-time assertion: PostgresStore must implement BatchStore.
+var _ BatchStore = (*PostgresStore)(nil)
+
+func jobTypesToStrings(jts []JobType) []string {
+	out := make([]string, len(jts))
+	for i, jt := range jts {
+		out[i] = string(jt)
+	}
+	return out
+}
+
+// EnqueueBatch creates one manage_scan_batches row and one manage_scan_jobs
+// row per spec, atomically. skipped is returned in the response but not
+// persisted to the DB.
+func (s *PostgresStore) EnqueueBatch(ctx context.Context, req BatchEnqueueReq, specs []JobSpec, skipped []SkippedJob) (BatchEnqueueResp, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return BatchEnqueueResp{}, fmt.Errorf("begin batch tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var batchID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO manage_scan_batches
+		  (tenant_id, job_types, host_ids, profile, max_cpu_pct, max_memory_mb, max_duration_s, schedule_id)
+		VALUES ($1, $2::text[], $3::uuid[], $4, $5, $6, $7, $8)
+		RETURNING id`,
+		req.TenantID,
+		jobTypesToStrings(req.JobTypes),
+		req.HostIDs,
+		string(req.Profile),
+		req.MaxCPUPct,
+		req.MaxMemoryMB,
+		req.MaxDurationS,
+		req.ScheduleID,
+	).Scan(&batchID)
+	if err != nil {
+		return BatchEnqueueResp{}, fmt.Errorf("insert batch: %w", err)
+	}
+
+	for _, spec := range specs {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO manage_scan_jobs
+			  (tenant_id, host_id, profile, job_type, credentials_ref,
+			   batch_id, max_cpu_pct, max_memory_mb, max_duration_s)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			req.TenantID, spec.HostID, string(req.Profile), string(spec.JobType),
+			credRefArg(spec.CredentialsRef), batchID,
+			req.MaxCPUPct, req.MaxMemoryMB, req.MaxDurationS,
+		)
+		if err != nil {
+			return BatchEnqueueResp{}, fmt.Errorf("insert job for batch: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return BatchEnqueueResp{}, err
+	}
+	return BatchEnqueueResp{
+		BatchID:     batchID,
+		JobsCreated: len(specs),
+		JobsSkipped: skipped,
+	}, nil
+}
+
+// GetBatch returns a single batch by ID with an aggregated jobs_created count.
+// Returns ErrNotFound when the batch does not exist.
+func (s *PostgresStore) GetBatch(ctx context.Context, id uuid.UUID) (Batch, error) {
+	var b Batch
+	var jobTypes []string
+	err := s.pool.QueryRow(ctx, `
+		SELECT b.id, b.tenant_id, b.job_types, b.host_ids, b.profile,
+		       b.max_cpu_pct, b.max_memory_mb, b.max_duration_s,
+		       b.schedule_id, b.status, b.enqueued_at, b.finished_at,
+		       COUNT(j.id) AS jobs_created
+		FROM manage_scan_batches b
+		LEFT JOIN manage_scan_jobs j ON j.batch_id = b.id
+		WHERE b.id = $1
+		GROUP BY b.id`, id,
+	).Scan(
+		&b.ID, &b.TenantID, &jobTypes, &b.HostIDs, &b.Profile,
+		&b.MaxCPUPct, &b.MaxMemoryMB, &b.MaxDurationS,
+		&b.ScheduleID, &b.Status, &b.EnqueuedAt, &b.FinishedAt,
+		&b.JobsCreated,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Batch{}, ErrNotFound
+	}
+	if err != nil {
+		return Batch{}, err
+	}
+	for _, jt := range jobTypes {
+		b.JobTypes = append(b.JobTypes, JobType(jt))
+	}
+	return b, nil
+}
+
+// ListBatches returns the most recent batches for a tenant, newest first.
+// limit <= 0 falls back to 50.
+func (s *PostgresStore) ListBatches(ctx context.Context, tenantID uuid.UUID, limit int) ([]Batch, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT b.id, b.tenant_id, b.job_types, b.host_ids, b.profile,
+		       b.max_cpu_pct, b.max_memory_mb, b.max_duration_s,
+		       b.schedule_id, b.status, b.enqueued_at, b.finished_at,
+		       COUNT(j.id) AS jobs_created
+		FROM manage_scan_batches b
+		LEFT JOIN manage_scan_jobs j ON j.batch_id = b.id
+		WHERE b.tenant_id = $1
+		GROUP BY b.id
+		ORDER BY b.enqueued_at DESC
+		LIMIT $2`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Batch
+	for rows.Next() {
+		var b Batch
+		var jobTypes []string
+		if err := rows.Scan(
+			&b.ID, &b.TenantID, &jobTypes, &b.HostIDs, &b.Profile,
+			&b.MaxCPUPct, &b.MaxMemoryMB, &b.MaxDurationS,
+			&b.ScheduleID, &b.Status, &b.EnqueuedAt, &b.FinishedAt,
+			&b.JobsCreated,
+		); err != nil {
+			return nil, err
+		}
+		for _, jt := range jobTypes {
+			b.JobTypes = append(b.JobTypes, JobType(jt))
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }

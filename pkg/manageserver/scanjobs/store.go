@@ -120,3 +120,20 @@ type Store interface {
 	// Returns ErrAlreadyClaimed when the job is not in 'queued' status.
 	ClaimByID(ctx context.Context, id uuid.UUID, workerID string) (Job, error)
 }
+
+// BatchStore is the persistence boundary for scan batches.
+type BatchStore interface {
+	// EnqueueBatch creates one manage_scan_batches row and one
+	// manage_scan_jobs row per spec, atomically. Returns the new batch ID
+	// and a count of jobs inserted. skipped is stored on the response but
+	// not persisted to DB.
+	EnqueueBatch(ctx context.Context, req BatchEnqueueReq, specs []JobSpec, skipped []SkippedJob) (BatchEnqueueResp, error)
+
+	// GetBatch returns a single batch by ID with an aggregated jobs_created
+	// count. Returns ErrNotFound when the batch does not exist.
+	GetBatch(ctx context.Context, id uuid.UUID) (Batch, error)
+
+	// ListBatches returns the most recent batches for a tenant, newest first.
+	// limit <= 0 falls back to 50.
+	ListBatches(ctx context.Context, tenantID uuid.UUID, limit int) ([]Batch, error)
+}

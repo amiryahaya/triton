@@ -164,3 +164,42 @@ type JobSpec struct {
 	CredentialsRef *uuid.UUID
 	SSHPort        *int
 }
+
+// Schedule is one row of manage_scan_schedules.
+type Schedule struct {
+	ID           uuid.UUID   `json:"id"`
+	TenantID     uuid.UUID   `json:"tenant_id"`
+	Name         string      `json:"name"`
+	JobTypes     []JobType   `json:"job_types"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	CronExpr     string      `json:"cron_expr"`
+	MaxCPUPct    *int        `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB  *int        `json:"max_memory_mb,omitempty"`
+	MaxDurationS *int        `json:"max_duration_s,omitempty"`
+	Enabled      bool        `json:"enabled"`
+	LastRunAt    *time.Time  `json:"last_run_at,omitempty"`
+	NextRunAt    time.Time   `json:"next_run_at"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+// ScheduleReq is the parsed body of POST /api/v1/admin/scan-schedules.
+type ScheduleReq struct {
+	TenantID     uuid.UUID   `json:"-"`
+	Name         string      `json:"name"`
+	JobTypes     []JobType   `json:"job_types"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	CronExpr     string      `json:"cron_expr"`
+	MaxCPUPct    *int        `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB  *int        `json:"max_memory_mb,omitempty"`
+	MaxDurationS *int        `json:"max_duration_s,omitempty"`
+}
+
+// SchedulePatchReq is the parsed body of PATCH /api/v1/admin/scan-schedules/:id.
+// Only non-nil fields are applied.
+type SchedulePatchReq struct {
+	Enabled  *bool   `json:"enabled,omitempty"`
+	Name     *string `json:"name,omitempty"`
+	CronExpr *string `json:"cron_expr,omitempty"`
+}

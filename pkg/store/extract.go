@@ -71,6 +71,7 @@ func ExtractFindings(scan *model.ScanResult) []Finding {
 			CreatedAt:         now,
 			ImageRef:          ca.ImageRef,
 			ImageDigest:       ca.ImageDigest,
+			ManageServerID:    scan.Metadata.ManageServerID,
 		})
 	}
 	return out

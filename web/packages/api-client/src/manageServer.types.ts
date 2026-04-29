@@ -75,7 +75,7 @@ export interface Host {
   created_at: string;
   updated_at: string;
   credentials_ref?: string;
-  access_port: number;
+  ssh_port: number;
 }
 
 export interface CreateHostReq {
@@ -86,7 +86,7 @@ export interface CreateHostReq {
   tag_ids?: string[];
   tags?: string[];  // name-based form for CSV import
   credentials_ref?: string | null;
-  access_port?: number;
+  ssh_port?: number;
 }
 
 export interface UpdateHostReq {
@@ -94,7 +94,7 @@ export interface UpdateHostReq {
   hostname?: string;
   os?: string;
   credentials_ref?: string | null;
-  access_port?: number;
+  ssh_port?: number;
 }
 
 export type CredentialAuthType = 'ssh-key' | 'ssh-password' | 'winrm-password';
@@ -279,10 +279,11 @@ export interface DeactivateLicenceResp {
 export interface DiscoveryJob {
   id: string;
   cidr: string;
-  ports: number[];
+  ssh_port: number;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   total_ips: number;
   scanned_ips: number;
+  found_ips: number;
   started_at?: string;
   finished_at?: string;
   error_message: string;
@@ -293,10 +294,6 @@ export interface DiscoveryCandidate {
   id: string;
   ip: string;
   hostname: string | null;
-  open_ports: number[];
-  os?: string;
-  mac_address?: string;
-  mdns_name?: string;
   existing_host_id: string | null;
 }
 
@@ -313,4 +310,77 @@ export interface DiscoveryImportResp {
   imported: number;
   skipped: number;
   errors: { ip: string; reason: string }[];
+}
+
+// Batch types
+export interface ScanBatch {
+  id: string;
+  tenant_id: string;
+  job_types: string[];
+  host_ids: string[];
+  profile: string;
+  max_cpu_pct?: number;
+  max_memory_mb?: number;
+  max_duration_s?: number;
+  schedule_id?: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  jobs_created: number;
+  enqueued_at: string;
+  finished_at?: string;
+}
+
+export interface SkippedJob {
+  host_id: string;
+  job_type: string;
+  reason: string; // "no_credential"
+}
+
+export interface BatchEnqueueReq {
+  job_types: string[];
+  host_ids: string[];
+  profile: string;
+  max_cpu_pct?: number | null;
+  max_memory_mb?: number | null;
+  max_duration_s?: number | null;
+}
+
+export interface BatchEnqueueResp {
+  batch_id: string;
+  jobs_created: number;
+  jobs_skipped: SkippedJob[];
+}
+
+// Schedule types
+export interface ScanSchedule {
+  id: string;
+  tenant_id: string;
+  name: string;
+  job_types: string[];
+  host_ids: string[];
+  profile: string;
+  cron_expr: string;
+  max_cpu_pct?: number;
+  max_memory_mb?: number;
+  max_duration_s?: number;
+  enabled: boolean;
+  last_run_at?: string;
+  next_run_at: string;
+  created_at: string;
+}
+
+export interface ScheduleReq {
+  name: string;
+  job_types: string[];
+  host_ids: string[];
+  profile: string;
+  cron_expr: string;
+  max_cpu_pct?: number | null;
+  max_memory_mb?: number | null;
+  max_duration_s?: number | null;
+}
+
+export interface SchedulePatchReq {
+  enabled?: boolean;
+  name?: string;
+  cron_expr?: string;
 }

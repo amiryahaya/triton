@@ -12,6 +12,8 @@ import type {
   LicenceLifecycleResp, ReplaceLicenceKeyReq, DeactivateLicenceResp,
   DiscoveryJob, DiscoveryStatus, DiscoveryImportReq, DiscoveryImportResp,
   Credential, CreateCredentialReq,
+  ScanBatch, BatchEnqueueReq, BatchEnqueueResp,
+  ScanSchedule, ScheduleReq, SchedulePatchReq,
 } from './manageServer.types';
 
 /**
@@ -132,7 +134,7 @@ export function createManageApi(http: Http) {
       ),
 
     // Discovery
-    startDiscovery: (req: { cidr: string; ports?: number[] }) =>
+    startDiscovery: (req: { cidr: string; ssh_port?: number }) =>
       http.post<DiscoveryJob>('/v1/admin/discovery/', req),
     getDiscovery: () =>
       http.get<DiscoveryStatus>('/v1/admin/discovery/'),
@@ -145,6 +147,24 @@ export function createManageApi(http: Http) {
     listCredentials: () => http.get<Credential[]>('/v1/admin/credentials/'),
     createCredential: (req: CreateCredentialReq) => http.post<Credential>('/v1/admin/credentials/', req),
     deleteCredential: (id: string) => http.del<void>(`/v1/admin/credentials/${id}`),
+
+    // Batch API
+    enqueueBatch: (req: BatchEnqueueReq) =>
+      http.post<BatchEnqueueResp>('/v1/admin/scan-batches', req),
+    listBatches: (opts?: { limit?: number }) => {
+      const qs = opts?.limit ? `?limit=${opts.limit}` : '';
+      return http.get<ScanBatch[]>(`/v1/admin/scan-batches${qs}`);
+    },
+
+    // Schedule API
+    createSchedule: (req: ScheduleReq) =>
+      http.post<ScanSchedule>('/v1/admin/scan-schedules', req),
+    listSchedules: () =>
+      http.get<ScanSchedule[]>('/v1/admin/scan-schedules'),
+    patchSchedule: (id: string, req: SchedulePatchReq) =>
+      http.patch<ScanSchedule>(`/v1/admin/scan-schedules/${id}`, req),
+    deleteSchedule: (id: string) =>
+      http.del<void>(`/v1/admin/scan-schedules/${id}`),
   };
 }
 

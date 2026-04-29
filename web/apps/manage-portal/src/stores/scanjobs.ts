@@ -74,6 +74,8 @@ export const useScanJobsStore = defineStore('scanjobs', () => {
     try {
       const api = useApiClient().get();
       batches.value = await api.listBatches({ limit });
+    } catch (e) {
+      useToast().error({ title: 'Failed to load batches', description: String(e) });
     } finally {
       batchesLoading.value = false;
     }
@@ -95,6 +97,8 @@ export const useScanJobsStore = defineStore('scanjobs', () => {
     try {
       const api = useApiClient().get();
       schedules.value = await api.listSchedules();
+    } catch (e) {
+      useToast().error({ title: 'Failed to load schedules', description: String(e) });
     } finally {
       schedulesLoading.value = false;
     }

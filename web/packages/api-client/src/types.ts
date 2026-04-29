@@ -53,6 +53,8 @@ export interface Licence {
   scheduleJitterSeconds: number;
 }
 
+export type ActivationType = 'report_server' | 'manage_server' | 'agent';
+
 export interface Activation {
   id: string;
   licenseID: string;
@@ -65,7 +67,7 @@ export interface Activation {
   lastSeenAt: string;
   deactivatedAt?: string | null;
   active: boolean;
-  activationType: string;
+  activationType: ActivationType;
 }
 
 export interface AuditEntry {

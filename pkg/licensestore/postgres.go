@@ -543,6 +543,9 @@ func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID, inte
 // --- Activations ---
 
 func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
+	if act.ActivationType == "" {
+		act.ActivationType = "agent"
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin activate tx: %w", err)

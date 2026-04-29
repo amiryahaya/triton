@@ -121,6 +121,31 @@ type Store interface {
 	ClaimByID(ctx context.Context, id uuid.UUID, workerID string) (Job, error)
 }
 
+// ScheduleStore is the persistence boundary for recurring scan schedules.
+type ScheduleStore interface {
+	// CreateSchedule inserts a new schedule. The server validates cron_expr
+	// before calling; next_run_at is computed from cron_expr at insert time.
+	CreateSchedule(ctx context.Context, req ScheduleReq) (Schedule, error)
+
+	// ListSchedules returns all schedules for the tenant, ordered by created_at desc.
+	ListSchedules(ctx context.Context, tenantID uuid.UUID) ([]Schedule, error)
+
+	// PatchSchedule applies non-nil fields from req. If CronExpr changes,
+	// next_run_at is recomputed. Returns ErrNotFound when the schedule does not exist.
+	PatchSchedule(ctx context.Context, id uuid.UUID, req SchedulePatchReq) (Schedule, error)
+
+	// DeleteSchedule removes the schedule row. Existing batches that reference
+	// it will have schedule_id set to NULL (ON DELETE SET NULL). Returns
+	// ErrNotFound when the schedule does not exist.
+	DeleteSchedule(ctx context.Context, id uuid.UUID) error
+
+	// ClaimDueSchedules atomically claims all schedules where enabled=true AND
+	// next_run_at <= NOW() by advancing next_run_at to the next cron tick in
+	// a transaction with FOR UPDATE SKIP LOCKED so concurrent ticks cannot
+	// double-fire the same schedule.
+	ClaimDueSchedules(ctx context.Context) ([]Schedule, error)
+}
+
 // BatchStore is the persistence boundary for scan batches.
 type BatchStore interface {
 	// EnqueueBatch creates one manage_scan_batches row and one

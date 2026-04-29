@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	cron "github.com/robfig/cron/v3"
 )
 
 // PostgresStore implements Store against a pgx pool. The pool's
@@ -791,4 +793,200 @@ func (s *PostgresStore) ListBatches(ctx context.Context, tenantID uuid.UUID, lim
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// QueryRowForTest exposes pool.QueryRow for integration test helpers.
+// It is only used from _test.go files via the unexported pool field.
+func (s *PostgresStore) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.Row {
+	return s.pool.QueryRow(ctx, sql, args...)
+}
+
+// Compile-time assertion: PostgresStore must implement ScheduleStore.
+var _ ScheduleStore = (*PostgresStore)(nil)
+
+const schedSelectCols = `id, tenant_id, name, job_types, host_ids, profile, cron_expr,
+	max_cpu_pct, max_memory_mb, max_duration_s, enabled, last_run_at, next_run_at, created_at`
+
+func scanSchedule(row pgx.Row) (Schedule, error) {
+	var s Schedule
+	var jobTypes []string
+	err := row.Scan(
+		&s.ID, &s.TenantID, &s.Name, &jobTypes, &s.HostIDs, &s.Profile, &s.CronExpr,
+		&s.MaxCPUPct, &s.MaxMemoryMB, &s.MaxDurationS,
+		&s.Enabled, &s.LastRunAt, &s.NextRunAt, &s.CreatedAt,
+	)
+	for _, jt := range jobTypes {
+		s.JobTypes = append(s.JobTypes, JobType(jt))
+	}
+	return s, err
+}
+
+// nextCronTick parses expr and returns the next fire time after now.
+func nextCronTick(expr string) (time.Time, error) {
+	sched, err := cron.ParseStandard(expr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return sched.Next(time.Now().UTC()), nil
+}
+
+func (s *PostgresStore) CreateSchedule(ctx context.Context, req ScheduleReq) (Schedule, error) {
+	nextRun, err := nextCronTick(req.CronExpr)
+	if err != nil {
+		return Schedule{}, fmt.Errorf("invalid cron expression: %w", err)
+	}
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO manage_scan_schedules
+		  (tenant_id, name, job_types, host_ids, profile, cron_expr,
+		   max_cpu_pct, max_memory_mb, max_duration_s, next_run_at)
+		VALUES ($1, $2, $3::text[], $4::uuid[], $5, $6, $7, $8, $9, $10)
+		RETURNING `+schedSelectCols,
+		req.TenantID, req.Name,
+		jobTypesToStrings(req.JobTypes), req.HostIDs,
+		string(req.Profile), req.CronExpr,
+		req.MaxCPUPct, req.MaxMemoryMB, req.MaxDurationS,
+		nextRun,
+	)
+	return scanSchedule(row)
+}
+
+func (s *PostgresStore) ListSchedules(ctx context.Context, tenantID uuid.UUID) ([]Schedule, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+schedSelectCols+`
+		   FROM manage_scan_schedules
+		  WHERE tenant_id = $1
+		  ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Schedule
+	for rows.Next() {
+		sc, err := scanSchedule(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) PatchSchedule(ctx context.Context, id uuid.UUID, req SchedulePatchReq) (Schedule, error) {
+	set := []string{}
+	args := []any{}
+	pos := 1
+
+	if req.Enabled != nil {
+		set = append(set, fmt.Sprintf("enabled = $%d", pos))
+		args = append(args, *req.Enabled)
+		pos++
+	}
+	if req.Name != nil {
+		set = append(set, fmt.Sprintf("name = $%d", pos))
+		args = append(args, *req.Name)
+		pos++
+	}
+	if req.CronExpr != nil {
+		nextRun, err := nextCronTick(*req.CronExpr)
+		if err != nil {
+			return Schedule{}, fmt.Errorf("invalid cron expression: %w", err)
+		}
+		set = append(set, fmt.Sprintf("cron_expr = $%d", pos))
+		args = append(args, *req.CronExpr)
+		pos++
+		set = append(set, fmt.Sprintf("next_run_at = $%d", pos))
+		args = append(args, nextRun)
+		pos++
+	}
+	if len(set) == 0 {
+		return s.getSchedule(ctx, id)
+	}
+	args = append(args, id)
+	row := s.pool.QueryRow(ctx,
+		`UPDATE manage_scan_schedules SET `+
+			strings.Join(set, ", ")+
+			` WHERE id = $`+strconv.Itoa(pos)+
+			` RETURNING `+schedSelectCols,
+		args...,
+	)
+	sc, err := scanSchedule(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Schedule{}, ErrNotFound
+	}
+	return sc, err
+}
+
+func (s *PostgresStore) getSchedule(ctx context.Context, id uuid.UUID) (Schedule, error) {
+	sc, err := scanSchedule(s.pool.QueryRow(ctx,
+		`SELECT `+schedSelectCols+` FROM manage_scan_schedules WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Schedule{}, ErrNotFound
+	}
+	return sc, err
+}
+
+func (s *PostgresStore) DeleteSchedule(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM manage_scan_schedules WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClaimDueSchedules atomically advances next_run_at for all enabled schedules
+// past their due time. FOR UPDATE SKIP LOCKED prevents double-fire under
+// concurrent ticks.
+func (s *PostgresStore) ClaimDueSchedules(ctx context.Context) ([]Schedule, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `
+		SELECT `+schedSelectCols+`
+		FROM manage_scan_schedules
+		WHERE enabled = TRUE AND next_run_at <= NOW()
+		FOR UPDATE SKIP LOCKED`)
+	if err != nil {
+		return nil, err
+	}
+	var due []Schedule
+	for rows.Next() {
+		sc, err := scanSchedule(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		due = append(due, sc)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(due) == 0 {
+		return nil, tx.Commit(ctx)
+	}
+
+	now := time.Now().UTC()
+	for i, sc := range due {
+		parser, err := cron.ParseStandard(sc.CronExpr)
+		if err != nil {
+			continue
+		}
+		nextRun := parser.Next(now)
+		if _, err = tx.Exec(ctx,
+			`UPDATE manage_scan_schedules SET last_run_at = NOW(), next_run_at = $2 WHERE id = $1`,
+			sc.ID, nextRun,
+		); err != nil {
+			return nil, err
+		}
+		due[i].NextRunAt = nextRun
+		due[i].LastRunAt = &now
+	}
+	return due, tx.Commit(ctx)
 }

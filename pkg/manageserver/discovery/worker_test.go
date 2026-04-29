@@ -214,6 +214,19 @@ func (f *fakeHostsStore) BulkCreate(_ context.Context, hs []hosts.Host) ([]hosts
 	return hs, nil
 }
 
+func (f *fakeHostsStore) GetByIDs(_ context.Context, ids []uuid.UUID) ([]hosts.Host, error) {
+	var out []hosts.Host
+	for _, id := range ids {
+		for _, h := range f.hosts {
+			if h.ID == id {
+				out = append(out, h)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // fakeScanner emits pre-configured candidates then returns an optional error.
 // It implements ScannerIface so it can be injected directly into Worker.

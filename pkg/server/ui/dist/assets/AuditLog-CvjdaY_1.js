@@ -1,0 +1,1 @@
+import{_ as o}from"./index-CRUJbCsO.js";import{o as e,a as t}from"./vendor-DsGyrJUj.js";const r={};function c(n,a){return e(),t("h1",null,"Audit log")}const f=o(r,[["render",c]]);export{f as default};

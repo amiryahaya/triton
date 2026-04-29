@@ -25,22 +25,33 @@ const TABS: { id: TabId; label: string }[] = [
 const crumbs = computed(() => {
   const items: { label: string; href?: string }[] = [{ label: 'All Servers' }];
   if (nacsa.scope.manageServerId) {
+    // href="#/nacsa" marks the root crumb; click clears all scope.
     items[0] = { label: 'All Servers', href: '#/nacsa' };
     items.push({ label: nacsa.scope.manageServerName || nacsa.scope.manageServerId });
   }
   if (nacsa.scope.hostname) {
+    // href="#/nacsa-server" marks the server-level crumb; click clears only hostname.
     items[items.length - 1] = {
       label: nacsa.scope.manageServerName || nacsa.scope.manageServerId,
-      href: '#/nacsa',
+      href: '#/nacsa-server',
     };
     items.push({ label: nacsa.scope.hostname });
   }
   return items;
 });
 
-function resetDrill() {
-  nacsa.clearDrill();
-  activeTab.value = 'summary';
+function handleCrumbClick(e: MouseEvent) {
+  const anchor = (e.target as HTMLElement).closest('a');
+  if (!anchor) return;
+  if (anchor.getAttribute('href') === '#/nacsa-server') {
+    // Server-name crumb: go back one level (host → server)
+    nacsa.drillToHost('');
+    activeTab.value = 'inventory';
+  } else {
+    // All-Servers crumb: clear everything
+    nacsa.clearDrill();
+    activeTab.value = 'summary';
+  }
 }
 
 // ── Summary tab ───────────────────────────────────────────────────────────────
@@ -154,7 +165,7 @@ watch(activeTab, (tab) => {
 <template>
   <section class="nacsa-view">
     <!-- Breadcrumb -->
-    <TCrumbBar :crumbs="crumbs" @click.prevent="resetDrill" />
+    <TCrumbBar :crumbs="crumbs" @click.prevent="handleCrumbClick" />
 
     <!-- Tab strip -->
     <nav class="tab-strip">

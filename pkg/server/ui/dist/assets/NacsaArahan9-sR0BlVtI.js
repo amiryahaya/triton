@@ -1,0 +1,1 @@
+import{_ as a}from"./index-CRUJbCsO.js";import{o as r,a as e}from"./vendor-DsGyrJUj.js";const c={};function n(o,t){return r(),e("h1",null,"NACSA Arahan 9")}const f=a(c,[["render",n]]);export{f as default};

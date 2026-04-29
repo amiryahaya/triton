@@ -152,7 +152,7 @@ export function createManageApi(http: Http) {
     enqueueBatch: (req: BatchEnqueueReq) =>
       http.post<BatchEnqueueResp>('/v1/admin/scan-batches', req),
     listBatches: (opts?: { limit?: number }) => {
-      const qs = opts?.limit ? `?limit=${opts.limit}` : '';
+      const qs = opts?.limit !== undefined ? `?limit=${opts.limit}` : '';
       return http.get<ScanBatch[]>(`/v1/admin/scan-batches${qs}`);
     },
 

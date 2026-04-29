@@ -316,9 +316,9 @@ export interface DiscoveryImportResp {
 export interface ScanBatch {
   id: string;
   tenant_id: string;
-  job_types: string[];
+  job_types: ('filesystem' | 'port_survey')[];
   host_ids: string[];
-  profile: string;
+  profile: ScanJobProfile;
   max_cpu_pct?: number;
   max_memory_mb?: number;
   max_duration_s?: number;
@@ -336,9 +336,9 @@ export interface SkippedJob {
 }
 
 export interface BatchEnqueueReq {
-  job_types: string[];
+  job_types: ('filesystem' | 'port_survey')[];
   host_ids: string[];
-  profile: string;
+  profile: ScanJobProfile;
   max_cpu_pct?: number | null;
   max_memory_mb?: number | null;
   max_duration_s?: number | null;
@@ -355,9 +355,9 @@ export interface ScanSchedule {
   id: string;
   tenant_id: string;
   name: string;
-  job_types: string[];
+  job_types: ('filesystem' | 'port_survey')[];
   host_ids: string[];
-  profile: string;
+  profile: ScanJobProfile;
   cron_expr: string;
   max_cpu_pct?: number;
   max_memory_mb?: number;
@@ -370,9 +370,9 @@ export interface ScanSchedule {
 
 export interface ScheduleReq {
   name: string;
-  job_types: string[];
+  job_types: ('filesystem' | 'port_survey')[];
   host_ids: string[];
-  profile: string;
+  profile: ScanJobProfile;
   cron_expr: string;
   max_cpu_pct?: number | null;
   max_memory_mb?: number | null;
@@ -380,7 +380,7 @@ export interface ScheduleReq {
 }
 
 export interface SchedulePatchReq {
-  enabled?: boolean;
-  name?: string;
-  cron_expr?: string;
+  enabled?: boolean | null;
+  name?: string | null;
+  cron_expr?: string | null;
 }

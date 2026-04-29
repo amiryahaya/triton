@@ -49,6 +49,7 @@ import type { Host } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
 import { useScanJobsStore } from '../stores/scanjobs';
 import type { WizardState } from './enqueue/wizardTypes';
+export type { WizardState };
 import Step5Summary from './enqueue/Step5Summary.vue';
 
 // Define async components once at module scope — not inside computed — so

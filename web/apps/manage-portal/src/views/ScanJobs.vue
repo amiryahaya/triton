@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   TButton,
   TDataTable,
@@ -13,24 +14,16 @@ import {
 import type {
   ScanJob,
   ScanJobStatus,
-  EnqueueReq,
-  PortSurveyEnqueueReq,
 } from '@triton/api-client';
 import { useScanJobsStore } from '../stores/scanjobs';
-import { useTagsStore } from '../stores/tags';
-import { useHostsStore } from '../stores/hosts';
-import ScanJobEnqueueForm from './modals/ScanJobEnqueueForm.vue';
 import ScanJobDetailDrawer from './modals/ScanJobDetailDrawer.vue';
-import PortSurveyEnqueueForm from './modals/PortSurveyEnqueueForm.vue';
 
+const router = useRouter();
 const jobs = useScanJobsStore();
-const tags = useTagsStore();
-const hosts = useHostsStore();
 const toast = useToast();
 
-const enqueueOpen = ref(false);
 const drawerJobID = ref<string | null>(null);
-const portSurveyOpen = ref(false);
+const activeTab = ref<'jobs' | 'schedules'>('jobs');
 
 const columns: Column<ScanJob>[] = [
   { key: 'profile', label: 'Profile' },
@@ -61,9 +54,8 @@ const filterStatus = computed<string>({
 });
 
 onMounted(async () => {
-  await tags.fetch();
   jobs.startPolling();
-  void hosts.fetch();
+  void jobs.fetchSchedules();
 });
 
 onUnmounted(() => {
@@ -79,19 +71,6 @@ watch(
   }
 );
 
-async function onEnqueue(req: EnqueueReq) {
-  try {
-    const created = await jobs.enqueue(req);
-    toast.success({
-      title: 'Enqueued scan jobs',
-      description: `${created.length} job${created.length === 1 ? '' : 's'} queued.`,
-    });
-    enqueueOpen.value = false;
-  } catch (e) {
-    toast.error({ title: 'Enqueue failed', description: String(e) });
-  }
-}
-
 async function cancelRow(j: ScanJob) {
   try {
     await jobs.requestCancel(j.id);
@@ -104,19 +83,6 @@ async function cancelRow(j: ScanJob) {
 function openDrawer(j: ScanJob) {
   drawerJobID.value = j.id;
 }
-
-async function onPortSurveySubmit(req: PortSurveyEnqueueReq) {
-  try {
-    const created = await jobs.enqueuePortSurvey(req);
-    toast.success({
-      title: 'Port survey queued',
-      description: `${created.length} job${created.length === 1 ? '' : 's'} created`,
-    });
-    portSurveyOpen.value = false;
-  } catch (e) {
-    toast.error({ title: 'Failed to queue port survey', description: String(e) });
-  }
-}
 </script>
 
 <template>
@@ -127,98 +93,112 @@ async function onPortSurveySubmit(req: PortSurveyEnqueueReq) {
         <p class="scanjobs-sub">Scan queue across agents and tags. Polls every 5 seconds.</p>
       </div>
       <div class="scanjobs-head-actions">
-        <TButton variant="secondary" size="sm" @click="portSurveyOpen = true">
-          Port Survey
-        </TButton>
-        <TButton
-          variant="primary"
-          size="sm"
-          @click="enqueueOpen = true"
-        >
-          Enqueue
+        <TButton variant="primary" size="sm" @click="router.push('/operations/scan-jobs/new')">
+          New Scan
         </TButton>
       </div>
     </header>
 
-    <div class="scanjobs-filter">
-      <TFormField label="Filter by status">
-        <TSelect v-model="filterStatus">
-          <option value="">
-            All statuses
-          </option>
-          <option value="queued">
-            Queued
-          </option>
-          <option value="running">
-            Running
-          </option>
-          <option value="completed">
-            Completed
-          </option>
-          <option value="failed">
-            Failed
-          </option>
-          <option value="cancelled">
-            Cancelled
-          </option>
-        </TSelect>
-      </TFormField>
+    <div class="tab-bar">
+      <button :class="{ active: activeTab === 'jobs' }" @click="activeTab = 'jobs'">Jobs</button>
+      <button :class="{ active: activeTab === 'schedules' }" @click="activeTab = 'schedules'">Schedules</button>
     </div>
 
-    <TDataTable
-      :columns="columns"
-      :rows="jobs.items"
-      row-key="id"
-      :empty-text="jobs.loading ? 'Loading…' : 'No scan jobs yet.'"
-      @row-click="openDrawer"
-    >
-      <template #[`cell:profile`]="{ row }">
-        {{ row.profile }}
-        <span v-if="row.job_type === 'port_survey'" class="port-survey-badge">Port Survey</span>
-      </template>
-      <template #[`cell:host_id`]="{ row }">
-        {{ row.host_id ?? '—' }}
-      </template>
-      <template #[`cell:status`]="{ row }">
-        <TPill :variant="statusVariant[row.status]">
-          {{ row.status }}
-        </TPill>
-      </template>
-      <template #[`cell:progress_text`]="{ row }">
-        {{ row.progress_text || '—' }}
-      </template>
-      <template #[`cell:id`]="{ row }">
-        <div class="scanjobs-actions">
-          <TButton
-            v-if="row.status === 'queued' || row.status === 'running'"
-            variant="ghost"
-            size="sm"
-            @click.stop="cancelRow(row)"
-          >
-            Cancel
-          </TButton>
-        </div>
-      </template>
-    </TDataTable>
+    <template v-if="activeTab === 'jobs'">
+      <div class="scanjobs-filter">
+        <TFormField label="Filter by status">
+          <TSelect v-model="filterStatus">
+            <option value="">
+              All statuses
+            </option>
+            <option value="queued">
+              Queued
+            </option>
+            <option value="running">
+              Running
+            </option>
+            <option value="completed">
+              Completed
+            </option>
+            <option value="failed">
+              Failed
+            </option>
+            <option value="cancelled">
+              Cancelled
+            </option>
+          </TSelect>
+        </TFormField>
+      </div>
 
-    <ScanJobEnqueueForm
-      :open="enqueueOpen"
-      :tags="tags.items"
-      @close="enqueueOpen = false"
-      @submit="onEnqueue"
-    />
+      <TDataTable
+        :columns="columns"
+        :rows="jobs.items"
+        row-key="id"
+        :empty-text="jobs.loading ? 'Loading…' : 'No scan jobs yet.'"
+        @row-click="openDrawer"
+      >
+        <template #[`cell:profile`]="{ row }">
+          {{ row.profile }}
+          <span v-if="row.job_type === 'port_survey'" class="port-survey-badge">Port Survey</span>
+        </template>
+        <template #[`cell:host_id`]="{ row }">
+          {{ row.host_id ?? '—' }}
+        </template>
+        <template #[`cell:status`]="{ row }">
+          <TPill :variant="statusVariant[row.status]">
+            {{ row.status }}
+          </TPill>
+        </template>
+        <template #[`cell:progress_text`]="{ row }">
+          {{ row.progress_text || '—' }}
+        </template>
+        <template #[`cell:id`]="{ row }">
+          <div class="scanjobs-actions">
+            <TButton
+              v-if="row.status === 'queued' || row.status === 'running'"
+              variant="ghost"
+              size="sm"
+              @click.stop="cancelRow(row)"
+            >
+              Cancel
+            </TButton>
+          </div>
+        </template>
+      </TDataTable>
+    </template>
+
+    <div v-if="activeTab === 'schedules'" class="schedules-panel">
+      <div v-if="jobs.schedulesLoading">Loading…</div>
+      <table v-else class="t-table">
+        <thead>
+          <tr>
+            <th>Name</th><th>Schedule</th><th>Next run</th><th>Enabled</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="s in jobs.schedules" :key="s.id">
+            <td>{{ s.name }}</td>
+            <td>{{ s.cron_expr }}</td>
+            <td>{{ new Date(s.next_run_at).toLocaleString() }}</td>
+            <td>
+              <input type="checkbox" :checked="s.enabled"
+                     @change="jobs.toggleSchedule(s.id, !s.enabled)" />
+            </td>
+            <td>
+              <button class="btn-danger-sm" @click="jobs.deleteSchedule(s.id)">Delete</button>
+            </td>
+          </tr>
+          <tr v-if="!jobs.schedules.length">
+            <td colspan="5" class="empty-cell">No recurring schedules. Create one via New Scan.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <ScanJobDetailDrawer
       :open="!!drawerJobID"
       :job-i-d="drawerJobID"
       @close="drawerJobID = null"
-    />
-
-    <PortSurveyEnqueueForm
-      :open="portSurveyOpen"
-      :hosts="hosts.items"
-      @close="portSurveyOpen = false"
-      @submit="onPortSurveySubmit"
     />
   </section>
 </template>
@@ -269,5 +249,68 @@ async function onPortSurveySubmit(req: PortSurveyEnqueueReq) {
   border-radius: 4px;
   margin-left: 0.3rem;
   vertical-align: middle;
+}
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.tab-bar button {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.875rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-bar button.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--color-primary, #2563eb);
+}
+.tab-bar button:hover:not(.active) {
+  color: var(--text-primary);
+}
+.schedules-panel {
+  overflow-x: auto;
+}
+.t-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.t-table th,
+.t-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.t-table th {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.empty-cell {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+}
+.btn-danger-sm {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  background: none;
+  border: 1px solid var(--color-unsafe, #dc2626);
+  color: var(--color-unsafe, #dc2626);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+.btn-danger-sm:hover {
+  background: var(--color-unsafe, #dc2626);
+  color: #fff;
 }
 </style>

@@ -1562,4 +1562,19 @@ func TestActivationDisplayName(t *testing.T) {
 	if len(acts) != 1 || acts[0].DisplayName != "KL HQ Server" {
 		t.Errorf("got display name %q, want %q", acts[0].DisplayName, "KL HQ Server")
 	}
+
+	// already-active UPDATE path: same machine still active, update DisplayName
+	act.DisplayName = "Updated Name"
+	require.NoError(t, s.Activate(ctx, act))
+	got, err := s.GetActivation(ctx, acts[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Name", got.DisplayName)
+
+	// re-activate UPDATE path: deactivate then re-activate with new name
+	require.NoError(t, s.Deactivate(ctx, lic.ID, act.MachineID))
+	act.DisplayName = "After Reactivation"
+	require.NoError(t, s.Activate(ctx, act))
+	got2, err := s.GetActivationByMachine(ctx, lic.ID, act.MachineID)
+	require.NoError(t, err)
+	assert.Equal(t, "After Reactivation", got2.DisplayName)
 }

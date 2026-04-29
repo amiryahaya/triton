@@ -46,7 +46,10 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		req.ActivationType = "agent"
 	}
 	if len(req.DisplayName) > 200 {
-		req.DisplayName = req.DisplayName[:200]
+		runes := []rune(req.DisplayName)
+		if len(runes) > 200 {
+			req.DisplayName = string(runes[:200])
+		}
 	}
 
 	// Lookup license

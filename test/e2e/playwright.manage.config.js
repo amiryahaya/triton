@@ -3,7 +3,7 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: '.',
-  testMatch: ['manage-hosts.spec.js', 'credentials.spec.js', 'discovery.spec.js'],
+  testMatch: ['manage-hosts.spec.js', 'credentials.spec.js', 'discovery.spec.js', 'scan-enqueue.spec.js'],
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   workers: 1,

@@ -8,13 +8,15 @@ beforeEach(() => { vi.clearAllMocks(); });
 
 const ORGS = [
   {
-    id: 'O1', name: 'Acme', contact: 'alice@acme.com', notes: '',
-    suspended: false, activeActivations: 3, hasSeatedLicenses: true,
+    id: 'O1', name: 'Acme',
+    contact_name: 'Alice Smith', contact_email: 'alice@acme.com', contact_phone: '',
+    notes: '', suspended: false, activeActivations: 3, hasSeatedLicenses: true,
     createdAt: '2026-04-10T00:00:00Z', updatedAt: '2026-04-10T00:00:00Z',
   },
   {
-    id: 'O2', name: 'Globex', contact: '', notes: 'partner',
-    suspended: true, activeActivations: 0, hasSeatedLicenses: false,
+    id: 'O2', name: 'Globex',
+    contact_name: '', contact_email: '', contact_phone: '',
+    notes: 'partner', suspended: true, activeActivations: 0, hasSeatedLicenses: false,
     createdAt: '2026-04-12T00:00:00Z', updatedAt: '2026-04-20T00:00:00Z',
   },
 ];
@@ -53,7 +55,7 @@ describe('Organisations view', () => {
     const html = w.html();
     expect(html).toContain('Acme');
     expect(html).toContain('Globex');
-    expect(html).toContain('alice@acme.com');
+    expect(html).toContain('Alice Smith');
     expect(html).toContain('partner');
     w.unmount();
   });

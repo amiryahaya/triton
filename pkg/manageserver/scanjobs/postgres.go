@@ -711,7 +711,7 @@ func (s *PostgresStore) EnqueueBatch(ctx context.Context, req BatchEnqueueReq, s
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return BatchEnqueueResp{}, err
+		return BatchEnqueueResp{}, fmt.Errorf("commit batch tx: %w", err)
 	}
 	return BatchEnqueueResp{
 		BatchID:     batchID,

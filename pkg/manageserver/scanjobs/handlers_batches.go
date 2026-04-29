@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amiryahaya/triton/pkg/manageserver/hosts"
+	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
 	"github.com/amiryahaya/triton/pkg/manageserver/orgctx"
 )
 
@@ -33,6 +34,8 @@ func NewBatchHandlers(store BatchStore, hs hostsGetter) *BatchHandlers {
 // It resolves the supplied host IDs, fans out to per-host job specs via
 // ResolveJobs, and delegates persistence to BatchStore.EnqueueBatch.
 func (h *BatchHandlers) EnqueueBatch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
 	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
 	if !ok {
 		writeErr(w, http.StatusServiceUnavailable, "instance not initialised")
@@ -49,6 +52,15 @@ func (h *BatchHandlers) EnqueueBatch(w http.ResponseWriter, r *http.Request) {
 	if len(req.JobTypes) == 0 {
 		writeErr(w, http.StatusBadRequest, "job_types must not be empty")
 		return
+	}
+	for _, jt := range req.JobTypes {
+		switch jt {
+		case JobTypePortSurvey, JobTypeFilesystem:
+			// valid
+		default:
+			writeErr(w, http.StatusBadRequest, "unknown job_type: "+string(jt))
+			return
+		}
 	}
 	if len(req.HostIDs) == 0 {
 		writeErr(w, http.StatusBadRequest, "host_ids must not be empty")

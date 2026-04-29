@@ -26,6 +26,9 @@ type ClaimResp struct {
 	Profile        string     `json:"profile"`
 	PortOverride   []uint16   `json:"port_override,omitempty"`
 	CredentialsRef *uuid.UUID `json:"credentials_ref,omitempty"`
+	MaxCPUPct      *int       `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB    *int       `json:"max_memory_mb,omitempty"`
+	MaxDurationS   *int       `json:"max_duration_s,omitempty"`
 }
 
 // HostInfo holds the fields RunOne needs from GET /api/v1/worker/hosts/{id}.

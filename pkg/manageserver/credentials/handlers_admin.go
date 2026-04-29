@@ -58,9 +58,8 @@ type createReq struct {
 	PrivateKey string   `json:"private_key"`
 	Passphrase string   `json:"passphrase"`
 	Password   string   `json:"password"`
+	UseHTTPS   bool     `json:"use_https"`
 }
-
-var errWinRMReserved = errors.New("winrm-password auth_type is reserved and not supported")
 
 func (req createReq) validate() error {
 	if strings.TrimSpace(req.Name) == "" {
@@ -90,14 +89,12 @@ func (req createReq) validate() error {
 		if !hasKeyHeader {
 			return errors.New("private_key must be a PEM-encoded OpenSSH, RSA, EC, or PKCS#8 private key")
 		}
-	case AuthTypeSSHPassword:
+	case AuthTypeSSHPassword, AuthTypeWinRM:
 		if req.Password == "" {
 			return errors.New("password is required")
 		}
-	case AuthTypeWinRM:
-		return errWinRMReserved
 	default:
-		return fmt.Errorf("auth_type must be ssh-key or ssh-password")
+		return fmt.Errorf("auth_type must be ssh-key, ssh-password, or winrm-password")
 	}
 	return nil
 }
@@ -110,6 +107,9 @@ func (req createReq) toPayload() SecretPayload {
 		p.Passphrase = req.Passphrase
 	case AuthTypeSSHPassword:
 		p.Password = req.Password
+	case AuthTypeWinRM:
+		p.Password = req.Password
+		p.UseHTTPS = req.UseHTTPS
 	}
 	return p
 }
@@ -142,11 +142,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := req.validate(); err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, errWinRMReserved) {
-			status = http.StatusUnprocessableEntity
-		}
-		writeErr(w, status, err.Error())
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
@@ -210,11 +206,7 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := req.validate(); err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, errWinRMReserved) {
-			status = http.StatusUnprocessableEntity
-		}
-		writeErr(w, status, err.Error())
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

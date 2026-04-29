@@ -11,7 +11,7 @@ const toast = useToast();
 
 // Scan form
 const cidr = ref('');
-const portsRaw = ref('22, 443, 3389, 5555, 5985, 5986, 8008, 8009');
+const sshPort = ref(22);
 const formError = ref('');
 
 // Selected candidate IDs
@@ -31,6 +31,16 @@ const newCandidates = computed(() =>
   store.candidates.filter(c => !c.existing_host_id)
 );
 
+// Live filter by IP or hostname
+const filterText = ref('');
+const filteredCandidates = computed(() => {
+  const q = filterText.value.trim().toLowerCase();
+  if (!q) return newCandidates.value;
+  return newCandidates.value.filter(c =>
+    c.ip.toLowerCase().includes(q) || hostnameFor(c).toLowerCase().includes(q)
+  );
+});
+
 // Whether all selected candidates have a hostname (from DNS or override)
 const importReady = computed(() =>
   selected.value.size > 0 &&
@@ -40,19 +50,12 @@ const importReady = computed(() =>
   })
 );
 
-// Parse ports from comma-separated string
-function parsePorts(): number[] {
-  return portsRaw.value
-    .split(',')
-    .map(s => parseInt(s.trim(), 10))
-    .filter(n => !isNaN(n) && n > 0 && n <= 65535);
-}
-
 async function onStart() {
   formError.value = '';
+  filterText.value = '';
   if (!cidr.value.trim()) { formError.value = 'CIDR is required'; return; }
   try {
-    await store.start(cidr.value.trim(), parsePorts());
+    await store.start(cidr.value.trim(), sshPort.value);
   } catch {
     // error already set in store
   }
@@ -115,11 +118,13 @@ onUnmounted(() => store.stopPolling());
           class="text-input"
         />
       </TFormField>
-      <TFormField label="Ports">
+      <TFormField label="SSH Port">
         <input
-          v-model="portsRaw"
-          type="text"
-          placeholder="22, 443, 3389"
+          v-model.number="sshPort"
+          type="number"
+          min="1"
+          max="65535"
+          placeholder="22"
           :disabled="store.isRunning"
           class="text-input"
         />
@@ -132,6 +137,11 @@ onUnmounted(() => store.stopPolling());
       </div>
     </section>
 
+    <!-- Info note -->
+    <p class="info-note">
+      Results only show hosts not already in your inventory — existing hosts are automatically excluded.
+    </p>
+
     <!-- Progress (running) -->
     <section v-if="store.isRunning" class="progress-section card">
       <div class="progress-label">
@@ -142,20 +152,32 @@ onUnmounted(() => store.stopPolling());
 
     <!-- Results table -->
     <section v-if="newCandidates.length > 0" class="results-section card">
-      <h2 class="section-title">New Hosts ({{ newCandidates.length }})</h2>
+      <div class="results-header">
+        <div>
+          <h2 class="section-title">New Hosts ({{ newCandidates.length }})</h2>
+        </div>
+        <input
+          v-model="filterText"
+          type="search"
+          placeholder="Filter by IP or hostname…"
+          class="results-filter"
+        />
+      </div>
+      <p v-if="filterText && filteredCandidates.length < newCandidates.length" class="filter-count">
+        Showing {{ filteredCandidates.length }} of {{ newCandidates.length }}
+      </p>
       <table class="results-table">
         <thead>
           <tr>
             <th class="col-check"></th>
             <th class="col-ip">IP Address</th>
-            <th class="col-mac">MAC</th>
-            <th class="col-mdns">mDNS Name</th>
             <th class="col-hostname">Hostname</th>
+            <th class="col-status">Status</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="c in newCandidates"
+            v-for="c in filteredCandidates"
             :key="c.id"
           >
             <td class="col-check">
@@ -166,8 +188,6 @@ onUnmounted(() => store.stopPolling());
               />
             </td>
             <td class="col-ip mono">{{ c.ip }}</td>
-            <td class="col-mac mono">{{ c.mac_address || '—' }}</td>
-            <td class="col-mdns">{{ c.mdns_name || '—' }}</td>
             <td class="col-hostname">
               <input
                 type="text"
@@ -176,6 +196,9 @@ onUnmounted(() => store.stopPolling());
                 placeholder="hostname or IP"
                 class="hostname-input"
               />
+            </td>
+            <td class="col-status">
+              <span class="badge badge-blue">New</span>
             </td>
           </tr>
         </tbody>
@@ -282,6 +305,45 @@ td {
   margin: 0;
 }
 
+.results-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.results-header .section-title {
+  margin-bottom: 0.25rem;
+}
+
+.info-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-elevated, #f8f9fa);
+  border-left: 3px solid var(--accent-strong, #3B82F6);
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.results-filter {
+  flex-shrink: 0;
+  width: 220px;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.filter-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
 
 .hostname-input {
   width: 100%;
@@ -315,7 +377,17 @@ td {
   color: #991b1b;
 }
 
-.col-mac { min-width: 140px; font-size: 0.8rem; }
-.col-mdns { min-width: 140px; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
 
+.badge-blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
 </style>

@@ -34,4 +34,5 @@ type SecretPayload struct {
 	PrivateKey string `json:"private_key,omitempty"`
 	Passphrase string `json:"passphrase,omitempty"`
 	Password   string `json:"password,omitempty"`
+	UseHTTPS   bool   `json:"use_https,omitempty"`
 }

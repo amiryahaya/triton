@@ -180,14 +180,18 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 
 	// Proxy-activate a licence seat on behalf of this agent.
 	seatActivated := false
+	var enrolLicClient *license.ServerClient
+	var enrolLicKey string
+
 	if h.SetupStore != nil {
-		state, stErr := h.SetupStore.GetSetup(r.Context())
+		st, stErr := h.SetupStore.GetSetup(r.Context())
 		if stErr != nil {
 			log.Printf("manageserver/agents: enrol: load setup state: %v (skipping licence activation)", stErr)
-		} else if state.LicenseActivated {
-			licClient := license.NewServerClient(state.LicenseServerURL)
-			if _, actErr := licClient.ActivateForTenant(
-				state.LicenseKey,
+		} else if st.LicenseActivated {
+			enrolLicClient = license.NewServerClient(st.LicenseServerURL)
+			enrolLicKey = st.LicenseKey
+			if _, actErr := enrolLicClient.ActivateForTenant(
+				enrolLicKey,
 				agentID.String(),
 				license.ActivationTypeAgent,
 				agent.Name,
@@ -222,13 +226,9 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 			log.Printf("manageserver/agents: enrol: rollback agent row after bundle error: %v", delErr)
 		}
 		// Best-effort deactivate the licence seat we just consumed.
-		if seatActivated {
-			state, stErr := h.SetupStore.GetSetup(r.Context())
-			if stErr == nil && state.LicenseActivated {
-				licClient := license.NewServerClient(state.LicenseServerURL)
-				if deactErr := licClient.DeactivateForTenant(state.LicenseKey, agentID.String()); deactErr != nil {
-					log.Printf("manageserver/agents: enrol: rollback seat after bundle error: %v", deactErr)
-				}
+		if seatActivated && enrolLicClient != nil {
+			if deactErr := enrolLicClient.DeactivateForTenant(enrolLicKey, agentID.String()); deactErr != nil {
+				log.Printf("manageserver/agents: enrol: rollback seat after bundle error: %v", deactErr)
 			}
 		}
 		internalErr(w, r, err, "build agent bundle")

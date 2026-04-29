@@ -68,6 +68,18 @@ func TestServerClient_Activate_SeatsFull(t *testing.T) {
 	_, err := client.Activate("lic-123", ActivationTypeAgent, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "seats")
+	assert.ErrorIs(t, err, ErrNoSeats)
+}
+
+func TestActivateForTenant_ErrNoSeats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	}))
+	defer srv.Close()
+	c := NewServerClient(srv.URL)
+	_, err := c.ActivateForTenant("key", "machine", ActivationTypeAgent, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoSeats)
 }
 
 func TestServerClient_Deactivate(t *testing.T) {

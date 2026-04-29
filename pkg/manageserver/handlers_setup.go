@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -159,7 +160,7 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "server_name is required")
 		return
 	}
-	if len(req.ServerName) > 100 {
+	if utf8.RuneCountInString(req.ServerName) > 100 {
 		writeError(w, http.StatusBadRequest, "server_name must be 100 characters or fewer")
 		return
 	}

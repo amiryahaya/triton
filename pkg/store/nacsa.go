@@ -409,14 +409,14 @@ SELECT
     f.algorithm,
     f.hostname,
     f.pqc_status,
-    COALESCE(f.migration_priority, 0) AS max_priority,
+    MAX(COALESCE(f.migration_priority, 0)) AS max_priority,
     COUNT(*) AS asset_count
 FROM findings f
 JOIN latest l ON f.scan_id = l.id
 WHERE f.org_id = $1
   AND f.pqc_status IN ('UNSAFE','DEPRECATED','TRANSITIONAL')
   %s
-GROUP BY f.algorithm, f.hostname, f.pqc_status, f.migration_priority
+GROUP BY f.algorithm, f.hostname, f.pqc_status
 `, whereExtra)
 
 	rows, err := s.pool.Query(ctx, q, args...)

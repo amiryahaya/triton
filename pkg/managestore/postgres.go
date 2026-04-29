@@ -486,6 +486,7 @@ func (s *PostgresStore) ClearLicenseActivation(ctx context.Context) error {
 		    license_key          = '',
 		    signed_token         = '',
 		    instance_id          = NULL,
+		    server_name          = '',
 		    pending_deactivation = FALSE,
 		    updated_at           = NOW()
 		WHERE id = 1`,

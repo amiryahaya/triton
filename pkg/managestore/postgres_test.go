@@ -889,6 +889,7 @@ func TestClearLicenseActivation(t *testing.T) {
 	assert.Empty(t, state.LicenseKey)
 	assert.Empty(t, state.SignedToken)
 	assert.Empty(t, state.LicenseServerURL)
+	assert.Empty(t, state.ServerName)
 	assert.False(t, state.PendingDeactivation)
 }
 

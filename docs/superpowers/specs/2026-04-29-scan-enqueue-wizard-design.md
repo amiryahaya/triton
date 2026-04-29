@@ -287,21 +287,106 @@ The manage server orchestrator applies the same limits for filesystem jobs it di
 
 ## Testing
 
-**Unit tests** (`pkg/manageserver/scanjobs/`):
-- Credential resolution: enrolled agent supersedes SSH cred; SSH cred used when no agent; both absent → skip
-- Schedule runner: due schedules claimed atomically, `next_run_at` advanced correctly, double-fire impossible
-- Cron validation: invalid expression returns 400
+### Unit tests (`pkg/manageserver/scanjobs/`)
 
-**Integration tests** (`test/integration/`):
-- Full enqueue batch → child jobs created with correct `batch_id`
-- Recurring schedule → runner spawns batch on tick
-- Skipped hosts returned in response and not inserted as jobs
+**Credential resolution (`resolveJobs_test.go`):**
+- Enrolled agent set → filesystem job created, SSH cred ignored (enrolled agent supersedes)
+- SSH cred + ssh_port set, no agent → filesystem job created with cred fields
+- Neither set → host appears in `jobs_skipped` with reason `no_credential`
+- Port survey always created regardless of credential state
+- Host with both agent and cred → enrolled agent wins, cred not used
 
-**E2E tests** (`test/e2e/manage-hosts.spec.js` extended):
-- Wizard navigation: all 5 steps, back/forward, Edit links from summary
-- Combined job type: both checkboxes → correct job count in summary
-- Amber warning: 🟡 host selected with Filesystem → warning shown, count reduced
-- Recurring: schedule created, appears in Schedules tab
+**Batch status rollup (`batch_status_test.go`):**
+- All children completed → batch = `completed`, `finished_at` set
+- Any child failed, rest completed → batch = `failed`
+- All children cancelled → batch = `cancelled`
+- Any child running → batch = `running`
+- Mixed running + completed → batch = `running`
+
+**Schedule runner (`schedule_runner_test.go`):**
+- Due schedule claimed and `next_run_at` advanced in single transaction (no double-fire under concurrent ticks)
+- Non-due schedule not claimed
+- Disabled schedule not claimed even if `next_run_at` is past
+- `next_run_at` advanced to correct next cron tick after each run
+- Runner failure on one schedule does not prevent other schedules from running
+
+**Cron validation (`handlers_admin_test.go`):**
+- Valid expressions accepted: `0 2 * * 1`, `0 * * * *`, `0 2 1 * *`
+- Invalid expressions return 400: `not-a-cron`, `60 * * * *`, empty string
+- `max_cpu_pct` outside 0–100 returns 400
+- `max_memory_mb` negative returns 400
+
+### Integration tests (`test/integration/`)
+
+**Batch enqueue (`scan_batch_test.go`, build tag `integration`):**
+- `POST /api/v1/admin/scan-batches` with both job types → correct number of child jobs in DB, all with `batch_id` set
+- Child jobs for port survey created for all hosts
+- Child jobs for filesystem created only for hosts with enrolled agent or SSH cred
+- Skipped hosts returned in response `jobs_skipped`, not inserted into `manage_scan_jobs`
+- Empty `job_types` returns 400; empty `host_ids` returns 400
+- Queue saturation guard: stub > 10,000 pending rows → 503
+- Batch `status` starts as `queued`; transitions to `running` when first child claimed; transitions to `completed` when all children complete
+
+**Recurring schedules (`scan_schedule_test.go`):**
+- `POST /api/v1/admin/scan-schedules` inserts row with correct `next_run_at`
+- `GET /api/v1/admin/scan-schedules` returns schedule with accurate fields
+- `PATCH` with `enabled: false` disables schedule; runner skips it
+- `DELETE` removes schedule; `schedule_id` on existing batches set to NULL
+- Schedule runner tick: due schedule spawns batch + child jobs; `last_run_at` and `next_run_at` updated
+- Concurrent ticks do not double-fire the same schedule (serializable transaction test)
+
+**Resource limits propagation (`scan_resources_test.go`):**
+- Batch created with `max_cpu_pct=50`, `max_memory_mb=1024`, `max_duration_s=3600` → child jobs inherit those values
+- Worker claims job and receives limit fields in response
+
+### E2E tests (`test/e2e/scan-enqueue.spec.js`, new file)
+
+Uses the existing manage E2E test server (`test/e2e/cmd/managetestserver/`) with seeded hosts covering all three credential states: enrolled agent 🔵, SSH credential 🟢, unconfigured 🟡.
+
+**Wizard navigation:**
+- "New Scan" button navigates to `/scan-jobs/new`
+- Sidebar shows 5 steps; active step is highlighted
+- "Next" disabled until step is valid (Step 1: at least one job type; Step 2: at least one host)
+- "Back" returns to previous step preserving selections
+- Edit link in summary jumps directly to that step
+
+**Step 1 — Job type:**
+- Selecting "Port Survey" only → summary shows "Port Survey"
+- Selecting "Filesystem" only → summary shows "Filesystem (SSH)"
+- Selecting both → summary shows "Port Survey + Filesystem"
+- Deselecting both → Next button disabled
+
+**Step 2 — Hosts:**
+- Search input filters list by hostname and IP
+- Tag filter narrows list to tagged hosts
+- 🔵 icon shown for host with enrolled agent, 🟢 for SSH cred, 🟡 for neither
+- Selecting a host adds it to the chips area with an ✕ remove button
+- Removing chip via ✕ deselects it from the list
+- Chip area shows correct count: *"3 hosts selected"*
+
+**Step 5 — Summary credential warning:**
+- Select both job types + include a 🟡 host → amber warning shown listing that host
+- Warning count matches: *"1 filesystem job will be skipped"*
+- Enqueue button says *"Enqueue N jobs anyway"* with N excluding skipped jobs
+- Warning not shown when only Port Survey selected (no credential needed)
+- Warning not shown when all selected hosts are 🔵 or 🟢
+
+**Full enqueue (one-time, immediately):**
+- Complete all 5 steps → click Enqueue → navigates to `/scan-jobs`
+- New batch row visible in jobs table
+- Expanding batch row shows child jobs grouped by host
+- Child count matches summary count
+
+**Recurring schedule:**
+- Select "Weekly on Monday at 02:00" → Schedule name field appears
+- Enter name, complete wizard → Schedules tab shows new schedule with correct next run time
+- Toggle enabled/disabled via switch in Schedules tab
+- Delete button removes schedule from list
+
+**ScanJobs page — Schedules tab:**
+- Tab visible alongside jobs list
+- Lists all recurring schedules: name, cron description, next run, status toggle
+- Delete confirms and removes schedule
 
 ---
 

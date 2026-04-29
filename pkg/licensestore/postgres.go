@@ -516,21 +516,18 @@ func (s *PostgresStore) ListExpiringLicenses(ctx context.Context, within time.Du
 }
 
 func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID, interval string) error {
-	var col string
+	var query string
 	switch interval {
 	case "30d":
-		col = "notified_30d_at"
+		query = `UPDATE licenses SET notified_30d_at = NOW() WHERE id = $1`
 	case "7d":
-		col = "notified_7d_at"
+		query = `UPDATE licenses SET notified_7d_at = NOW() WHERE id = $1`
 	case "1d":
-		col = "notified_1d_at"
+		query = `UPDATE licenses SET notified_1d_at = NOW() WHERE id = $1`
 	default:
 		return fmt.Errorf("unknown interval %q: must be 30d, 7d, or 1d", interval)
 	}
-	tag, err := s.pool.Exec(ctx,
-		fmt.Sprintf(`UPDATE licenses SET %s = NOW() WHERE id = $1`, col),
-		licenseID,
-	)
+	tag, err := s.pool.Exec(ctx, query, licenseID)
 	if err != nil {
 		return fmt.Errorf("marking license notified (%s): %w", interval, err)
 	}
@@ -990,11 +987,12 @@ func (s *PostgresStore) DashboardStats(ctx context.Context) (*DashboardStats, er
 // --- Users ---
 
 func (s *PostgresStore) CreateUser(ctx context.Context, user *User) error {
+	now := time.Now()
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, invited_at, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		user.ID, nilIfEmpty(user.OrgID), user.Email, user.Name, user.Role, user.Password,
-		user.MustChangePassword, time.Now(), time.Now(),
+		user.MustChangePassword, now, now, now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -1011,11 +1009,11 @@ func (s *PostgresStore) GetUser(ctx context.Context, id string) (*User, error) {
 	var orgID *string
 	err := s.pool.QueryRow(ctx,
 		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.must_change_password,
-		        u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
+		        u.invited_at, u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 		 FROM users u LEFT JOIN organizations o ON u.org_id = o.id
 		 WHERE u.id = $1`, id,
 	).Scan(&user.ID, &orgID, &user.Email, &user.Name, &user.Role, &user.Password,
-		&user.MustChangePassword, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
+		&user.MustChangePassword, &user.InvitedAt, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "user", ID: id}
@@ -1033,11 +1031,11 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*User
 	var orgID *string
 	err := s.pool.QueryRow(ctx,
 		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.must_change_password,
-		        u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
+		        u.invited_at, u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 		 FROM users u LEFT JOIN organizations o ON u.org_id = o.id
 		 WHERE u.email = $1`, email,
 	).Scan(&user.ID, &orgID, &user.Email, &user.Name, &user.Role, &user.Password,
-		&user.MustChangePassword, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
+		&user.MustChangePassword, &user.InvitedAt, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "user", ID: email}
@@ -1099,21 +1097,18 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 // update). Otherwise it is replaced verbatim — callers are expected to have
 // already bcrypt-hashed the value.
 func (s *PostgresStore) UpdateUser(ctx context.Context, update UserUpdate) error {
-	var (
-		tag pgconn.CommandTag
-		err error
+	// Use CASE expressions to conditionally update optional columns so a
+	// single query covers all combinations without string interpolation.
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users
+		 SET name                = $2,
+		     password            = CASE WHEN $3 <> '' THEN $3 ELSE password END,
+		     must_change_password = $4,
+		     invited_at          = CASE WHEN $5 THEN NOW() ELSE invited_at END,
+		     updated_at          = NOW()
+		 WHERE id = $1`,
+		update.ID, update.Name, update.Password, update.MustChangePassword, update.ResetInvitedAt,
 	)
-	if update.Password == "" {
-		tag, err = s.pool.Exec(ctx,
-			`UPDATE users SET name = $2, must_change_password = $3, updated_at = $4 WHERE id = $1`,
-			update.ID, update.Name, update.MustChangePassword, time.Now(),
-		)
-	} else {
-		tag, err = s.pool.Exec(ctx,
-			`UPDATE users SET name = $2, password = $3, must_change_password = $4, updated_at = $5 WHERE id = $1`,
-			update.ID, update.Name, update.Password, update.MustChangePassword, time.Now(),
-		)
-	}
 	if err != nil {
 		return fmt.Errorf("updating user: %w", err)
 	}

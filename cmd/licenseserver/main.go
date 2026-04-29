@@ -33,6 +33,10 @@ func run() error {
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_DB_URL is required")
 	}
+	if tlsCert == "" && tlsKey == "" {
+		log.Printf("WARNING: TLS is not configured; the server will accept plain HTTP connections. " +
+			"Set TRITON_LICENSE_SERVER_TLS_CERT and TRITON_LICENSE_SERVER_TLS_KEY for production deployments.")
+	}
 	if signingKeyHex == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_SIGNING_KEY is required (Ed25519 private key as hex)")
 	}

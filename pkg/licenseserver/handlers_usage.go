@@ -1,6 +1,7 @@
 package licenseserver
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log"
@@ -13,6 +14,7 @@ import (
 type UsageRequest struct {
 	LicenseID  string                     `json:"licenseID"`
 	InstanceID string                     `json:"instanceID"`
+	Token      string                     `json:"token,omitempty"` // activation token; validated when present
 	Metrics    []licensestore.UsageReport `json:"metrics"`
 }
 
@@ -58,6 +60,21 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("usage: get license: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
+	}
+
+	// If the caller supplies a token, validate it against the stored
+	// activation token. Clients that don't yet send a token are still
+	// accepted for backward compatibility (manage server migration path).
+	if req.Token != "" {
+		act, actErr := s.store.GetActivationByMachine(r.Context(), req.LicenseID, req.InstanceID)
+		if actErr != nil || !act.Active {
+			writeError(w, http.StatusUnauthorized, "invalid activation token")
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(act.Token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid activation token")
+			return
+		}
 	}
 
 	// Stamp each report with licence + instance IDs server-side —

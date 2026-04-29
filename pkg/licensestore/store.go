@@ -217,6 +217,7 @@ type User struct {
 	Role               string    `json:"role"` // platform_admin, org_admin, org_user
 	Password           string    `json:"-"`    // bcrypt hash, never serialized
 	MustChangePassword bool      `json:"mustChangePassword"`
+	InvitedAt          time.Time `json:"invitedAt"` // when temp-password invite was last issued
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
 	OrgName            string    `json:"orgName,omitempty"` // populated by joins
@@ -247,11 +248,14 @@ type UserFilter struct {
 // Password is optional: an empty string means "leave unchanged".
 // MustChangePassword is always written — callers that do not intend to change
 // it should read the current value first and pass it through unchanged.
+// ResetInvitedAt, when true, sets invited_at = NOW() — used by resend-invite
+// to restart the 7-day invite expiry window.
 type UserUpdate struct {
 	ID                 string
 	Name               string
 	Password           string // empty = unchanged
 	MustChangePassword bool
+	ResetInvitedAt     bool
 }
 
 // LicenseFilter filters license listings.

@@ -211,4 +211,13 @@ var migrations = []string{
 	// the activating service (manage server name, agent name, etc.).
 	`ALTER TABLE activations
   ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT '';`,
+
+	// Version 13: invited_at on users — records when a temp-password invite
+	// was most recently issued. handleLogin rejects logins where
+	// must_change_password=true and invited_at is older than
+	// auth.DefaultInviteExpiryWindow (7 days), preventing stale invites from
+	// remaining valid indefinitely. Seeded to created_at for existing rows.
+	`ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+UPDATE users SET invited_at = created_at;`,
 }

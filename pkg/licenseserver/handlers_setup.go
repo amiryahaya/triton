@@ -79,7 +79,7 @@ func (s *Server) handleFirstAdminSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), auth.BcryptCost)
 	if err != nil {
 		log.Printf("setup: bcrypt: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")

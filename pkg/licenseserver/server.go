@@ -127,6 +127,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	// Admin API (requires platform_admin JWT — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(srv.JWTAuth())
+		r.Use(srv.BlockUntilPasswordChanged())
 
 		// Organizations
 		r.Post("/orgs", srv.handleCreateOrg)

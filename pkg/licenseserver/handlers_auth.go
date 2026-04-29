@@ -71,6 +71,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject expired invites: a user who has must_change_password=true but
+	// has not logged in within the invite window (7 days) gets the same
+	// generic 401 as every other failure — attackers cannot distinguish
+	// "expired invite" from "wrong password".
+	if user.MustChangePassword && time.Now().After(user.InvitedAt.Add(auth.DefaultInviteExpiryWindow)) {
+		s.loginLimiter.RecordFailure(email)
+		auth.LogFailedLogin("license", "expired_invite", email, r.RemoteAddr, "invite window elapsed")
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
 	// Successful login — clear the failure counter.
 	s.loginLimiter.RecordSuccess(email)
 	auth.LogSuccessfulLogin("license", email, r.RemoteAddr)
@@ -246,7 +257,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Next), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Next), auth.BcryptCost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return

@@ -95,7 +95,7 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), auth.BcryptCost)
 	if err != nil {
 		log.Printf("bcrypt error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -169,18 +169,20 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), auth.BcryptCost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	// Rotate password + flag must-change.
+	// Rotate password + flag must-change. Reset invited_at so the new
+	// invite gets a fresh 7-day expiry window.
 	update := licensestore.UserUpdate{
 		ID:                 user.ID,
 		Name:               user.Name,
 		Password:           string(hashed),
 		MustChangePassword: true,
+		ResetInvitedAt:     true,
 	}
 	if err := s.store.UpdateUser(r.Context(), update); err != nil {
 		log.Printf("resend invite: update user: %v", err)
@@ -290,7 +292,7 @@ func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, "password must be at least 12 characters")
 			return
 		}
-		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), auth.BcryptCost)
 		if err != nil {
 			log.Printf("bcrypt error: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal server error")

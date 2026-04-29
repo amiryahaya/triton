@@ -175,6 +175,7 @@ func (s *Server) handleDeactivate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LicenseID string `json:"licenseID"`
 		MachineID string `json:"machineID"`
+		Token     string `json:"token,omitempty"` // activation token; validated when present
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -183,6 +184,21 @@ func (s *Server) handleDeactivate(w http.ResponseWriter, r *http.Request) {
 	if req.LicenseID == "" || req.MachineID == "" {
 		writeError(w, http.StatusBadRequest, "licenseID and machineID are required")
 		return
+	}
+
+	// If the caller supplies a token, validate it before deactivating.
+	// Clients that don't yet send a token are still accepted for backward
+	// compatibility (manage server migration path).
+	if req.Token != "" {
+		act, actErr := s.store.GetActivationByMachine(r.Context(), req.LicenseID, req.MachineID)
+		if actErr != nil || !act.Active {
+			writeError(w, http.StatusNotFound, "activation not found")
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(act.Token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid activation token")
+			return
+		}
 	}
 
 	if err := s.store.Deactivate(r.Context(), req.LicenseID, req.MachineID); err != nil {

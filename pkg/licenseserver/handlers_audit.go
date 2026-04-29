@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
@@ -74,10 +73,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// auditActor determines whether the request comes from an admin or client route.
+// auditActor returns a human-readable actor string for audit log entries.
+// For authenticated admin requests it returns "admin:<userID>" so entries
+// are traceable to a specific superadmin; for unauthenticated client
+// requests it falls back to a plain "client" label.
 func auditActor(r *http.Request) string {
-	if strings.HasPrefix(r.URL.Path, "/api/v1/admin/") {
-		return "admin"
+	if u, ok := UserFromContext(r.Context()); ok {
+		return "admin:" + u.ID
 	}
 	return "client"
 }

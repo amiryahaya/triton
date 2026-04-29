@@ -201,7 +201,7 @@ func TestLicenseServer_FullLifecycle(t *testing.T) {
 	assert.True(t, valResp.Valid)
 
 	// Deactivate
-	require.NoError(t, client.Deactivate(licID))
+	require.NoError(t, client.Deactivate(licID, ""))
 
 	// Validate again — should be invalid (machine not activated)
 	valResp, err = client.Validate(licID, actResp.Token)
@@ -261,7 +261,7 @@ func TestLicenseServer_Reactivation(t *testing.T) {
 
 	_, err := client.Activate(licID, license.ActivationTypeAgent, "")
 	require.NoError(t, err)
-	require.NoError(t, client.Deactivate(licID))
+	require.NoError(t, client.Deactivate(licID, ""))
 	resp, err := client.Activate(licID, license.ActivationTypeAgent, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Token)
@@ -351,7 +351,7 @@ func TestLicenseServer_AuditTrail(t *testing.T) {
 
 	client := license.NewServerClient(serverURL)
 	_, _ = client.Activate(licID, license.ActivationTypeAgent, "")
-	_ = client.Deactivate(licID)
+	_ = client.Deactivate(licID, "")
 
 	resp := licAdminReq(t, "GET", serverURL+"/api/v1/admin/audit?limit=20", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -846,7 +846,7 @@ func TestLicenseServer_AuditFilter_ByEventType(t *testing.T) {
 	client := license.NewServerClient(serverURL)
 	_, err := client.Activate(licID, license.ActivationTypeAgent, "")
 	require.NoError(t, err)
-	require.NoError(t, client.Deactivate(licID))
+	require.NoError(t, client.Deactivate(licID, ""))
 
 	// Filter event=activate
 	resp := licAdminReq(t, "GET", serverURL+"/api/v1/admin/audit?event=activate&limit=100", nil)
@@ -1057,7 +1057,7 @@ func TestLicenseServer_ClientLib_FullRoundTrip(t *testing.T) {
 	assert.Equal(t, license.TierPro, lic.Tier)
 
 	// Deactivate
-	require.NoError(t, client.Deactivate(licID))
+	require.NoError(t, client.Deactivate(licID, ""))
 
 	// Validate after deactivate — should be invalid
 	valResp, err = client.Validate(licID, actResp.Token)

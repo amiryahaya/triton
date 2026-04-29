@@ -25,6 +25,7 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		OS             string `json:"os"`
 		Arch           string `json:"arch"`
 		ActivationType string `json:"activation_type"`
+		DisplayName    string `json:"display_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -43,6 +44,9 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		// valid
 	default:
 		req.ActivationType = "agent"
+	}
+	if len(req.DisplayName) > 200 {
+		req.DisplayName = req.DisplayName[:200]
 	}
 
 	// Lookup license
@@ -93,6 +97,7 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		LastSeenAt:     now,
 		Active:         true,
 		ActivationType: req.ActivationType,
+		DisplayName:    req.DisplayName,
 	}
 
 	if err := s.store.Activate(r.Context(), act); err != nil {

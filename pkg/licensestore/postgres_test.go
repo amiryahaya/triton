@@ -1529,3 +1529,37 @@ func TestMigration10_ContactColumnsAndNotifiedAt(t *testing.T) {
 	assert.Equal(t, "", phone, "contact_phone default should be empty string")
 	assert.Equal(t, "", email, "contact_email default should be empty string")
 }
+
+func TestActivationDisplayName(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	org := makeOrg(t)
+	require.NoError(t, s.CreateOrg(ctx, org))
+	lic := makeLicense(t, org.ID)
+	require.NoError(t, s.CreateLicense(ctx, lic))
+
+	act := &licensestore.Activation{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		LicenseID:      lic.ID,
+		MachineID:      "test-machine-dn",
+		Hostname:       "host.example",
+		OS:             "linux",
+		Arch:           "amd64",
+		Token:          "tok-dn",
+		ActivatedAt:    time.Now().UTC(),
+		LastSeenAt:     time.Now().UTC(),
+		Active:         true,
+		ActivationType: "manage_server",
+		DisplayName:    "KL HQ Server",
+	}
+	if err := s.Activate(ctx, act); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	acts, err := s.ListActivations(ctx, licensestore.ActivationFilter{LicenseID: lic.ID})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(acts) != 1 || acts[0].DisplayName != "KL HQ Server" {
+		t.Errorf("got display name %q, want %q", acts[0].DisplayName, "KL HQ Server")
+	}
+}

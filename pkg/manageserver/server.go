@@ -82,6 +82,7 @@ type Server struct {
 	// + drain goroutines are spawned in Run() — not in New() — so
 	// construction stays side-effect-free and testable.
 	scanjobsAdmin   *scanjobs.AdminHandlers
+	batchAdmin      *scanjobs.BatchHandlers
 	pushStatusAdmin *scanresults.AdminHandlers
 	scanjobsStore   scanjobs.Store
 	resultsStore    scanresults.Store
@@ -221,6 +222,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		return srv.hostGuardProvider()
 	})
 	srv.scanjobsAdmin = scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, srv.scanGuardProvider)
+	srv.batchAdmin = scanjobs.NewBatchHandlers(scanjobsStore, hostsStore)
 	srv.agentsAdmin = agents.NewAdminHandlers(
 		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
 	)
@@ -331,6 +333,10 @@ func (s *Server) buildRouter() chi.Router {
 		r.Route("/scan-jobs", func(r chi.Router) {
 			r.Use(s.rejectWhenDeactivationPending)
 			scanjobs.MountAdminRoutes(r, s.scanjobsAdmin)
+		})
+		r.Route("/scan-batches", func(r chi.Router) {
+			r.Use(s.rejectWhenDeactivationPending)
+			scanjobs.MountBatchRoutes(r, s.batchAdmin)
 		})
 		r.Route("/push-status", func(r chi.Router) { scanresults.MountAdminRoutes(r, s.pushStatusAdmin) })
 		r.Route("/agents", func(r chi.Router) { agents.MountAdminRoutes(r, s.agentsAdmin) })

@@ -26,6 +26,19 @@ func MountAdminRoutes(r chi.Router, h *AdminHandlers) {
 	r.Post("/{id}/cancel", h.RequestCancel)
 }
 
+// MountBatchRoutes wires the scan-batches admin API onto r. Callers must
+// mount this under the same authenticated, instance-scoped subtree as
+// MountAdminRoutes (/api/v1/admin).
+//
+// Route table:
+//
+//	POST /  - create a batch + child jobs (body: BatchEnqueueReq) → 201
+//	GET  /  - list batches for the tenant (?limit=N)              → 200
+func MountBatchRoutes(r chi.Router, h *BatchHandlers) {
+	r.Post("/", h.EnqueueBatch)
+	r.Get("/", h.ListBatches)
+}
+
 // MountWorkerRoutes wires the Worker API onto r under whatever parent path it's
 // mounted on (Manage server uses /api/v1/worker).
 // key is the shared X-Worker-Key secret.

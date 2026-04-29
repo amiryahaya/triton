@@ -193,6 +193,7 @@ func TestManageServerSetupFlow(t *testing.T) {
 	licResp := postJSON(t, ts.URL+"/api/v1/setup/license", map[string]any{
 		"license_server_url": ls.URL,
 		"license_key":        "int-test-lic",
+		"server_name":        "Test Manage Server",
 	})
 	licBody := manageReadBody(licResp)
 	require.Equal(t, http.StatusOK, licResp.StatusCode,

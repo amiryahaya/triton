@@ -174,6 +174,7 @@ func (f *lcFixture) lcSetup(t *testing.T) {
 	resp = postJSON(t, f.AdminURL+"/api/v1/setup/license", map[string]any{
 		"license_server_url": f.LSStub.URL,
 		"license_key":        "lc-test-lic",
+		"server_name":        "Test Manage Server",
 	})
 	body = manageReadBody(resp)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "setup/license: %s", body)

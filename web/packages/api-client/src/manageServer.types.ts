@@ -23,10 +23,13 @@ export interface CreateAdminResp {
 export interface ActivateLicenseReq {
   license_server_url: string;
   license_key: string;
+  server_name: string;
 }
 
 export interface ActivateLicenseResp {
   ok: boolean;
+  instance_id: string;
+  server_name: string;
   features: Record<string, boolean>;
   limits: Record<string, unknown>;
 }

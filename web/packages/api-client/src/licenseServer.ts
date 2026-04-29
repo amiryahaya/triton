@@ -60,14 +60,6 @@ export interface CreateOrgRequest {
   notes?: string;
 }
 
-export interface UpdateOrgRequest {
-  name?: string;
-  contact_name?: string;
-  contact_phone?: string;
-  contact_email?: string;
-  notes?: string;
-}
-
 export interface UpdateLicenceRequest {
   schedule?: string | null;
   scheduleJitterSeconds?: number | null;
@@ -91,7 +83,7 @@ export function createLicenseApi(http: Http) {
     org: (id: string) => http.get<Organisation>(`/v1/admin/orgs/${id}`),
     createOrg: (req: CreateOrgRequest) =>
       http.post<Organisation>('/v1/admin/orgs', req),
-    updateOrg: (id: string, req: UpdateOrgRequest) =>
+    updateOrg: (id: string, req: CreateOrgRequest) =>
       http.put<Organisation>(`/v1/admin/orgs/${id}`, req),
     deleteOrg: (id: string) => http.del<void>(`/v1/admin/orgs/${id}`),
     suspendOrg: (id: string, suspended: boolean) =>

@@ -128,9 +128,9 @@ async function onEditSubmit(payload: OrgFormPayload) {
       </template>
       <dl class="kv">
         <dt>ID</dt><dd class="mono">{{ org.id }}</dd>
-        <dt>Contact name</dt><dd>{{ org.contact_name || '—' }}</dd>
-        <dt>Contact email</dt><dd>{{ org.contact_email || '—' }}</dd>
-        <dt>Contact phone</dt><dd>{{ org.contact_phone || '—' }}</dd>
+        <dt>Contact Name</dt><dd>{{ org.contact_name || '—' }}</dd>
+        <dt>Contact Email</dt><dd>{{ org.contact_email || '—' }}</dd>
+        <dt>Contact Phone</dt><dd>{{ org.contact_phone || '—' }}</dd>
         <dt>Notes</dt><dd>{{ org.notes || '—' }}</dd>
         <dt>Status</dt>
         <dd>

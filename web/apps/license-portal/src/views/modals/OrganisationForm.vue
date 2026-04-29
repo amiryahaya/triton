@@ -65,6 +65,9 @@ function submit() {
   if (!contactEmail.value.trim()) {
     contactEmailError.value = 'Contact email is required.';
     valid = false;
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.value.trim())) {
+    contactEmailError.value = 'Enter a valid email address.';
+    valid = false;
   }
   if (!valid) return;
 
@@ -93,7 +96,7 @@ function submit() {
         <TInput v-model="name" />
       </TFormField>
       <TFormField
-        label="Contact name"
+        label="Contact Name"
         required
         :error="contactNameError"
       >
@@ -103,7 +106,7 @@ function submit() {
         />
       </TFormField>
       <TFormField
-        label="Contact email"
+        label="Contact Email"
         required
         :error="contactEmailError"
       >
@@ -113,7 +116,7 @@ function submit() {
           placeholder="contact@example.com"
         />
       </TFormField>
-      <TFormField label="Contact phone">
+      <TFormField label="Contact Phone">
         <TInput
           v-model="contactPhone"
           type="tel"

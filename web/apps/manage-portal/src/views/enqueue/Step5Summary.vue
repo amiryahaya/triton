@@ -8,6 +8,10 @@
         <span class="summary-label">Job types</span>
         <span class="summary-value">{{ jobTypesLabel }}</span>
       </div>
+      <div class="summary-row">
+        <span class="summary-label">Profile</span>
+        <span class="summary-value">{{ state.profile }}</span>
+      </div>
       <button class="edit-link" @click="$emit('go-step', 1)">Edit</button>
     </div>
 
@@ -63,7 +67,9 @@
     </div>
 
     <!-- Enqueue button -->
-    <button class="btn-primary enqueue-btn" :disabled="loading" @click="$emit('submit')">
+    <button class="btn-primary enqueue-btn"
+            :disabled="loading || plannedJobCount - skippedHosts.length === 0"
+            @click="$emit('submit')">
       <span v-if="loading">Enqueueing…</span>
       <span v-else>{{ enqueueLabel }}</span>
     </button>
@@ -134,7 +140,7 @@ const resourcesLabel = computed(() => {
 });
 
 const isRecurring = computed(() =>
-  !['immediately', 'once_at'].includes(props.state.scheduleKey ?? '')
+  props.state.scheduleKey !== 'immediately'
 );
 
 const plannedJobCount = computed(() => {

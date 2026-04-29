@@ -9,9 +9,6 @@
         <span class="radio-label">{{ opt.label }}</span>
 
         <!-- Inline controls for parameterised options -->
-        <template v-if="selection === opt.key && opt.key === 'once_at'">
-          <input type="datetime-local" v-model="onceAt" class="t-input inline mt-2" />
-        </template>
         <template v-if="selection === opt.key && opt.key === 'daily'">
           <div class="inline-group">
             at <input type="time" v-model="dailyTime" class="t-input inline" />
@@ -50,9 +47,10 @@ import type { WizardState } from './wizardTypes';
 const props = defineProps<{ modelValue: WizardState }>();
 const emit = defineEmits<{ 'update:modelValue': [WizardState] }>();
 
+// 'once_at' is omitted — BatchEnqueueReq has no scheduled_at field yet.
+// Immediate + recurring cron options are the supported modes.
 const options = [
   { key: 'immediately', label: 'Run immediately' },
-  { key: 'once_at',     label: 'Run once at' },
   { key: 'hourly',      label: 'Hourly' },
   { key: 'daily',       label: 'Daily at' },
   { key: 'weekly',      label: 'Weekly on' },

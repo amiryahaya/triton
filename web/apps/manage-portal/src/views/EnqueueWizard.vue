@@ -48,6 +48,7 @@ import { useRouter } from 'vue-router';
 import type { Host } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
 import { useScanJobsStore } from '../stores/scanjobs';
+import { useToast } from '@triton/ui';
 import type { WizardState } from './enqueue/wizardTypes';
 export type { WizardState };
 import Step5Summary from './enqueue/Step5Summary.vue';
@@ -91,6 +92,10 @@ const stepComponent = computed(() => {
 const canAdvance = computed(() => {
   if (currentStep.value === 1) return state.value.jobTypes.length > 0;
   if (currentStep.value === 2) return state.value.hostIDs.length > 0;
+  if (currentStep.value === 3) {
+    const isRecurring = !['immediately', 'once_at'].includes(state.value.scheduleKey);
+    return !isRecurring || (state.value.scheduleName?.trim().length ?? 0) > 0;
+  }
   return true;
 });
 
@@ -103,7 +108,7 @@ function maybeJumpTo(step: number) {
 async function submit() {
   submitting.value = true;
   try {
-    const isRecurring = !['immediately', 'once_at'].includes(state.value.scheduleKey);
+    const isRecurring = state.value.scheduleKey !== 'immediately';
 
     if (isRecurring && state.value.cronExpr) {
       await jobs.createSchedule({
@@ -128,6 +133,8 @@ async function submit() {
     });
 
     router.push('/operations/scan-jobs');
+  } catch (e) {
+    useToast().error({ title: 'Enqueue failed', description: String(e) });
   } finally {
     submitting.value = false;
   }

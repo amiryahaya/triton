@@ -84,7 +84,7 @@ type ValidateResponse struct {
 }
 
 // Activate registers this machine with the license server.
-func (c *ServerClient) Activate(licenseID, activationType string) (*ActivateResponse, error) {
+func (c *ServerClient) Activate(licenseID, activationType, displayName string) (*ActivateResponse, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]string{
 		"licenseID":       licenseID,
@@ -93,6 +93,7 @@ func (c *ServerClient) Activate(licenseID, activationType string) (*ActivateResp
 		"os":              runtime.GOOS,
 		"arch":            runtime.GOARCH,
 		"activation_type": activationType,
+		"display_name":    displayName,
 	}
 
 	data, err := json.Marshal(body)
@@ -192,11 +193,12 @@ func (c *ServerClient) Validate(licenseID, token string) (*ValidateResponse, err
 // ActivateForTenant activates a licence with a custom machineID.
 // The Report Portal uses machineID = instanceID + "/" + tenantID so that
 // each (deployment, tenant) pair occupies a unique activation seat.
-func (c *ServerClient) ActivateForTenant(licenceKey, machineID, activationType string) (*ActivateResponse, error) {
+func (c *ServerClient) ActivateForTenant(licenceKey, machineID, activationType, displayName string) (*ActivateResponse, error) {
 	body := map[string]string{
 		"licenseID":       licenceKey,
 		"machineID":       machineID,
 		"activation_type": activationType,
+		"display_name":    displayName,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

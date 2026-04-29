@@ -141,7 +141,7 @@ func (s *Server) handleCreatePlatformTenant(w http.ResponseWriter, r *http.Reque
 	tenantID := uuid.Must(uuid.NewV7()).String()
 	machineID := inst.ID + "/" + tenantID
 
-	activation, err := s.licencePortalClient.ActivateForTenant(req.LicenceKey, machineID, license.ActivationTypeReportServer)
+	activation, err := s.licencePortalClient.ActivateForTenant(req.LicenceKey, machineID, license.ActivationTypeReportServer, "")
 	if err != nil {
 		status, msg := classifyActivationError(err)
 		writeError(w, status, msg)
@@ -338,7 +338,7 @@ func (s *Server) handleRenewTenantLicence(w http.ResponseWriter, r *http.Request
 	}
 	machineID := inst.ID + "/" + id
 
-	activation, err := s.licencePortalClient.ActivateForTenant(req.LicenceKey, machineID, license.ActivationTypeReportServer)
+	activation, err := s.licencePortalClient.ActivateForTenant(req.LicenceKey, machineID, license.ActivationTypeReportServer, "")
 	if err != nil {
 		status, msg := classifyActivationError(err)
 		writeError(w, status, msg)

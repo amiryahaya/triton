@@ -158,7 +158,7 @@ func (s *Server) handleSetupLicense(w http.ResponseWriter, r *http.Request) {
 	// response fields (features, limits, product_scope) are populated when
 	// the server is v2-capable; Manage enforces product scope client-side.
 	client := license.NewServerClient(req.LicenseServerURL)
-	resp, err := client.Activate(req.LicenseKey, license.ActivationTypeManageServer)
+	resp, err := client.Activate(req.LicenseKey, license.ActivationTypeManageServer, "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "activation failed: "+err.Error())
 		return

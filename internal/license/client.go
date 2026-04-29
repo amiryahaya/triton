@@ -3,6 +3,7 @@ package license
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
+
+// ErrNoSeats is returned by ActivateForTenant when the licence has no
+// remaining seats (HTTP 409 Conflict).
+var ErrNoSeats = errors.New("no seats available")
 
 // ActivationType constants identify which kind of service holds a licence seat.
 const (
@@ -113,7 +118,7 @@ func (c *ServerClient) Activate(licenseID, activationType, displayName string) (
 	}
 
 	if resp.StatusCode == http.StatusConflict {
-		return nil, fmt.Errorf("all seats are occupied")
+		return nil, ErrNoSeats
 	}
 	if resp.StatusCode == http.StatusForbidden {
 		var errResp map[string]string
@@ -216,7 +221,7 @@ func (c *ServerClient) ActivateForTenant(licenceKey, machineID, activationType, 
 	}
 	switch resp.StatusCode {
 	case http.StatusConflict:
-		return nil, fmt.Errorf("no seats available")
+		return nil, ErrNoSeats
 	case http.StatusForbidden:
 		var e map[string]string
 		_ = json.Unmarshal(respBody, &e)

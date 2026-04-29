@@ -51,7 +51,7 @@ type AgentCapGuard interface {
 type AdminHandlers struct {
 	CAStore           ca.Store
 	AgentStore        Store
-	SetupStore        managestore.Store // for licence proxy activation
+	SetupStore        managestore.Store // for licence proxy activation; nil means proxy disabled
 	ManageGatewayURL  string
 	PhoneHomeInterval time.Duration
 	GuardProvider     func() AgentCapGuard
@@ -179,6 +179,7 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Proxy-activate a licence seat on behalf of this agent.
+	seatActivated := false
 	if h.SetupStore != nil {
 		state, stErr := h.SetupStore.GetSetup(r.Context())
 		if stErr != nil {
@@ -191,8 +192,7 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 				license.ActivationTypeAgent,
 				agent.Name,
 			); actErr != nil {
-				errMsg := actErr.Error()
-				if strings.Contains(errMsg, "all seats") || strings.Contains(errMsg, "no seats") {
+				if errors.Is(actErr, license.ErrNoSeats) {
 					// Seats exhausted — roll back the agent row and reject enrolment.
 					if delErr := h.AgentStore.Delete(r.Context(), agentID); delErr != nil {
 						log.Printf("manageserver/agents: enrol: rollback agent row after seats-full: %v", delErr)
@@ -202,6 +202,8 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 				}
 				// Transient error (network, timeout) — log and allow enrolment.
 				log.Printf("manageserver/agents: enrol: licence activation transient error (continuing): %v", actErr)
+			} else {
+				seatActivated = true
 			}
 		}
 	}
@@ -215,6 +217,20 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 		PhoneHomeInterval: h.PhoneHomeInterval,
 	})
 	if err != nil {
+		// Roll back: delete the agent row so the DB stays consistent.
+		if delErr := h.AgentStore.Delete(r.Context(), agentID); delErr != nil {
+			log.Printf("manageserver/agents: enrol: rollback agent row after bundle error: %v", delErr)
+		}
+		// Best-effort deactivate the licence seat we just consumed.
+		if seatActivated {
+			state, stErr := h.SetupStore.GetSetup(r.Context())
+			if stErr == nil && state.LicenseActivated {
+				licClient := license.NewServerClient(state.LicenseServerURL)
+				if deactErr := licClient.DeactivateForTenant(state.LicenseKey, agentID.String()); deactErr != nil {
+					log.Printf("manageserver/agents: enrol: rollback seat after bundle error: %v", deactErr)
+				}
+			}
+		}
 		internalErr(w, r, err, "build agent bundle")
 		return
 	}

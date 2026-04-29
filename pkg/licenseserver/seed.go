@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
 
@@ -39,7 +40,7 @@ func SeedInitialSuperadmin(ctx context.Context, store licensestore.Store, email,
 		return false, fmt.Errorf("password must be at least %d characters", minPasswordLen)
 	}
 
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), auth.BcryptCost)
 	if err != nil {
 		return false, fmt.Errorf("hashing password: %w", err)
 	}

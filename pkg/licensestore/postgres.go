@@ -150,9 +150,10 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 
 func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO organizations (id, name, contact, notes, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		org.ID, org.Name, org.Contact, org.Notes, org.CreatedAt, org.UpdatedAt,
+		`INSERT INTO organizations (id, name, contact_name, contact_phone, contact_email, notes, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		org.ID, org.Name, org.ContactName, org.ContactPhone, org.ContactEmail,
+		org.Notes, org.CreatedAt, org.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -167,10 +168,10 @@ func (s *PostgresStore) CreateOrg(ctx context.Context, org *Organization) error 
 func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, error) {
 	var org Organization
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, contact, notes, suspended, created_at, updated_at
+		`SELECT id, name, contact_name, contact_phone, contact_email, notes, suspended, created_at, updated_at
 		 FROM organizations WHERE id = $1`, id,
-	).Scan(&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
-		&org.CreatedAt, &org.UpdatedAt)
+	).Scan(&org.ID, &org.Name, &org.ContactName, &org.ContactPhone, &org.ContactEmail,
+		&org.Notes, &org.Suspended, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "organization", ID: id}
 	}
@@ -185,7 +186,7 @@ func (s *PostgresStore) GetOrg(ctx context.Context, id string) (*Organization, e
 func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			o.id, o.name, o.contact, o.notes, o.suspended,
+			o.id, o.name, o.contact_name, o.contact_phone, o.contact_email, o.notes, o.suspended,
 			o.created_at, o.updated_at,
 			EXISTS (
 				SELECT 1 FROM licenses l WHERE l.org_id = o.id AND l.seats > 0
@@ -208,7 +209,7 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 	for rows.Next() {
 		var org Organization
 		if err := rows.Scan(
-			&org.ID, &org.Name, &org.Contact, &org.Notes, &org.Suspended,
+			&org.ID, &org.Name, &org.ContactName, &org.ContactPhone, &org.ContactEmail, &org.Notes, &org.Suspended,
 			&org.CreatedAt, &org.UpdatedAt,
 			&org.HasSeatedLicenses, &org.ActiveActivations,
 		); err != nil {
@@ -221,9 +222,11 @@ func (s *PostgresStore) ListOrgs(ctx context.Context) ([]Organization, error) {
 
 func (s *PostgresStore) UpdateOrg(ctx context.Context, org *Organization) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE organizations SET name = $2, contact = $3, notes = $4, updated_at = $5
+		`UPDATE organizations SET name = $2, contact_name = $3, contact_phone = $4,
+		 contact_email = $5, notes = $6, updated_at = $7
 		 WHERE id = $1`,
-		org.ID, org.Name, org.Contact, org.Notes, org.UpdatedAt,
+		org.ID, org.Name, org.ContactName, org.ContactPhone, org.ContactEmail,
+		org.Notes, org.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -478,9 +481,68 @@ func (s *PostgresStore) UpdateLicense(ctx context.Context, id string, upd Licens
 	return nil
 }
 
+func (s *PostgresStore) ListExpiringLicenses(ctx context.Context, within time.Duration) ([]LicenseWithOrg, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT l.id, l.org_id, o.name, o.contact_name, o.contact_phone, o.contact_email,
+		       l.expires_at, l.notified_30d_at, l.notified_7d_at, l.notified_1d_at
+		FROM   licenses l
+		JOIN   organizations o ON o.id = l.org_id
+		WHERE  l.revoked = FALSE
+		  AND  o.suspended = FALSE
+		  AND  l.expires_at > NOW()
+		  AND  l.expires_at <= NOW() + $1::interval
+		ORDER  BY l.expires_at`,
+		fmt.Sprintf("%d seconds", int(within.Seconds())),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing expiring licenses: %w", err)
+	}
+	defer rows.Close()
+
+	var results []LicenseWithOrg
+	for rows.Next() {
+		var r LicenseWithOrg
+		if err := rows.Scan(
+			&r.LicenseID, &r.OrgID, &r.OrgName,
+			&r.ContactName, &r.ContactPhone, &r.ContactEmail,
+			&r.ExpiresAt,
+			&r.Notified30dAt, &r.Notified7dAt, &r.Notified1dAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning expiring license: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func (s *PostgresStore) MarkLicenseNotified(ctx context.Context, licenseID, interval string) error {
+	var query string
+	switch interval {
+	case "30d":
+		query = `UPDATE licenses SET notified_30d_at = NOW() WHERE id = $1`
+	case "7d":
+		query = `UPDATE licenses SET notified_7d_at = NOW() WHERE id = $1`
+	case "1d":
+		query = `UPDATE licenses SET notified_1d_at = NOW() WHERE id = $1`
+	default:
+		return fmt.Errorf("unknown interval %q: must be 30d, 7d, or 1d", interval)
+	}
+	tag, err := s.pool.Exec(ctx, query, licenseID)
+	if err != nil {
+		return fmt.Errorf("marking license notified (%s): %w", interval, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return &ErrNotFound{Resource: "license", ID: licenseID}
+	}
+	return nil
+}
+
 // --- Activations ---
 
 func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
+	if act.ActivationType == "" {
+		act.ActivationType = "agent"
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin activate tx: %w", err)
@@ -529,9 +591,9 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 		if existingActive {
 			// Already active — just update last_seen and return existing info
 			if _, err := tx.Exec(ctx,
-				`UPDATE activations SET last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5
+				`UPDATE activations SET last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5, activation_type = $6, display_name = $7
 				 WHERE id = $1`,
-				existingID, act.Hostname, act.OS, act.Arch, act.Token,
+				existingID, act.Hostname, act.OS, act.Arch, act.Token, act.ActivationType, act.DisplayName,
 			); err != nil {
 				_ = tx.Rollback(ctx)
 				return fmt.Errorf("updating activation: %w", err)
@@ -561,9 +623,9 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE activations SET active = TRUE, deactivated_at = NULL,
-			 last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5
+			 last_seen_at = NOW(), hostname = $2, os = $3, arch = $4, token = $5, activation_type = $6, display_name = $7
 			 WHERE id = $1`,
-			existingID, act.Hostname, act.OS, act.Arch, act.Token,
+			existingID, act.Hostname, act.OS, act.Arch, act.Token, act.ActivationType, act.DisplayName,
 		); err != nil {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("re-activating: %w", err)
@@ -597,10 +659,10 @@ func (s *PostgresStore) Activate(ctx context.Context, act *Activation) error {
 
 	// Insert new activation
 	_, err = tx.Exec(ctx,
-		`INSERT INTO activations (id, license_id, machine_id, hostname, os, arch, token, activated_at, last_seen_at, active)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)`,
+		`INSERT INTO activations (id, license_id, machine_id, hostname, os, arch, token, activated_at, last_seen_at, active, activation_type, display_name)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, $11)`,
 		act.ID, act.LicenseID, act.MachineID, act.Hostname, act.OS, act.Arch, act.Token,
-		act.ActivatedAt, act.LastSeenAt,
+		act.ActivatedAt, act.LastSeenAt, act.ActivationType, act.DisplayName,
 	)
 	if err != nil {
 		_ = tx.Rollback(ctx)
@@ -629,10 +691,10 @@ func (s *PostgresStore) GetActivation(ctx context.Context, id string) (*Activati
 	var act Activation
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, license_id, machine_id, hostname, os, arch, token,
-		        activated_at, last_seen_at, deactivated_at, active
+		        activated_at, last_seen_at, deactivated_at, active, activation_type, display_name
 		 FROM activations WHERE id = $1`, id,
 	).Scan(&act.ID, &act.LicenseID, &act.MachineID, &act.Hostname, &act.OS, &act.Arch, &act.Token,
-		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active,
+		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active, &act.ActivationType, &act.DisplayName,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "activation", ID: id}
@@ -647,10 +709,10 @@ func (s *PostgresStore) GetActivationByMachine(ctx context.Context, licenseID, m
 	var act Activation
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, license_id, machine_id, hostname, os, arch, token,
-		        activated_at, last_seen_at, deactivated_at, active
+		        activated_at, last_seen_at, deactivated_at, active, activation_type, display_name
 		 FROM activations WHERE license_id = $1 AND machine_id = $2`, licenseID, machineID,
 	).Scan(&act.ID, &act.LicenseID, &act.MachineID, &act.Hostname, &act.OS, &act.Arch, &act.Token,
-		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active,
+		&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active, &act.ActivationType, &act.DisplayName,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &ErrNotFound{Resource: "activation", ID: licenseID + "/" + machineID}
@@ -663,7 +725,7 @@ func (s *PostgresStore) GetActivationByMachine(ctx context.Context, licenseID, m
 
 func (s *PostgresStore) ListActivations(ctx context.Context, filter ActivationFilter) ([]Activation, error) {
 	query := `SELECT id, license_id, machine_id, hostname, os, arch, token,
-	                 activated_at, last_seen_at, deactivated_at, active
+	                 activated_at, last_seen_at, deactivated_at, active, activation_type, display_name
 	          FROM activations WHERE 1=1`
 	var args []any
 	paramIdx := 0
@@ -696,7 +758,7 @@ func (s *PostgresStore) ListActivations(ctx context.Context, filter ActivationFi
 	for rows.Next() {
 		var act Activation
 		if err := rows.Scan(&act.ID, &act.LicenseID, &act.MachineID, &act.Hostname, &act.OS, &act.Arch, &act.Token,
-			&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active,
+			&act.ActivatedAt, &act.LastSeenAt, &act.DeactivatedAt, &act.Active, &act.ActivationType, &act.DisplayName,
 		); err != nil {
 			return nil, fmt.Errorf("scanning activation: %w", err)
 		}
@@ -925,11 +987,12 @@ func (s *PostgresStore) DashboardStats(ctx context.Context) (*DashboardStats, er
 // --- Users ---
 
 func (s *PostgresStore) CreateUser(ctx context.Context, user *User) error {
+	now := time.Now()
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		`INSERT INTO users (id, org_id, email, name, role, password, must_change_password, invited_at, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		user.ID, nilIfEmpty(user.OrgID), user.Email, user.Name, user.Role, user.Password,
-		user.MustChangePassword, time.Now(), time.Now(),
+		user.MustChangePassword, now, now, now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -946,11 +1009,11 @@ func (s *PostgresStore) GetUser(ctx context.Context, id string) (*User, error) {
 	var orgID *string
 	err := s.pool.QueryRow(ctx,
 		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.must_change_password,
-		        u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
+		        u.invited_at, u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 		 FROM users u LEFT JOIN organizations o ON u.org_id = o.id
 		 WHERE u.id = $1`, id,
 	).Scan(&user.ID, &orgID, &user.Email, &user.Name, &user.Role, &user.Password,
-		&user.MustChangePassword, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
+		&user.MustChangePassword, &user.InvitedAt, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "user", ID: id}
@@ -968,11 +1031,11 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*User
 	var orgID *string
 	err := s.pool.QueryRow(ctx,
 		`SELECT u.id, u.org_id, u.email, u.name, u.role, u.password, u.must_change_password,
-		        u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
+		        u.invited_at, u.created_at, u.updated_at, COALESCE(o.name, '') AS org_name
 		 FROM users u LEFT JOIN organizations o ON u.org_id = o.id
 		 WHERE u.email = $1`, email,
 	).Scan(&user.ID, &orgID, &user.Email, &user.Name, &user.Role, &user.Password,
-		&user.MustChangePassword, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
+		&user.MustChangePassword, &user.InvitedAt, &user.CreatedAt, &user.UpdatedAt, &user.OrgName)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &ErrNotFound{Resource: "user", ID: email}
@@ -1034,21 +1097,18 @@ func (s *PostgresStore) ListUsers(ctx context.Context, filter UserFilter) ([]Use
 // update). Otherwise it is replaced verbatim — callers are expected to have
 // already bcrypt-hashed the value.
 func (s *PostgresStore) UpdateUser(ctx context.Context, update UserUpdate) error {
-	var (
-		tag pgconn.CommandTag
-		err error
+	// Use CASE expressions to conditionally update optional columns so a
+	// single query covers all combinations without string interpolation.
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users
+		 SET name                = $2,
+		     password            = CASE WHEN $3 <> '' THEN $3 ELSE password END,
+		     must_change_password = $4,
+		     invited_at          = CASE WHEN $5 THEN NOW() ELSE invited_at END,
+		     updated_at          = NOW()
+		 WHERE id = $1`,
+		update.ID, update.Name, update.Password, update.MustChangePassword, update.ResetInvitedAt,
 	)
-	if update.Password == "" {
-		tag, err = s.pool.Exec(ctx,
-			`UPDATE users SET name = $2, must_change_password = $3, updated_at = $4 WHERE id = $1`,
-			update.ID, update.Name, update.MustChangePassword, time.Now(),
-		)
-	} else {
-		tag, err = s.pool.Exec(ctx,
-			`UPDATE users SET name = $2, password = $3, must_change_password = $4, updated_at = $5 WHERE id = $1`,
-			update.ID, update.Name, update.Password, update.MustChangePassword, time.Now(),
-		)
-	}
 	if err != nil {
 		return fmt.Errorf("updating user: %w", err)
 	}

@@ -154,15 +154,17 @@ The `triton fleet-scan` command (new in PR #74) orchestrates SSH fan-out of `tri
 
 Standalone binary (`cmd/licenseserver/main.go`) with separate PostgreSQL schema (`pkg/licensestore/`), Chi REST API (`pkg/licenseserver/`), and embedded admin web UI.
 
-- **Store**: `pkg/licensestore/` — 4 tables (organizations, licenses, activations, audit_log), separate `license_schema_version` table, pgx/v5
-- **Server**: `pkg/licenseserver/` — Admin API (X-Triton-Admin-Key auth) + Client API (no auth, secured by license UUID + fingerprint)
+- **Store**: `pkg/licensestore/` — 6 tables (organizations, licenses, activations, audit_log, users, sessions), separate `license_schema_version` table, pgx/v5
+- **Auth**: JWT-based (Ed25519-signed, 24h TTL). Role `platform_admin` (org_id NULL) controls admin API access. Bootstrap: `SeedInitialSuperadmin()` on startup via `TRITON_LICENSE_SERVER_ADMIN_EMAIL` / `TRITON_LICENSE_SERVER_ADMIN_PASSWORD` (idempotent). Login rate-limited same as Report Server.
+- **Server**: `pkg/licenseserver/` — Auth API (`/api/v1/auth/*`), Setup API (`/api/v1/setup/*`), Admin API (JWT Bearer, `/api/v1/admin/*`), Client API (no auth, `/api/v1/license/*`), Install API (`/api/v1/install/{token}/*`)
+- **Superadmin CRUD**: `pkg/licenseserver/handlers_superadmin.go` — invite (temp password + optional Resend email), list, update, delete, resend-invite; cannot delete self or last platform_admin
 - **Client**: `internal/license/client.go` — `ServerClient` with Activate/Deactivate/Validate/Health
 - **Cache**: `internal/license/cache.go` — `CacheMeta` at `~/.triton/license.meta`, 7-day grace period
 - **Guard integration**: `NewGuardWithServer()` validates online, falls back to cached tier if server unreachable
 - **CLI commands**: `triton license activate`, `triton license deactivate` (flags: `--license-server`, `--license-id`)
-- **Binary**: `cmd/licenseserver/main.go` — env config (`TRITON_LICENSE_SERVER_*`), signal handling
+- **Binary**: `cmd/licenseserver/main.go` — env config (`TRITON_LICENSE_SERVER_*`), signal handling, 10s graceful drain
 - **Container**: `Containerfile.licenseserver`, compose profile `license-server` on port 8081
-- **Admin UI**: Embedded vanilla JS SPA at `/ui/` with hash routing (dashboard, orgs, licenses, activations, audit)
+- **Admin UI**: Embedded vanilla JS SPA at `/ui/` with hash routing (login, dashboard, orgs, licenses, activations, audit, superadmins)
 
 ## Development Methodology
 
@@ -193,7 +195,7 @@ Run with `make test-e2e` (requires PostgreSQL running + Chromium installed via P
 
 22 Playwright tests in `test/e2e/license-admin.spec.js` validate the license server admin web UI (`pkg/licenseserver/ui/dist/`) against a live PostgreSQL-backed license server.
 
-- **Test server:** `test/e2e/cmd/testlicenseserver/main.go` — Lightweight license server with ephemeral Ed25519 keypair, admin key `e2e-test-key`
+- **Test server:** `test/e2e/cmd/testlicenseserver/main.go` — Lightweight license server with ephemeral Ed25519 keypair, seeds a test platform admin (`admin@test.local`) for JWT login
 - **Global setup:** `test/e2e/license-global-setup.js` — Seeds 2 orgs, 2 licenses, 1 activation
 - **Config:** `test/e2e/playwright.license.config.js` — Separate Playwright config (baseURL `:8081`)
 - **`license-admin.spec.js`** (22 tests) — Auth prompt, dashboard stats, org CRUD, license listing, license detail, activations, audit log, navigation

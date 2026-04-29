@@ -32,6 +32,7 @@ type Finding struct {
 	CreatedAt         time.Time
 	ImageRef          string
 	ImageDigest       string
+	ManageServerID    string
 }
 
 // InventoryRow is one row in the Crypto Inventory view — one per

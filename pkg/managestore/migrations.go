@@ -381,17 +381,40 @@ $$;`,
 	`ALTER TABLE manage_scan_results_queue
 		DROP CONSTRAINT IF EXISTS manage_scan_results_queue_source_type_check;`,
 
-	// Version 19: Rename access_port → ssh_port on manage_hosts; add
-	// connection_type (ssh|ssh_bastion|agent) and bastion_host_id for the
+	// Version 19: Make hostname NOT NULL, rename access_port→ssh_port, seed 13 built-in tags.
+	`UPDATE manage_hosts SET hostname = host(ip)::text WHERE hostname IS NULL OR hostname = '';
+ALTER TABLE manage_hosts ALTER COLUMN hostname SET NOT NULL;
+ALTER TABLE manage_hosts RENAME COLUMN access_port TO ssh_port;
+INSERT INTO manage_tags (id, name, color) VALUES
+    (gen_random_uuid(), 'production',  '#EF4444'),
+    (gen_random_uuid(), 'staging',     '#F97316'),
+    (gen_random_uuid(), 'development', '#22C55E'),
+    (gen_random_uuid(), 'web',         '#3B82F6'),
+    (gen_random_uuid(), 'database',    '#8B5CF6'),
+    (gen_random_uuid(), 'windows',     '#0EA5E9'),
+    (gen_random_uuid(), 'linux',       '#15803D'),
+    (gen_random_uuid(), 'unix',        '#4B5563'),
+    (gen_random_uuid(), 'server',      '#1D4ED8'),
+    (gen_random_uuid(), 'laptop',      '#0891B2'),
+    (gen_random_uuid(), 'workstation', '#7C3AED'),
+    (gen_random_uuid(), 'critical',    '#DC2626'),
+    (gen_random_uuid(), 'pqc-scope',   '#F59E0B')
+ON CONFLICT (name) DO NOTHING;`,
+
+	// Version 20: server_name on manage_setup — human-readable label for
+	// this Manage Server instance. Used in the licence server admin UI and
+	// forwarded to Report Server during enrolment.
+	`ALTER TABLE manage_setup
+  ADD COLUMN IF NOT EXISTS server_name TEXT NOT NULL DEFAULT '';`,
+
+	// Version 21: connection_type (ssh|ssh_bastion|agent) and bastion_host_id for the
 	// host connectivity model (direct SSH, jump-host SSH, agent-managed).
 	`ALTER TABLE manage_hosts
-		RENAME COLUMN access_port TO ssh_port;
-	ALTER TABLE manage_hosts
 		ADD COLUMN IF NOT EXISTS connection_type TEXT NOT NULL DEFAULT 'ssh'
 			CHECK (connection_type IN ('ssh','ssh_bastion','agent')),
 		ADD COLUMN IF NOT EXISTS bastion_host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
 
-	// Version 20: Enrollment tokens + enrolled agents for agent-managed hosts.
+	// Version 22: Enrollment tokens + enrolled agents for agent-managed hosts.
 	// Enrollment tokens are short-lived, use-count-limited secrets that allow
 	// triton-agent to self-register without operator interaction per device.
 	// Enrolled agents are the registered identities; last_seen_at on the linked
@@ -422,7 +445,7 @@ $$;`,
 	CREATE INDEX IF NOT EXISTS idx_enrolled_agents_host ON manage_enrolled_agents(host_id);
 	CREATE INDEX IF NOT EXISTS idx_enrolled_agents_tenant ON manage_enrolled_agents(tenant_id);`,
 
-	// Version 21: Discovery SSH-focus — replace ports[] with ssh_port + found_ips;
+	// Version 23: Discovery SSH-focus — replace ports[] with ssh_port + found_ips;
 	// strip host-metadata columns from candidates; add updated_at to manage_credentials.
 	`ALTER TABLE manage_discovery_jobs
     ADD COLUMN IF NOT EXISTS ssh_port INT NOT NULL DEFAULT 22,
@@ -436,17 +459,8 @@ ALTER TABLE manage_discovery_candidates
 ALTER TABLE manage_credentials
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
 
-	// Version 22: Ensure host connectivity columns exist. v19 added these via
-	// RENAME+ADD but environments upgraded from an earlier v19 snapshot may be
-	// missing connection_type and bastion_host_id. ADD COLUMN IF NOT EXISTS is
-	// a safe no-op on fresh schemas.
-	`ALTER TABLE manage_hosts
-		ADD COLUMN IF NOT EXISTS connection_type TEXT NOT NULL DEFAULT 'ssh'
-			CHECK (connection_type IN ('ssh','ssh_bastion','agent')),
-		ADD COLUMN IF NOT EXISTS bastion_host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
-
-	// Version 23: Recurring scan schedules — manage_scan_schedules table.
-	// Created before manage_scan_batches (v24) which FKs to it.
+	// Version 24: Recurring scan schedules — manage_scan_schedules table.
+	// Created before manage_scan_batches (v25) which FKs to it.
 	`CREATE TABLE IF NOT EXISTS manage_scan_schedules (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       UUID NOT NULL,
@@ -467,7 +481,7 @@ CREATE INDEX idx_manage_scan_schedules_next
   ON manage_scan_schedules(next_run_at)
   WHERE enabled = TRUE;`,
 
-	// Version 24: Scan batches — parent/child grouping + resource limits on jobs.
+	// Version 25: Scan batches — parent/child grouping + resource limits on jobs.
 	`CREATE TABLE IF NOT EXISTS manage_scan_batches (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       UUID NOT NULL,

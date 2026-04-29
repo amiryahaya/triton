@@ -9,12 +9,18 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
 )
+
+// ErrAuthFailed is returned by SubmitScan when the Manage Server responds
+// with 401 or 403. The caller should treat this as a permanent failure
+// (e.g. revoked certificate) rather than a transient error.
+var ErrAuthFailed = errors.New("tritonagent: authentication rejected by Manage Server")
 
 // AgentCommand describes a scan the agent should execute, received from
 // the Manage Server's agent gateway via GET /agents/commands.
@@ -111,6 +117,9 @@ func (c *Client) SubmitScan(ctx context.Context, _ string, scanResult []byte) er
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return ErrAuthFailed
+	}
 	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("submit scan: HTTP %d", resp.StatusCode)
 	}

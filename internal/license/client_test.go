@@ -49,7 +49,7 @@ func TestServerClient_Activate(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	resp, err := client.Activate("lic-123")
+	resp, err := client.Activate("lic-123", ActivationTypeAgent, "")
 	require.NoError(t, err)
 	assert.Equal(t, "test-token", resp.Token)
 	assert.Equal(t, "pro", resp.Tier)
@@ -65,9 +65,21 @@ func TestServerClient_Activate_SeatsFull(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	_, err := client.Activate("lic-123")
+	_, err := client.Activate("lic-123", ActivationTypeAgent, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "seats")
+	assert.ErrorIs(t, err, ErrNoSeats)
+}
+
+func TestActivateForTenant_ErrNoSeats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	}))
+	defer srv.Close()
+	c := NewServerClient(srv.URL)
+	_, err := c.ActivateForTenant("key", "machine", ActivationTypeAgent, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoSeats)
 }
 
 func TestServerClient_Deactivate(t *testing.T) {
@@ -78,7 +90,7 @@ func TestServerClient_Deactivate(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	err := client.Deactivate("lic-123")
+	err := client.Deactivate("lic-123", "")
 	require.NoError(t, err)
 }
 
@@ -158,7 +170,7 @@ func TestServerClient_Activate_Forbidden(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	_, err := client.Activate("lic-123")
+	_, err := client.Activate("lic-123", ActivationTypeAgent, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "revoked")
 }
@@ -171,7 +183,7 @@ func TestServerClient_Activate_NotFound(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	_, err := client.Activate("lic-123")
+	_, err := client.Activate("lic-123", ActivationTypeAgent, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -207,7 +219,7 @@ func TestServerClient_Activate_ParsesV2Fields(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	resp, err := client.Activate("lic-v2")
+	resp, err := client.Activate("lic-v2", ActivationTypeAgent, "")
 	require.NoError(t, err)
 
 	// v1 fields still work.
@@ -244,7 +256,7 @@ func TestServerClient_Activate_V1ResponseStillWorks(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	resp, err := client.Activate("lic-v1")
+	resp, err := client.Activate("lic-v1", ActivationTypeAgent, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "free", resp.Tier)
@@ -283,7 +295,7 @@ func TestActivateForTenant_SendsCustomMachineID(t *testing.T) {
 	defer srv.Close()
 
 	c := NewServerClient(srv.URL)
-	_, err := c.ActivateForTenant("lic-123", "inst-abc/tenant-xyz")
+	_, err := c.ActivateForTenant("lic-123", "inst-abc/tenant-xyz", ActivationTypeReportServer, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

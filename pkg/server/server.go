@@ -659,6 +659,16 @@ func (s *Server) registerAPIRoutes(r chi.Router) {
 		r.Get("/systems", s.handleSystems)
 		r.Get("/trends", s.handleTrends)
 
+		// NACSA Arahan 9 dashboard — tenant-scoped compliance views.
+		r.Route("/nacsa", func(r chi.Router) {
+			r.Get("/summary", s.handleNacsaSummary)
+			r.Get("/servers", s.handleNacsaServers)
+			r.Get("/servers/{serverID}/hosts", s.handleNacsaHosts)
+			r.Get("/hosts/{hostname}/cbom", s.handleNacsaCBOM)
+			r.Get("/hosts/{hostname}/risk", s.handleNacsaRisk)
+			r.Get("/migration", s.handleNacsaMigration)
+		})
+
 		// Analytics Phase 5 — PDF and Excel export endpoints.
 		r.Get("/export/pdf", s.handleExportPDF)
 		r.Get("/export/xlsx", s.handleExportExcel)

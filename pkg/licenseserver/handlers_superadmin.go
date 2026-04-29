@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -36,13 +37,19 @@ type updateSuperadminRequest struct {
 	Password string `json:"password,omitempty"` // omit to keep current
 }
 
-// validateEmail performs minimal email validation.
+// validateEmail validates email format per RFC 5322. The caller is responsible
+// for length enforcement using the appropriate constant (maxEmailLen for
+// superadmin addresses, maxContactEmailLen for org contact addresses).
 func validateEmail(email string) error {
-	if email == "" || !strings.Contains(email, "@") {
+	if email == "" {
 		return errors.New("valid email is required")
 	}
-	if tooLong(email, maxEmailLen) {
-		return errors.New("email exceeds maximum length")
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		// Reject display-name format ("John <j@x.com>") — only bare
+		// addresses ("j@x.com") are accepted so stored values are directly
+		// usable in email delivery without further parsing.
+		return errors.New("valid email is required")
 	}
 	return nil
 }
@@ -64,6 +71,10 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if tooLong(email, maxEmailLen) {
+		writeError(w, http.StatusBadRequest, "email exceeds maximum length")
+		return
+	}
 	if err := validateEmail(email); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -84,7 +95,7 @@ func (s *Server) handleCreateSuperadmin(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), auth.BcryptCost)
 	if err != nil {
 		log.Printf("bcrypt error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
@@ -158,18 +169,20 @@ func (s *Server) handleResendInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(tempPassword), auth.BcryptCost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	// Rotate password + flag must-change.
+	// Rotate password + flag must-change. Reset invited_at so the new
+	// invite gets a fresh 7-day expiry window.
 	update := licensestore.UserUpdate{
 		ID:                 user.ID,
 		Name:               user.Name,
 		Password:           string(hashed),
 		MustChangePassword: true,
+		ResetInvitedAt:     true,
 	}
 	if err := s.store.UpdateUser(r.Context(), update); err != nil {
 		log.Printf("resend invite: update user: %v", err)
@@ -279,7 +292,7 @@ func (s *Server) handleUpdateSuperadmin(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, "password must be at least 12 characters")
 			return
 		}
-		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), auth.BcryptCost)
 		if err != nil {
 			log.Printf("bcrypt error: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal server error")

@@ -1,7 +1,9 @@
 export interface Organisation {
   id: string;
   name: string;
-  contact: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
   notes: string;
   suspended: boolean;
   activeActivations: number;
@@ -53,6 +55,8 @@ export interface Licence {
   scheduleJitterSeconds: number;
 }
 
+export type ActivationType = 'report_server' | 'manage_server' | 'agent';
+
 export interface Activation {
   id: string;
   licenseID: string;
@@ -65,6 +69,8 @@ export interface Activation {
   lastSeenAt: string;
   deactivatedAt?: string | null;
   active: boolean;
+  activationType: ActivationType;
+  displayName: string;
 }
 
 export interface AuditEntry {

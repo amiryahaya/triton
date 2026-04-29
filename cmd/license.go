@@ -125,7 +125,7 @@ func runLicenseActivate(_ *cobra.Command, _ []string) error {
 	fmt.Printf("Activating machine with license server at %s...\n", serverURL)
 	fmt.Printf("Machine fingerprint: %s\n", license.MachineFingerprint())
 
-	resp, err := client.Activate(licenseID)
+	resp, err := client.Activate(licenseID, license.ActivationTypeAgent, "")
 	if err != nil {
 		return fmt.Errorf("activation failed: %w", err)
 	}
@@ -179,6 +179,13 @@ func runLicenseDeactivate(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Read the stored activation token from the license key file so the
+	// server can verify the caller is the machine that originally activated.
+	var activationToken string
+	if data, err := os.ReadFile(license.DefaultLicensePath()); err == nil {
+		activationToken = strings.TrimSpace(string(data))
+	}
+
 	if serverURL == "" {
 		return fmt.Errorf("--license-server is required (or cached from activation)")
 	}
@@ -191,7 +198,7 @@ func runLicenseDeactivate(_ *cobra.Command, _ []string) error {
 
 	fmt.Printf("Deactivating machine from license server at %s...\n", serverURL)
 
-	if err := client.Deactivate(lid); err != nil {
+	if err := client.Deactivate(lid, activationToken); err != nil {
 		return fmt.Errorf("deactivation failed: %w (you can retry later)", err)
 	}
 

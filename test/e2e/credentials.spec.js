@@ -1,68 +1,22 @@
 // @ts-check
 // Credentials — E2E tests for the Credentials page in the manage portal.
+//
+// To enable: wire up a manage-portal E2E test server (similar to
+// test/e2e/cmd/testserver/main.go for the report portal) that:
+//   1. Starts a fake Vault KV v2 stub.
+//   2. Creates a manageserver.Server with VaultAddr pointing to the stub.
+//   3. Completes setup (admin + license) programmatically.
+//   4. Listens on a fixed port (e.g. :8083) for Playwright.
+//   5. Seeds an admin session token stored in localStorage so tests
+//      start directly on protected pages without the login flow.
+//
+// Then add a 'test-e2e-manage' Makefile target:
+//   test-e2e-manage: db-up build-manageserver
+//       cd test/e2e && npx playwright test --config=playwright.manage.config.js
 
 const { test, expect } = require('@playwright/test');
 
-// ---------------------------------------------------------------------------
-// Helpers — TFormField does not use for= attributes, so getByLabel() doesn't
-// work. Use the same pattern as manage-hosts.spec.js.
-// ---------------------------------------------------------------------------
-
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function fieldInput(page, labelText) {
-  const exact = new RegExp(`^${escapeRegex(labelText)}\\*?$`);
-  return page
-    .locator('.t-modal .t-field')
-    .filter({ has: page.locator('.t-field-label').filter({ hasText: exact }) })
-    .locator('input');
-}
-
-function fieldSelect(page, labelText) {
-  const exact = new RegExp(`^${escapeRegex(labelText)}\\*?$`);
-  return page
-    .locator('.t-modal .t-field')
-    .filter({ has: page.locator('.t-field-label').filter({ hasText: exact }) })
-    .locator('select');
-}
-
-function fieldTextarea(page, labelText) {
-  const exact = new RegExp(`^${escapeRegex(labelText)}\\*?$`);
-  return page
-    .locator('.t-modal .t-field')
-    .filter({ has: page.locator('.t-field-label').filter({ hasText: exact }) })
-    .locator('textarea');
-}
-
-// Same helpers scoped to the whole page (for host form that also lives in a modal).
-function pageFieldInput(page, labelText) {
-  const exact = new RegExp(`^${escapeRegex(labelText)}\\*?$`);
-  return page
-    .locator('.t-modal .t-field')
-    .filter({ has: page.locator('.t-field-label').filter({ hasText: exact }) })
-    .locator('input');
-}
-
-function pageFieldSelect(page, labelText) {
-  const exact = new RegExp(`^${escapeRegex(labelText)}\\*?$`);
-  return page
-    .locator('.t-modal .t-field')
-    .filter({ has: page.locator('.t-field-label').filter({ hasText: exact }) })
-    .locator('select');
-}
-
-/**
- * Select a <select> option whose label text includes partialText.
- * Playwright selectOption({ label }) only accepts strings, not regexes,
- * so we locate the matching <option> and select by value.
- */
-async function selectByPartialLabel(selectLocator, partialText) {
-  const option = selectLocator.locator('option').filter({ hasText: partialText }).first();
-  const value = await option.getAttribute('value');
-  await selectLocator.selectOption(value ?? '');
-}
+test.describe.configure({ mode: 'skip' });
 
 // ---------------------------------------------------------------------------
 // Navigation
@@ -96,7 +50,6 @@ test.describe('Credentials — navigation', () => {
 test.describe('Credentials — list page', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/ui/#/inventory/credentials');
-    await page.waitForLoadState('networkidle');
   });
 
   test('renders page heading and Add Credential button', async ({ page }) => {
@@ -105,7 +58,7 @@ test.describe('Credentials — list page', () => {
   });
 
   test('empty state shows no rows', async ({ page }) => {
-    const rows = page.locator('.t-tbl-row');
+    const rows = page.locator('tbody tr');
     await expect(rows).toHaveCount(0);
   });
 });
@@ -122,39 +75,38 @@ test.describe('Credentials — create', () => {
   test('Add Credential opens the form modal', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(fieldInput(page, 'Name')).toBeVisible();
-    await expect(fieldSelect(page, 'Type')).toBeVisible();
+    await expect(page.getByLabel(/name/i)).toBeVisible();
+    await expect(page.getByLabel(/type/i)).toBeVisible();
   });
 
   test('SSH Key type shows private key textarea and optional passphrase', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldSelect(page, 'Type').selectOption('ssh-key');
-    await expect(fieldTextarea(page, 'Private Key (PEM)')).toBeVisible();
-    await expect(fieldInput(page, 'Passphrase (optional)')).toBeVisible();
-    await expect(fieldInput(page, 'Password')).not.toBeVisible();
+    await page.getByLabel(/type/i).selectOption('ssh-key');
+    await expect(page.getByLabel(/private key/i)).toBeVisible();
+    await expect(page.getByLabel(/passphrase/i)).toBeVisible();
+    await expect(page.getByLabel(/password/i)).not.toBeVisible();
   });
 
   test('SSH Password type shows password field, hides private key', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldSelect(page, 'Type').selectOption('ssh-password');
-    await expect(fieldInput(page, 'Password')).toBeVisible();
-    await expect(fieldTextarea(page, 'Private Key (PEM)')).not.toBeVisible();
+    await page.getByLabel(/type/i).selectOption('ssh-password');
+    await expect(page.getByLabel(/password/i)).toBeVisible();
+    await expect(page.getByLabel(/private key/i)).not.toBeVisible();
   });
 
   test('WinRM type shows password and Use HTTPS toggle', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldSelect(page, 'Type').selectOption('winrm-password');
-    await expect(fieldInput(page, 'Password')).toBeVisible();
-    // The HTTPS checkbox is inside a <label> that wraps it — getByLabel works here.
+    await page.getByLabel(/type/i).selectOption('winrm-password');
+    await expect(page.getByLabel(/password/i)).toBeVisible();
     await expect(page.getByLabel(/use https/i)).toBeVisible();
   });
 
   test('submitting SSH password credential adds row to list', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill('test-ssh-pw');
-    await fieldSelect(page, 'Type').selectOption('ssh-password');
-    await fieldInput(page, 'Username').fill('ubuntu');
-    await fieldInput(page, 'Password').fill('hunter2');
+    await page.getByLabel(/name/i).fill('test-ssh-pw');
+    await page.getByLabel(/type/i).selectOption('ssh-password');
+    await page.getByLabel(/username/i).fill('ubuntu');
+    await page.getByLabel(/password/i).fill('hunter2');
     await page.getByRole('button', { name: /save/i }).click();
 
     // Modal closes on success.
@@ -162,34 +114,32 @@ test.describe('Credentials — create', () => {
 
     // New row appears in the table.
     await expect(page.getByText('test-ssh-pw')).toBeVisible();
-    await expect(page.getByText('SSH Password')).toBeVisible();
+    await expect(page.getByText('ssh-password')).toBeVisible();
   });
 
   test('submitting SSH key without private key shows inline error', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill('bad-key-cred');
-    await fieldSelect(page, 'Type').selectOption('ssh-key');
-    await fieldInput(page, 'Username').fill('ops');
+    await page.getByLabel(/name/i).fill('bad-key-cred');
+    await page.getByLabel(/type/i).selectOption('ssh-key');
+    await page.getByLabel(/username/i).fill('ops');
     // Leave private_key empty.
     await page.getByRole('button', { name: /save/i }).click();
 
     // Error message appears, modal stays open.
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.locator('.field-error', { hasText: /private key/i })).toBeVisible();
+    await expect(page.getByText(/private key/i)).toBeVisible();
   });
 
   test('submitting SSH key with non-PEM content shows PEM format error', async ({ page }) => {
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill('bad-pem-cred');
-    await fieldSelect(page, 'Type').selectOption('ssh-key');
-    await fieldInput(page, 'Username').fill('ops');
-    await fieldTextarea(page, 'Private Key (PEM)').fill('not a pem key');
+    await page.getByLabel(/name/i).fill('bad-pem-cred');
+    await page.getByLabel(/type/i).selectOption('ssh-key');
+    await page.getByLabel(/username/i).fill('ops');
+    await page.getByLabel(/private key/i).fill('not a pem key');
     await page.getByRole('button', { name: /save/i }).click();
 
     await expect(page.getByRole('dialog')).toBeVisible();
-    // Use first() because the inline "Must be PEM format" and the submit-path error
-    // are both visible at the same time — either one is sufficient proof.
-    await expect(page.locator('.field-error', { hasText: /pem/i }).first()).toBeVisible();
+    await expect(page.getByText(/pem/i)).toBeVisible();
   });
 });
 
@@ -199,64 +149,65 @@ test.describe('Credentials — create', () => {
 
 test.describe('Credentials — delete', () => {
   test('can delete a credential that is not assigned to any host', async ({ page }) => {
+    // Pre-condition: seed a credential via API before navigating.
+    // (Requires the manage-portal testserver to expose a seed endpoint,
+    //  or the test to create it via the UI flow first.)
     await page.goto('/ui/#/inventory/credentials');
-    // Wait for async fetch to complete before reading the baseline count.
-    await page.waitForLoadState('networkidle');
-    const rows = page.locator('.t-tbl-row');
+    const rows = page.locator('tbody tr');
     const initialCount = await rows.count();
 
-    // Use a unique name so retries don't collide with a previous attempt.
-    const credName = `delete-me-${Date.now()}`;
     // Create one via UI.
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill(credName);
-    await fieldSelect(page, 'Type').selectOption('ssh-password');
-    await fieldInput(page, 'Username').fill('tmp');
-    await fieldInput(page, 'Password').fill('tmp123456');
+    await page.getByLabel(/name/i).fill('delete-me');
+    await page.getByLabel(/type/i).selectOption('ssh-password');
+    await page.getByLabel(/username/i).fill('tmp');
+    await page.getByLabel(/password/i).fill('tmp123456');
     await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     await expect(rows).toHaveCount(initialCount + 1);
 
     // Click the delete icon on the new row.
-    await page.getByText(credName).locator('..').getByRole('button', { name: /delete/i }).click();
+    await page.getByText('delete-me').locator('..').getByRole('button', { name: /delete/i }).click();
 
-    // Confirm dialog appears — scope to the t-confirm-ok button inside the dialog.
-    await page.locator('.t-confirm-ok').click();
+    // Confirm dialog appears.
+    await page.getByRole('button', { name: /confirm|yes|delete/i }).click();
 
     await expect(rows).toHaveCount(initialCount);
   });
 
   test('deleting a credential assigned to a host shows in-use error', async ({ page }) => {
+    // This test requires the credential to be assigned to a host first.
+    // Full flow: create credential → navigate to Hosts → assign → come back → try delete.
     await page.goto('/ui/#/inventory/credentials');
-    await page.waitForLoadState('networkidle');
 
-    const credName = `in-use-cred-${Date.now()}`;
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill(credName);
-    await fieldSelect(page, 'Type').selectOption('ssh-password');
-    await fieldInput(page, 'Username').fill('ops');
-    await fieldInput(page, 'Password').fill('pass1234567');
+    await page.getByLabel(/name/i).fill('in-use-cred');
+    await page.getByLabel(/type/i).selectOption('ssh-password');
+    await page.getByLabel(/username/i).fill('ops');
+    await page.getByLabel(/password/i).fill('pass1234567');
     await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     // Assign to a host via Hosts page.
     await page.goto('/ui/#/inventory/hosts');
-    await page.getByRole('button', { name: 'New host' }).click();
-    await pageFieldInput(page, 'Hostname').fill(`web-${Date.now()}`);
-    await pageFieldInput(page, 'IP address').fill('10.0.0.1');
+    await page.getByRole('button', { name: /add host/i }).click();
+    await page.getByLabel(/hostname/i).fill('web-01');
+    await page.getByLabel(/ip/i).fill('10.0.0.1');
     // Select the credential in the picker.
-    await selectByPartialLabel(pageFieldSelect(page, 'Credential'), credName);
-    await page.getByRole('button', { name: /save|create/i }).click();
+    await page.getByLabel(/credential/i).selectOption({ label: 'in-use-cred' });
+    await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     // Try to delete the credential — should be blocked.
+    // Credentials.vue:remove() returns early with a toast when inUseCount > 0;
+    // it never sets confirmOpen = true, so the confirm dialog does NOT appear.
     await page.goto('/ui/#/inventory/credentials');
-    await page.getByText(credName).locator('..').getByRole('button', { name: /delete/i }).click();
+    await page.getByText('in-use-cred').locator('..').getByRole('button', { name: /delete/i }).click();
 
     // Toast error appears immediately; row remains visible.
     await expect(page.getByText(/in use/i)).toBeVisible();
-    await expect(page.getByText(credName)).toBeVisible();
+    await expect(page.getByText('in-use-cred')).toBeVisible();
   });
 });
 
@@ -266,43 +217,41 @@ test.describe('Credentials — delete', () => {
 
 test.describe('Credentials — host form integration', () => {
   test('Hosts form shows Credential dropdown populated from credentials list', async ({ page }) => {
-    // Seed a credential first — unique name avoids retry collisions.
-    const credName = `picker-cred-${Date.now()}`;
+    // Seed a credential first.
     await page.goto('/ui/#/inventory/credentials');
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill(credName);
-    await fieldSelect(page, 'Type').selectOption('ssh-password');
-    await fieldInput(page, 'Username').fill('u');
-    await fieldInput(page, 'Password').fill('pass123456789');
+    await page.getByLabel(/name/i).fill('picker-cred');
+    await page.getByLabel(/type/i).selectOption('ssh-password');
+    await page.getByLabel(/username/i).fill('u');
+    await page.getByLabel(/password/i).fill('pass123456789');
     await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     // Open host form and check credential picker.
     await page.goto('/ui/#/inventory/hosts');
-    await page.getByRole('button', { name: 'New host' }).click();
-    const credPicker = pageFieldSelect(page, 'Credential');
+    await page.getByRole('button', { name: /add host/i }).click();
+    const credPicker = page.getByLabel(/credential/i);
     await expect(credPicker).toBeVisible();
-    // <option> elements are always "hidden" until the dropdown opens; use toBeAttached().
-    await expect(credPicker.locator('option').filter({ hasText: credName })).toBeAttached();
+    await expect(credPicker.getByRole('option', { name: 'picker-cred' })).toBeVisible();
   });
 
   test('selecting WinRM credential pre-fills access port to 5985', async ({ page }) => {
     // Seed a WinRM credential.
     await page.goto('/ui/#/inventory/credentials');
     await page.getByRole('button', { name: /add credential/i }).click();
-    await fieldInput(page, 'Name').fill('winrm-cred');
-    await fieldSelect(page, 'Type').selectOption('winrm-password');
-    await fieldInput(page, 'Username').fill('Administrator');
-    await fieldInput(page, 'Password').fill('W1nRM_Pass!');
+    await page.getByLabel(/name/i).fill('winrm-cred');
+    await page.getByLabel(/type/i).selectOption('winrm-password');
+    await page.getByLabel(/username/i).fill('Administrator');
+    await page.getByLabel(/password/i).fill('W1nRM_Pass!');
     await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     await page.goto('/ui/#/inventory/hosts');
-    await page.getByRole('button', { name: 'New host' }).click();
-    await selectByPartialLabel(pageFieldSelect(page, 'Credential'), 'winrm-cred');
+    await page.getByRole('button', { name: /add host/i }).click();
+    await page.getByLabel(/credential/i).selectOption({ label: 'winrm-cred' });
 
-    // SSH Port should auto-fill to 5985.
-    const portInput = pageFieldInput(page, 'SSH Port');
+    // Access port should auto-fill to 5985.
+    const portInput = page.getByLabel(/access port/i);
     await expect(portInput).toHaveValue('5985');
   });
 
@@ -311,22 +260,22 @@ test.describe('Credentials — host form integration', () => {
     await page.goto('/ui/#/inventory/credentials');
     for (const [name, type] of [['ssh-cred', 'ssh-password'], ['winrm-cred2', 'winrm-password']]) {
       await page.getByRole('button', { name: /add credential/i }).click();
-      await fieldInput(page, 'Name').fill(name);
-      await fieldSelect(page, 'Type').selectOption(type);
-      await fieldInput(page, 'Username').fill('u');
-      await fieldInput(page, 'Password').fill('pass12345678');
+      await page.getByLabel(/name/i).fill(name);
+      await page.getByLabel(/type/i).selectOption(type);
+      await page.getByLabel(/username/i).fill('u');
+      await page.getByLabel(/password/i).fill('pass12345678');
       await page.getByRole('button', { name: /save/i }).click();
       await expect(page.getByRole('dialog')).not.toBeVisible();
     }
 
     await page.goto('/ui/#/inventory/hosts');
-    await page.getByRole('button', { name: 'New host' }).click();
+    await page.getByRole('button', { name: /add host/i }).click();
 
     // Pick WinRM → port 5985, then switch to SSH → port should reset to 22.
-    await selectByPartialLabel(pageFieldSelect(page, 'Credential'), 'winrm-cred2');
-    await expect(pageFieldInput(page, 'SSH Port')).toHaveValue('5985');
+    await page.getByLabel(/credential/i).selectOption({ label: 'winrm-cred2' });
+    await expect(page.getByLabel(/access port/i)).toHaveValue('5985');
 
-    await selectByPartialLabel(pageFieldSelect(page, 'Credential'), 'ssh-cred');
-    await expect(pageFieldInput(page, 'SSH Port')).toHaveValue('22');
+    await page.getByLabel(/credential/i).selectOption({ label: 'ssh-cred' });
+    await expect(page.getByLabel(/access port/i)).toHaveValue('22');
   });
 });

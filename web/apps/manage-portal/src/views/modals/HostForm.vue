@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { TModal, TFormField, TInput, TSelect, TButton } from '@triton/ui';
+import { RouterLink } from 'vue-router';
 import type { Host, Tag, CreateHostReq } from '@triton/api-client';
 import { useCredentialsStore } from '../../stores/credentials';
 
@@ -19,12 +20,12 @@ const credStore = useCredentialsStore();
 
 const hostname = ref('');
 const ip = ref('');
+const os = ref('');
 const selectedTagIDs = ref<string[]>([]);
-const error = ref('');
+const hostnameError = ref('');
+const ipError = ref('');
 const credentialsRef = ref<string | null>(null);
-const accessPort = ref<number | null>(null);
-const dropdownOpen = ref(false);
-const dropdownRef = ref<HTMLElement | null>(null);
+const sshPort = ref<number>(22);
 
 watch(
   () => [props.open, props.editing],
@@ -33,20 +34,22 @@ watch(
     credStore.fetch();
     hostname.value = props.editing?.hostname ?? '';
     ip.value = props.editing?.ip ?? '';
+    os.value = props.editing?.os ?? '';
     selectedTagIDs.value = props.editing?.tags.map(t => t.id) ?? [];
     credentialsRef.value = props.editing?.credentials_ref ?? null;
-    accessPort.value = props.editing?.access_port ?? null;
-    error.value = '';
-    dropdownOpen.value = false;
+    sshPort.value = props.editing?.ssh_port ?? 22;
+    hostnameError.value = '';
+    ipError.value = '';
   },
   { immediate: true }
 );
 
 watch(credentialsRef, (id) => {
-  if (!id) { accessPort.value = null; return; }
+  if (!id) { sshPort.value = 22; return; }
   const cred = credStore.items.find(c => c.id === id);
   if (!cred) return;
-  accessPort.value = cred.auth_type === 'winrm-password' ? 5985 : 22;
+  if (cred.auth_type === 'winrm-password') sshPort.value = 5985;
+  else sshPort.value = 22;
 });
 
 const credOptions = computed(() => [
@@ -54,30 +57,24 @@ const credOptions = computed(() => [
   ...credStore.items.map(c => ({ value: c.id, label: `${c.name} (${c.auth_type})` })),
 ]);
 
-const selectedTags = computed(() =>
-  props.tags.filter(t => selectedTagIDs.value.includes(t.id))
-);
-
-function onClickOutside(e: MouseEvent) {
-  if (dropdownRef.value && !dropdownRef.value.contains(e.target as Node)) {
-    dropdownOpen.value = false;
-  }
-}
-
-onMounted(() => document.addEventListener('mousedown', onClickOutside));
-onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside));
-
 function submit() {
+  hostnameError.value = '';
+  ipError.value = '';
+  if (!hostname.value.trim()) {
+    hostnameError.value = 'Hostname is required.';
+    return;
+  }
   if (!ip.value.trim()) {
-    error.value = 'IP address is required.';
+    ipError.value = 'IP address is required.';
     return;
   }
   emit('submit', {
+    hostname: hostname.value.trim(),
     ip: ip.value.trim(),
-    hostname: hostname.value.trim() || undefined,
+    os: os.value.trim() || undefined,
     tag_ids: selectedTagIDs.value,
     credentials_ref: credentialsRef.value ?? null,
-    access_port: accessPort.value ?? undefined,
+    ssh_port: sshPort.value,
   });
 }
 </script>
@@ -89,71 +86,46 @@ function submit() {
     @close="emit('close')"
   >
     <div class="host-form">
-      <TFormField label="Hostname">
-        <TInput v-model="hostname" />
+      <TFormField
+        label="Hostname"
+        required
+        :error="hostnameError"
+      >
+        <TInput v-model="hostname" placeholder="web-01.example.com" />
       </TFormField>
       <TFormField
         label="IP address"
         required
-        :error="error"
+        :error="ipError"
       >
-        <TInput v-model="ip" />
+        <TInput v-model="ip" placeholder="10.0.0.1" />
       </TFormField>
-
+      <TFormField label="OS">
+        <TInput v-model="os" placeholder="linux" />
+      </TFormField>
       <TFormField label="Tags">
-        <div
-          ref="dropdownRef"
-          class="tag-dropdown"
-        >
-          <button
-            type="button"
-            class="tag-dropdown-toggle"
-            @click="dropdownOpen = !dropdownOpen"
+        <div class="tag-multi-select">
+          <label
+            v-for="tag in tags"
+            :key="tag.id"
+            class="tag-checkbox"
           >
+            <input
+              type="checkbox"
+              :value="tag.id"
+              v-model="selectedTagIDs"
+            />
             <span
-              v-if="selectedTags.length === 0"
-              class="placeholder"
-            >Select tags…</span>
-            <div
-              v-else
-              class="selected-chips"
-            >
-              <span
-                v-for="t in selectedTags"
-                :key="t.id"
-                class="tag-chip"
-                :style="{ background: t.color }"
-              >{{ t.name }}</span>
-            </div>
-            <span class="caret">▾</span>
-          </button>
-          <div
-            v-if="dropdownOpen"
-            class="tag-dropdown-list"
-          >
-            <label
-              v-for="tag in tags"
-              :key="tag.id"
-              class="tag-option"
-            >
-              <input
-                type="checkbox"
-                :value="tag.id"
-                v-model="selectedTagIDs"
-              />
-              <span
-                class="tag-chip"
-                :style="{ background: tag.color }"
-              >{{ tag.name }}</span>
-            </label>
-            <span
-              v-if="!tags.length"
-              class="no-tags"
-            >No tags defined yet.</span>
-          </div>
+              class="tag-chip"
+              :style="{ background: tag.color }"
+            >{{ tag.name }}</span>
+          </label>
+          <span
+            v-if="!tags.length"
+            class="no-tags"
+          >No tags defined yet.</span>
         </div>
       </TFormField>
-
       <TFormField label="Credential">
         <TSelect v-model="credentialsRef">
           <option
@@ -164,15 +136,18 @@ function submit() {
             {{ opt.label }}
           </option>
         </TSelect>
+        <p v-if="credStore.items.length === 0" class="cred-nudge">
+          No credentials configured.
+          <RouterLink to="/credentials">Add credentials</RouterLink>
+          to enable SSH-based scanning.
+        </p>
       </TFormField>
       <TFormField label="SSH Port">
         <TInput
+          v-model.number="sshPort"
           type="number"
           :min="1"
           :max="65535"
-          :model-value="accessPort ?? ''"
-          placeholder="Default (22)"
-          @update:model-value="(v: string) => { const n = parseInt(v, 10); accessPort = isNaN(n) ? null : n; }"
         />
       </TFormField>
     </div>
@@ -201,94 +176,22 @@ function submit() {
   flex-direction: column;
   gap: var(--space-3);
 }
-
-/* ── Tag dropdown ─────────────────────────────────────────── */
-.tag-dropdown {
-  position: relative;
-}
-
-.tag-dropdown-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: 36px;
-  padding: var(--space-1) var(--space-3);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  font-size: 0.8rem;
-  font-family: var(--font-body);
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
-}
-
-.tag-dropdown-toggle:focus {
-  outline: none;
-  border-color: var(--accent-strong);
-  box-shadow: 0 0 0 2px var(--accent-muted);
-}
-
-.placeholder {
-  color: var(--text-muted);
-}
-
-.selected-chips {
+.tag-multi-select {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
-  flex: 1;
-}
-
-.caret {
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  flex-shrink: 0;
-}
-
-.tag-dropdown-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.tag-option {
-  display: flex;
-  align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-1) 0;
+}
+.tag-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   cursor: pointer;
-  font-size: 0.82rem;
 }
-
-.tag-option:hover {
-  background: var(--bg-sunken);
-}
-
-.tag-option input[type='checkbox'] {
+.tag-checkbox input[type='checkbox'] {
   accent-color: var(--accent-strong);
   cursor: pointer;
-  flex-shrink: 0;
 }
-
-.no-tags {
-  padding: var(--space-2) var(--space-3);
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-/* ── Tag chips (shared) ───────────────────────────────────── */
 .tag-chip {
   display: inline-flex;
   align-items: center;
@@ -298,5 +201,17 @@ function submit() {
   font-weight: 500;
   color: #fff;
   white-space: nowrap;
+}
+.no-tags {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.cred-nudge {
+  font-size: 0.78rem;
+  color: var(--color-warning, #b45309);
+  margin-top: var(--space-1);
+}
+.cred-nudge a {
+  text-decoration: underline;
 }
 </style>

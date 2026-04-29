@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -232,7 +233,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 		HostsStore:    hostsStore,
 	})
 	srv.agentsAdmin = agents.NewAdminHandlers(
-		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
+		caStore, agentStore, store, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
 	)
 	if err := srv.initSetupState(context.Background()); err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
@@ -543,6 +544,16 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	if s.workerHandlers != nil {
 		s.workerHandlers.SetSourceID(instanceID)
 	}
+
+	// Stamp the gateway handler with this server's identity so every
+	// relayed scan carries ManageServerID + ManageServerName in its
+	// metadata. Hostname is best-effort: fall back to the instance UUID
+	// when os.Hostname() fails (e.g. in locked-down container envs).
+	gatewayHostname, _ := os.Hostname()
+	if gatewayHostname == "" {
+		gatewayHostname = state.InstanceID
+	}
+	s.agentsGateway.SetInstanceInfo(state.InstanceID, gatewayHostname)
 
 	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
 		Store:       s.scanjobsStore,

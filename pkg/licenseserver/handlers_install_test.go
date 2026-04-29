@@ -29,7 +29,7 @@ func TestHandleInstallToken_Success(t *testing.T) {
 	jwt := quickAdminJWT(t, ts, store)
 
 	// Create org + license.
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
@@ -60,7 +60,7 @@ func TestHandleInstallToken_NoPublicURL(t *testing.T) {
 	ts, store := setupTestServer(t)
 	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NoURLOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "NoURLOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
@@ -79,7 +79,7 @@ func TestHandleInstallToken_RevokedLicense(t *testing.T) {
 	ts, store, _ := setupTestServerWithPublicURL(t)
 	jwt := quickAdminJWT(t, ts, store)
 
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokedOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokedOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
@@ -261,7 +261,7 @@ func setupTestServerWithPublicURL(t *testing.T) (*httptest.Server, *licensestore
 // generateInstallToken creates an org+license and generates an install token.
 func generateInstallToken(t *testing.T, ts *httptest.Server, jwt string) string {
 	t.Helper()
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallTestOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "InstallTestOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 
@@ -282,7 +282,7 @@ func generateInstallToken(t *testing.T, ts *httptest.Server, jwt string) string 
 // but the license is revoked so agent-yaml should fail.
 func generateInstallTokenForRevoked(t *testing.T, ts *httptest.Server, jwt string) string {
 	t.Helper()
-	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeTestOrg"})
+	orgResp := adminReq(t, jwt, "POST", ts.URL+"/api/v1/admin/orgs", map[string]string{"name": "RevokeTestOrg", "contact_name": "Test Contact", "contact_email": "contact@test.com"})
 	orgResult := decodeJSON(t, orgResp)
 	orgID := orgIDOf(orgResult)
 

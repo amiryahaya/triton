@@ -97,7 +97,7 @@ func newCSFixture(t *testing.T) *csFixture {
 	})
 
 	// Create org. Response: {"org": {"id": "...", ...}, "admin": ...}
-	resp := csLSAdminReq(t, f, "POST", "/api/v1/admin/orgs", map[string]string{"name": "CS-Test-Org"})
+	resp := csLSAdminReq(t, f, "POST", "/api/v1/admin/orgs", map[string]string{"name": "CS-Test-Org", "contact_name": "CS Admin", "contact_email": "cs@example.com"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "create org")
 	var orgOut map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&orgOut))
@@ -189,6 +189,7 @@ func csSetup(t *testing.T, f *csFixture) {
 	resp = postJSON(t, f.ManageURL+"/api/v1/setup/license", map[string]any{
 		"license_server_url": f.LSServer.URL,
 		"license_key":        f.LicIDA,
+		"server_name":        "Test Manage Server",
 	})
 	body = csReadBody(resp)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "setup/license: %s", body)

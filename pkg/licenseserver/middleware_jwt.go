@@ -21,9 +21,10 @@ const userCtxKey ctxKey = "license_user"
 // AuthedUser is the shape stored in the request context by JWTAuth.
 // Handlers retrieve it via UserFromContext(r.Context()).
 type AuthedUser struct {
-	ID    string
-	Email string
-	Name  string
+	ID                 string
+	Email              string
+	Name               string
+	MustChangePassword bool
 }
 
 // UserFromContext returns the authenticated user or false if the
@@ -84,8 +85,27 @@ func (s *Server) JWTAuth() func(http.Handler) http.Handler {
 
 			ctx := context.WithValue(r.Context(), userCtxKey, AuthedUser{
 				ID: user.ID, Email: user.Email, Name: user.Name,
+				MustChangePassword: user.MustChangePassword,
 			})
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// BlockUntilPasswordChanged rejects admin API calls when the authenticated
+// user has must_change_password=true. The change-password endpoint is on
+// /api/v1/auth/change-password (outside the admin route group), so it
+// remains accessible — only admin operations are gated.
+//
+// Must be applied AFTER JWTAuth so the context already has an AuthedUser.
+func (s *Server) BlockUntilPasswordChanged() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if u, ok := UserFromContext(r.Context()); ok && u.MustChangePassword {
+				writeError(w, http.StatusForbidden, "password change required before accessing admin API")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

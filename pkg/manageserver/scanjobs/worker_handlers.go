@@ -23,15 +23,15 @@ import (
 // the GET /api/v1/worker/hosts/{id} endpoint. Using a local interface
 // avoids a circular import between the scanjobs and hosts packages.
 type HostsStore interface {
-	GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, accessPort int, err error)
+	GetHostBasic(ctx context.Context, id uuid.UUID) (hostname, ip string, sshPort int, err error)
 }
 
 // WorkerHostResp is returned by GET /api/v1/worker/hosts/{id}.
 type WorkerHostResp struct {
-	ID         uuid.UUID `json:"id"`
-	Hostname   string    `json:"hostname"`
-	IP         string    `json:"ip"`
-	AccessPort int       `json:"access_port"`
+	ID       uuid.UUID `json:"id"`
+	Hostname string    `json:"hostname"`
+	IP       string    `json:"ip"`
+	SSHPort  int       `json:"ssh_port"`
 }
 
 // ClaimWorkerResp is the JSON body returned by the claim endpoint.
@@ -202,7 +202,7 @@ func (h *WorkerHandlers) GetHost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host id", http.StatusBadRequest)
 		return
 	}
-	hostname, ip, accessPort, err := h.hostsStore.GetHostBasic(r.Context(), id)
+	hostname, ip, sshPort, err := h.hostsStore.GetHostBasic(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -212,7 +212,7 @@ func (h *WorkerHandlers) GetHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(WorkerHostResp{ID: id, Hostname: hostname, IP: ip, AccessPort: accessPort})
+	_ = json.NewEncoder(w).Encode(WorkerHostResp{ID: id, Hostname: hostname, IP: ip, SSHPort: sshPort})
 }
 
 // Submit handles POST /v1/worker/jobs/{id}/submit.
@@ -257,8 +257,8 @@ func (h *WorkerHandlers) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceType := string(result.Metadata.Source)
-	switch sourceType {
-	case "triton-portscan", "triton-sshagent", "triton-agent":
+	switch model.ScanSource(sourceType) {
+	case model.ScanSourcePortscan, model.ScanSourceSSHAgent, model.ScanSourceAgent:
 	case "":
 		sourceType = "worker"
 	default:

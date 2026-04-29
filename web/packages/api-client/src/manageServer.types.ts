@@ -23,10 +23,13 @@ export interface CreateAdminResp {
 export interface ActivateLicenseReq {
   license_server_url: string;
   license_key: string;
+  server_name: string;
 }
 
 export interface ActivateLicenseResp {
   ok: boolean;
+  instance_id: string;
+  server_name: string;
   features: Record<string, boolean>;
   limits: Record<string, unknown>;
 }
@@ -67,7 +70,7 @@ export interface UpdateTagReq {
 
 export interface Host {
   id: string;
-  hostname?: string;
+  hostname: string;
   ip: string;
   connection_type?: string;  // "ssh" | "agent" | ""
   tags: Tag[];
@@ -80,8 +83,8 @@ export interface Host {
 }
 
 export interface CreateHostReq {
-  ip: string;          // required
-  hostname?: string;   // optional
+  ip: string;
+  hostname: string;
   os?: string;
   last_seen_at?: string;
   tag_ids?: string[];

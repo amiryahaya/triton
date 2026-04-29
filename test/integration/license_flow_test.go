@@ -30,7 +30,9 @@ import (
 func createOrgAndLicenseWithTier(t *testing.T, serverURL, tier string, seats, days int) (orgID, licID string) {
 	t.Helper()
 	resp := licAdminReq(t, "POST", serverURL+"/api/v1/admin/orgs", map[string]string{
-		"name": "FlowTest-" + tier + "-" + t.Name(),
+		"name":          "FlowTest-" + tier + "-" + t.Name(),
+		"contact_name":  "Flow Test Contact",
+		"contact_email": "flowtest@example.com",
 	})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var orgResult map[string]any
@@ -56,7 +58,7 @@ func createOrgAndLicenseWithTier(t *testing.T, serverURL, tier string, seats, da
 func activateAndGetToken(t *testing.T, serverURL, licenseID string) string {
 	t.Helper()
 	client := license.NewServerClient(serverURL)
-	actResp, err := client.Activate(licenseID)
+	actResp, err := client.Activate(licenseID, license.ActivationTypeAgent, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, actResp.Token)
 	return actResp.Token

@@ -39,10 +39,17 @@ func TestAdminCRUD_ZonesAndHosts(t *testing.T) {
 	// --- Create host (ip is now required) ---
 	createHost(t, ts.URL, token, "10.0.9.1", "db-01")
 
-	// --- List tags: expect 1 ---
+	// --- List tags: expect 13 built-in + 1 created ---
 	tags := listTags(t, ts.URL, token)
-	require.Len(t, tags, 1, "expected exactly one tag after create")
-	assert.Equal(t, "dmz", tags[0]["name"])
+	require.Len(t, tags, 14, "expected 13 built-in tags + 1 created tag")
+	var found bool
+	for _, tag := range tags {
+		if tag["name"] == "dmz" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "created tag 'dmz' must appear in list")
 
 	// --- Delete tag ---
 	delResp, err := authorizedRequest(t, ts.URL+"/api/v1/admin/tags/"+tagID.String(), "DELETE", token)
@@ -50,9 +57,9 @@ func TestAdminCRUD_ZonesAndHosts(t *testing.T) {
 	defer delResp.Body.Close()
 	assert.Equal(t, http.StatusNoContent, delResp.StatusCode, "DELETE tag should return 204")
 
-	// --- List tags: expect 0 after delete ---
+	// --- List tags: expect 13 built-in tags remain after delete ---
 	tagsAfter := listTags(t, ts.URL, token)
-	assert.Empty(t, tagsAfter, "tag list must be empty after delete")
+	assert.Len(t, tagsAfter, 13, "tag list must have 13 built-in tags after delete")
 }
 
 // TestAdmin_RequiresJWT — unauthenticated request to /api/v1/admin/* → 401.

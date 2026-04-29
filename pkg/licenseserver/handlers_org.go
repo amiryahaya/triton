@@ -51,22 +51,39 @@ type CreateOrgAdminBlock struct {
 func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
-		Name       string `json:"name"`
-		Contact    string `json:"contact"`
-		Notes      string `json:"notes"`
-		AdminEmail string `json:"admin_email,omitempty"`
-		AdminName  string `json:"admin_name,omitempty"`
+		Name         string `json:"name"`
+		ContactName  string `json:"contact_name"`
+		ContactPhone string `json:"contact_phone"`
+		ContactEmail string `json:"contact_email"`
+		Notes        string `json:"notes"`
+		AdminEmail   string `json:"admin_email,omitempty"`
+		AdminName    string `json:"admin_name,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if tooLong(req.Name, maxNameLen) || tooLong(req.Contact, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
+	req.ContactName = strings.TrimSpace(req.ContactName)
+	if req.ContactName == "" {
+		writeError(w, http.StatusBadRequest, "contact_name is required")
+		return
+	}
+	req.ContactEmail = strings.ToLower(strings.TrimSpace(req.ContactEmail))
+	if req.ContactEmail == "" {
+		writeError(w, http.StatusBadRequest, "contact_email is required")
+		return
+	}
+	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactNameLen) || tooLong(req.ContactPhone, maxContactPhoneLen) || tooLong(req.ContactEmail, maxContactEmailLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
+		return
+	}
+	if err := validateEmail(req.ContactEmail); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
 		return
 	}
 
@@ -93,11 +110,13 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, status, err := s.ProvisionOrgWithAdmin(r.Context(), ProvisionOrgInput{
-		Name:       req.Name,
-		Contact:    req.Contact,
-		Notes:      req.Notes,
-		AdminEmail: req.AdminEmail,
-		AdminName:  req.AdminName,
+		Name:         req.Name,
+		ContactName:  req.ContactName,
+		ContactPhone: req.ContactPhone,
+		ContactEmail: req.ContactEmail,
+		Notes:        req.Notes,
+		AdminEmail:   req.AdminEmail,
+		AdminName:    req.AdminName,
 	})
 	if status != 0 {
 		// Map service-layer status into HTTP. The service already logged
@@ -137,7 +156,7 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "org_create", "", result.Org.ID, "", nil)
+	s.audit(r, "org_create", "", result.Org.ID, "", map[string]any{"name": req.Name, "contact_email": req.ContactEmail})
 
 	// Build the unified response shape. Admin is nil (and omitted via
 	// omitempty) when the request had no admin fields.
@@ -187,29 +206,48 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
-		Name    string `json:"name"`
-		Contact string `json:"contact"`
-		Notes   string `json:"notes"`
+		Name         string `json:"name"`
+		ContactName  string `json:"contact_name"`
+		ContactPhone string `json:"contact_phone"`
+		ContactEmail string `json:"contact_email"`
+		Notes        string `json:"notes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if tooLong(req.Name, maxNameLen) || tooLong(req.Contact, maxContactLen) || tooLong(req.Notes, maxNotesLen) {
+	req.ContactName = strings.TrimSpace(req.ContactName)
+	if req.ContactName == "" {
+		writeError(w, http.StatusBadRequest, "contact_name is required")
+		return
+	}
+	req.ContactEmail = strings.ToLower(strings.TrimSpace(req.ContactEmail))
+	if req.ContactEmail == "" {
+		writeError(w, http.StatusBadRequest, "contact_email is required")
+		return
+	}
+	if tooLong(req.Name, maxNameLen) || tooLong(req.ContactName, maxContactNameLen) || tooLong(req.ContactPhone, maxContactPhoneLen) || tooLong(req.ContactEmail, maxContactEmailLen) || tooLong(req.Notes, maxNotesLen) {
 		writeError(w, http.StatusBadRequest, "field exceeds maximum length")
+		return
+	}
+	if err := validateEmail(req.ContactEmail); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid contact_email: "+err.Error())
 		return
 	}
 
 	org := &licensestore.Organization{
-		ID:        id,
-		Name:      req.Name,
-		Contact:   req.Contact,
-		Notes:     req.Notes,
-		UpdatedAt: time.Now().UTC(),
+		ID:           id,
+		Name:         req.Name,
+		ContactName:  req.ContactName,
+		ContactPhone: req.ContactPhone,
+		ContactEmail: req.ContactEmail,
+		Notes:        req.Notes,
+		UpdatedAt:    time.Now().UTC(),
 	}
 
 	if err := s.store.UpdateOrg(r.Context(), org); err != nil {
@@ -227,7 +265,7 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "org_update", "", id, "", nil)
+	s.audit(r, "org_update", "", id, "", map[string]any{"name": req.Name, "contact_email": req.ContactEmail})
 
 	// Fetch the full record to return complete data (including CreatedAt)
 	updated, err := s.store.GetOrg(r.Context(), id)
@@ -256,7 +294,7 @@ func (s *Server) handleDeleteOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "org_delete", "", id, "", nil)
+	s.audit(r, "org_delete", "", id, "", map[string]any{"org_id": id})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -291,7 +329,7 @@ func (s *Server) handleSuspendOrg(w http.ResponseWriter, r *http.Request) {
 	if req.Suspended {
 		event = "org_suspended"
 	}
-	s.audit(r, event, "", id, "", nil)
+	s.audit(r, event, "", id, "", map[string]any{"suspended": req.Suspended})
 
 	w.WriteHeader(http.StatusNoContent)
 }

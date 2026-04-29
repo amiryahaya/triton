@@ -18,8 +18,8 @@ const jsonText = ref('');
 const jsonError = ref('');
 
 const jsonPlaceholder = `[
-  { "ip": "10.0.0.10", "hostname": "web-01", "os": "linux" },
-  { "ip": "10.0.0.20", "hostname": "db-01" }
+  { "hostname": "web-01.prod", "ip": "10.0.0.10", "os": "linux", "ssh_port": 22 },
+  { "hostname": "db-01.prod", "ip": "10.0.0.20", "ssh_port": 22 }
 ]`;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -44,23 +44,37 @@ function parseJSON(): CreateHostReq[] | null {
     return null;
   }
   const out: CreateHostReq[] = [];
+  const errors: string[] = [];
   for (let i = 0; i < parsed.length; i++) {
     const row = parsed[i];
-    if (!isRecord(row) || typeof row.ip !== 'string' || !row.ip.trim()) {
-      jsonError.value = `Entry ${i}: missing or invalid "ip".`;
-      return null;
+    if (!isRecord(row)) {
+      errors.push(`Entry ${i}: must be an object.`);
+      continue;
     }
-    out.push({
-      ip: row.ip,
-      hostname: typeof row.hostname === 'string' ? row.hostname : undefined,
-      os: typeof row.os === 'string' ? row.os : undefined,
-      tag_ids: Array.isArray(row.tag_ids)
-        ? (row.tag_ids as unknown[]).filter((x): x is string => typeof x === 'string')
-        : undefined,
-      tags: Array.isArray(row.tags)
-        ? (row.tags as unknown[]).filter((x): x is string => typeof x === 'string').map(t => t.trim().toLowerCase()).filter(Boolean)
-        : undefined,
-    });
+    if (typeof row.hostname !== 'string' || !row.hostname.trim()) {
+      errors.push(`Entry ${i}: "hostname" is required.`);
+    }
+    if (typeof row.ip !== 'string' || !row.ip.trim()) {
+      errors.push(`Entry ${i}: "ip" is required.`);
+    }
+    if (errors.length === 0) {
+      out.push({
+        hostname: (row.hostname as string).trim(),
+        ip: (row.ip as string).trim(),
+        os: typeof row.os === 'string' ? row.os : undefined,
+        ssh_port: typeof row.ssh_port === 'number' ? row.ssh_port : undefined,
+        tag_ids: Array.isArray(row.tag_ids)
+          ? (row.tag_ids as unknown[]).filter((x): x is string => typeof x === 'string')
+          : undefined,
+        tags: Array.isArray(row.tags)
+          ? (row.tags as unknown[]).filter((x): x is string => typeof x === 'string')
+          : undefined,
+      });
+    }
+  }
+  if (errors.length > 0) {
+    jsonError.value = errors.join('\n');
+    return null;
   }
   if (out.length === 0) {
     jsonError.value = 'No hosts to import.';
@@ -71,9 +85,10 @@ function parseJSON(): CreateHostReq[] | null {
 
 // ── CSV tab ──────────────────────────────────────────────────────────────────
 interface CsvRow {
-  ip: string;        // required
-  hostname?: string; // optional
+  hostname: string;
+  ip: string;
   os?: string;
+  ssh_port?: number;
   tags?: string[];
   _error?: string;
 }
@@ -81,6 +96,20 @@ interface CsvRow {
 const csvInput = ref('');
 const csvParseError = ref('');
 const preview = ref<CsvRow[]>([]);
+
+const CSV_TEMPLATE =
+  'hostname,ip,os,ssh_port,tags\n' +
+  'web-01.prod,10.0.0.1,linux,22,"production,web"\n';
+
+function downloadTemplate(): void {
+  const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hosts-template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 /**
  * Minimal CSV cell splitter. Handles quoted fields containing commas
@@ -94,7 +123,6 @@ function splitCSVLine(line: string): string[] {
     const ch = line[i];
     if (ch === '"') {
       if (inQuotes && line[i + 1] === '"') {
-        // Escaped double-quote inside a quoted field
         current += '"';
         i++;
       } else {
@@ -111,6 +139,8 @@ function splitCSVLine(line: string): string[] {
   return cells;
 }
 
+const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+:[0-9a-fA-F:]+$/;
+
 function parseCSV(raw: string): void {
   csvParseError.value = '';
   preview.value = [];
@@ -124,30 +154,77 @@ function parseCSV(raw: string): void {
   }
 
   const headers = splitCSVLine(nonEmpty[0]).map(h => h.trim().toLowerCase());
+  const hostnameIdx = headers.indexOf('hostname');
   const ipIdx = headers.indexOf('ip');
+
+  if (hostnameIdx === -1) {
+    csvParseError.value = 'CSV must have a "hostname" column.';
+    return;
+  }
   if (ipIdx === -1) {
     csvParseError.value = 'CSV must have an "ip" column.';
     return;
   }
-  const hostnameIdx = headers.indexOf('hostname');
+
   const osIdx = headers.indexOf('os');
+  const sshPortIdx = headers.indexOf('ssh_port');
   const tagsIdx = headers.indexOf('tags');
 
   const rows: CsvRow[] = [];
   for (let i = 1; i < nonEmpty.length; i++) {
+    const lineNum = i + 1;
     const cells = splitCSVLine(nonEmpty[i]);
+    const hostname = cells[hostnameIdx]?.trim() ?? '';
     const ip = cells[ipIdx]?.trim() ?? '';
-    const row: CsvRow = { ip };
-    if (!ip) {
-      row._error = 'ip is required';
+    const row: CsvRow = { hostname, ip };
+
+    if (!hostname) {
+      row._error = `Row ${lineNum}: hostname is required`;
+    } else if (!ip) {
+      row._error = `Row ${lineNum}: ip is required`;
+    } else if (!IP_RE.test(ip)) {
+      row._error = `Row ${lineNum}: invalid IP address "${ip}"`;
+    } else if (sshPortIdx !== -1 && cells[sshPortIdx]?.trim()) {
+      const raw = cells[sshPortIdx].trim();
+      const p = parseInt(raw, 10);
+      if (isNaN(p) || p < 1 || p > 65535) {
+        row._error = `Row ${lineNum}: ssh_port must be 1–65535, got "${raw}"`;
+      } else {
+        row.ssh_port = p;
+      }
     }
-    if (hostnameIdx !== -1 && cells[hostnameIdx]?.trim()) row.hostname = cells[hostnameIdx].trim();
-    if (osIdx !== -1 && cells[osIdx]?.trim()) row.os = cells[osIdx].trim();
-    if (tagsIdx !== -1 && cells[tagsIdx]?.trim()) {
-      row.tags = cells[tagsIdx].trim().split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+
+    if (!row._error) {
+      if (osIdx !== -1 && cells[osIdx]?.trim()) row.os = cells[osIdx].trim();
+      if (tagsIdx !== -1 && cells[tagsIdx]?.trim()) {
+        row.tags = cells[tagsIdx].trim().split(',').map(t => t.trim()).filter(Boolean);
+      }
     }
+
     rows.push(row);
   }
+
+  // Duplicate detection within the file
+  const seenHostnames = new Map<string, number>();
+  const seenIPs = new Map<string, number>();
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i]._error) continue;
+    const { hostname, ip } = rows[i];
+    const lineNum = i + 2;
+    if (seenHostnames.has(hostname)) {
+      rows[i]._error = `Row ${lineNum}: duplicate hostname "${hostname}" (first seen at row ${seenHostnames.get(hostname)! + 1})`;
+    } else {
+      seenHostnames.set(hostname, i + 1);
+    }
+    if (!rows[i]._error) {
+      if (seenIPs.has(ip)) {
+        rows[i]._error = `Row ${lineNum}: duplicate IP "${ip}" (first seen at row ${seenIPs.get(ip)! + 1})`;
+      } else {
+        seenIPs.set(ip, i + 1);
+      }
+    }
+  }
+
   preview.value = rows;
 }
 
@@ -156,33 +233,6 @@ function onCSVInput(): void {
 }
 
 const validRows = computed(() => preview.value.filter(r => !r._error));
-
-// ── template download ─────────────────────────────────────────────────────────
-const CSV_TEMPLATE = `ip,hostname,tags
-10.0.0.10,web-01,"production,web"
-10.0.0.20,db-01,production
-10.0.0.30,,
-`;
-
-const JSON_TEMPLATE = JSON.stringify([
-  { ip: '10.0.0.10', hostname: 'web-01', tags: ['production', 'web'] },
-  { ip: '10.0.0.20', hostname: 'db-01', tags: ['production'] },
-  { ip: '10.0.0.30' },
-], null, 2) + '\n';
-
-function downloadTemplate() {
-  const isCSV = activeTab.value === 'csv';
-  const content = isCSV ? CSV_TEMPLATE : JSON_TEMPLATE;
-  const mime = isCSV ? 'text/csv' : 'application/json';
-  const filename = isCSV ? 'hosts-template.csv' : 'hosts-template.json';
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 // ── shared ───────────────────────────────────────────────────────────────────
 watch(
@@ -210,9 +260,10 @@ function onSubmit(): void {
       return;
     }
     emit('submit', rows.map(r => ({
-      ip: r.ip,
       hostname: r.hostname,
+      ip: r.ip,
       os: r.os,
+      ssh_port: r.ssh_port,
       tags: r.tags,
     })));
   } else {
@@ -255,19 +306,19 @@ function onSubmit(): void {
         v-if="activeTab === 'csv'"
         class="bulk-tab-panel"
       >
-        <div class="bulk-hint-row">
+        <div class="csv-header">
           <p class="bulk-hint">
-            Columns: <code>ip</code> (required), <code>hostname</code>,
-            <code>tags</code> (comma-separated names; quote if multiple:
-            <code>"production,web"</code>). Tag names are matched by name —
-            new tags are created automatically with a default color.
+            Columns: <code>hostname</code> (required), <code>ip</code> (required),
+            <code>os</code>, <code>ssh_port</code> (default 22),
+            <code>tags</code> (comma-separated; quote if multiple:
+            <code>"production,web"</code>)
           </p>
           <button
             type="button"
-            class="template-btn"
+            class="template-link"
             @click="downloadTemplate"
           >
-            ↓ Download template
+            Download CSV template
           </button>
         </div>
         <TFormField
@@ -280,7 +331,7 @@ function onSubmit(): void {
             class="bulk-text"
             rows="8"
             spellcheck="false"
-            placeholder="ip,hostname,os,tags&#10;10.0.0.10,web-01,linux,&quot;production,web&quot;"
+            placeholder="hostname,ip,os,ssh_port,tags&#10;web-01.prod,10.0.0.10,linux,22,&quot;production,web&quot;"
             @input="onCSVInput"
           />
         </TFormField>
@@ -297,13 +348,9 @@ function onSubmit(): void {
             <span
               v-if="row._error"
               class="row-error"
-            >Row {{ i + 1 }}: {{ row._error }}</span>
+            >{{ row._error }}</span>
             <span v-else>
-              {{ row.ip }}<span
-                v-if="row.hostname"
-                class="muted"
-              > — {{ row.hostname }}</span>
-              <span
+              {{ row.hostname }} — {{ row.ip }}<span
                 v-if="row.tags?.length"
                 class="muted"
               > [{{ row.tags.join(', ') }}]</span>
@@ -321,21 +368,11 @@ function onSubmit(): void {
         v-else
         class="bulk-tab-panel"
       >
-        <div class="bulk-hint-row">
-          <p class="bulk-hint">
-            Paste a JSON array of host objects. Each entry must include
-            <code>ip</code>; <code>hostname</code> and <code>tags</code>
-            (name array) are optional. Tag names are matched by name —
-            new tags are created automatically with a default color.
-          </p>
-          <button
-            type="button"
-            class="template-btn"
-            @click="downloadTemplate"
-          >
-            ↓ Download template
-          </button>
-        </div>
+        <p class="bulk-hint">
+          Paste a JSON array. Each entry requires <code>hostname</code> and <code>ip</code>.
+          Optional: <code>os</code>, <code>ssh_port</code>, <code>tag_ids</code> (UUID array),
+          <code>tags</code> (name array).
+        </p>
         <TFormField
           label="JSON payload"
           required
@@ -381,32 +418,10 @@ function onSubmit(): void {
   flex-direction: column;
   gap: var(--space-3);
 }
-.bulk-hint-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
 .bulk-hint {
   font-size: 0.78rem;
   color: var(--text-muted);
   margin: 0;
-  flex: 1;
-}
-.template-btn {
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 3px var(--space-2);
-  font-size: 0.72rem;
-  font-family: var(--font-body);
-  color: var(--accent-strong);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.template-btn:hover {
-  background: var(--bg-sunken);
 }
 .bulk-hint code {
   font-family: var(--font-mono);
@@ -414,6 +429,22 @@ function onSubmit(): void {
   padding: 1px 4px;
   background: var(--bg-elevated);
   border-radius: var(--radius-sm);
+}
+.csv-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.template-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  white-space: nowrap;
+  padding: 0;
 }
 
 /* Tab bar */

@@ -214,6 +214,21 @@ func (s *PostgresStore) Count(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// Delete permanently removes an agent row. Returns ErrNotFound when no
+// row with that id exists.
+func (s *PostgresStore) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM manage_agents WHERE id = $1`, id,
+	)
+	if err != nil {
+		return fmt.Errorf("delete agent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SetCommand stores a pending scan command on the agent row, overwriting
 // any previous value. Pass nil to clear without popping.
 func (s *PostgresStore) SetCommand(ctx context.Context, id uuid.UUID, cmd *AgentCommand) error {

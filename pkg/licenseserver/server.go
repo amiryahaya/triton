@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"golang.org/x/time/rate"
 
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
@@ -22,10 +26,47 @@ type Server struct {
 	http            *http.Server
 	reportAPIClient *ReportAPIClient // nil when no report server configured
 	loginLimiter    *auth.LoginRateLimiter
+	clientLimiter   *ipRateLimiter // per-IP rate limiter for client API
 	// ctx is canceled in Shutdown so background workers (rate-limit
 	// janitor) stop promptly. Wired in Phase 5 Sprint 2 (N1).
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// ipRateLimiter provides per-IP token-bucket rate limiting.
+type ipRateLimiter struct {
+	clients sync.Map // map[string]*rate.Limiter
+	r       rate.Limit
+	b       int
+}
+
+func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
+	return &ipRateLimiter{r: r, b: b}
+}
+
+func (l *ipRateLimiter) allow(ip string) bool {
+	v, loaded := l.clients.Load(ip)
+	if !loaded {
+		lim := rate.NewLimiter(l.r, l.b)
+		v, _ = l.clients.LoadOrStore(ip, lim)
+	}
+	return v.(*rate.Limiter).Allow()
+}
+
+func (l *ipRateLimiter) middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				ip = r.RemoteAddr
+			}
+			if !l.allow(ip) {
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -39,7 +80,7 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+			"default-src 'self'; script-src 'self'; style-src 'self'; "+
 				"font-src 'self'; img-src 'self' data:; "+
 				"connect-src 'self'; object-src 'none'; base-uri 'self'; "+
 				"form-action 'self'; frame-ancestors 'none'")
@@ -55,6 +96,38 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// corsMiddleware returns an explicit CORS policy. When allowedOrigins is empty,
+// no cross-origin access is allowed (default same-origin browser behavior).
+// Configurable via Config.AllowedOrigins for deployments where the UI is served
+// from a different origin than the API.
+func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		if o != "" {
+			allowed[o] = struct{}{}
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				if _, ok := allowed[origin]; ok {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+					w.Header().Set("Access-Control-Max-Age", "300")
+				}
+				w.Header().Add("Vary", "Origin")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // New creates a new license Server.
 func New(cfg *Config, s licensestore.Store) *Server {
 	rateLimitCfg := auth.DefaultLoginRateLimiterConfig
@@ -67,13 +140,17 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		store:           s,
 		reportAPIClient: NewReportAPIClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
 		loginLimiter:    auth.NewLoginRateLimiter(rateLimitCfg),
-		ctx:             ctx,
-		cancel:          cancel,
+		// 20 req/s burst per IP, refilling at 5 req/s — generous for legitimate
+		// clients (agents heartbeat every few minutes) but blocks abuse quickly.
+		clientLimiter: newIPRateLimiter(rate.Every(200*time.Millisecond), 20),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	// Phase 5.1 D1 fix — see pkg/server/server.go for rationale. Same
 	// janitor strategy on the license server's limiter. Sprint 2 (N1)
 	// threaded srv.ctx so Shutdown cancels the janitor deterministically.
 	_ = srv.loginLimiter.StartJanitor(ctx, rateLimitCfg.LockoutDuration)
+	go srv.runExpiryNotifications(ctx)
 
 	// Wire stale-seat reaping threshold into the store. Type-assert to
 	// the concrete PostgresStore since SetStaleThreshold is not part of
@@ -88,13 +165,16 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(licenseSecurityHeaders)
+	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(middleware.Throttle(100))
 
 	// Health check (no auth).
 	r.Get("/api/v1/health", srv.handleHealth)
 
 	// Client API (no API key — secured by license UUID knowledge + machine fingerprint).
+	// Per-IP rate limiting protects against brute-force and seat exhaustion attacks.
 	r.Route("/api/v1/license", func(r chi.Router) {
+		r.Use(srv.clientLimiter.middleware())
 		r.Post("/activate", srv.handleActivate)
 		r.Post("/deactivate", srv.handleDeactivate)
 		r.Post("/validate", srv.handleValidate)
@@ -125,6 +205,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	// Admin API (requires platform_admin JWT — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(srv.JWTAuth())
+		r.Use(srv.BlockUntilPasswordChanged())
 
 		// Organizations
 		r.Post("/orgs", srv.handleCreateOrg)
@@ -227,17 +308,138 @@ func (s *Server) Router() chi.Router {
 	return s.router
 }
 
+// expiryThresholds defines the three notification windows.
+var expiryThresholds = []struct {
+	within   time.Duration
+	interval string
+	days     int
+}{
+	{30 * 24 * time.Hour, "30d", 30},
+	{7 * 24 * time.Hour, "7d", 7},
+	{24 * time.Hour, "1d", 1},
+}
+
+// runExpiryNotifications ticks hourly and calls sendExpiryNotifications.
+// Exits immediately if no mailer is configured (to keep logs clean on
+// deployments that don't set TRITON_LICENSE_SERVER_RESEND_API_KEY).
+// Exits when ctx is cancelled (i.e., on Shutdown).
+func (s *Server) runExpiryNotifications(ctx context.Context) {
+	if s.config.Mailer == nil {
+		return
+	}
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.sendExpiryNotifications(ctx)
+		}
+	}
+}
+
+// TriggerExpiryCheck runs one expiry notification cycle. Exported for testing.
+func (s *Server) TriggerExpiryCheck(ctx context.Context) {
+	s.sendExpiryNotifications(ctx)
+}
+
+// sendExpiryNotifications checks all three expiry windows and sends warning
+// emails to platform_admin users and the org contact for qualifying licenses.
+func (s *Server) sendExpiryNotifications(ctx context.Context) {
+	if s.config.Mailer == nil {
+		return
+	}
+
+	admins, err := s.store.ListUsers(ctx, licensestore.UserFilter{Role: "platform_admin"})
+	if err != nil {
+		log.Printf("expiry notifications: list admins: %v", err)
+		return
+	}
+
+	for _, threshold := range expiryThresholds {
+		licenses, err := s.store.ListExpiringLicenses(ctx, threshold.within)
+		if err != nil {
+			log.Printf("expiry notifications [%s]: list licenses: %v", threshold.interval, err)
+			continue
+		}
+
+		for i := range licenses {
+			lic := &licenses[i]
+			if !s.needsNotification(*lic, threshold.interval) {
+				continue
+			}
+
+			data := ExpiryWarningEmailData{
+				OrgName:       lic.OrgName,
+				LicenseID:     lic.LicenseID,
+				ExpiresAt:     lic.ExpiresAt,
+				DaysRemaining: threshold.days,
+			}
+
+			for j := range admins {
+				admin := &admins[j]
+				d := data
+				d.RecipientName = admin.Name
+				if sendErr := s.config.Mailer.SendExpiryWarningEmail(ctx, admin.Email, d); sendErr != nil {
+					log.Printf("expiry notifications [%s]: send to admin %s: %v", threshold.interval, admin.Email, sendErr)
+				}
+			}
+
+			if lic.ContactEmail != "" {
+				d := data
+				d.RecipientName = lic.ContactName
+				if sendErr := s.config.Mailer.SendExpiryWarningEmail(ctx, lic.ContactEmail, d); sendErr != nil {
+					log.Printf("expiry notifications [%s]: send to contact %s: %v", threshold.interval, lic.ContactEmail, sendErr)
+				}
+			}
+
+			// Mark regardless of individual send errors: at-most-once semantics.
+			// A transient Resend outage suppresses this interval's notification
+			// rather than causing a retry storm on the next hourly tick.
+			if markErr := s.store.MarkLicenseNotified(ctx, lic.LicenseID, threshold.interval); markErr != nil {
+				log.Printf("expiry notifications [%s]: mark license %s: %v", threshold.interval, lic.LicenseID, markErr)
+			}
+		}
+	}
+}
+
+// needsNotification returns true when the license has not yet been notified
+// for the given interval.
+func (s *Server) needsNotification(lic licensestore.LicenseWithOrg, interval string) bool {
+	switch interval {
+	case "30d":
+		return lic.Notified30dAt == nil
+	case "7d":
+		return lic.Notified7dAt == nil
+	case "1d":
+		return lic.Notified1dAt == nil
+	}
+	return false
+}
+
+// NewForTest constructs a minimal Server for unit testing expiry notification
+// logic without starting an HTTP server.
+func NewForTest(store licensestore.Store, m Mailer) *Server {
+	return &Server{
+		config: &Config{Mailer: m},
+		store:  store,
+	}
+}
+
 // maxRequestBody is the maximum allowed request body size (1 MB).
 const maxRequestBody = 1 << 20
 
 // Input length limits.
 const (
-	maxNameLen     = 255
-	maxContactLen  = 255
-	maxNotesLen    = 1000
-	maxHostnameLen = 255
-	maxVersionLen  = 50
-	maxReasonLen   = 500
+	maxNameLen         = 255
+	maxContactNameLen  = 100
+	maxContactPhoneLen = 50
+	maxContactEmailLen = 325
+	maxNotesLen        = 1000
+	maxHostnameLen     = 255
+	maxVersionLen      = 50
+	maxReasonLen       = 500
 )
 
 // tooLong checks if a string exceeds the specified maximum length.

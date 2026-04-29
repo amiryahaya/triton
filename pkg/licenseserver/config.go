@@ -70,4 +70,11 @@ type Config struct {
 	// during seat-full scenarios. Default: 336h (14 days).
 	// Configurable via TRITON_LICENSE_SERVER_STALE_THRESHOLD.
 	StaleActivationThreshold time.Duration
+
+	// AllowedOrigins is the list of origins permitted in CORS requests
+	// (e.g., "https://license.example.com"). When empty, no
+	// cross-origin access is allowed (same-origin only, which is the
+	// correct default for a self-hosted admin UI). Configurable via
+	// TRITON_LICENSE_SERVER_CORS_ORIGINS (comma-separated).
+	AllowedOrigins []string
 }

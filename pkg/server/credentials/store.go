@@ -34,8 +34,7 @@ var (
 // postgres.go (next batch).
 type Store interface {
 	// CreateProfileWithDelivery inserts a profile + an initial push
-	// delivery in a single transaction. Ciphertext is the sealed-box
-	// blob from pkg/engine/crypto.
+	// delivery in a single transaction. Ciphertext is the sealed-box blob.
 	CreateProfileWithDelivery(ctx context.Context, p Profile, ciphertext []byte) (Profile, error)
 
 	// GetProfile returns the profile matching (org_id, id) or
@@ -77,7 +76,7 @@ type Store interface {
 	ListTestResults(ctx context.Context, testID uuid.UUID) ([]TestResult, error)
 
 	// ClaimNextTest atomically grabs the oldest queued test job for
-	// this engine. Bool is false when the queue is empty.
+	// the caller. Bool is false when the queue is empty.
 	ClaimNextTest(ctx context.Context, engineID uuid.UUID) (TestJob, bool, error)
 
 	// InsertTestResults appends per-host outcomes for a running test.

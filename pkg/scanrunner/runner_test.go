@@ -91,13 +91,13 @@ func TestRunOne_TargetHasCredentialField(t *testing.T) {
 			Username: "ubuntu",
 			Password: "pw",
 		},
-		AccessPort: 22,
+		SSHPort: 22,
 	}
 	if target.Credential == nil {
 		t.Error("Credential field is nil")
 	}
-	if target.AccessPort != 22 {
-		t.Errorf("AccessPort: got %d, want 22", target.AccessPort)
+	if target.SSHPort != 22 {
+		t.Errorf("SSHPort: got %d, want 22", target.SSHPort)
 	}
 }
 

@@ -24,6 +24,15 @@ type Store interface {
 	RevokeLicense(ctx context.Context, id, revokedBy string) error
 	UpdateLicense(ctx context.Context, id string, upd LicenseUpdate) error
 
+	// ListExpiringLicenses returns non-revoked licenses whose expires_at falls
+	// between NOW() and NOW()+within. Includes notified_*d_at so callers can
+	// filter without a second query.
+	ListExpiringLicenses(ctx context.Context, within time.Duration) ([]LicenseWithOrg, error)
+
+	// MarkLicenseNotified sets the notified_*d_at column for the given interval
+	// ("30d", "7d", or "1d") to NOW(). Returns an error for unknown intervals.
+	MarkLicenseNotified(ctx context.Context, licenseID, interval string) error
+
 	// Activations
 	Activate(ctx context.Context, act *Activation) error
 	Deactivate(ctx context.Context, licenseID, machineID string) error
@@ -81,11 +90,13 @@ type Store interface {
 
 // Organization represents a customer organization.
 type Organization struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Contact   string `json:"contact"`
-	Notes     string `json:"notes"`
-	Suspended bool   `json:"suspended"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ContactName  string `json:"contact_name"`
+	ContactPhone string `json:"contact_phone"`
+	ContactEmail string `json:"contact_email"`
+	Notes        string `json:"notes"`
+	Suspended    bool   `json:"suspended"`
 	// ActiveActivations and HasSeatedLicenses are read-only computed fields
 	// populated by ListOrgs — never written to the database directly.
 	ActiveActivations int       `json:"activeActivations"`
@@ -140,19 +151,37 @@ type LicenseRecord struct {
 	IsExpired bool   `json:"isExpired"`
 }
 
+// LicenseWithOrg is a read-only projection used by the expiry notification
+// goroutine. It joins the license row with the owning organization's contact
+// fields so the caller can send emails without a second query.
+type LicenseWithOrg struct {
+	LicenseID     string
+	OrgID         string
+	OrgName       string
+	ContactName   string
+	ContactPhone  string
+	ContactEmail  string
+	ExpiresAt     time.Time
+	Notified30dAt *time.Time
+	Notified7dAt  *time.Time
+	Notified1dAt  *time.Time
+}
+
 // Activation represents a machine activation record.
 type Activation struct {
-	ID            string     `json:"id"`
-	LicenseID     string     `json:"licenseID"`
-	MachineID     string     `json:"machineID"`
-	Hostname      string     `json:"hostname"`
-	OS            string     `json:"os"`
-	Arch          string     `json:"arch"`
-	Token         string     `json:"token"`
-	ActivatedAt   time.Time  `json:"activatedAt"`
-	LastSeenAt    time.Time  `json:"lastSeenAt"`
-	DeactivatedAt *time.Time `json:"deactivatedAt,omitempty"`
-	Active        bool       `json:"active"`
+	ID             string     `json:"id"`
+	LicenseID      string     `json:"licenseID"`
+	MachineID      string     `json:"machineID"`
+	Hostname       string     `json:"hostname"`
+	OS             string     `json:"os"`
+	Arch           string     `json:"arch"`
+	Token          string     `json:"-"`
+	ActivatedAt    time.Time  `json:"activatedAt"`
+	LastSeenAt     time.Time  `json:"lastSeenAt"`
+	DeactivatedAt  *time.Time `json:"deactivatedAt,omitempty"`
+	Active         bool       `json:"active"`
+	ActivationType string     `json:"activationType"`
+	DisplayName    string     `json:"displayName"`
 }
 
 // AuditEntry represents a single audit log entry.
@@ -188,6 +217,7 @@ type User struct {
 	Role               string    `json:"role"` // platform_admin, org_admin, org_user
 	Password           string    `json:"-"`    // bcrypt hash, never serialized
 	MustChangePassword bool      `json:"mustChangePassword"`
+	InvitedAt          time.Time `json:"invitedAt"` // when temp-password invite was last issued
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
 	OrgName            string    `json:"orgName,omitempty"` // populated by joins
@@ -218,11 +248,14 @@ type UserFilter struct {
 // Password is optional: an empty string means "leave unchanged".
 // MustChangePassword is always written — callers that do not intend to change
 // it should read the current value first and pass it through unchanged.
+// ResetInvitedAt, when true, sets invited_at = NOW() — used by resend-invite
+// to restart the 7-day invite expiry window.
 type UserUpdate struct {
 	ID                 string
 	Name               string
 	Password           string // empty = unchanged
 	MustChangePassword bool
+	ResetInvitedAt     bool
 }
 
 // LicenseFilter filters license listings.

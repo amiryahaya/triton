@@ -229,6 +229,27 @@ func (m *pipelineMockStore) ExpireStaleAgentCommands(_ context.Context) (int, er
 	panic("not implemented")
 }
 
+// --- NACSA stubs ---
+
+func (m *pipelineMockStore) GetNacsaSummary(_ context.Context, _ string, _ NacsaScopeFilter) (NacsaSummary, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListNacsaServers(_ context.Context, _ string) ([]NacsaServerRow, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListNacsaHosts(_ context.Context, _, _ string) ([]NacsaHostRow, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListNacsaCBOM(_ context.Context, _, _ string, _ []string) ([]NacsaCBOMRow, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) ListNacsaRisk(_ context.Context, _, _, _ string) ([]NacsaRiskRow, error) {
+	panic("not implemented")
+}
+func (m *pipelineMockStore) GetNacsaMigration(_ context.Context, _ string) (NacsaMigResponse, error) {
+	panic("not implemented")
+}
+
 // --- TenantLicenceStore stubs ---
 
 func (m *pipelineMockStore) GetOrCreateInstance(_ context.Context) (*ReportInstance, error) {

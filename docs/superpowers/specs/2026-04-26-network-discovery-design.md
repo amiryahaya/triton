@@ -2,7 +2,9 @@
 
 ## Goal
 
-Add a network discovery feature to the Manage Portal that lets admins scan a CIDR range for live hosts, probe common ports, resolve reverse DNS, review discovered candidates, and import selected candidates into the host inventory.
+Add a network discovery feature to the Manage Portal that lets admins scan a CIDR range for hosts with an SSH port open, resolve reverse DNS, review discovered candidates, and import selected candidates into the host inventory as SSH-managed hosts.
+
+**Scope:** Discovery finds hosts that Triton can reach via SSH. Hosts without an open SSH port are not importable — without SSH (or an installed agent), Triton cannot scan them. Agent-managed hosts enter inventory via self-registration, not via network discovery.
 
 ## Architecture
 
@@ -25,18 +27,19 @@ Migration v10 adds two tables:
 
 ```sql
 CREATE TABLE manage_discovery_jobs (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id     uuid NOT NULL REFERENCES manage_orgs(id) ON DELETE CASCADE,
-  cidr          text NOT NULL,
-  ports         int[] NOT NULL,
-  status        text NOT NULL DEFAULT 'queued',   -- queued|running|completed|failed|cancelled
-  total_ips     int NOT NULL DEFAULT 0,
-  scanned_ips   int NOT NULL DEFAULT 0,
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        uuid NOT NULL REFERENCES manage_orgs(id) ON DELETE CASCADE,
+  cidr             text NOT NULL,
+  ssh_port         int  NOT NULL DEFAULT 22,       -- SSH port to probe; determines which hosts are importable
+  status           text NOT NULL DEFAULT 'queued', -- queued|running|completed|failed|cancelled
+  total_ips        int  NOT NULL DEFAULT 0,
+  scanned_ips      int  NOT NULL DEFAULT 0,
+  found_ips        int  NOT NULL DEFAULT 0,        -- hosts with ssh_port open
   cancel_requested boolean NOT NULL DEFAULT false,
-  started_at    timestamptz,
-  finished_at   timestamptz,
-  error_message text NOT NULL DEFAULT '',
-  created_at    timestamptz NOT NULL DEFAULT now()
+  started_at       timestamptz,
+  finished_at      timestamptz,
+  error_message    text NOT NULL DEFAULT '',
+  created_at       timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE manage_discovery_candidates (
@@ -44,7 +47,6 @@ CREATE TABLE manage_discovery_candidates (
   job_id           uuid NOT NULL REFERENCES manage_discovery_jobs(id) ON DELETE CASCADE,
   ip               text NOT NULL,
   hostname         text,                           -- null if reverse DNS failed
-  open_ports       int[] NOT NULL DEFAULT '{}',
   existing_host_id uuid REFERENCES manage_hosts(id) ON DELETE SET NULL,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
@@ -52,13 +54,15 @@ CREATE TABLE manage_discovery_candidates (
 CREATE INDEX ON manage_discovery_candidates(job_id);
 ```
 
+Only hosts with `ssh_port` open are inserted as candidates. Hosts that don't respond on that port are counted in `scanned_ips` but not stored — they are not importable.
+
 ## API
 
 All routes under `/api/v1/admin/discovery`, authenticated (JWT + `injectInstanceOrg`), admin-or-engineer role.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/admin/discovery` | Start a scan. Body: `{cidr, ports?}`. Returns `Job`. 409 if already running. |
+| `POST` | `/v1/admin/discovery` | Start a scan. Body: `{cidr, ssh_port?}`. Returns `Job`. 409 if already running. |
 | `GET` | `/v1/admin/discovery` | Current job + all candidates so far. Returns `{job: Job, candidates: Candidate[]}`. 404 if no job exists yet. |
 | `POST` | `/v1/admin/discovery/cancel` | Set `cancel_requested=true`. Returns 204. 409 if no active job. |
 | `POST` | `/v1/admin/discovery/import` | Import selected candidates. Body: `{candidates: [{id, hostname}]}`. Returns `{imported, skipped, errors}`. |
@@ -69,10 +73,11 @@ All routes under `/api/v1/admin/discovery`, authenticated (JWT + `injectInstance
 interface DiscoveryJob {
   id: string;
   cidr: string;
-  ports: number[];
+  ssh_port: number;                // SSH port that was probed (default 22)
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   total_ips: number;
   scanned_ips: number;
+  found_ips: number;               // candidates with ssh_port open
   started_at?: string;
   finished_at?: string;
   error_message: string;
@@ -82,8 +87,7 @@ interface DiscoveryJob {
 interface DiscoveryCandidate {
   id: string;
   ip: string;
-  hostname: string | null;        // null = reverse DNS failed; user must supply one to import
-  open_ports: number[];
+  hostname: string | null;         // null = reverse DNS failed; user must supply one to import
   existing_host_id: string | null; // non-null = already in host inventory
 }
 
@@ -102,10 +106,10 @@ interface ImportResp {
 
 1. **CIDR validation** — handler rejects CIDRs larger than /16 (> 65 536 IPs) with 400. `/16` itself is accepted.
 2. **CIDR expansion** — `net.ParseCIDR` + iterate; skip network address and broadcast address.
-3. **Port probing** — concurrent TCP dials via a semaphore (200 goroutines max). Per-dial timeout: 1.5 s. A host is "live" if at least one port accepts a connection.
-4. **Reverse DNS** — `net.LookupAddr` on live IPs only. Timeout: 3 s per lookup. Failure sets `hostname = null`; it is not treated as a scan error.
-5. **Existing host detection** — for each live IP, query `manage_hosts` for a matching `ip` column. Match → set `existing_host_id`.
-6. **Progress** — every 50 IPs scanned, worker UPDATEs `scanned_ips` on the job row. Candidates are INSERTed as found (not batched at the end) so the GET endpoint returns live partial results.
+3. **SSH port probe** — concurrent TCP dials to `ip:ssh_port` via a semaphore (200 goroutines max). Per-dial timeout: 1.5 s. A host is a candidate only if this single port accepts a connection. Hosts that don't respond are counted in `scanned_ips` but not stored.
+4. **Reverse DNS** — `net.LookupAddr` on SSH-open IPs only. Timeout: 3 s per lookup. Failure sets `hostname = null`; not treated as a scan error.
+5. **Existing host detection** — for each candidate IP, query `manage_hosts` for a matching `ip` column. Match → set `existing_host_id`.
+6. **Progress** — every 50 IPs scanned, worker UPDATEs `scanned_ips` and `found_ips` on the job row. Candidates are INSERTed as found so the GET endpoint returns live partial results.
 7. **Cancellation** — worker checks `cancel_requested` flag every 50-IP batch. Handler sets the flag; worker exits within ~1 s and writes `status = cancelled`. Partial candidates are preserved.
 8. **Fatal errors** — unrecoverable errors (e.g. DB unavailable) set `status = failed` + `error_message`. Partial candidates are kept.
 
@@ -115,7 +119,7 @@ interface ImportResp {
 2. Load candidate rows. Skip any where `existing_host_id IS NOT NULL` (count → `skipped`).
 3. Validate: all remaining candidates must have a non-empty `hostname` in the request body. Missing hostname → 400.
 4. Check licence host cap (same guard as `hosts.Create`): `current_count + len(to_import) > cap` → 403.
-5. Call `hosts.Store.BulkCreate` with the resolved `[]hosts.Host` (hostname + ip from candidate).
+5. Call `hosts.Store.BulkCreate` with `[]hosts.Host` — each host gets `connection_type = 'ssh'`, `ssh_port = job.ssh_port` (from the discovery job), hostname + ip from the candidate.
 6. Return `{imported, skipped, errors}`.
 
 ## Frontend
@@ -133,9 +137,9 @@ interface ImportResp {
 
 ### Page States
 
-**Empty** (no job exists): form only — CIDR input, optional ports override (pre-filled: `22, 443, 3389, 5985, 5986`), Start button.
+**Empty** (no job exists): form only — CIDR input, SSH Port field (default: `22`), Start button. A note below the form explains: "Only hosts with this SSH port open will appear in results."
 
-**Running**: form fields go read-only, Start button replaced by Stop Scan. Progress bar: `scanned_ips / total_ips`. Results table grows as candidates stream in (poll every 2 s).
+**Running**: form fields go read-only, Start button replaced by Stop Scan. Progress bar: `scanned_ips / total_ips`. Sub-label: "X hosts found with SSH port open". Results table grows as candidates stream in (poll every 2 s).
 
 **Completed / Cancelled**: form becomes editable again with a "New Scan" button. Results table persists. Import bar shows selected count and blocks import if any selected candidate is missing a hostname.
 
@@ -148,8 +152,9 @@ interface ImportResp {
 | Checkbox | Unchecked for "Already in inventory" rows; those rows are also non-interactive |
 | IP Address | Monospace, read-only |
 | Hostname | Inline editable `<input>` — pre-filled from reverse DNS if available; placeholder "enter hostname…" if null; locked (read-only + dimmed) for "Already in inventory" rows |
-| Open Ports | Port number pills |
 | Status | `New` badge (blue) or `Already in inventory` badge (grey) |
+
+All candidates in the table already have the SSH port open — that is the filter condition. No "Open Ports" column needed.
 
 ### Import Bar
 

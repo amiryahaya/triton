@@ -54,8 +54,15 @@ export interface ResendInviteResponse {
 
 export interface CreateOrgRequest {
   name: string;
-  contact?: string;
+  contact_name: string;
+  contact_phone?: string;
+  contact_email: string;
   notes?: string;
+}
+
+export interface UpdateLicenceRequest {
+  schedule?: string | null;
+  scheduleJitterSeconds?: number | null;
 }
 
 export interface CreateLicenceRequest {
@@ -76,6 +83,8 @@ export function createLicenseApi(http: Http) {
     org: (id: string) => http.get<Organisation>(`/v1/admin/orgs/${id}`),
     createOrg: (req: CreateOrgRequest) =>
       http.post<Organisation>('/v1/admin/orgs', req),
+    updateOrg: (id: string, req: CreateOrgRequest) =>
+      http.put<Organisation>(`/v1/admin/orgs/${id}`, req),
     deleteOrg: (id: string) => http.del<void>(`/v1/admin/orgs/${id}`),
     suspendOrg: (id: string, suspended: boolean) =>
       http.post<void>(`/v1/admin/orgs/${id}/suspend`, { suspended }),
@@ -90,6 +99,8 @@ export function createLicenseApi(http: Http) {
       http.post<Licence>('/v1/admin/licenses', req),
     revokeLicence: (id: string) =>
       http.post<void>(`/v1/admin/licenses/${id}/revoke`, {}),
+    updateLicence: (id: string, req: UpdateLicenceRequest) =>
+      http.patch<Licence>(`/v1/admin/licenses/${id}`, req),
     // Returns raw YAML text — backend Content-Type is application/x-yaml
     // so the Http wrapper's non-JSON fallback yields the body as a
     // string. Callers wrap it in a Blob for the browser download.

@@ -179,4 +179,45 @@ var migrations = []string{
 	// suspended=true blocks new activations and validation for all machines
 	// on any licence belonging to this org (hard suspend).
 	`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended BOOLEAN NOT NULL DEFAULT FALSE;`,
+
+	// Version 10: Structured contact fields on organizations + expiry notification
+	// tracking on licenses.
+	// contact → contact_name (rename); contact_phone and contact_email are new.
+	// notified_30d_at, notified_7d_at, notified_1d_at are nullable TIMESTAMPTZ;
+	// NULL means the notification has not been sent for this license cycle.
+	`DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.columns
+		           WHERE table_schema = current_schema()
+		             AND table_name = 'organizations'
+		             AND column_name = 'contact') THEN
+			ALTER TABLE organizations RENAME COLUMN contact TO contact_name;
+		END IF;
+	END $$;
+	ALTER TABLE organizations
+		ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT '',
+		ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT '';
+
+	ALTER TABLE licenses
+		ADD COLUMN IF NOT EXISTS notified_30d_at TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS notified_7d_at  TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS notified_1d_at  TIMESTAMPTZ;`,
+
+	// Version 11: activation_type on activations — differentiates report_server,
+	// manage_server, and agent seat holders.
+	`ALTER TABLE activations ADD COLUMN IF NOT EXISTS activation_type TEXT NOT NULL DEFAULT 'agent'
+ CHECK (activation_type IN ('report_server', 'manage_server', 'agent'));`,
+
+	// Version 12: display_name on activations — human-readable label for
+	// the activating service (manage server name, agent name, etc.).
+	`ALTER TABLE activations
+  ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT '';`,
+
+	// Version 13: invited_at on users — records when a temp-password invite
+	// was most recently issued. handleLogin rejects logins where
+	// must_change_password=true and invited_at is older than
+	// auth.DefaultInviteExpiryWindow (7 days), preventing stale invites from
+	// remaining valid indefinitely. Seeded to created_at for existing rows.
+	`ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+UPDATE users SET invited_at = created_at;`,
 }

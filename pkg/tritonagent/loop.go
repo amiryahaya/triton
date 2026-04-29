@@ -3,6 +3,8 @@ package tritonagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -128,6 +130,9 @@ func Run(ctx context.Context, c ManageAPI, cfg Config) error {
 		}
 
 		if err := c.SubmitScan(ctx, cmd.JobID, resultJSON); err != nil {
+			if errors.Is(err, ErrAuthFailed) {
+				return fmt.Errorf("submit scan: authentication rejected — check certificate or agent enrollment: %w", err)
+			}
 			log.Printf("submit scan: %v", err)
 		} else {
 			log.Printf("scan submitted (%d bytes, job_id=%s)", len(resultJSON), cmd.JobID)

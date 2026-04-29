@@ -1,0 +1,1 @@
+import{_ as e}from"./index-CRUJbCsO.js";import{o as t,a as r}from"./vendor-DsGyrJUj.js";const c={};function o(a,n){return t(),r("h1",null,"Certificates")}const _=e(c,[["render",o]]);export{_ as default};

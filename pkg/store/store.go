@@ -210,6 +210,29 @@ type Store interface {
 	// onboarding journey, derived from audit events.
 	GetOnboardingMetrics(ctx context.Context, orgID string) (*OnboardingMetrics, error)
 
+	// --- NACSA Arahan 9 Analytics ---
+
+	// GetNacsaSummary returns tenant-level readiness stats, top blockers,
+	// and migration phase summary.
+	GetNacsaSummary(ctx context.Context, orgID string, scope NacsaScopeFilter) (NacsaSummary, error)
+
+	// ListNacsaServers returns manage servers for the tenant with per-server
+	// readiness % and host count.
+	ListNacsaServers(ctx context.Context, orgID string) ([]NacsaServerRow, error)
+
+	// ListNacsaHosts returns hosts under a specific manage server.
+	ListNacsaHosts(ctx context.Context, orgID, manageServerID string) ([]NacsaHostRow, error)
+
+	// ListNacsaCBOM returns crypto asset inventory for a hostname, filtered
+	// by PQC statuses (empty slice = all statuses).
+	ListNacsaCBOM(ctx context.Context, orgID, hostname string, statuses []string) ([]NacsaCBOMRow, error)
+
+	// ListNacsaRisk returns risk register rows for a hostname, sorted by score.
+	ListNacsaRisk(ctx context.Context, orgID, hostname, sortBy string) ([]NacsaRiskRow, error)
+
+	// GetNacsaMigration returns full migration phase data with activities.
+	GetNacsaMigration(ctx context.Context, orgID string) (NacsaMigResponse, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }

@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"golang.org/x/time/rate"
 
 	"github.com/amiryahaya/triton/internal/auth"
 	"github.com/amiryahaya/triton/pkg/licensestore"
@@ -23,10 +26,47 @@ type Server struct {
 	http            *http.Server
 	reportAPIClient *ReportAPIClient // nil when no report server configured
 	loginLimiter    *auth.LoginRateLimiter
+	clientLimiter   *ipRateLimiter // per-IP rate limiter for client API
 	// ctx is canceled in Shutdown so background workers (rate-limit
 	// janitor) stop promptly. Wired in Phase 5 Sprint 2 (N1).
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// ipRateLimiter provides per-IP token-bucket rate limiting.
+type ipRateLimiter struct {
+	clients sync.Map // map[string]*rate.Limiter
+	r       rate.Limit
+	b       int
+}
+
+func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
+	return &ipRateLimiter{r: r, b: b}
+}
+
+func (l *ipRateLimiter) allow(ip string) bool {
+	v, loaded := l.clients.Load(ip)
+	if !loaded {
+		lim := rate.NewLimiter(l.r, l.b)
+		v, _ = l.clients.LoadOrStore(ip, lim)
+	}
+	return v.(*rate.Limiter).Allow()
+}
+
+func (l *ipRateLimiter) middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				ip = r.RemoteAddr
+			}
+			if !l.allow(ip) {
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // securityHeaders adds security-related HTTP headers.
@@ -40,7 +80,7 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+			"default-src 'self'; script-src 'self'; style-src 'self'; "+
 				"font-src 'self'; img-src 'self' data:; "+
 				"connect-src 'self'; object-src 'none'; base-uri 'self'; "+
 				"form-action 'self'; frame-ancestors 'none'")
@@ -56,6 +96,38 @@ func licenseSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// corsMiddleware returns an explicit CORS policy. When allowedOrigins is empty,
+// no cross-origin access is allowed (default same-origin browser behavior).
+// Configurable via Config.AllowedOrigins for deployments where the UI is served
+// from a different origin than the API.
+func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		if o != "" {
+			allowed[o] = struct{}{}
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				if _, ok := allowed[origin]; ok {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+					w.Header().Set("Access-Control-Max-Age", "300")
+				}
+				w.Header().Add("Vary", "Origin")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // New creates a new license Server.
 func New(cfg *Config, s licensestore.Store) *Server {
 	rateLimitCfg := auth.DefaultLoginRateLimiterConfig
@@ -68,8 +140,11 @@ func New(cfg *Config, s licensestore.Store) *Server {
 		store:           s,
 		reportAPIClient: NewReportAPIClient(cfg.ReportServerURL, cfg.ReportServerServiceKey),
 		loginLimiter:    auth.NewLoginRateLimiter(rateLimitCfg),
-		ctx:             ctx,
-		cancel:          cancel,
+		// 20 req/s burst per IP, refilling at 5 req/s — generous for legitimate
+		// clients (agents heartbeat every few minutes) but blocks abuse quickly.
+		clientLimiter: newIPRateLimiter(rate.Every(200*time.Millisecond), 20),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	// Phase 5.1 D1 fix — see pkg/server/server.go for rationale. Same
 	// janitor strategy on the license server's limiter. Sprint 2 (N1)
@@ -90,13 +165,16 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(licenseSecurityHeaders)
+	r.Use(corsMiddleware(cfg.AllowedOrigins))
 	r.Use(middleware.Throttle(100))
 
 	// Health check (no auth).
 	r.Get("/api/v1/health", srv.handleHealth)
 
 	// Client API (no API key — secured by license UUID knowledge + machine fingerprint).
+	// Per-IP rate limiting protects against brute-force and seat exhaustion attacks.
 	r.Route("/api/v1/license", func(r chi.Router) {
+		r.Use(srv.clientLimiter.middleware())
 		r.Post("/activate", srv.handleActivate)
 		r.Post("/deactivate", srv.handleDeactivate)
 		r.Post("/validate", srv.handleValidate)
@@ -127,6 +205,7 @@ func New(cfg *Config, s licensestore.Store) *Server {
 	// Admin API (requires platform_admin JWT — always applies auth middleware).
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(srv.JWTAuth())
+		r.Use(srv.BlockUntilPasswordChanged())
 
 		// Organizations
 		r.Post("/orgs", srv.handleCreateOrg)

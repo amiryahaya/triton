@@ -139,11 +139,14 @@ func (c *ServerClient) Activate(licenseID, activationType, displayName string) (
 	return &result, nil
 }
 
-// Deactivate unregisters this machine from the license server.
-func (c *ServerClient) Deactivate(licenseID string) error {
+// Deactivate unregisters this machine from the license server. token is the
+// activation token returned by Activate; pass "" for legacy callers that do
+// not store the token (the server accepts empty tokens for backward compat).
+func (c *ServerClient) Deactivate(licenseID, token string) error {
 	body := map[string]string{
 		"licenseID": licenseID,
 		"machineID": MachineFingerprint(),
+		"token":     token,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

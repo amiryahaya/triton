@@ -1,6 +1,7 @@
 package licenseserver
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log"
@@ -13,6 +14,7 @@ import (
 type UsageRequest struct {
 	LicenseID  string                     `json:"licenseID"`
 	InstanceID string                     `json:"instanceID"`
+	Token      string                     `json:"token,omitempty"` // activation token; validated when present
 	Metrics    []licensestore.UsageReport `json:"metrics"`
 }
 
@@ -43,9 +45,23 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "licenseID and instanceID are required")
 		return
 	}
+	if tooLong(req.InstanceID, maxHostnameLen) {
+		writeError(w, http.StatusBadRequest, "instanceID exceeds maximum length")
+		return
+	}
 	if len(req.Metrics) == 0 {
 		writeError(w, http.StatusBadRequest, "metrics array required")
 		return
+	}
+	if len(req.Metrics) > 50 {
+		writeError(w, http.StatusBadRequest, "too many metrics in request (max 50)")
+		return
+	}
+	for _, m := range req.Metrics {
+		if tooLong(m.Metric, 64) || tooLong(m.Window, 32) {
+			writeError(w, http.StatusBadRequest, "metric or window field exceeds maximum length")
+			return
+		}
 	}
 
 	lic, err := s.store.GetLicense(r.Context(), req.LicenseID)
@@ -58,6 +74,21 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("usage: get license: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
+	}
+
+	// If the caller supplies a token, validate it against the stored
+	// activation token. Clients that don't yet send a token are still
+	// accepted for backward compatibility (manage server migration path).
+	if req.Token != "" {
+		act, actErr := s.store.GetActivationByMachine(r.Context(), req.LicenseID, req.InstanceID)
+		if actErr != nil || !act.Active {
+			writeError(w, http.StatusUnauthorized, "invalid activation token")
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(act.Token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid activation token")
+			return
+		}
 	}
 
 	// Stamp each report with licence + instance IDs server-side —

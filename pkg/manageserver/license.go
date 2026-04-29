@@ -259,7 +259,7 @@ func (s *Server) deactivateNow(ctx context.Context) error {
 		return fmt.Errorf("deactivate: read setup: %w", err)
 	}
 	client := license.NewServerClient(state.LicenseServerURL)
-	if err := client.Deactivate(state.LicenseKey); err != nil {
+	if err := client.Deactivate(state.LicenseKey, ""); err != nil {
 		// Non-fatal: log and continue. The orphaned seat can be cleaned up
 		// via the License Portal admin UI.
 		log.Printf("licence: remote deactivate failed (clearing local anyway): %v", err)

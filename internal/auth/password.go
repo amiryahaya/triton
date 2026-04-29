@@ -34,6 +34,12 @@ const MinPasswordLength = 12
 // package (Sprint 1 review finding S4).
 const DefaultInviteExpiryWindow = 7 * 24 * time.Hour
 
+// BcryptCost is the work factor used when hashing passwords.
+// OWASP 2023 recommends cost ≥ 10 for bcrypt; 12 gives ~250 ms on
+// modern hardware — acceptable for login/invite flows, meaningfully
+// harder to brute-force than the default cost of 10.
+const BcryptCost = 12
+
 // GenerateTempPassword returns a cryptographically random base64url
 // password of approximately the given character length. Used by the
 // license server's provisioning flow and by the report server's

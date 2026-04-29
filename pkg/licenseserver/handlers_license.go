@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
 )
+
+// machineIDPattern validates the 64-char hex fingerprint from MachineFingerprint().
+var machineIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // POST /api/v1/admin/licenses
 func (s *Server) handleCreateLicense(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +239,7 @@ func (s *Server) handleRevokeLicense(w http.ResponseWriter, r *http.Request) {
 	// Body is optional
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	if err := s.store.RevokeLicense(r.Context(), id, "admin"); err != nil {
+	if err := s.store.RevokeLicense(r.Context(), id, auditActor(r)); err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "license not found")
 			return
@@ -379,12 +383,8 @@ func (s *Server) handleDownloadAgentYAML(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	if lic.Revoked {
-		writeError(w, http.StatusBadRequest, "cannot generate agent.yaml for a revoked license")
-		return
-	}
-	if time.Now().After(lic.ExpiresAt) {
-		writeError(w, http.StatusBadRequest, "cannot generate agent.yaml for an expired license")
+	if lic.Revoked || time.Now().After(lic.ExpiresAt) {
+		writeError(w, http.StatusForbidden, "license is not valid")
 		return
 	}
 
@@ -399,6 +399,13 @@ func (s *Server) handleDownloadAgentYAML(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 			return
 		}
+	}
+
+	// Validate BindToMachine when supplied: must be a 64-char hex fingerprint.
+	if req.BindToMachine != "" && !machineIDPattern.MatchString(req.BindToMachine) {
+		writeError(w, http.StatusBadRequest,
+			"bind_to_machine must be a 64-character lowercase hex string (SHA-3-256 fingerprint)")
+		return
 	}
 
 	// Validate the profile if one was supplied. Empty string

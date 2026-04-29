@@ -90,7 +90,7 @@ func TestServerClient_Deactivate(t *testing.T) {
 	defer ts.Close()
 
 	client := NewServerClient(ts.URL)
-	err := client.Deactivate("lic-123")
+	err := client.Deactivate("lic-123", "")
 	require.NoError(t, err)
 }
 

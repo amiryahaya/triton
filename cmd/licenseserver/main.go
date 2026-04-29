@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +33,16 @@ func run() error {
 
 	if dbURL == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_DB_URL is required")
+	}
+	if tlsCert == "" && tlsKey == "" {
+		if envOr("TRITON_LICENSE_SERVER_ALLOW_INSECURE", "") != "1" {
+			return fmt.Errorf(
+				"TLS is not configured and TRITON_LICENSE_SERVER_ALLOW_INSECURE is not set; " +
+					"set TRITON_LICENSE_SERVER_TLS_CERT + TRITON_LICENSE_SERVER_TLS_KEY for production, " +
+					"or set TRITON_LICENSE_SERVER_ALLOW_INSECURE=1 to run without TLS (development only)")
+		}
+		log.Printf("WARNING: TLS is not configured; the server is accepting plain HTTP connections. " +
+			"Set TRITON_LICENSE_SERVER_TLS_CERT and TRITON_LICENSE_SERVER_TLS_KEY for production deployments.")
 	}
 	if signingKeyHex == "" {
 		return fmt.Errorf("TRITON_LICENSE_SERVER_SIGNING_KEY is required (Ed25519 private key as hex)")
@@ -106,6 +117,13 @@ func run() error {
 	resendFromName := envOr("TRITON_LICENSE_SERVER_RESEND_FROM_NAME", "Triton License")
 	loginURL := envOr("TRITON_LICENSE_SERVER_LOGIN_URL", "")
 	reportInviteURL := envOr("REPORT_SERVER_INVITE_URL_BASE", "")
+	corsOriginsRaw := envOr("TRITON_LICENSE_SERVER_CORS_ORIGINS", "")
+	var corsOrigins []string
+	for _, o := range strings.Split(corsOriginsRaw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			corsOrigins = append(corsOrigins, o)
+		}
+	}
 
 	// Fail loud on partial report server config — either both URL and
 	// key are set (enable provisioning) or neither (skip entirely).
@@ -141,6 +159,7 @@ func run() error {
 		ReportServerInviteURL:    reportInviteURL,
 		InviteLoginURL:           loginURL,
 		StaleActivationThreshold: staleThreshold,
+		AllowedOrigins:           corsOrigins,
 	}
 
 	srv := licenseserver.New(cfg, store)

@@ -24,7 +24,7 @@ export interface UseJwt {
 // Module-level reactive state. All useJwt() callers share the same token
 // source so a login in one component propagates to every observer without
 // an app-wide pinia singleton — the browser only ever has one active JWT.
-const token = ref<string>(typeof localStorage !== 'undefined' ? (localStorage.getItem(STORAGE_KEY) ?? '') : '');
+const token = ref<string>(typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem(STORAGE_KEY) ?? '') : '');
 
 interface RawClaims {
   sub?: unknown;
@@ -75,12 +75,12 @@ export function useJwt(): UseJwt {
   });
 
   function setToken(t: string): void {
-    localStorage.setItem(STORAGE_KEY, t);
+    sessionStorage.setItem(STORAGE_KEY, t);
     token.value = t;
   }
 
   function clear(): void {
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
     token.value = '';
   }
 

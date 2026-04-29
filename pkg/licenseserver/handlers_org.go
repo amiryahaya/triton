@@ -156,7 +156,7 @@ func (s *Server) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "org_create", "", result.Org.ID, "", nil)
+	s.audit(r, "org_create", "", result.Org.ID, "", map[string]any{"name": req.Name, "contact_email": req.ContactEmail})
 
 	// Build the unified response shape. Admin is nil (and omitted via
 	// omitempty) when the request had no admin fields.
@@ -265,7 +265,7 @@ func (s *Server) handleUpdateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "org_update", "", id, "", nil)
+	s.audit(r, "org_update", "", id, "", map[string]any{"name": req.Name, "contact_email": req.ContactEmail})
 
 	// Fetch the full record to return complete data (including CreatedAt)
 	updated, err := s.store.GetOrg(r.Context(), id)
@@ -294,7 +294,7 @@ func (s *Server) handleDeleteOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit(r, "org_delete", "", id, "", nil)
+	s.audit(r, "org_delete", "", id, "", map[string]any{"org_id": id})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -329,7 +329,7 @@ func (s *Server) handleSuspendOrg(w http.ResponseWriter, r *http.Request) {
 	if req.Suspended {
 		event = "org_suspended"
 	}
-	s.audit(r, event, "", id, "", nil)
+	s.audit(r, event, "", id, "", map[string]any{"suspended": req.Suspended})
 
 	w.WriteHeader(http.StatusNoContent)
 }

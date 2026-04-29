@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -45,11 +46,9 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	default:
 		req.ActivationType = "agent"
 	}
-	if len(req.DisplayName) > 200 {
+	if utf8.RuneCountInString(req.DisplayName) > 200 {
 		runes := []rune(req.DisplayName)
-		if len(runes) > 200 {
-			req.DisplayName = string(runes[:200])
-		}
+		req.DisplayName = string(runes[:200])
 	}
 
 	// Lookup license

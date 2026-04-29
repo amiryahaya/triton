@@ -23,6 +23,7 @@ import (
 
 	"github.com/amiryahaya/triton/pkg/manageserver/agents"
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
+	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
 // mountEnrol wires MountAdminRoutes + MountEnrolRoutes for handler
@@ -228,6 +229,94 @@ func TestAgentsAdmin_Get_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// fakeSetupStore is a minimal managestore.Store that returns a fixed SetupState.
+// All methods beyond GetSetup panic — they are never called by the Enrol path.
+type fakeSetupStore struct{ state *managestore.SetupState }
+
+func (f *fakeSetupStore) GetSetup(_ context.Context) (*managestore.SetupState, error) {
+	return f.state, nil
+}
+func (f *fakeSetupStore) CreateUser(_ context.Context, _ *managestore.ManageUser) error {
+	panic("not called")
+}
+func (f *fakeSetupStore) GetUserByEmail(_ context.Context, _ string) (*managestore.ManageUser, error) {
+	panic("not called")
+}
+func (f *fakeSetupStore) GetUserByID(_ context.Context, _ string) (*managestore.ManageUser, error) {
+	panic("not called")
+}
+func (f *fakeSetupStore) ListUsers(_ context.Context) ([]managestore.ManageUser, error) {
+	panic("not called")
+}
+func (f *fakeSetupStore) UpdateUserPassword(_ context.Context, _, _ string) error {
+	panic("not called")
+}
+func (f *fakeSetupStore) CountUsers(_ context.Context) (int64, error)  { panic("not called") }
+func (f *fakeSetupStore) CountAdmins(_ context.Context) (int64, error) { panic("not called") }
+func (f *fakeSetupStore) DeleteUser(_ context.Context, _ string) error { panic("not called") }
+func (f *fakeSetupStore) CreateSession(_ context.Context, _ *managestore.ManageSession) error {
+	panic("not called")
+}
+func (f *fakeSetupStore) GetSessionByTokenHash(_ context.Context, _ string) (*managestore.ManageSession, error) {
+	panic("not called")
+}
+func (f *fakeSetupStore) DeleteSession(_ context.Context, _ string) error { panic("not called") }
+func (f *fakeSetupStore) DeleteExpiredSessions(_ context.Context) (int64, error) {
+	panic("not called")
+}
+func (f *fakeSetupStore) MarkAdminCreated(_ context.Context) error { panic("not called") }
+func (f *fakeSetupStore) SaveLicenseActivation(_ context.Context, _, _, _, _, _ string) error {
+	panic("not called")
+}
+func (f *fakeSetupStore) UpdateLicenseToken(_ context.Context, _ string) error { panic("not called") }
+func (f *fakeSetupStore) UpdateLicenseKey(_ context.Context, _, _ string) error {
+	panic("not called")
+}
+func (f *fakeSetupStore) SetPendingDeactivation(_ context.Context, _ bool) error {
+	panic("not called")
+}
+func (f *fakeSetupStore) ClearLicenseActivation(_ context.Context) error { panic("not called") }
+func (f *fakeSetupStore) Close() error                                    { return nil }
+
+// TestAgentsAdmin_Enrol_SeatsFull_Rollback verifies that when the license
+// server rejects the seat claim (409), Enrol returns 402 and rolls back the
+// agent row so no orphan persists.
+func TestAgentsAdmin_Enrol_SeatsFull_Rollback(t *testing.T) {
+	licServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"all seats are occupied"}`))
+	}))
+	defer licServer.Close()
+
+	pool := newTestPool(t)
+	caStore := ca.NewPostgresStore(pool)
+	agentStore := agents.NewPostgresStore(pool)
+	_, err := caStore.Bootstrap(context.Background(), "inst-seats")
+	require.NoError(t, err)
+
+	setupStore := &fakeSetupStore{state: &managestore.SetupState{
+		LicenseActivated: true,
+		LicenseServerURL: licServer.URL,
+		LicenseKey:       "k1",
+	}}
+
+	h := agents.NewAdminHandlers(caStore, agentStore, setupStore, "https://localhost:8443", 60*time.Second, nil)
+	srv := mountEnrol(t, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",
+		strings.NewReader(`{"name":"edge-seats"}`))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
+
+	// Agent row must have been deleted by the rollback path.
+	list, err := agentStore.List(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, list, "agent row must be rolled back on seats-full")
 }
 
 // TestAdminHandlers_DispatchCommand_HappyPath asserts that a well-formed

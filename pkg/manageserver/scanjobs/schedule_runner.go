@@ -67,7 +67,7 @@ func (r *ScheduleRunner) tick(ctx context.Context) {
 
 func (r *ScheduleRunner) spawnBatch(ctx context.Context, sched Schedule) error {
 	var infos []ResolveHostInfo
-	if r.cfg.HostsStore != nil {
+	if r.cfg.HostsStore != nil && len(sched.HostIDs) > 0 {
 		rawHosts, err := r.cfg.HostsStore.GetByIDs(ctx, sched.HostIDs)
 		if err != nil {
 			return err
@@ -92,6 +92,9 @@ func (r *ScheduleRunner) spawnBatch(ctx context.Context, sched Schedule) error {
 	}
 
 	specs, skipped := ResolveJobs(infos, sched.JobTypes)
+	if len(skipped) > 0 {
+		log.Printf("schedule runner: schedule %s (tenant %s): %d job(s) skipped at resolve", sched.ID, sched.TenantID, len(skipped))
+	}
 
 	schedID := sched.ID
 	req := BatchEnqueueReq{

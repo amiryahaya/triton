@@ -59,6 +59,10 @@ func (s *Server) handleFirstAdminSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if tooLong(email, maxContactEmailLen) {
+		writeError(w, http.StatusBadRequest, "email exceeds maximum length")
+		return
+	}
 	if err := validateEmail(email); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -100,7 +104,10 @@ func (s *Server) handleFirstAdminSetup(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.CreateUser(r.Context(), user); err != nil {
 		var conflict *licensestore.ErrConflict
 		if errors.As(err, &conflict) {
-			writeError(w, http.StatusConflict, conflict.Message)
+			// Either setup was already completed by a previous request or
+			// a concurrent request won the race — either way the result
+			// is the same: the server is already set up.
+			writeError(w, http.StatusConflict, "setup already completed")
 			return
 		}
 		log.Printf("setup: create user: %v", err)

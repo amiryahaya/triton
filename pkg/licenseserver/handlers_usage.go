@@ -45,9 +45,23 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "licenseID and instanceID are required")
 		return
 	}
+	if tooLong(req.InstanceID, maxHostnameLen) {
+		writeError(w, http.StatusBadRequest, "instanceID exceeds maximum length")
+		return
+	}
 	if len(req.Metrics) == 0 {
 		writeError(w, http.StatusBadRequest, "metrics array required")
 		return
+	}
+	if len(req.Metrics) > 50 {
+		writeError(w, http.StatusBadRequest, "too many metrics in request (max 50)")
+		return
+	}
+	for _, m := range req.Metrics {
+		if tooLong(m.Metric, 64) || tooLong(m.Window, 32) {
+			writeError(w, http.StatusBadRequest, "metric or window field exceeds maximum length")
+			return
+		}
 	}
 
 	lic, err := s.store.GetLicense(r.Context(), req.LicenseID)

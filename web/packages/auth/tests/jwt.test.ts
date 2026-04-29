@@ -13,7 +13,7 @@ describe('useJwt', () => {
   // Module-level reactive state — reset both storage and the live ref
   // between tests so one spec's token doesn't leak into the next.
   beforeEach(() => {
-    localStorage.clear();
+    sessionStorage.clear();
     useJwt().clear();
   });
 
@@ -25,9 +25,9 @@ describe('useJwt', () => {
 
   it('hydrates token on module import (via re-import)', async () => {
     const t = makeToken({ sub: 'u1', exp: Date.now() / 1000 + 3600 });
-    localStorage.setItem('tritonJWT', t);
+    sessionStorage.setItem('tritonJWT', t);
     // vi.resetModules() forces the jwt module to re-run its top-level
-    // ref initializer, which reads localStorage at import time.
+    // ref initializer, which reads sessionStorage at import time.
     vi.resetModules();
     const mod = await import('../src/jwt');
     const jwt = mod.useJwt();
@@ -36,11 +36,11 @@ describe('useJwt', () => {
     jwt.clear();
   });
 
-  it('persists token to localStorage on setToken', () => {
+  it('persists token to sessionStorage on setToken', () => {
     const jwt = useJwt();
     const t = makeToken({ sub: 'u2', exp: 9_999_999_999 });
     jwt.setToken(t);
-    expect(localStorage.getItem('tritonJWT')).toBe(t);
+    expect(sessionStorage.getItem('tritonJWT')).toBe(t);
   });
 
   it('clears both token and storage', () => {
@@ -48,7 +48,7 @@ describe('useJwt', () => {
     jwt.setToken(makeToken({ sub: 'u3', exp: 9_999_999_999 }));
     jwt.clear();
     expect(jwt.token.value).toBe('');
-    expect(localStorage.getItem('tritonJWT')).toBeNull();
+    expect(sessionStorage.getItem('tritonJWT')).toBeNull();
   });
 
   it('decodes standard user claims', () => {
@@ -107,7 +107,7 @@ describe('useJwt', () => {
 });
 
 describe('useJwt reactivity across instances', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => sessionStorage.clear());
 
   it('subsequent useJwt() observes setToken from first instance', () => {
     const a = useJwt();

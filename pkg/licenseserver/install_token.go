@@ -26,7 +26,7 @@ type installTokenClaims struct {
 // the Ed25519 signing key, avoiding key confusion between schemes
 // (NIST SP 800-133, RFC 8032 guidance).
 func deriveInstallHMACKey(seed []byte) []byte {
-	r := hkdf.New(sha256.New, seed, nil, []byte("triton-install-token-v1"))
+	r := hkdf.New(sha256.New, seed, []byte("triton-install-token-salt-v1"), []byte("triton-install-token-v1"))
 	key := make([]byte, 32)
 	_, _ = io.ReadFull(r, key)
 	return key

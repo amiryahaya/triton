@@ -175,7 +175,7 @@ type Activation struct {
 	Hostname       string     `json:"hostname"`
 	OS             string     `json:"os"`
 	Arch           string     `json:"arch"`
-	Token          string     `json:"token"`
+	Token          string     `json:"-"`
 	ActivatedAt    time.Time  `json:"activatedAt"`
 	LastSeenAt     time.Time  `json:"lastSeenAt"`
 	DeactivatedAt  *time.Time `json:"deactivatedAt,omitempty"`

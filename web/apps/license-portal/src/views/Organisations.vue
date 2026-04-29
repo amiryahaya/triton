@@ -5,7 +5,7 @@ import {
 } from '@triton/ui';
 import type { Organisation } from '@triton/api-client';
 import { useApiClient } from '../stores/apiClient';
-import OrganisationForm from './modals/OrganisationForm.vue';
+import OrganisationForm, { type OrgFormPayload } from './modals/OrganisationForm.vue';
 
 const api = useApiClient();
 const toast = useToast();
@@ -21,7 +21,7 @@ interface OrgRow extends Organisation {
 
 const columns: Column<OrgRow>[] = [
   { key: 'name', label: 'Name', width: '1.5fr' },
-  { key: 'contact', label: 'Contact', width: '1.2fr' },
+  { key: 'contact_name', label: 'Contact', width: '1.2fr' },
   { key: 'notes', label: 'Notes', width: '1.5fr' },
   { key: 'activeActivations', label: 'Activations', width: '0.9fr' },
   { key: 'createdAt', label: 'Created', width: '1fr' },
@@ -66,7 +66,7 @@ async function confirmDelete() {
   }
 }
 
-async function onSubmit(payload: { name: string; contact?: string; notes?: string }) {
+async function onSubmit(payload: OrgFormPayload) {
   try {
     const o = await api.get().createOrg(payload);
     await load();

@@ -12,7 +12,10 @@ import (
 
 // TestMigrationV16_CredentialsSchema asserts migration v16:
 //   - creates the manage_credentials table with the expected schema
-//   - adds credentials_ref (FK, nullable) and access_port (INT, NOT NULL default 22) to manage_hosts
+//   - adds credentials_ref (FK, nullable) and ssh_port (INT, NOT NULL default 22) to manage_hosts
+//
+// Note: access_port (added in v16) was renamed to ssh_port in v19. Tests assert the
+// final post-migration column name ssh_port.
 func TestMigrationV16_CredentialsSchema(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -27,22 +30,22 @@ func TestMigrationV16_CredentialsSchema(t *testing.T) {
 			"manage_credentials must have column %q", col)
 	}
 
-	// manage_hosts must have credentials_ref + access_port
+	// manage_hosts must have credentials_ref + ssh_port (renamed from access_port in v19)
 	assert.True(t, columnExists(t, s, "manage_hosts", "credentials_ref"),
 		"manage_hosts must have credentials_ref column after v16")
-	assert.True(t, columnExists(t, s, "manage_hosts", "access_port"),
-		"manage_hosts must have access_port column after v16")
+	assert.True(t, columnExists(t, s, "manage_hosts", "ssh_port"),
+		"manage_hosts must have ssh_port column (access_port renamed in v19)")
 
-	// access_port default must be 22: insert a host row without specifying
-	// access_port and read the stored value back.
-	var accessPort int
+	// ssh_port default must be 22: insert a host row without specifying
+	// ssh_port and read the stored value back.
+	var sshPort int
 	err := s.QueryRowForTest(ctx, `
 		INSERT INTO manage_hosts (ip)
 		VALUES ('192.0.2.1'::inet)
-		RETURNING access_port
-	`).Scan(&accessPort)
-	require.NoError(t, err, "insert without access_port must succeed")
-	assert.Equal(t, 22, accessPort, "access_port default must be 22")
+		RETURNING ssh_port
+	`).Scan(&sshPort)
+	require.NoError(t, err, "insert without ssh_port must succeed")
+	assert.Equal(t, 22, sshPort, "ssh_port default must be 22")
 
 	// auth_type CHECK constraint: verify the valid values are accepted
 	// by attempting an INSERT with each valid auth_type.

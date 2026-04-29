@@ -435,4 +435,58 @@ ALTER TABLE manage_discovery_candidates
     DROP COLUMN IF EXISTS mdns_name;
 ALTER TABLE manage_credentials
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+
+	// Version 22: Ensure host connectivity columns exist. v19 added these via
+	// RENAME+ADD but environments upgraded from an earlier v19 snapshot may be
+	// missing connection_type and bastion_host_id. ADD COLUMN IF NOT EXISTS is
+	// a safe no-op on fresh schemas.
+	`ALTER TABLE manage_hosts
+		ADD COLUMN IF NOT EXISTS connection_type TEXT NOT NULL DEFAULT 'ssh'
+			CHECK (connection_type IN ('ssh','ssh_bastion','agent')),
+		ADD COLUMN IF NOT EXISTS bastion_host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
+
+	// Version 23: Recurring scan schedules — manage_scan_schedules table.
+	// Created before manage_scan_batches (v24) which FKs to it.
+	`CREATE TABLE manage_scan_schedules (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL,
+  name            TEXT NOT NULL,
+  job_types       TEXT[] NOT NULL,
+  host_ids        UUID[] NOT NULL,
+  profile         TEXT NOT NULL CHECK (profile IN ('quick','standard','comprehensive')),
+  cron_expr       TEXT NOT NULL,
+  max_cpu_pct     INTEGER,
+  max_memory_mb   INTEGER,
+  max_duration_s  INTEGER,
+  enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+  last_run_at     TIMESTAMPTZ,
+  next_run_at     TIMESTAMPTZ NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_manage_scan_schedules_next
+  ON manage_scan_schedules(next_run_at)
+  WHERE enabled = TRUE;`,
+
+	// Version 24: Scan batches — parent/child grouping + resource limits on jobs.
+	`CREATE TABLE manage_scan_batches (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL,
+  job_types       TEXT[] NOT NULL,
+  host_ids        UUID[] NOT NULL,
+  profile         TEXT NOT NULL CHECK (profile IN ('quick','standard','comprehensive')),
+  max_cpu_pct     INTEGER,
+  max_memory_mb   INTEGER,
+  max_duration_s  INTEGER,
+  schedule_id     UUID REFERENCES manage_scan_schedules(id) ON DELETE SET NULL,
+  status          TEXT NOT NULL DEFAULT 'queued'
+                  CHECK (status IN ('queued','running','completed','failed','cancelled')),
+  enqueued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at     TIMESTAMPTZ
+);
+ALTER TABLE manage_scan_jobs
+  ADD COLUMN IF NOT EXISTS batch_id       UUID REFERENCES manage_scan_batches(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS max_cpu_pct    INTEGER,
+  ADD COLUMN IF NOT EXISTS max_memory_mb  INTEGER,
+  ADD COLUMN IF NOT EXISTS max_duration_s INTEGER;
+CREATE INDEX idx_manage_scan_jobs_batch ON manage_scan_jobs(batch_id);`,
 }

@@ -56,11 +56,11 @@ func (r *ScheduleRunner) tick(ctx context.Context) {
 		log.Printf("schedule runner: claim due schedules: %v", err)
 		return
 	}
-	for _, sched := range due {
-		if err := r.spawnBatch(ctx, sched); err != nil {
+	for i := range due {
+		if err := r.spawnBatch(ctx, due[i]); err != nil {
 			// Log the failure but continue so one broken schedule does not
 			// prevent other schedules in the same tick from being dispatched.
-			log.Printf("schedule runner: spawn batch for schedule %s: %v", sched.ID, err)
+			log.Printf("schedule runner: spawn batch for schedule %s: %v", due[i].ID, err)
 		}
 	}
 }
@@ -73,12 +73,12 @@ func (r *ScheduleRunner) spawnBatch(ctx context.Context, sched Schedule) error {
 			return err
 		}
 		infos = make([]ResolveHostInfo, len(rawHosts))
-		for i, h := range rawHosts {
+		for i := range rawHosts {
 			infos[i] = ResolveHostInfo{
-				ID:             h.ID,
-				ConnectionType: h.ConnectionType,
-				CredentialsRef: h.CredentialsRef,
-				SSHPort:        h.SSHPort,
+				ID:             rawHosts[i].ID,
+				ConnectionType: rawHosts[i].ConnectionType,
+				CredentialsRef: rawHosts[i].CredentialsRef,
+				SSHPort:        rawHosts[i].SSHPort,
 			}
 		}
 	} else {

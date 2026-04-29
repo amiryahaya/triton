@@ -103,12 +103,12 @@ func (h *BatchHandlers) EnqueueBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	infos := make([]ResolveHostInfo, len(rawHosts))
-	for i, rh := range rawHosts {
+	for i := range rawHosts {
 		infos[i] = ResolveHostInfo{
-			ID:             rh.ID,
-			ConnectionType: rh.ConnectionType,
-			CredentialsRef: rh.CredentialsRef,
-			SSHPort:        rh.SSHPort,
+			ID:             rawHosts[i].ID,
+			ConnectionType: rawHosts[i].ConnectionType,
+			CredentialsRef: rawHosts[i].CredentialsRef,
+			SSHPort:        rawHosts[i].SSHPort,
 		}
 	}
 

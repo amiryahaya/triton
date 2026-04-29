@@ -16,9 +16,10 @@ func ResolveJobs(hosts []ResolveHostInfo, jobTypes []JobType) (toCreate []JobSpe
 			case JobTypePortSurvey:
 				toCreate = append(toCreate, JobSpec{HostID: h.ID, JobType: jt})
 			case JobTypeFilesystem:
-				if h.ConnectionType == "agent" {
+				switch {
+				case h.ConnectionType == "agent":
 					toCreate = append(toCreate, JobSpec{HostID: h.ID, JobType: jt})
-				} else if h.CredentialsRef != nil && h.SSHPort > 0 {
+				case h.CredentialsRef != nil && h.SSHPort > 0:
 					sshPort := h.SSHPort
 					toCreate = append(toCreate, JobSpec{
 						HostID:         h.ID,
@@ -26,7 +27,7 @@ func ResolveJobs(hosts []ResolveHostInfo, jobTypes []JobType) (toCreate []JobSpe
 						CredentialsRef: h.CredentialsRef,
 						SSHPort:        &sshPort,
 					})
-				} else {
+				default:
 					skipped = append(skipped, SkippedJob{
 						HostID:  h.ID,
 						JobType: jt,

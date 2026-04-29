@@ -871,7 +871,7 @@ func (s *PostgresStore) ListSchedules(ctx context.Context, tenantID uuid.UUID) (
 	return out, rows.Err()
 }
 
-func (s *PostgresStore) PatchSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID, req SchedulePatchReq) (Schedule, error) {
+func (s *PostgresStore) PatchSchedule(ctx context.Context, tenantID, id uuid.UUID, req SchedulePatchReq) (Schedule, error) {
 	set := []string{}
 	args := []any{}
 	pos := 1
@@ -901,8 +901,7 @@ func (s *PostgresStore) PatchSchedule(ctx context.Context, tenantID uuid.UUID, i
 	if len(set) == 0 {
 		return s.getSchedule(ctx, tenantID, id)
 	}
-	args = append(args, id)
-	args = append(args, tenantID)
+	args = append(args, id, tenantID)
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_scan_schedules SET `+
 			strings.Join(set, ", ")+
@@ -921,7 +920,7 @@ func (s *PostgresStore) PatchSchedule(ctx context.Context, tenantID uuid.UUID, i
 	return sc, nil
 }
 
-func (s *PostgresStore) getSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID) (Schedule, error) {
+func (s *PostgresStore) getSchedule(ctx context.Context, tenantID, id uuid.UUID) (Schedule, error) {
 	sc, err := scanSchedule(s.pool.QueryRow(ctx,
 		`SELECT `+schedSelectCols+` FROM manage_scan_schedules WHERE id = $1 AND tenant_id = $2`, id, tenantID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -930,7 +929,7 @@ func (s *PostgresStore) getSchedule(ctx context.Context, tenantID uuid.UUID, id 
 	return sc, err
 }
 
-func (s *PostgresStore) DeleteSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID) error {
+func (s *PostgresStore) DeleteSchedule(ctx context.Context, tenantID, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM manage_scan_schedules WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
@@ -978,15 +977,15 @@ func (s *PostgresStore) ClaimDueSchedules(ctx context.Context) ([]Schedule, erro
 	}
 
 	now := time.Now().UTC()
-	for i, sc := range due {
-		parser, err := cron.ParseStandard(sc.CronExpr)
+	for i := range due {
+		parser, err := cron.ParseStandard(due[i].CronExpr)
 		if err != nil {
-			return nil, fmt.Errorf("claim due schedules: invalid cron %q for schedule %s: %w", sc.CronExpr, sc.ID, err)
+			return nil, fmt.Errorf("claim due schedules: invalid cron %q for schedule %s: %w", due[i].CronExpr, due[i].ID, err)
 		}
 		nextRun := parser.Next(now)
 		if _, err = tx.Exec(ctx,
 			`UPDATE manage_scan_schedules SET last_run_at = NOW(), next_run_at = $2 WHERE id = $1`,
-			sc.ID, nextRun,
+			due[i].ID, nextRun,
 		); err != nil {
 			return nil, err
 		}

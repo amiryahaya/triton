@@ -93,7 +93,7 @@ const canAdvance = computed(() => {
   if (currentStep.value === 1) return state.value.jobTypes.length > 0;
   if (currentStep.value === 2) return state.value.hostIDs.length > 0;
   if (currentStep.value === 3) {
-    const isRecurring = !['immediately', 'once_at'].includes(state.value.scheduleKey);
+    const isRecurring = state.value.scheduleKey !== 'immediately';
     return !isRecurring || (state.value.scheduleName?.trim().length ?? 0) > 0;
   }
   return true;
@@ -110,8 +110,9 @@ async function submit() {
   try {
     const isRecurring = state.value.scheduleKey !== 'immediately';
 
+    let createdScheduleId: string | null = null;
     if (isRecurring && state.value.cronExpr) {
-      await jobs.createSchedule({
+      const sched = await jobs.createSchedule({
         name:           state.value.scheduleName ?? '',
         job_types:      state.value.jobTypes as ('filesystem' | 'port_survey')[],
         host_ids:       state.value.hostIDs,
@@ -121,16 +122,26 @@ async function submit() {
         max_memory_mb:  state.value.maxMemoryMB ?? null,
         max_duration_s: state.value.maxDurationS ?? null,
       });
+      createdScheduleId = sched.id;
     }
 
-    await jobs.enqueueBatch({
-      job_types:      state.value.jobTypes as ('filesystem' | 'port_survey')[],
-      host_ids:       state.value.hostIDs,
-      profile:        state.value.profile as 'quick' | 'standard' | 'comprehensive',
-      max_cpu_pct:    state.value.maxCPUPct   ?? null,
-      max_memory_mb:  state.value.maxMemoryMB ?? null,
-      max_duration_s: state.value.maxDurationS ?? null,
-    });
+    try {
+      await jobs.enqueueBatch({
+        job_types:      state.value.jobTypes as ('filesystem' | 'port_survey')[],
+        host_ids:       state.value.hostIDs,
+        profile:        state.value.profile as 'quick' | 'standard' | 'comprehensive',
+        max_cpu_pct:    state.value.maxCPUPct   ?? null,
+        max_memory_mb:  state.value.maxMemoryMB ?? null,
+        max_duration_s: state.value.maxDurationS ?? null,
+      });
+    } catch (e) {
+      // Roll back the schedule if the batch enqueue failed so we don't leave
+      // an orphaned recurring schedule the user never intended to persist.
+      if (createdScheduleId) {
+        await jobs.deleteSchedule(createdScheduleId).catch(() => {});
+      }
+      throw e;
+    }
 
     router.push('/operations/scan-jobs');
   } catch (e) {

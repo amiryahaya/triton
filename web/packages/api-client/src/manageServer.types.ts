@@ -69,6 +69,7 @@ export interface Host {
   id: string;
   hostname?: string;
   ip: string;
+  connection_type?: string;  // "ssh" | "agent" | ""
   tags: Tag[];
   os?: string;
   last_seen_at?: string;

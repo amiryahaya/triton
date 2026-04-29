@@ -93,6 +93,7 @@ defineEmits<{
 }>();
 
 function credIcon(h: Host) {
+  if (h.connection_type === 'agent') return '🔵';
   if (h.credentials_ref && h.ssh_port > 0) return '🟢';
   return '🟡';
 }
@@ -103,11 +104,11 @@ const selectedHosts = computed(() =>
 
 const firstFourHosts = computed(() => selectedHosts.value.slice(0, 4));
 
-// Hosts that will have filesystem skipped (no cred + no agent connection)
+// Hosts that will have filesystem skipped: no enrolled agent AND no SSH credential.
 const skippedHosts = computed(() => {
   if (!props.state.jobTypes.includes('filesystem')) return [];
   return selectedHosts.value.filter(
-    h => !(h.credentials_ref && h.ssh_port > 0)
+    h => h.connection_type !== 'agent' && !(h.credentials_ref && h.ssh_port > 0)
   );
 });
 

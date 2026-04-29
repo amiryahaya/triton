@@ -72,7 +72,7 @@ async function globalSetup() {
     },
   }).catch(() => {});  // ignore 409 Conflict on repeated seeding
 
-  // Seed e2e-agent-01: agent-connected host (shows 🟡 — no SSH cred).
+  // Seed e2e-agent-01: agent-connected host (shows 🔵 — enrolled agent).
   await api.post('/api/v1/admin/hosts', {
     data: {
       hostname:        'e2e-agent-01',

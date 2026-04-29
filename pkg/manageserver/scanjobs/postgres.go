@@ -795,12 +795,6 @@ func (s *PostgresStore) ListBatches(ctx context.Context, tenantID uuid.UUID, lim
 	return out, rows.Err()
 }
 
-// QueryRowForTest exposes pool.QueryRow for integration test helpers.
-// It is only used from _test.go files via the unexported pool field.
-func (s *PostgresStore) QueryRowForTest(ctx context.Context, sql string, args ...any) pgx.Row {
-	return s.pool.QueryRow(ctx, sql, args...)
-}
-
 // Compile-time assertion: PostgresStore must implement ScheduleStore.
 var _ ScheduleStore = (*PostgresStore)(nil)
 

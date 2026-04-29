@@ -66,6 +66,10 @@ func (h *BatchHandlers) EnqueueBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "host_ids must not be empty")
 		return
 	}
+	if len(req.HostIDs) > 500 {
+		writeErr(w, http.StatusBadRequest, "host_ids must not exceed 500 entries per batch")
+		return
+	}
 	if req.Profile == "" {
 		req.Profile = ProfileStandard
 	}

@@ -10,7 +10,7 @@
 //
 // Prerequisites: the manage-global-setup.js must have seeded three hosts:
 //   e2e-ssh-01  (10.100.0.1) — ssh + credential (shows 🟢)
-//   e2e-agent-01 (10.100.0.2) — agent (shows 🟡)
+//   e2e-agent-01 (10.100.0.2) — agent (shows 🔵)
 //   e2e-none-01  (10.100.0.3) — ssh without credential (shows 🟡)
 
 const { test, expect } = require('@playwright/test');

@@ -29,6 +29,7 @@
 
     <!-- Legend -->
     <div class="legend">
+      <span>🔵 Enrolled agent</span>
       <span>🟢 SSH credential</span>
       <span>🟡 No credential — filesystem will be skipped</span>
     </div>
@@ -68,6 +69,7 @@ function isSelected(id: string) {
 }
 
 function credIcon(h: Host): string {
+  if (h.connection_type === 'agent') return '🔵';
   if (h.credentials_ref && h.ssh_port > 0) return '🟢';
   return '🟡';
 }

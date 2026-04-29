@@ -488,5 +488,6 @@ ALTER TABLE manage_scan_jobs
   ADD COLUMN IF NOT EXISTS max_cpu_pct    INTEGER,
   ADD COLUMN IF NOT EXISTS max_memory_mb  INTEGER,
   ADD COLUMN IF NOT EXISTS max_duration_s INTEGER;
-CREATE INDEX idx_manage_scan_jobs_batch ON manage_scan_jobs(batch_id);`,
+CREATE INDEX idx_manage_scan_jobs_batch ON manage_scan_jobs(batch_id);
+CREATE INDEX idx_manage_scan_batches_tenant ON manage_scan_batches(tenant_id, enqueued_at DESC);`,
 }

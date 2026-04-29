@@ -112,16 +112,24 @@ export const useScanJobsStore = defineStore('scanjobs', () => {
   }
 
   async function toggleSchedule(id: string, enabled: boolean) {
-    const api = useApiClient().get();
-    const updated = await api.patchSchedule(id, { enabled });
-    const idx = schedules.value.findIndex(s => s.id === id);
-    if (idx >= 0) schedules.value[idx] = updated;
+    try {
+      const api = useApiClient().get();
+      const updated = await api.patchSchedule(id, { enabled });
+      const idx = schedules.value.findIndex(s => s.id === id);
+      if (idx >= 0) schedules.value[idx] = updated;
+    } catch (e) {
+      useToast().error({ title: 'Failed to update schedule', description: String(e) });
+    }
   }
 
   async function deleteSchedule(id: string) {
-    const api = useApiClient().get();
-    await api.deleteSchedule(id);
-    schedules.value = schedules.value.filter(s => s.id !== id);
+    try {
+      const api = useApiClient().get();
+      await api.deleteSchedule(id);
+      schedules.value = schedules.value.filter(s => s.id !== id);
+    } catch (e) {
+      useToast().error({ title: 'Failed to delete schedule', description: String(e) });
+    }
   }
 
   return {

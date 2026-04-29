@@ -189,6 +189,7 @@ func csSetup(t *testing.T, f *csFixture) {
 	resp = postJSON(t, f.ManageURL+"/api/v1/setup/license", map[string]any{
 		"license_server_url": f.LSServer.URL,
 		"license_key":        f.LicIDA,
+		"server_name":        "Test Manage Server",
 	})
 	body = csReadBody(resp)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "setup/license: %s", body)

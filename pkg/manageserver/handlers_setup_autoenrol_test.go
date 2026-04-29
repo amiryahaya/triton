@@ -211,7 +211,8 @@ func TestSetupLicense_AutoEnrolSucceeds(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 	    "license_server_url": %q,
-	    "license_key":        "lic-auto-enrol"
+	    "license_key":        "lic-auto-enrol",
+	    "server_name":        "Auto Enrol Test Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -226,6 +227,8 @@ func TestSetupLicense_AutoEnrolSucceeds(t *testing.T) {
 	saw, ok := sawRaw.(map[string]string)
 	require.True(t, ok)
 	assert.Equal(t, "lic-auto-enrol", saw["license_key"])
+	assert.Equal(t, "Auto Enrol Test Server", saw["server_name"],
+		"server_name must be forwarded in the Report enrol payload")
 	_, err = uuid.Parse(saw["manage_instance_id"])
 	assert.NoError(t, err)
 	assert.Contains(t, saw["public_key_pem"], "-----BEGIN PUBLIC KEY-----")
@@ -294,7 +297,8 @@ func TestSetupLicense_AutoEnrolFailureIsLogged(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 	    "license_server_url": %q,
-	    "license_key":        "lic-unreachable-report"
+	    "license_key":        "lic-unreachable-report",
+	    "server_name":        "Failure Test Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -339,7 +343,8 @@ func TestSetupLicense_AutoEnrolSkippedWhenReportServerOnlySet(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 	    "license_server_url": %q,
-	    "license_key":        "lic-half-config-url-only"
+	    "license_key":        "lic-half-config-url-only",
+	    "server_name":        "Half Config Test Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -380,7 +385,8 @@ func TestSetupLicense_AutoEnrolSkippedWhenReportServiceKeyOnlySet(t *testing.T) 
 
 	body := fmt.Sprintf(`{
 	    "license_server_url": %q,
-	    "license_key":        "lic-half-config-key-only"
+	    "license_key":        "lic-half-config-key-only",
+	    "server_name":        "Key Only Test Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))
@@ -417,7 +423,8 @@ func TestSetupLicense_AutoEnrolSkippedWhenUnconfigured(t *testing.T) {
 
 	body := fmt.Sprintf(`{
 	    "license_server_url": %q,
-	    "license_key":        "lic-no-auto"
+	    "license_key":        "lic-no-auto",
+	    "server_name":        "No Auto Enrol Server"
 	}`, ls.URL)
 	resp, err := http.Post(ts.URL+"/api/v1/setup/license", "application/json",
 		strings.NewReader(body))

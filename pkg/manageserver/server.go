@@ -223,7 +223,7 @@ func New(cfg *Config, store managestore.Store, pool *pgxpool.Pool) (*Server, err
 	})
 	srv.scanjobsAdmin = scanjobs.NewAdminHandlers(scanjobsStore, resultsStore, srv.scanGuardProvider)
 	srv.agentsAdmin = agents.NewAdminHandlers(
-		caStore, agentStore, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
+		caStore, agentStore, store, gatewayURLFromCfg(cfg), 60*time.Second, srv.agentGuardProvider,
 	)
 	if err := srv.initSetupState(context.Background()); err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)

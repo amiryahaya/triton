@@ -169,17 +169,19 @@ type LicenseWithOrg struct {
 
 // Activation represents a machine activation record.
 type Activation struct {
-	ID            string     `json:"id"`
-	LicenseID     string     `json:"licenseID"`
-	MachineID     string     `json:"machineID"`
-	Hostname      string     `json:"hostname"`
-	OS            string     `json:"os"`
-	Arch          string     `json:"arch"`
-	Token         string     `json:"token"`
-	ActivatedAt   time.Time  `json:"activatedAt"`
-	LastSeenAt    time.Time  `json:"lastSeenAt"`
-	DeactivatedAt *time.Time `json:"deactivatedAt,omitempty"`
-	Active        bool       `json:"active"`
+	ID             string     `json:"id"`
+	LicenseID      string     `json:"licenseID"`
+	MachineID      string     `json:"machineID"`
+	Hostname       string     `json:"hostname"`
+	OS             string     `json:"os"`
+	Arch           string     `json:"arch"`
+	Token          string     `json:"token"`
+	ActivatedAt    time.Time  `json:"activatedAt"`
+	LastSeenAt     time.Time  `json:"lastSeenAt"`
+	DeactivatedAt  *time.Time `json:"deactivatedAt,omitempty"`
+	Active         bool       `json:"active"`
+	ActivationType string     `json:"activationType"`
+	DisplayName    string     `json:"displayName"`
 }
 
 // AuditEntry represents a single audit log entry.

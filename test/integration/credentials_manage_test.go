@@ -197,6 +197,7 @@ func requireCredManageServer(t *testing.T) credManageServer {
 	resp = postJSON(t, ts.URL+"/api/v1/setup/license", map[string]any{
 		"license_server_url": ls.URL,
 		"license_key":        "cred-int-test-lic",
+		"server_name":        "Test Manage Server",
 	})
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "setup/license failed")

@@ -73,7 +73,7 @@ func TestStartLicence_RunsUsagePusher(t *testing.T) {
 	})
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		ls.URL, "lic-uuid", signed, "00000000-0000-0000-0000-0000000000aa"))
+		ls.URL, "lic-uuid", signed, "00000000-0000-0000-0000-0000000000aa", ""))
 
 	// 4. Build the server — New() calls startLicence which spawns the pusher.
 	cfg := &manageserver.Config{
@@ -177,7 +177,7 @@ func TestStartLicence_UsagePushStampsLicenseState(t *testing.T) {
 	})
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		ls.URL, "lic-uuid-h5", signed, "00000000-0000-0000-0000-0000000000cc"))
+		ls.URL, "lic-uuid-h5", signed, "00000000-0000-0000-0000-0000000000cc", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",
@@ -242,7 +242,7 @@ func TestStartLicence_UsagePushFailure_StampsConsecutiveFailures(t *testing.T) {
 	})
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		ls.URL, "lic-uuid-h5f", signed, "00000000-0000-0000-0000-0000000000dd"))
+		ls.URL, "lic-uuid-h5f", signed, "00000000-0000-0000-0000-0000000000dd", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",
@@ -311,7 +311,7 @@ func TestStartLicence_PropagatesGuardToSubHandlers(t *testing.T) {
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
 		"http://localhost:0", "lic-uuid-propagate", signed,
-		"00000000-0000-0000-0000-0000000000ff"))
+		"00000000-0000-0000-0000-0000000000ff", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",
@@ -390,7 +390,7 @@ func TestStartLicence_PropagatedGuard_EnforcesHostCapOverHTTP(t *testing.T) {
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
 		"http://localhost:0", "lic-uuid-hostcap-e2e", signed,
-		"00000000-0000-0000-0000-000000000222"))
+		"00000000-0000-0000-0000-000000000222", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",
@@ -449,7 +449,7 @@ func TestStartLicence_MissingPubKey_IsGracefulAtBoot(t *testing.T) {
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	// Persist a bogus signed token — Parse will fail.
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		"https://ls.example.com", "lic", "not-a-real-token", "00000000-0000-0000-0000-0000000000bb"))
+		"https://ls.example.com", "lic", "not-a-real-token", "00000000-0000-0000-0000-0000000000bb", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",

@@ -3,6 +3,7 @@ package license
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,17 @@ import (
 	"time"
 
 	"github.com/amiryahaya/triton/pkg/licensestore"
+)
+
+// ErrNoSeats is returned by ActivateForTenant when the licence has no
+// remaining seats (HTTP 409 Conflict).
+var ErrNoSeats = errors.New("no seats available")
+
+// ActivationType constants identify which kind of service holds a licence seat.
+const (
+	ActivationTypeAgent        = "agent"
+	ActivationTypeReportServer = "report_server"
+	ActivationTypeManageServer = "manage_server"
 )
 
 // ServerClient communicates with the Triton License Server.
@@ -77,14 +89,16 @@ type ValidateResponse struct {
 }
 
 // Activate registers this machine with the license server.
-func (c *ServerClient) Activate(licenseID string) (*ActivateResponse, error) {
+func (c *ServerClient) Activate(licenseID, activationType, displayName string) (*ActivateResponse, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]string{
-		"licenseID": licenseID,
-		"machineID": MachineFingerprint(),
-		"hostname":  hostname,
-		"os":        runtime.GOOS,
-		"arch":      runtime.GOARCH,
+		"licenseID":       licenseID,
+		"machineID":       MachineFingerprint(),
+		"hostname":        hostname,
+		"os":              runtime.GOOS,
+		"arch":            runtime.GOARCH,
+		"activation_type": activationType,
+		"display_name":    displayName,
 	}
 
 	data, err := json.Marshal(body)
@@ -104,7 +118,7 @@ func (c *ServerClient) Activate(licenseID string) (*ActivateResponse, error) {
 	}
 
 	if resp.StatusCode == http.StatusConflict {
-		return nil, fmt.Errorf("all seats are occupied")
+		return nil, ErrNoSeats
 	}
 	if resp.StatusCode == http.StatusForbidden {
 		var errResp map[string]string
@@ -184,10 +198,12 @@ func (c *ServerClient) Validate(licenseID, token string) (*ValidateResponse, err
 // ActivateForTenant activates a licence with a custom machineID.
 // The Report Portal uses machineID = instanceID + "/" + tenantID so that
 // each (deployment, tenant) pair occupies a unique activation seat.
-func (c *ServerClient) ActivateForTenant(licenceKey, machineID string) (*ActivateResponse, error) {
+func (c *ServerClient) ActivateForTenant(licenceKey, machineID, activationType, displayName string) (*ActivateResponse, error) {
 	body := map[string]string{
-		"licenseID": licenceKey,
-		"machineID": machineID,
+		"licenseID":       licenceKey,
+		"machineID":       machineID,
+		"activation_type": activationType,
+		"display_name":    displayName,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -205,7 +221,7 @@ func (c *ServerClient) ActivateForTenant(licenceKey, machineID string) (*Activat
 	}
 	switch resp.StatusCode {
 	case http.StatusConflict:
-		return nil, fmt.Errorf("no seats available")
+		return nil, ErrNoSeats
 	case http.StatusForbidden:
 		var e map[string]string
 		_ = json.Unmarshal(respBody, &e)

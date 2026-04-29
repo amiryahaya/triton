@@ -322,6 +322,10 @@ The Vault client (`vault.go`) is a thin HTTP wrapper — no Vault SDK dependency
 - HostForm: connection type selector; credential filtered by type; port auto-fill
 - `CredentialForm.vue` — fields change on auth type switch; PEM validation inline; edit pre-fills read-only type
 
+**Frontend:**
+- `CredentialForm.vue` — fields change on auth type switch; PEM validation inline
+- `HostForm.vue` — credential picker populates from store; access port pre-fills correctly
+
 ---
 
 ## Host Connection Types (Architecture Extension)

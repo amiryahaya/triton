@@ -110,6 +110,7 @@ func requireHostsManageServer(t *testing.T) hostsManageServer {
 	resp = postJSON(t, ts.URL+"/api/v1/setup/license", map[string]any{
 		"license_server_url": ls.URL,
 		"license_key":        "hosts-int-test-lic",
+		"server_name":        "Test Manage Server",
 	})
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "setup/license failed")

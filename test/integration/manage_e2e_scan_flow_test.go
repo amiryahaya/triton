@@ -523,6 +523,7 @@ func (f *manageE2EFixture) completeSetup(t *testing.T) string {
 	licBody := map[string]any{
 		"license_server_url": f.LSStub.URL,
 		"license_key":        "e2e-manage-lic",
+		"server_name":        "Test Manage Server",
 	}
 	resp = postJSON(t, f.AdminURL+"/api/v1/setup/license", licBody)
 	body = manageReadBody(resp)

@@ -20,6 +20,8 @@ const revokeOpen = ref(false);
 interface ActRow {
   id: string;
   hostname: string;
+  activationType: string;
+  displayName: string;
   machineIDShort: string;
   platform: string;
   activatedAt: string;
@@ -29,23 +31,27 @@ interface ActRow {
 }
 
 const actColumns: Column<ActRow>[] = [
-  { key: 'hostname', label: 'Hostname', width: '1.2fr' },
-  { key: 'machineIDShort', label: 'Machine ID', width: '1fr' },
-  { key: 'platform', label: 'OS/Arch', width: '0.8fr' },
-  { key: 'activatedAt', label: 'Activated', width: '1fr' },
-  { key: 'lastSeenAt', label: 'Last seen', width: '1fr' },
-  { key: 'active', label: 'Status', width: '100px' },
+  { key: 'hostname',       label: 'Hostname',   width: '1.2fr' },
+  { key: 'activationType', label: 'Type',       width: '110px' },
+  { key: 'displayName',    label: 'Name',       width: '1fr'   },
+  { key: 'machineIDShort', label: 'Machine ID', width: '1fr'   },
+  { key: 'platform',       label: 'OS/Arch',    width: '0.8fr' },
+  { key: 'activatedAt',    label: 'Activated',  width: '1fr'   },
+  { key: 'lastSeenAt',     label: 'Last seen',  width: '1fr'   },
+  { key: 'active',         label: 'Status',     width: '100px' },
 ];
 
 const actRows = computed<ActRow[]>(() =>
   activations.value.map((a) => ({
-    id: a.id,
-    hostname: a.hostname,
+    id:             a.id,
+    hostname:       a.hostname,
+    activationType: a.activationType,
+    displayName:    a.displayName,
     machineIDShort: a.machineID.slice(0, 12),
-    platform: `${a.os}/${a.arch}`,
-    activatedAt: a.activatedAt,
-    lastSeenAt: a.lastSeenAt,
-    active: a.active,
+    platform:       `${a.os}/${a.arch}`,
+    activatedAt:    a.activatedAt,
+    lastSeenAt:     a.lastSeenAt,
+    active:         a.active,
   })),
 );
 
@@ -102,35 +108,6 @@ async function copyID() {
   toast.success({ title: 'Licence ID copied' });
 }
 
-async function downloadAgentYaml() {
-  if (!licence.value) return;
-  try {
-    const yaml = await api.get().downloadAgentYaml(licence.value.id);
-    const blob = new Blob([yaml], { type: 'text/yaml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `agent-${licence.value.id}.yaml`;
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    toast.error({ title: 'Download failed', description: String(err) });
-  }
-}
-
-const enabledFeatures = computed(() => {
-  if (!licence.value) return [] as string[];
-  const f = licence.value.features;
-  const out: string[] = [];
-  if (f.report) out.push('Report server');
-  if (f.manage) out.push('Manage server');
-  if (f.comprehensive_profile) out.push('Comprehensive profile');
-  if (f.diff_trend) out.push('Diff & trend');
-  if (f.custom_policy) out.push('Custom policy');
-  if (f.sso) out.push('SSO');
-  return out;
-});
-
 const visibleLimits = computed(() => licence.value?.limits ?? []);
 </script>
 
@@ -157,9 +134,6 @@ const visibleLimits = computed(() => licence.value?.limits ?? []);
       <div class="actions">
         <TButton size="sm" variant="secondary" @click="copyID">
           Copy licence ID
-        </TButton>
-        <TButton size="sm" variant="secondary" @click="downloadAgentYaml">
-          Download agent.yaml
         </TButton>
         <TButton
           size="sm"
@@ -190,21 +164,6 @@ const visibleLimits = computed(() => licence.value?.limits ?? []);
       />
     </div>
 
-    <TPanel title="Enabled features">
-      <div
-        v-if="enabledFeatures.length"
-        class="pills"
-      >
-        <TPill
-          v-for="f in enabledFeatures"
-          :key="f"
-          variant="info"
-          :dot="false"
-        >{{ f }}</TPill>
-      </div>
-      <p v-else class="muted">No features enabled on this licence.</p>
-    </TPanel>
-
     <TPanel title="Limits">
       <table v-if="visibleLimits.length" class="limits">
         <thead>
@@ -231,6 +190,18 @@ const visibleLimits = computed(() => licence.value?.limits ?? []);
         row-key="id"
         empty-text="No activations yet."
       >
+        <template #[`cell:activationType`]="{ row }">
+          <TPill
+            :variant="row.activationType === 'report_server' ? 'info' : row.activationType === 'manage_server' ? 'warn' : 'neutral'"
+            :dot="false"
+          >
+            {{ row.activationType === 'report_server' ? 'Report Server' : row.activationType === 'manage_server' ? 'Manage Server' : 'Agent' }}
+          </TPill>
+        </template>
+        <template #[`cell:displayName`]="{ row }">
+          <span v-if="row.displayName" class="name-cell">{{ row.displayName }}</span>
+          <span v-else class="muted">—</span>
+        </template>
         <template #[`cell:active`]="{ row }">
           <TPill :variant="row.active ? 'safe' : 'neutral'">
             {{ row.active ? 'Active' : 'Inactive' }}
@@ -304,8 +275,8 @@ const visibleLimits = computed(() => licence.value?.limits ?? []);
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-2);
 }
-.pills { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .muted { color: var(--text-muted); font-size: 0.78rem; }
+.name-cell { color: var(--text-primary); }
 .limits {
   width: 100%;
   border-collapse: collapse;

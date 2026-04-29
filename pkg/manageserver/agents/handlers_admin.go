@@ -16,8 +16,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/amiryahaya/triton/internal/license"
 	"github.com/amiryahaya/triton/pkg/manageserver/ca"
 	"github.com/amiryahaya/triton/pkg/manageserver/internal/limits"
+	"github.com/amiryahaya/triton/pkg/managestore"
 )
 
 // AgentCapGuard is the narrow licence-guard surface the agents Enrol
@@ -49,6 +51,7 @@ type AgentCapGuard interface {
 type AdminHandlers struct {
 	CAStore           ca.Store
 	AgentStore        Store
+	SetupStore        managestore.Store // for licence proxy activation; nil means proxy disabled
 	ManageGatewayURL  string
 	PhoneHomeInterval time.Duration
 	GuardProvider     func() AgentCapGuard
@@ -59,13 +62,14 @@ type AdminHandlers struct {
 // spec. ManageGatewayURL must be non-empty or Enrol will 500. A nil
 // GuardProvider (or a provider returning nil) disables licence-cap
 // enforcement (used in tests that don't exercise Batch H).
-func NewAdminHandlers(caStore ca.Store, agentStore Store, gatewayURL string, phoneHome time.Duration, provider func() AgentCapGuard) *AdminHandlers {
+func NewAdminHandlers(caStore ca.Store, agentStore Store, setupStore managestore.Store, gatewayURL string, phoneHome time.Duration, provider func() AgentCapGuard) *AdminHandlers {
 	if phoneHome <= 0 {
 		phoneHome = 60 * time.Second
 	}
 	return &AdminHandlers{
 		CAStore:           caStore,
 		AgentStore:        agentStore,
+		SetupStore:        setupStore,
 		ManageGatewayURL:  gatewayURL,
 		PhoneHomeInterval: phoneHome,
 		GuardProvider:     provider,
@@ -174,6 +178,40 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Proxy-activate a licence seat on behalf of this agent.
+	seatActivated := false
+	var enrolLicClient *license.ServerClient
+	var enrolLicKey string
+
+	if h.SetupStore != nil {
+		st, stErr := h.SetupStore.GetSetup(r.Context())
+		if stErr != nil {
+			log.Printf("manageserver/agents: enrol: load setup state: %v (skipping licence activation)", stErr)
+		} else if st.LicenseActivated {
+			enrolLicClient = license.NewServerClient(st.LicenseServerURL)
+			enrolLicKey = st.LicenseKey
+			if _, actErr := enrolLicClient.ActivateForTenant(
+				enrolLicKey,
+				agentID.String(),
+				license.ActivationTypeAgent,
+				agent.Name,
+			); actErr != nil {
+				if errors.Is(actErr, license.ErrNoSeats) {
+					// Seats exhausted — roll back the agent row and reject enrolment.
+					if delErr := h.AgentStore.Delete(r.Context(), agentID); delErr != nil {
+						log.Printf("manageserver/agents: enrol: rollback agent row after seats-full: %v", delErr)
+					}
+					writeErr(w, http.StatusPaymentRequired, "no licence seats available for new agent")
+					return
+				}
+				// Transient error (network, timeout) — log and allow enrolment.
+				log.Printf("manageserver/agents: enrol: licence activation transient error (continuing): %v", actErr)
+			} else {
+				seatActivated = true
+			}
+		}
+	}
+
 	bundle, err := ca.BuildBundle(ca.BundleInputs{
 		AgentID:           agentID,
 		ManageGatewayURL:  h.ManageGatewayURL,
@@ -183,6 +221,16 @@ func (h *AdminHandlers) Enrol(w http.ResponseWriter, r *http.Request) {
 		PhoneHomeInterval: h.PhoneHomeInterval,
 	})
 	if err != nil {
+		// Roll back: delete the agent row so the DB stays consistent.
+		if delErr := h.AgentStore.Delete(r.Context(), agentID); delErr != nil {
+			log.Printf("manageserver/agents: enrol: rollback agent row after bundle error: %v", delErr)
+		}
+		// Best-effort deactivate the licence seat we just consumed.
+		if seatActivated && enrolLicClient != nil {
+			if deactErr := enrolLicClient.DeactivateForTenant(enrolLicKey, agentID.String()); deactErr != nil {
+				log.Printf("manageserver/agents: enrol: rollback seat after bundle error: %v", deactErr)
+			}
+		}
 		internalErr(w, r, err, "build agent bundle")
 		return
 	}
@@ -261,6 +309,18 @@ func (h *AdminHandlers) Revoke(w http.ResponseWriter, r *http.Request) {
 		internalErr(w, r, err, "mark agent revoked (cert already revoked)")
 		return
 	}
+
+	// Best-effort licence seat release.
+	if h.SetupStore != nil {
+		state, stErr := h.SetupStore.GetSetup(r.Context())
+		if stErr == nil && state.LicenseActivated {
+			licClient := license.NewServerClient(state.LicenseServerURL)
+			if deactErr := licClient.DeactivateForTenant(state.LicenseKey, a.ID.String()); deactErr != nil {
+				log.Printf("manageserver/agents: revoke: licence deactivation (best-effort): %v", deactErr)
+			}
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

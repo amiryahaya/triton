@@ -43,7 +43,7 @@ func TestAgentsAdmin_Enrol_CapExceeded_Returns403(t *testing.T) {
 	// Seed the cap+1 enrolments to reach the cap via the unguarded
 	// handler, then swap in the cap guard for the next (rejected)
 	// request.
-	openH := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	openH := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	openSrv := mountEnrol(t, openH)
 
 	const cap = 2
@@ -61,7 +61,7 @@ func TestAgentsAdmin_Enrol_CapExceeded_Returns403(t *testing.T) {
 	require.Equal(t, int64(cap), n)
 
 	fakeGuard := &fakeAgentCapGuard{caps: map[string]int64{"agents/total": cap}}
-	guardedH := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second,
+	guardedH := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second,
 		func() agents.AgentCapGuard { return fakeGuard })
 	guardedSrv := mountEnrol(t, guardedH)
 
@@ -88,7 +88,7 @@ func TestAgentsAdmin_Enrol_NoGuard_Unrestricted(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-noguard-test")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/enrol/agent",

@@ -49,7 +49,7 @@ func TestSetupOnly_RejectsWhenOperational(t *testing.T) {
 	// Mark operational.
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		"https://ls.example.com", "key", "tok", "00000000-0000-0000-0000-000000000001"))
+		"https://ls.example.com", "key", "tok", "00000000-0000-0000-0000-000000000001", ""))
 
 	cfg := &manageserver.Config{
 		Listen:        ":0",
@@ -305,7 +305,7 @@ func openOperationalServerWithRetryInterval(
 
 	require.NoError(t, store.MarkAdminCreated(context.Background()))
 	require.NoError(t, store.SaveLicenseActivation(context.Background(),
-		"https://ls.example.com", "key", "tok", "00000000-0000-0000-0000-000000000001"))
+		"https://ls.example.com", "key", "tok", "00000000-0000-0000-0000-000000000001", ""))
 
 	cfg := &manageserver.Config{
 		Listen:               ":0",

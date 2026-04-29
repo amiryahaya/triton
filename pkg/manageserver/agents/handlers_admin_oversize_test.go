@@ -30,7 +30,7 @@ func TestAgentsAdmin_Enrol_OversizeBodyRejected(t *testing.T) {
 	_, err := caStore.Bootstrap(context.Background(), "inst-oversize-test")
 	require.NoError(t, err)
 
-	h := agents.NewAdminHandlers(caStore, agentStore, "https://localhost:8443", 60*time.Second, nil)
+	h := agents.NewAdminHandlers(caStore, agentStore, nil, "https://localhost:8443", 60*time.Second, nil)
 	srv := mountEnrol(t, h)
 
 	// name is a bounded string field so pad it to trip the cap.

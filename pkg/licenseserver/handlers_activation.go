@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -19,11 +20,13 @@ import (
 func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	var req struct {
-		LicenseID string `json:"licenseID"`
-		MachineID string `json:"machineID"`
-		Hostname  string `json:"hostname"`
-		OS        string `json:"os"`
-		Arch      string `json:"arch"`
+		LicenseID      string `json:"licenseID"`
+		MachineID      string `json:"machineID"`
+		Hostname       string `json:"hostname"`
+		OS             string `json:"os"`
+		Arch           string `json:"arch"`
+		ActivationType string `json:"activation_type"`
+		DisplayName    string `json:"display_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -36,6 +39,16 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	if tooLong(req.Hostname, maxHostnameLen) {
 		writeError(w, http.StatusBadRequest, "hostname exceeds maximum length")
 		return
+	}
+	switch req.ActivationType {
+	case "report_server", "manage_server", "agent":
+		// valid
+	default:
+		req.ActivationType = "agent"
+	}
+	if utf8.RuneCountInString(req.DisplayName) > 200 {
+		runes := []rune(req.DisplayName)
+		req.DisplayName = string(runes[:200])
 	}
 
 	// Lookup license
@@ -75,16 +88,18 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	act := &licensestore.Activation{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		LicenseID:   req.LicenseID,
-		MachineID:   req.MachineID,
-		Hostname:    req.Hostname,
-		OS:          req.OS,
-		Arch:        req.Arch,
-		Token:       token,
-		ActivatedAt: now,
-		LastSeenAt:  now,
-		Active:      true,
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		LicenseID:      req.LicenseID,
+		MachineID:      req.MachineID,
+		Hostname:       req.Hostname,
+		OS:             req.OS,
+		Arch:           req.Arch,
+		Token:          token,
+		ActivatedAt:    now,
+		LastSeenAt:     now,
+		Active:         true,
+		ActivationType: req.ActivationType,
+		DisplayName:    req.DisplayName,
 	}
 
 	if err := s.store.Activate(r.Context(), act); err != nil {

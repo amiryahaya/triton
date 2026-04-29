@@ -400,4 +400,10 @@ INSERT INTO manage_tags (id, name, color) VALUES
     (gen_random_uuid(), 'critical',    '#DC2626'),
     (gen_random_uuid(), 'pqc-scope',   '#F59E0B')
 ON CONFLICT (name) DO NOTHING;`,
+
+	// Version 20: server_name on manage_setup — human-readable label for
+	// this Manage Server instance. Used in the licence server admin UI and
+	// forwarded to Report Server during enrolment.
+	`ALTER TABLE manage_setup
+  ADD COLUMN IF NOT EXISTS server_name TEXT NOT NULL DEFAULT '';`,
 }

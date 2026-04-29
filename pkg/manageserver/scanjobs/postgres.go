@@ -913,7 +913,10 @@ func (s *PostgresStore) PatchSchedule(ctx context.Context, id uuid.UUID, req Sch
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Schedule{}, ErrNotFound
 	}
-	return sc, err
+	if err != nil {
+		return Schedule{}, fmt.Errorf("patch schedule: %w", err)
+	}
+	return sc, nil
 }
 
 func (s *PostgresStore) getSchedule(ctx context.Context, id uuid.UUID) (Schedule, error) {
@@ -929,7 +932,7 @@ func (s *PostgresStore) DeleteSchedule(ctx context.Context, id uuid.UUID) error 
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM manage_scan_schedules WHERE id = $1`, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete schedule: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -969,14 +972,14 @@ func (s *PostgresStore) ClaimDueSchedules(ctx context.Context) ([]Schedule, erro
 		return nil, err
 	}
 	if len(due) == 0 {
-		return nil, tx.Commit(ctx)
+		return []Schedule{}, tx.Commit(ctx)
 	}
 
 	now := time.Now().UTC()
 	for i, sc := range due {
 		parser, err := cron.ParseStandard(sc.CronExpr)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("claim due schedules: invalid cron %q for schedule %s: %w", sc.CronExpr, sc.ID, err)
 		}
 		nextRun := parser.Next(now)
 		if _, err = tx.Exec(ctx,

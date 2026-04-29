@@ -176,9 +176,9 @@ func (s *PostgresStore) GetNacsaSummary(ctx context.Context, orgID string, scope
 	q := fmt.Sprintf(`
 WITH %s
 SELECT
-    SUM(CASE WHEN f.pqc_status = 'SAFE'         THEN 1 ELSE 0 END) AS safe_count,
-    SUM(CASE WHEN f.pqc_status = 'TRANSITIONAL' THEN 1 ELSE 0 END) AS trans_count,
-    SUM(CASE WHEN f.pqc_status IN ('DEPRECATED','UNSAFE') THEN 1 ELSE 0 END) AS noncompliant_count,
+    COALESCE(SUM(CASE WHEN f.pqc_status = 'SAFE'         THEN 1 ELSE 0 END), 0) AS safe_count,
+    COALESCE(SUM(CASE WHEN f.pqc_status = 'TRANSITIONAL' THEN 1 ELSE 0 END), 0) AS trans_count,
+    COALESCE(SUM(CASE WHEN f.pqc_status IN ('DEPRECATED','UNSAFE') THEN 1 ELSE 0 END), 0) AS noncompliant_count,
     COUNT(*) AS total_count
 FROM findings f
 JOIN latest_scans ls ON f.scan_id = ls.id

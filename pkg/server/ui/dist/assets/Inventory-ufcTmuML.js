@@ -1,0 +1,1 @@
+import{_ as e}from"./index-CRUJbCsO.js";import{o as n,a as o}from"./vendor-DsGyrJUj.js";const r={};function t(c,a){return n(),o("h1",null,"Inventory")}const f=e(r,[["render",t]]);export{f as default};

@@ -1,0 +1,1 @@
+import{_ as c}from"./index-gANZyZfQ.js";import{o as e,a as n}from"./vendor-DhJASR2r.js";const o={};function r(t,a){return e(),n("h1",null,"Scan diff")}const _=c(o,[["render",r]]);export{_ as default};

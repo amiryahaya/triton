@@ -212,6 +212,24 @@ func (m *licenceMockStore) ListFindingStatusLog(_ context.Context, _ string, _ i
 func (m *licenceMockStore) GetOnboardingMetrics(_ context.Context, _ string) (*store.OnboardingMetrics, error) {
 	panic("licenceMockStore: GetOnboardingMetrics not implemented")
 }
+func (m *licenceMockStore) GetNacsaSummary(_ context.Context, _ string, _ store.NacsaScopeFilter) (store.NacsaSummary, error) {
+	panic("licenceMockStore: GetNacsaSummary not implemented")
+}
+func (m *licenceMockStore) ListNacsaServers(_ context.Context, _ string) ([]store.NacsaServerRow, error) {
+	panic("licenceMockStore: ListNacsaServers not implemented")
+}
+func (m *licenceMockStore) ListNacsaHosts(_ context.Context, _, _ string) ([]store.NacsaHostRow, error) {
+	panic("licenceMockStore: ListNacsaHosts not implemented")
+}
+func (m *licenceMockStore) ListNacsaCBOM(_ context.Context, _, _ string, _ []string) ([]store.NacsaCBOMRow, error) {
+	panic("licenceMockStore: ListNacsaCBOM not implemented")
+}
+func (m *licenceMockStore) ListNacsaRisk(_ context.Context, _, _, _ string) ([]store.NacsaRiskRow, error) {
+	panic("licenceMockStore: ListNacsaRisk not implemented")
+}
+func (m *licenceMockStore) GetNacsaMigration(_ context.Context, _ string) (store.NacsaMigResponse, error) {
+	panic("licenceMockStore: GetNacsaMigration not implemented")
+}
 func (m *licenceMockStore) Close() error { return nil }
 
 // newServerWithMockStore builds a minimal *Server wired to the given store stub.

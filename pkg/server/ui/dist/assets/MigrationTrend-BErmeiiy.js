@@ -1,0 +1,1 @@
+import{_ as r}from"./index-CRUJbCsO.js";import{o as e,a as n}from"./vendor-DsGyrJUj.js";const o={};function t(c,a){return e(),n("h1",null,"Migration trend")}const i=r(o,[["render",t]]);export{i as default};

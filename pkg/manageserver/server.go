@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -525,6 +526,16 @@ func (s *Server) startScannerPipeline(ctx context.Context) *sync.WaitGroup {
 	if s.workerHandlers != nil {
 		s.workerHandlers.SetSourceID(instanceID)
 	}
+
+	// Stamp the gateway handler with this server's identity so every
+	// relayed scan carries ManageServerID + ManageServerName in its
+	// metadata. Hostname is best-effort: fall back to the instance UUID
+	// when os.Hostname() fails (e.g. in locked-down container envs).
+	gatewayHostname, _ := os.Hostname()
+	if gatewayHostname == "" {
+		gatewayHostname = state.InstanceID
+	}
+	s.agentsGateway.SetInstanceInfo(state.InstanceID, gatewayHostname)
 
 	orch := scanjobs.NewOrchestrator(scanjobs.OrchestratorConfig{
 		Store:       s.scanjobsStore,

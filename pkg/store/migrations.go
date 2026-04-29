@@ -874,4 +874,45 @@ CREATE INDEX IF NOT EXISTS idx_tenant_licences_active
 	// v28 — add scan_source column for ?source filter on GET /api/v1/scans.
 	`ALTER TABLE scans ADD COLUMN IF NOT EXISTS scan_source TEXT NOT NULL DEFAULT '';
 	CREATE INDEX IF NOT EXISTS idx_scans_source ON scans (LOWER(scan_source));`,
+
+	// Version 29: NACSA Arahan 9 analytics — manage server identity on
+	// scans/findings + migration-phase admin tables.
+	`ALTER TABLE scans
+	    ADD COLUMN IF NOT EXISTS manage_server_id   TEXT,
+	    ADD COLUMN IF NOT EXISTS manage_server_name TEXT;
+
+	CREATE INDEX IF NOT EXISTS idx_scans_manage_server
+	    ON scans (org_id, manage_server_id)
+	    WHERE manage_server_id IS NOT NULL;
+
+	ALTER TABLE findings
+	    ADD COLUMN IF NOT EXISTS manage_server_id TEXT;
+
+	CREATE INDEX IF NOT EXISTS idx_findings_manage_server
+	    ON findings (org_id, manage_server_id)
+	    WHERE manage_server_id IS NOT NULL;
+
+	CREATE TABLE IF NOT EXISTS nacsa_migration_phases (
+	    org_id       UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+	    phase        INT  NOT NULL CHECK (phase IN (1, 2, 3)),
+	    name         TEXT NOT NULL DEFAULT '',
+	    period       TEXT NOT NULL DEFAULT '',
+	    status       TEXT NOT NULL DEFAULT 'not_started'
+	                 CHECK (status IN ('not_started', 'in_progress', 'complete')),
+	    progress_pct INT  NOT NULL DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
+	    PRIMARY KEY (org_id, phase)
+	);
+
+	CREATE TABLE IF NOT EXISTS nacsa_migration_activities (
+	    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	    org_id     UUID NOT NULL,
+	    phase      INT  NOT NULL,
+	    name       TEXT NOT NULL,
+	    status     TEXT NOT NULL DEFAULT 'pending'
+	               CHECK (status IN ('pending', 'active', 'done')),
+	    budget_rm  BIGINT NOT NULL DEFAULT 0,
+	    sort_order INT    NOT NULL DEFAULT 0,
+	    FOREIGN KEY (org_id, phase)
+	        REFERENCES nacsa_migration_phases(org_id, phase) ON DELETE CASCADE
+	);`,
 }

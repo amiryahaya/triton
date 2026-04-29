@@ -61,8 +61,9 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		INSERT INTO scans
 		  (id, hostname, timestamp, profile,
 		   total_findings, safe, transitional, deprecated, unsafe,
-		   result_json, org_id, findings_extracted_at, scan_source)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
+		   result_json, org_id, findings_extracted_at, scan_source,
+		   manage_server_id, manage_server_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14)
 		ON CONFLICT (id) DO UPDATE SET
 		  hostname = EXCLUDED.hostname,
 		  timestamp = EXCLUDED.timestamp,
@@ -75,7 +76,9 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		  result_json = EXCLUDED.result_json,
 		  org_id = EXCLUDED.org_id,
 		  findings_extracted_at = EXCLUDED.findings_extracted_at,
-		  scan_source = EXCLUDED.scan_source
+		  scan_source = EXCLUDED.scan_source,
+		  manage_server_id = EXCLUDED.manage_server_id,
+		  manage_server_name = EXCLUDED.manage_server_name
 	`,
 		scan.ID,
 		scan.Metadata.Hostname,
@@ -89,6 +92,8 @@ func (s *PostgresStore) SaveScanWithFindings(ctx context.Context, scan *model.Sc
 		blob,
 		orgID,
 		string(scan.Metadata.Source),
+		nullableStr(scan.Metadata.ManageServerID),
+		nullableStr(scan.Metadata.ManageServerName),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert scan: %w", err)
@@ -172,8 +177,9 @@ func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.
 		  (id, hostname, timestamp, profile,
 		   total_findings, safe, transitional, deprecated, unsafe,
 		   result_json, org_id, findings_extracted_at,
-		   engine_id, scan_job_id, scan_source)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14)
+		   engine_id, scan_job_id, scan_source,
+		   manage_server_id, manage_server_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14, $15, $16)
 		ON CONFLICT (id) DO UPDATE SET
 		  hostname = EXCLUDED.hostname,
 		  timestamp = EXCLUDED.timestamp,
@@ -188,7 +194,9 @@ func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.
 		  findings_extracted_at = EXCLUDED.findings_extracted_at,
 		  engine_id = EXCLUDED.engine_id,
 		  scan_job_id = EXCLUDED.scan_job_id,
-		  scan_source = EXCLUDED.scan_source
+		  scan_source = EXCLUDED.scan_source,
+		  manage_server_id = EXCLUDED.manage_server_id,
+		  manage_server_name = EXCLUDED.manage_server_name
 	`,
 		scan.ID,
 		scan.Metadata.Hostname,
@@ -204,6 +212,8 @@ func (s *PostgresStore) SaveScanWithJobContext(ctx context.Context, scan *model.
 		engineID,
 		scanJobID,
 		string(scan.Metadata.Source),
+		nullableStr(scan.Metadata.ManageServerID),
+		nullableStr(scan.Metadata.ManageServerName),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert scan: %w", err)
@@ -255,30 +265,30 @@ func insertFindingsInTx(ctx context.Context, tx pgx.Tx, findings []Finding) erro
 }
 
 // insertFindingsChunk inserts up to 1000 finding rows in a single
-// statement. Column count: 18 (no category, no line_number).
+// statement. Column count: 19 (no category, no line_number).
 //
 // The loop indexes directly into chunk (rather than `for i, f := range
 // chunk`) to avoid copying each 232-byte Finding struct per iteration —
 // gocritic rangeValCopy fix.
 func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error {
-	const cols = 18
+	const cols = 19
 	args := make([]any, 0, len(chunk)*cols)
 	valueStrs := make([]string, 0, len(chunk))
 	for i := range chunk {
 		f := &chunk[i]
 		base := i * cols
 		valueStrs = append(valueStrs, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
 			base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16,
-			base+17, base+18,
+			base+17, base+18, base+19,
 		))
 		args = append(args,
 			f.ID, f.ScanID, f.OrgID, f.Hostname, f.FindingIndex,
 			f.Module, f.FilePath,
 			f.Algorithm, f.KeySize, f.PQCStatus, f.MigrationPriority,
 			f.NotAfter, f.Subject, f.Issuer, f.Reachability, f.CreatedAt,
-			f.ImageRef, f.ImageDigest,
+			f.ImageRef, f.ImageDigest, f.ManageServerID,
 		)
 	}
 
@@ -287,7 +297,7 @@ func insertFindingsChunk(ctx context.Context, tx pgx.Tx, chunk []Finding) error 
 		module, file_path,
 		algorithm, key_size, pqc_status, migration_priority,
 		not_after, subject, issuer, reachability, created_at,
-		image_ref, image_digest
+		image_ref, image_digest, manage_server_id
 	) VALUES ` + strings.Join(valueStrs, ",") + `
 	ON CONFLICT (scan_id, finding_index) DO NOTHING`
 
@@ -572,4 +582,13 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// nullableStr converts an empty string to nil so that nullable TEXT
+// columns in PostgreSQL store NULL rather than an empty string.
+func nullableStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

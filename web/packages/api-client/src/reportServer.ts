@@ -136,6 +136,90 @@ export interface PriorityRow {
   category: string;
 }
 
+// ===== NACSA Arahan 9 (Phase 3) =====
+
+export interface NacsaBlocker {
+  algorithm: string;
+  hostname: string;
+  severity: string;
+  asset_count: number;
+}
+
+export interface NacsaPhase {
+  phase: number;
+  name: string;
+  status: 'not_started' | 'in_progress' | 'complete';
+  progress_pct: number;
+}
+
+export interface NacsaSummary {
+  readiness_pct: number;
+  target_pct: number;
+  target_year: number;
+  compliant: number;
+  transitional: number;
+  non_compliant: number;
+  safe: number;
+  total_assets: number;
+  top_blockers: NacsaBlocker[];
+  migration_phases: NacsaPhase[];
+}
+
+export interface NacsaServerRow {
+  id: string;
+  name: string;
+  host_count: number;
+  readiness_pct: number;
+  last_scan_at?: string;
+}
+
+export interface NacsaHostRow {
+  hostname: string;
+  scan_profile?: string;
+  readiness_pct: number;
+  last_scan_at?: string;
+  module_count: number;
+}
+
+export interface NacsaCBOMRow {
+  algorithm: string;
+  key_size?: number;
+  pqc_status: PqcStatus;
+  asset_count: number;
+  module: string;
+}
+
+export interface NacsaRiskRow {
+  algorithm: string;
+  hostname: string;
+  impact: number;
+  likelihood: number;
+  score: number;
+  risk_band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  asset_count: number;
+}
+
+export interface NacsaMigActivity {
+  name: string;
+  status: 'pending' | 'active' | 'done';
+  budget_rm: number;
+}
+
+export interface NacsaMigPhase {
+  phase: number;
+  name: string;
+  status: 'not_started' | 'in_progress' | 'complete';
+  progress_pct: number;
+  period: string;
+  activities: NacsaMigActivity[];
+  budget_total_rm: number;
+  budget_spent_rm: number;
+}
+
+export interface NacsaMigResponse {
+  phases: NacsaMigPhase[];
+}
+
 export interface ExecutiveSummary {
   readiness: ReadinessSummary;
   trend: TrendSummary;
@@ -284,6 +368,20 @@ export function createReportApi(http: Http) {
       http.get<DiffResult>(
         `/v1/diff?base=${encodeURIComponent(base)}&compare=${encodeURIComponent(compare)}`,
       ),
+
+    // NACSA Arahan 9 (Phase 3)
+    nacsaSummary: (p?: { manage_server_id?: string; hostname?: string }) =>
+      http.get<NacsaSummary>(`/v1/nacsa/summary${buildQS(p)}`),
+    nacsaServers: () =>
+      http.get<NacsaServerRow[]>('/v1/nacsa/servers'),
+    nacsaHosts: (serverID: string) =>
+      http.get<NacsaHostRow[]>(`/v1/nacsa/servers/${encodeURIComponent(serverID)}/hosts`),
+    nacsaCBOM: (hostname: string, p?: { status?: string }) =>
+      http.get<NacsaCBOMRow[]>(`/v1/nacsa/hosts/${encodeURIComponent(hostname)}/cbom${buildQS(p)}`),
+    nacsaRisk: (hostname: string, p?: { sort?: string }) =>
+      http.get<NacsaRiskRow[]>(`/v1/nacsa/hosts/${encodeURIComponent(hostname)}/risk${buildQS(p)}`),
+    nacsaMigration: () =>
+      http.get<NacsaMigResponse>('/v1/nacsa/migration'),
 
     // Admin users (Phase 4)
     listAdminUsers: () => http.get<ReportUser[]>('/v1/admin/users/'),

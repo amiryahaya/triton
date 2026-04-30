@@ -44,6 +44,13 @@ func ipArg(ip string) any {
 	return ip
 }
 
+func connectionTypeArg(ct string) any {
+	if ct == "" {
+		return nil
+	}
+	return ct
+}
+
 func isUniqueViolation(err error) bool {
 	var e *pgconn.PgError
 	return errors.As(err, &e) && e.Code == "23505"
@@ -86,14 +93,15 @@ func (s *PostgresStore) loadTagsForHosts(ctx context.Context, hostIDs []uuid.UUI
 }
 
 func (s *PostgresStore) Create(ctx context.Context, h Host) (Host, error) {
+	ct := connectionTypeArg(h.ConnectionType)
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, ssh_port)
-		 VALUES ($1, $2::inet, $3, $4, $5, $6)
-		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
+		`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, credentials_ref, ssh_port, connection_type)
+		 VALUES ($1, $2::inet, $3, $4, $5, $6, $7)
+		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, COALESCE(connection_type, '')`,
 		h.Hostname, ipArg(h.IP), h.OS, h.LastSeenAt,
-		h.CredentialsRef, h.SSHPort,
+		h.CredentialsRef, h.SSHPort, ct,
 	)
-	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.SSHPort); err != nil {
+	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.SSHPort, &h.ConnectionType); err != nil {
 		if isUniqueViolation(err) {
 			return Host{}, fmt.Errorf("%w: ip %q", ErrConflict, h.IP)
 		}
@@ -164,16 +172,17 @@ func (s *PostgresStore) List(ctx context.Context) ([]Host, error) {
 }
 
 func (s *PostgresStore) Update(ctx context.Context, h Host) (Host, error) {
+	ct := connectionTypeArg(h.ConnectionType)
 	row := s.pool.QueryRow(ctx,
 		`UPDATE manage_hosts
 		 SET hostname = $1, ip = $2::inet, os = $3, last_seen_at = $4,
-		     credentials_ref = $5, ssh_port = $6, updated_at = NOW()
-		 WHERE id = $7
-		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
+		     credentials_ref = $5, ssh_port = $6, connection_type = $7, updated_at = NOW()
+		 WHERE id = $8
+		 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, COALESCE(connection_type, '')`,
 		h.Hostname, ipArg(h.IP), h.OS, h.LastSeenAt,
-		h.CredentialsRef, h.SSHPort, h.ID,
+		h.CredentialsRef, h.SSHPort, ct, h.ID,
 	)
-	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.SSHPort); err != nil {
+	if err := row.Scan(&h.ID, &h.CreatedAt, &h.UpdatedAt, &h.CredentialsRef, &h.SSHPort, &h.ConnectionType); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Host{}, ErrNotFound
 		}
@@ -258,10 +267,11 @@ func (s *PostgresStore) ListByTags(ctx context.Context, tagIDs []uuid.UUID) ([]H
 		return []Host{}, nil
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT `+hostSelectCols+` FROM manage_hosts h
-		 JOIN manage_host_tags ht ON ht.host_id = h.id
-		 WHERE ht.tag_id = ANY($1)
-		 ORDER BY h.ip`,
+		`SELECT `+hostSelectCols+` FROM manage_hosts
+		 WHERE id IN (
+		   SELECT DISTINCT host_id FROM manage_host_tags WHERE tag_id = ANY($1)
+		 )
+		 ORDER BY ip`,
 		tagIDs,
 	)
 	if err != nil {
@@ -416,14 +426,15 @@ func (s *PostgresStore) BulkCreate(ctx context.Context, hosts []Host) ([]Host, e
 	out := make([]Host, len(hosts))
 	for i := range hosts {
 		src := &hosts[i]
+		ct := connectionTypeArg(src.ConnectionType)
 		row := tx.QueryRow(ctx,
-			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at)
-			 VALUES ($1, $2::inet, $3, $4)
-			 RETURNING id, created_at, updated_at, credentials_ref, ssh_port`,
-			src.Hostname, ipArg(src.IP), src.OS, src.LastSeenAt,
+			`INSERT INTO manage_hosts (hostname, ip, os, last_seen_at, connection_type)
+			 VALUES ($1, $2::inet, $3, $4, $5)
+			 RETURNING id, created_at, updated_at, credentials_ref, ssh_port, COALESCE(connection_type, '')`,
+			src.Hostname, ipArg(src.IP), src.OS, src.LastSeenAt, ct,
 		)
 		dst := *src
-		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt, &dst.CredentialsRef, &dst.SSHPort); err != nil {
+		if err := row.Scan(&dst.ID, &dst.CreatedAt, &dst.UpdatedAt, &dst.CredentialsRef, &dst.SSHPort, &dst.ConnectionType); err != nil {
 			if isUniqueViolation(err) {
 				return nil, fmt.Errorf("%w: ip %q (index %d)", ErrConflict, src.IP, i)
 			}

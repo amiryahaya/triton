@@ -298,8 +298,8 @@ func TestDiscoveryIntegration_ImportFlow(t *testing.T) {
 	// Insert a candidate directly.
 	var candidateID uuid.UUID
 	err := f.pool.QueryRow(context.Background(),
-		`INSERT INTO manage_discovery_candidates (job_id, ip, open_ports)
-		 VALUES ($1, '172.16.0.1', '{22}')
+		`INSERT INTO manage_discovery_candidates (job_id, ip)
+		 VALUES ($1, '172.16.0.1')
 		 RETURNING id`,
 		jobID,
 	).Scan(&candidateID)

@@ -44,9 +44,9 @@ func ipArg(ip string) any {
 	return ip
 }
 
-func connectionTypeArg(ct string) any {
+func connectionTypeArg(ct string) string {
 	if ct == "" {
-		return nil
+		return "ssh"
 	}
 	return ct
 }

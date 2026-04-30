@@ -132,7 +132,7 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid tag_id")
 			return
 		}
-		list, err := h.Store.ListByTag(r.Context(), tagID)
+		list, err := h.Store.ListByTags(r.Context(), []uuid.UUID{tagID})
 		if err != nil {
 			internalErr(w, r, err, "list hosts by tag")
 			return

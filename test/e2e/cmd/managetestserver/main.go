@@ -93,7 +93,7 @@ func run() error {
 		return fmt.Errorf("mark admin created: %w", err)
 	}
 	if err := store.SaveLicenseActivation(ctx,
-		"https://ls.example.com", "e2e-key", "e2e-tok", testInstanceID,
+		"https://ls.example.com", "e2e-key", "e2e-tok", testInstanceID, "E2E Test Server",
 	); err != nil {
 		return fmt.Errorf("save license activation: %w", err)
 	}

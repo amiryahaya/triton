@@ -25,12 +25,12 @@ var _ Store = (*PostgresStore)(nil)
 
 // hostSelectCols selects host columns only (no tags). Tags are loaded
 // separately via loadTagsForHosts and attached by the caller.
-const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, ssh_port`
+const hostSelectCols = `id, hostname, host(ip)::text, os, last_seen_at, created_at, updated_at, credentials_ref, ssh_port, COALESCE(connection_type, '')`
 
 func scanHost(row pgx.Row) (Host, error) {
 	var h Host
 	if err := row.Scan(&h.ID, &h.Hostname, &h.IP, &h.OS, &h.LastSeenAt, &h.CreatedAt, &h.UpdatedAt,
-		&h.CredentialsRef, &h.SSHPort); err != nil {
+		&h.CredentialsRef, &h.SSHPort, &h.ConnectionType); err != nil {
 		return Host{}, err
 	}
 	h.Tags = []tags.Tag{}
@@ -253,16 +253,19 @@ func (s *PostgresStore) ResolveTagNames(ctx context.Context, names []string, def
 	return ids, nil
 }
 
-func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host, error) {
+func (s *PostgresStore) ListByTags(ctx context.Context, tagIDs []uuid.UUID) ([]Host, error) {
+	if len(tagIDs) == 0 {
+		return []Host{}, nil
+	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+hostSelectCols+` FROM manage_hosts h
+		`SELECT DISTINCT `+hostSelectCols+` FROM manage_hosts h
 		 JOIN manage_host_tags ht ON ht.host_id = h.id
-		 WHERE ht.tag_id = $1
+		 WHERE ht.tag_id = ANY($1)
 		 ORDER BY h.ip`,
-		tagID,
+		tagIDs,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list hosts by tag: %w", err)
+		return nil, fmt.Errorf("list hosts by tags: %w", err)
 	}
 	defer rows.Close()
 
@@ -280,6 +283,47 @@ func (s *PostgresStore) ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host,
 		return nil, err
 	}
 	tagMap, err := s.loadTagsForHosts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if t, ok := tagMap[out[i].ID]; ok {
+			out[i].Tags = t
+		}
+	}
+	if out == nil {
+		out = []Host{}
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]Host, error) {
+	if len(ids) == 0 {
+		return []Host{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+hostSelectCols+` FROM manage_hosts WHERE id = ANY($1) ORDER BY ip`,
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get hosts by ids: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Host
+	var hostIDs []uuid.UUID
+	for rows.Next() {
+		h, err := scanHost(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan host: %w", err)
+		}
+		out = append(out, h)
+		hostIDs = append(hostIDs, h.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	tagMap, err := s.loadTagsForHosts(ctx, hostIDs)
 	if err != nil {
 		return nil, err
 	}

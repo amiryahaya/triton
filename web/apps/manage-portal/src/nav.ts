@@ -10,6 +10,7 @@ export const nav: NavSection[] = [
       { href: '#/inventory/hosts',        label: 'Hosts' },
       { href: '#/inventory/credentials',  label: 'Credentials' },
       { href: '#/inventory/agents',       label: 'Agents' },
+      { href: '#/inventory/discover',     label: 'Discover' },
     ],
   },
   {

@@ -406,4 +406,102 @@ ON CONFLICT (name) DO NOTHING;`,
 	// forwarded to Report Server during enrolment.
 	`ALTER TABLE manage_setup
   ADD COLUMN IF NOT EXISTS server_name TEXT NOT NULL DEFAULT '';`,
+
+	// Version 21: connection_type (ssh|ssh_bastion|agent) and bastion_host_id for the
+	// host connectivity model (direct SSH, jump-host SSH, agent-managed).
+	`ALTER TABLE manage_hosts
+		ADD COLUMN IF NOT EXISTS connection_type TEXT NOT NULL DEFAULT 'ssh'
+			CHECK (connection_type IN ('ssh','ssh_bastion','agent')),
+		ADD COLUMN IF NOT EXISTS bastion_host_id UUID REFERENCES manage_hosts(id) ON DELETE SET NULL;`,
+
+	// Version 22: Enrollment tokens + enrolled agents for agent-managed hosts.
+	// Enrollment tokens are short-lived, use-count-limited secrets that allow
+	// triton-agent to self-register without operator interaction per device.
+	// Enrolled agents are the registered identities; last_seen_at on the linked
+	// host row is used as the agent heartbeat timestamp.
+	`CREATE TABLE IF NOT EXISTS manage_enrollment_tokens (
+		id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id   UUID        NOT NULL,
+		label       TEXT        NOT NULL,
+		token_hash  TEXT        NOT NULL,
+		expires_at  TIMESTAMPTZ NOT NULL,
+		max_uses    INT         NOT NULL DEFAULT 1,
+		use_count   INT         NOT NULL DEFAULT 0,
+		revoked     BOOL        NOT NULL DEFAULT FALSE,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE TABLE IF NOT EXISTS manage_enrolled_agents (
+		id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id    UUID        NOT NULL,
+		host_id      UUID        REFERENCES manage_hosts(id) ON DELETE SET NULL,
+		hostname     TEXT        NOT NULL,
+		ip           TEXT,
+		os           TEXT,
+		secret_hash  TEXT        NOT NULL,
+		enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		status       TEXT        NOT NULL DEFAULT 'active'
+			CHECK (status IN ('active','revoked'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_enrolled_agents_host ON manage_enrolled_agents(host_id);
+	CREATE INDEX IF NOT EXISTS idx_enrolled_agents_tenant ON manage_enrolled_agents(tenant_id);`,
+
+	// Version 23: Discovery SSH-focus — replace ports[] with ssh_port + found_ips;
+	// strip host-metadata columns from candidates; add updated_at to manage_credentials.
+	`ALTER TABLE manage_discovery_jobs
+    ADD COLUMN IF NOT EXISTS ssh_port INT NOT NULL DEFAULT 22,
+    ADD COLUMN IF NOT EXISTS found_ips INT NOT NULL DEFAULT 0;
+ALTER TABLE manage_discovery_jobs DROP COLUMN IF EXISTS ports;
+ALTER TABLE manage_discovery_candidates
+    DROP COLUMN IF EXISTS open_ports,
+    DROP COLUMN IF EXISTS os,
+    DROP COLUMN IF EXISTS mac_address,
+    DROP COLUMN IF EXISTS mdns_name;
+ALTER TABLE manage_credentials
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+
+	// Version 24: Recurring scan schedules — manage_scan_schedules table.
+	// Created before manage_scan_batches (v25) which FKs to it.
+	`CREATE TABLE IF NOT EXISTS manage_scan_schedules (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL,
+  name            TEXT NOT NULL,
+  job_types       TEXT[] NOT NULL,
+  host_ids        UUID[] NOT NULL,
+  profile         TEXT NOT NULL CHECK (profile IN ('quick','standard','comprehensive')),
+  cron_expr       TEXT NOT NULL,
+  max_cpu_pct     INTEGER,
+  max_memory_mb   INTEGER,
+  max_duration_s  INTEGER,
+  enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+  last_run_at     TIMESTAMPTZ,
+  next_run_at     TIMESTAMPTZ NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_manage_scan_schedules_next
+  ON manage_scan_schedules(next_run_at)
+  WHERE enabled = TRUE;`,
+
+	// Version 25: Scan batches — parent/child grouping + resource limits on jobs.
+	`CREATE TABLE IF NOT EXISTS manage_scan_batches (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID NOT NULL,
+  job_types       TEXT[] NOT NULL,
+  host_ids        UUID[] NOT NULL,
+  profile         TEXT NOT NULL CHECK (profile IN ('quick','standard','comprehensive')),
+  max_cpu_pct     INTEGER,
+  max_memory_mb   INTEGER,
+  max_duration_s  INTEGER,
+  schedule_id     UUID REFERENCES manage_scan_schedules(id) ON DELETE SET NULL,
+  status          TEXT NOT NULL DEFAULT 'queued'
+                  CHECK (status IN ('queued','running','completed','failed','cancelled')),
+  enqueued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at     TIMESTAMPTZ
+);
+ALTER TABLE manage_scan_jobs
+  ADD COLUMN IF NOT EXISTS batch_id       UUID REFERENCES manage_scan_batches(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS max_cpu_pct    INTEGER,
+  ADD COLUMN IF NOT EXISTS max_memory_mb  INTEGER,
+  ADD COLUMN IF NOT EXISTS max_duration_s INTEGER;
+CREATE INDEX idx_manage_scan_jobs_batch ON manage_scan_jobs(batch_id);
+CREATE INDEX idx_manage_scan_batches_tenant ON manage_scan_batches(tenant_id, enqueued_at DESC);`,
 }

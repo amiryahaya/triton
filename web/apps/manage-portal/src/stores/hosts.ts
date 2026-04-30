@@ -1,33 +1,18 @@
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 import type { Host, CreateHostReq, UpdateHostReq } from '@triton/api-client';
 import { useToast } from '@triton/ui';
 import { useApiClient } from './apiClient';
 
-const FILTER_KEY = 'manage-portal.hosts.filter';
-
-function loadFilter(): { tagID?: string } {
-  try {
-    const raw = localStorage.getItem(FILTER_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return { tagID: parsed.tagID };
-  } catch {
-    return {};
-  }
-}
-
 export const useHostsStore = defineStore('hosts', () => {
   const items = ref<Host[]>([]);
   const loading = ref(false);
-  const filter = ref<{ tagID?: string }>(loadFilter());
-
-  watch(filter, (v) => localStorage.setItem(FILTER_KEY, JSON.stringify(v)), { deep: true });
+  const filter = ref<{ tagIDs?: string[] }>({});
 
   async function fetch() {
     const api = useApiClient().get();
     loading.value = true;
-    try { items.value = await api.listHosts(filter.value.tagID); }
+    try { items.value = await api.listHosts(filter.value.tagIDs); }
     catch (e) { useToast().error({ title: 'Failed to load hosts', description: String(e) }); }
     finally { loading.value = false; }
   }

@@ -94,7 +94,7 @@ func (req createReq) validate() error {
 			return errors.New("password is required")
 		}
 	default:
-		return fmt.Errorf("auth_type must be one of ssh-key|ssh-password|winrm-password")
+		return fmt.Errorf("auth_type must be ssh-key, ssh-password, or winrm-password")
 	}
 	return nil
 }
@@ -177,6 +177,71 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// Update rotates the Vault secret for an existing credential (name + auth_type are
+// immutable). Writes a new KV v2 version and bumps updated_at in the DB.
+func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
+	if h.vault == nil {
+		writeErr(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBody)
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid credential id")
+		return
+	}
+
+	tenantID, ok := orgctx.InstanceIDFromContext(r.Context())
+	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, "tenant not set")
+		return
+	}
+
+	var req createReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := req.validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	cred, err := h.store.Get(r.Context(), id)
+	if errors.Is(err, ErrCredentialNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		internalErr(w, r, err, "get credential for update")
+		return
+	}
+	// Treat cross-tenant access as 404 to not leak existence.
+	if cred.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.vault.Write(r.Context(), cred.VaultPath, req.toPayload()); err != nil {
+		log.Printf("credentials: vault write for update: %v", err)
+		writeErr(w, http.StatusBadGateway, "vault write failed")
+		return
+	}
+
+	if err := h.store.Update(r.Context(), id, req.toPayload()); err != nil {
+		internalErr(w, r, err, "update credential")
+		return
+	}
+
+	updated, err := h.store.Get(r.Context(), id)
+	if err != nil {
+		internalErr(w, r, err, "get credential after update")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // Delete blocks when the credential is in use, then removes Vault secret + DB row.

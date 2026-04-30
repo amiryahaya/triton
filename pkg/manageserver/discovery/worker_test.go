@@ -55,7 +55,7 @@ func (f *fakeStore) SetCancelRequested(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
 
-func (f *fakeStore) UpdateProgress(_ context.Context, _ uuid.UUID, scannedIPs int) error {
+func (f *fakeStore) UpdateProgress(_ context.Context, _ uuid.UUID, scannedIPs, _ int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.progress = append(f.progress, scannedIPs)
@@ -197,7 +197,7 @@ func (f *fakeHostsStore) ResolveTagNames(_ context.Context, names []string, _ st
 	return ids, nil
 }
 
-func (f *fakeHostsStore) ListByTag(_ context.Context, _ uuid.UUID) ([]hosts.Host, error) {
+func (f *fakeHostsStore) ListByTags(_ context.Context, _ []uuid.UUID) ([]hosts.Host, error) {
 	return nil, nil
 }
 
@@ -214,6 +214,19 @@ func (f *fakeHostsStore) BulkCreate(_ context.Context, hs []hosts.Host) ([]hosts
 	return hs, nil
 }
 
+func (f *fakeHostsStore) GetByIDs(_ context.Context, ids []uuid.UUID) ([]hosts.Host, error) {
+	var out []hosts.Host
+	for _, id := range ids {
+		for _, h := range f.hosts {
+			if h.ID == id {
+				out = append(out, h)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // fakeScanner emits pre-configured candidates then returns an optional error.
 // It implements ScannerIface so it can be injected directly into Worker.
@@ -224,11 +237,13 @@ type fakeScanner struct {
 	err        error
 }
 
-func (fs *fakeScanner) Scan(_ context.Context, _ string, _ []int, out chan<- Candidate) error {
+func (fs *fakeScanner) Scan(_ context.Context, _ string, _ int, out chan<- Candidate, progress chan<- struct{}) error {
 	for _, c := range fs.candidates {
 		out <- c
+		progress <- struct{}{}
 	}
 	close(out)
+	close(progress)
 	return fs.err
 }
 
@@ -241,7 +256,7 @@ func newJob(tenantID uuid.UUID) Job {
 		ID:       uuid.New(),
 		TenantID: tenantID,
 		CIDR:     "10.0.0.0/24",
-		Ports:    []int{22, 443},
+		SSHPort:  22,
 		Status:   "queued",
 	}
 }
@@ -250,9 +265,8 @@ func makeCandidates(n int) []Candidate {
 	cs := make([]Candidate, n)
 	for i := range cs {
 		cs[i] = Candidate{
-			ID:        uuid.New(),
-			IP:        fmt.Sprintf("10.0.%d.%d", i/254, (i%254)+1),
-			OpenPorts: []int{22},
+			ID: uuid.New(),
+			IP: fmt.Sprintf("10.0.%d.%d", i/254, (i%254)+1),
 		}
 	}
 	return cs
@@ -368,7 +382,7 @@ func TestWorkerExistingHostIDSet(t *testing.T) {
 
 	fs := &fakeScanner{
 		candidates: []Candidate{
-			{ID: uuid.New(), IP: "10.0.0.1", OpenPorts: []int{22}},
+			{ID: uuid.New(), IP: "10.0.0.1"},
 		},
 	}
 
@@ -402,9 +416,9 @@ func TestWorkerDBInsertErrorSkipped(t *testing.T) {
 
 	fs := &fakeScanner{
 		candidates: []Candidate{
-			{ID: uuid.New(), IP: "10.0.0.1", OpenPorts: []int{22}},
-			{ID: uuid.New(), IP: "10.0.0.2", OpenPorts: []int{22}},
-			{ID: uuid.New(), IP: "10.0.0.3", OpenPorts: []int{22}},
+			{ID: uuid.New(), IP: "10.0.0.1"},
+			{ID: uuid.New(), IP: "10.0.0.2"},
+			{ID: uuid.New(), IP: "10.0.0.3"},
 		},
 	}
 

@@ -30,7 +30,7 @@ describe('createManageApi', () => {
   });
 
   it('listHosts(tagID) encodes query string', async () => {
-    await api.listHosts('abc-123');
+    await api.listHosts(['abc-123']);
     expect(fake.calls[0]?.path).toBe('/v1/admin/hosts/?tag_id=abc-123');
   });
 

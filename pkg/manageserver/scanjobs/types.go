@@ -63,6 +63,10 @@ type Job struct {
 	JobType            JobType    `json:"job_type"`
 	ScheduledAt        *time.Time `json:"scheduled_at,omitempty"`
 	PortOverride       []uint16   `json:"port_override,omitempty"`
+	BatchID            *uuid.UUID `json:"batch_id,omitempty"`
+	MaxCPUPct          *int       `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB        *int       `json:"max_memory_mb,omitempty"`
+	MaxDurationS       *int       `json:"max_duration_s,omitempty"`
 }
 
 // EnqueueReq is the input to Store.Enqueue. TenantID is injected from
@@ -87,4 +91,115 @@ type PortSurveyEnqueueReq struct {
 	Profile      Profile     `json:"profile"`
 	ScheduledAt  *time.Time  `json:"scheduled_at,omitempty"`
 	PortOverride []uint16    `json:"port_override,omitempty"`
+}
+
+// BatchStatus enumerates batch lifecycle states. Mirrors the DB CHECK constraint.
+type BatchStatus string
+
+const (
+	BatchStatusQueued    BatchStatus = "queued"
+	BatchStatusRunning   BatchStatus = "running"
+	BatchStatusCompleted BatchStatus = "completed"
+	BatchStatusFailed    BatchStatus = "failed"
+	BatchStatusCancelled BatchStatus = "cancelled"
+)
+
+// Batch is one row of manage_scan_batches with an aggregated jobs_created count.
+type Batch struct {
+	ID           uuid.UUID   `json:"id"`
+	TenantID     uuid.UUID   `json:"tenant_id"`
+	JobTypes     []JobType   `json:"job_types"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	MaxCPUPct    *int        `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB  *int        `json:"max_memory_mb,omitempty"`
+	MaxDurationS *int        `json:"max_duration_s,omitempty"`
+	ScheduleID   *uuid.UUID  `json:"schedule_id,omitempty"`
+	Status       BatchStatus `json:"status"`
+	JobsCreated  int         `json:"jobs_created"`
+	EnqueuedAt   time.Time   `json:"enqueued_at"`
+	FinishedAt   *time.Time  `json:"finished_at,omitempty"`
+}
+
+// SkippedJob records a (host, jobType) pair that was not created and why.
+type SkippedJob struct {
+	HostID  uuid.UUID `json:"host_id"`
+	JobType JobType   `json:"job_type"`
+	Reason  string    `json:"reason"` // "no_credential"
+}
+
+// BatchEnqueueReq is the parsed body of POST /api/v1/admin/scan-batches.
+type BatchEnqueueReq struct {
+	TenantID     uuid.UUID   `json:"-"`
+	ScheduleID   *uuid.UUID  `json:"-"` // set by schedule runner, not from client
+	JobTypes     []JobType   `json:"job_types"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	MaxCPUPct    *int        `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB  *int        `json:"max_memory_mb,omitempty"`
+	MaxDurationS *int        `json:"max_duration_s,omitempty"`
+}
+
+// BatchEnqueueResp is the 201 body for POST /api/v1/admin/scan-batches.
+type BatchEnqueueResp struct {
+	BatchID     uuid.UUID    `json:"batch_id"`
+	JobsCreated int          `json:"jobs_created"`
+	JobsSkipped []SkippedJob `json:"jobs_skipped"`
+}
+
+// ResolveHostInfo is the minimal host snapshot resolveJobs needs.
+// Populated from hosts.Host by the batch handler before calling resolveJobs.
+type ResolveHostInfo struct {
+	ID             uuid.UUID
+	ConnectionType string
+	CredentialsRef *uuid.UUID
+	SSHPort        int
+}
+
+// JobSpec is the per-row input to BatchStore.EnqueueBatch.
+// Produced by ResolveJobs; consumers should not construct it directly.
+type JobSpec struct {
+	HostID         uuid.UUID
+	JobType        JobType
+	CredentialsRef *uuid.UUID
+	SSHPort        *int
+}
+
+// Schedule is one row of manage_scan_schedules.
+type Schedule struct {
+	ID           uuid.UUID   `json:"id"`
+	TenantID     uuid.UUID   `json:"tenant_id"`
+	Name         string      `json:"name"`
+	JobTypes     []JobType   `json:"job_types"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	CronExpr     string      `json:"cron_expr"`
+	MaxCPUPct    *int        `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB  *int        `json:"max_memory_mb,omitempty"`
+	MaxDurationS *int        `json:"max_duration_s,omitempty"`
+	Enabled      bool        `json:"enabled"`
+	LastRunAt    *time.Time  `json:"last_run_at,omitempty"`
+	NextRunAt    time.Time   `json:"next_run_at"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+// ScheduleReq is the parsed body of POST /api/v1/admin/scan-schedules.
+type ScheduleReq struct {
+	TenantID     uuid.UUID   `json:"-"`
+	Name         string      `json:"name"`
+	JobTypes     []JobType   `json:"job_types"`
+	HostIDs      []uuid.UUID `json:"host_ids"`
+	Profile      Profile     `json:"profile"`
+	CronExpr     string      `json:"cron_expr"`
+	MaxCPUPct    *int        `json:"max_cpu_pct,omitempty"`
+	MaxMemoryMB  *int        `json:"max_memory_mb,omitempty"`
+	MaxDurationS *int        `json:"max_duration_s,omitempty"`
+}
+
+// SchedulePatchReq is the parsed body of PATCH /api/v1/admin/scan-schedules/:id.
+// Only non-nil fields are applied.
+type SchedulePatchReq struct {
+	Enabled  *bool   `json:"enabled,omitempty"`
+	Name     *string `json:"name,omitempty"`
+	CronExpr *string `json:"cron_expr,omitempty"`
 }

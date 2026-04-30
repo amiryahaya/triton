@@ -44,11 +44,11 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     }
   }
 
-  async function start(cidr: string, ports: number[]) {
+  async function start(cidr: string, sshPort: number) {
     const api = useApiClient().get();
     error.value = null;
     try {
-      job.value = await api.startDiscovery({ cidr, ports });
+      job.value = await api.startDiscovery({ cidr, ssh_port: sshPort });
       candidates.value = [];
       startPolling();
     } catch (e: unknown) {

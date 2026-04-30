@@ -85,6 +85,7 @@ type hostRequestBody struct {
 	Tags           []string   `json:"tags"`
 	CredentialsRef *uuid.UUID `json:"credentials_ref"`
 	SSHPort        *int       `json:"ssh_port"`
+	ConnectionType string     `json:"connection_type"`
 }
 
 // toHost converts a request body into a Host without any server-managed
@@ -97,6 +98,7 @@ func (b hostRequestBody) toHost() Host {
 		LastSeenAt:     b.LastSeenAt,
 		CredentialsRef: b.CredentialsRef,
 		SSHPort:        22, // default SSH port
+		ConnectionType: b.ConnectionType,
 	}
 	if b.SSHPort != nil {
 		h.SSHPort = *b.SSHPort
@@ -132,7 +134,7 @@ func (h *AdminHandlers) List(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid tag_id")
 			return
 		}
-		list, err := h.Store.ListByTag(r.Context(), tagID)
+		list, err := h.Store.ListByTags(r.Context(), []uuid.UUID{tagID})
 		if err != nil {
 			internalErr(w, r, err, "list hosts by tag")
 			return
@@ -320,8 +322,8 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	batch := make([]Host, 0, len(body.Hosts))
-	for i, row := range body.Hosts {
-		host := row.toHost()
+	for i := range body.Hosts {
+		host := body.Hosts[i].toHost()
 		if err := validateHost(host); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error()+" (index "+strconv.Itoa(i)+")")
 			return
@@ -367,12 +369,12 @@ func (h *AdminHandlers) BulkCreate(w http.ResponseWriter, r *http.Request) {
 	// Set tags for each host that supplied them, then reload so response
 	// includes the populated Tags field (SetTags modifies DB but not the
 	// in-memory slice).
-	for i, row := range body.Hosts {
+	for i := range body.Hosts {
 		var tagIDs []uuid.UUID
-		if len(row.TagIDs) > 0 {
-			tagIDs = row.TagIDs
-		} else if len(row.Tags) > 0 {
-			resolved, err := h.Store.ResolveTagNames(r.Context(), row.Tags, "#6366F1")
+		if len(body.Hosts[i].TagIDs) > 0 {
+			tagIDs = body.Hosts[i].TagIDs
+		} else if len(body.Hosts[i].Tags) > 0 {
+			resolved, err := h.Store.ResolveTagNames(r.Context(), body.Hosts[i].Tags, "#6366F1")
 			if err != nil {
 				log.Printf("manageserver/hosts: resolve tag names for bulk host %d: %v", i, err)
 				continue

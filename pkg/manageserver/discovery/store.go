@@ -22,8 +22,8 @@ type Store interface {
 	// SetCancelRequested sets cancel_requested=true for the job.
 	SetCancelRequested(ctx context.Context, jobID uuid.UUID) error
 
-	// UpdateProgress sets scanned_ips on the job row.
-	UpdateProgress(ctx context.Context, jobID uuid.UUID, scannedIPs int) error
+	// UpdateProgress sets scanned_ips and found_ips on the job row.
+	UpdateProgress(ctx context.Context, jobID uuid.UUID, scannedIPs, foundIPs int) error
 
 	// UpdateStatus sets status, started_at/finished_at, error_message on the job.
 	UpdateStatus(ctx context.Context, upd StatusUpdate) error

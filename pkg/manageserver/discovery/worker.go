@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,9 +52,10 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 
 	// Step 3: start scanner in its own goroutine.
 	out := make(chan Candidate, 64)
+	progress := make(chan struct{}, 64)
 	scanErr := make(chan error, 1)
 	go func() {
-		scanErr <- w.Scanner.Scan(scanCtx, job.CIDR, job.Ports, out)
+		scanErr <- w.Scanner.Scan(scanCtx, job.CIDR, job.SSHPort, out, progress)
 	}()
 
 	// Step 3b: Build a one-time IP→host-ID map to avoid N full-table scans.
@@ -67,8 +70,28 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 		log.Printf("discovery worker: list hosts for IP lookup: %v", err)
 	}
 
-	// Step 4: consume candidates.
-	count := 0
+	// Step 4: consume candidates and progress ticks concurrently.
+	// Both goroutines update these counters; use atomics to avoid a data race.
+	var foundCount, scannedCount atomic.Int64
+
+	// Drain the progress channel in a background goroutine so it never blocks
+	// the scanner. We tally scanned IPs and fire periodic store updates here.
+	var progressWg sync.WaitGroup
+	progressWg.Add(1)
+	go func() {
+		defer progressWg.Done()
+		for range progress {
+			sc := scannedCount.Add(1)
+			if sc%50 == 0 {
+				_ = w.Store.UpdateProgress(ctx, job.ID, int(sc), int(foundCount.Load()))
+				j, err := w.Store.GetCurrentJob(ctx, job.TenantID)
+				if err == nil && j.CancelRequested {
+					cancelScan()
+				}
+			}
+		}
+	}()
+
 	for c := range out {
 		c.JobID = job.ID
 		if id, ok := hostByIP[c.IP]; ok {
@@ -78,23 +101,12 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 		if err := w.Store.InsertCandidate(ctx, c); err != nil {
 			log.Printf("discovery worker: insert candidate %s: %v", c.IP, err)
 			// continue — don't abort the scan on a single insert failure
-		}
-		count++
-
-		if count%50 == 0 {
-			_ = w.Store.UpdateProgress(ctx, job.ID, count)
-
-			// Poll for cancel request.
-			j, err := w.Store.GetCurrentJob(ctx, job.TenantID)
-			if err == nil && j.CancelRequested {
-				cancelScan()
-				break
-			}
+		} else {
+			foundCount.Add(1)
 		}
 	}
-	// Drain remaining candidates if we broke out early.
-	for range out {
-	}
+
+	progressWg.Wait()
 
 	// Step 5: wait for the scanner goroutine to finish.
 	err := <-scanErr
@@ -124,7 +136,7 @@ func (w *Worker) Run(ctx context.Context, job Job) {
 	}
 
 	// Final progress update + completed status.
-	_ = w.Store.UpdateProgress(ctx, job.ID, count)
+	_ = w.Store.UpdateProgress(ctx, job.ID, int(scannedCount.Load()), int(foundCount.Load()))
 	_ = w.Store.UpdateStatus(ctx, StatusUpdate{
 		JobID:      job.ID,
 		Status:     "completed",

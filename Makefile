@@ -1,4 +1,4 @@
-.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver build-portscan test test-integration test-all test-integration-race test-system test-e2e test-e2e-license bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-build-manage web-test web-clean
+.PHONY: build build-all build-agent build-engine build-licenseserver build-manageserver build-portscan test test-integration test-all test-integration-race test-system test-e2e test-e2e-license test-e2e-manage bench vet clean install run fmt lint deps db-up db-down db-reset container-build container-run container-stop container-build-licenseserver container-run-licenseserver container-stop-licenseserver container-build-manageserver container-run-manageserver container-stop-manageserver container-build-engine container-run-engine container-stop-engine container-build-agent web web-install web-build-manage web-test web-clean
 
 # Variables (overridable)
 POSTGRES_USER       ?= triton
@@ -158,6 +158,10 @@ test-e2e: db-up build
 # Playwright E2E browser tests for license server admin UI
 test-e2e-license: db-up build-licenseserver
 	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test --config=playwright.license.config.js
+
+# Playwright E2E browser tests for manage portal (hosts, discovery)
+test-e2e-manage: db-up
+	cd test/e2e && npm ci && npx playwright install chromium && npx playwright test --config=playwright.manage.config.js
 
 # Clean build artifacts
 clean:

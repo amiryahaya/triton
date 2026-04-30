@@ -28,12 +28,12 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &e) && e.Code == "23505"
 }
 
-const credSelectCols = `id, tenant_id, name, auth_type, vault_path, created_at,
+const credSelectCols = `id, tenant_id, name, auth_type, vault_path, created_at, updated_at,
     (SELECT COUNT(*) FROM manage_hosts h WHERE h.credentials_ref = manage_credentials.id) AS in_use_count`
 
 func scanCred(row pgx.Row) (Credential, error) {
 	var c Credential
-	err := row.Scan(&c.ID, &c.TenantID, &c.Name, &c.AuthType, &c.VaultPath, &c.CreatedAt, &c.InUseCount)
+	err := row.Scan(&c.ID, &c.TenantID, &c.Name, &c.AuthType, &c.VaultPath, &c.CreatedAt, &c.UpdatedAt, &c.InUseCount)
 	return c, err
 }
 
@@ -95,6 +95,21 @@ func (s *PostgresStore) Create(ctx context.Context, c Credential) (Credential, e
 		return Credential{}, fmt.Errorf("create credential: %w", err)
 	}
 	return s.Get(ctx, c.ID)
+}
+
+// Update bumps updated_at on the credential row. The Vault secret write happens
+// in the handler; this method only tracks the timestamp in the DB.
+func (s *PostgresStore) Update(ctx context.Context, id uuid.UUID, _ SecretPayload) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE manage_credentials SET updated_at = NOW() WHERE id = $1`, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update credential: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCredentialNotFound
+	}
+	return nil
 }
 
 // Delete removes a credential by ID.

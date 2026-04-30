@@ -11,7 +11,7 @@ const toast = useToast();
 
 // Scan form
 const cidr = ref('');
-const portsRaw = ref('22, 443, 3389, 5555, 5985, 5986, 8008, 8009');
+const sshPort = ref(22);
 const formError = ref('');
 
 // Selected candidate IDs
@@ -26,6 +26,21 @@ function hostnameFor(c: DiscoveryCandidate): string {
   return c.hostname ?? c.ip;
 }
 
+// Only show candidates not already in inventory.
+const newCandidates = computed(() =>
+  store.candidates.filter(c => !c.existing_host_id)
+);
+
+// Live filter by IP or hostname
+const filterText = ref('');
+const filteredCandidates = computed(() => {
+  const q = filterText.value.trim().toLowerCase();
+  if (!q) return newCandidates.value;
+  return newCandidates.value.filter(c =>
+    c.ip.toLowerCase().includes(q) || hostnameFor(c).toLowerCase().includes(q)
+  );
+});
+
 // Whether all selected candidates have a hostname (from DNS or override)
 const importReady = computed(() =>
   selected.value.size > 0 &&
@@ -35,19 +50,12 @@ const importReady = computed(() =>
   })
 );
 
-// Parse ports from comma-separated string
-function parsePorts(): number[] {
-  return portsRaw.value
-    .split(',')
-    .map(s => parseInt(s.trim(), 10))
-    .filter(n => !isNaN(n) && n > 0 && n <= 65535);
-}
-
 async function onStart() {
   formError.value = '';
+  filterText.value = '';
   if (!cidr.value.trim()) { formError.value = 'CIDR is required'; return; }
   try {
-    await store.start(cidr.value.trim(), parsePorts());
+    await store.start(cidr.value.trim(), sshPort.value);
   } catch {
     // error already set in store
   }
@@ -110,11 +118,13 @@ onUnmounted(() => store.stopPolling());
           class="text-input"
         />
       </TFormField>
-      <TFormField label="Ports">
+      <TFormField label="SSH Port">
         <input
-          v-model="portsRaw"
-          type="text"
-          placeholder="22, 443, 3389"
+          v-model.number="sshPort"
+          type="number"
+          min="1"
+          max="65535"
+          placeholder="22"
           :disabled="store.isRunning"
           class="text-input"
         />
@@ -127,6 +137,11 @@ onUnmounted(() => store.stopPolling());
       </div>
     </section>
 
+    <!-- Info note -->
+    <p class="info-note">
+      Results only show hosts not already in your inventory — existing hosts are automatically excluded.
+    </p>
+
     <!-- Progress (running) -->
     <section v-if="store.isRunning" class="progress-section card">
       <div class="progress-label">
@@ -136,64 +151,61 @@ onUnmounted(() => store.stopPolling());
     </section>
 
     <!-- Results table -->
-    <section v-if="store.candidates.length > 0" class="results-section card">
-      <h2 class="section-title">Discovered Hosts ({{ store.candidates.length }})</h2>
+    <section v-if="newCandidates.length > 0" class="results-section card">
+      <div class="results-header">
+        <div>
+          <h2 class="section-title">New Hosts ({{ newCandidates.length }})</h2>
+        </div>
+        <input
+          v-model="filterText"
+          type="search"
+          placeholder="Filter by IP or hostname…"
+          class="results-filter"
+        />
+      </div>
+      <p v-if="filterText && filteredCandidates.length < newCandidates.length" class="filter-count">
+        Showing {{ filteredCandidates.length }} of {{ newCandidates.length }}
+      </p>
       <table class="results-table">
         <thead>
           <tr>
             <th class="col-check"></th>
             <th class="col-ip">IP Address</th>
-            <th class="col-mac">MAC</th>
-            <th class="col-mdns">mDNS Name</th>
             <th class="col-hostname">Hostname</th>
-            <th class="col-os">OS</th>
-            <th class="col-ports">Open Ports</th>
-            <th class="col-status">Status</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="c in store.candidates"
+            v-for="c in filteredCandidates"
             :key="c.id"
-            :class="{ 'row-existing': c.existing_host_id }"
           >
             <td class="col-check">
               <input
                 type="checkbox"
                 :checked="selected.has(c.id)"
-                :disabled="!!c.existing_host_id"
-                @change="toggleSelect(c.id, !!c.existing_host_id)"
+                @change="toggleSelect(c.id, false)"
               />
             </td>
             <td class="col-ip mono">{{ c.ip }}</td>
-            <td class="col-mac mono">{{ c.mac_address || '—' }}</td>
-            <td class="col-mdns">{{ c.mdns_name || '—' }}</td>
             <td class="col-hostname">
               <input
-                v-if="!c.existing_host_id"
                 type="text"
                 :value="hostnameFor(c)"
                 @input="hostnameOverrides[c.id] = ($event.target as HTMLInputElement).value"
                 placeholder="hostname or IP"
                 class="hostname-input"
               />
-              <span v-else class="dimmed">{{ c.hostname ?? c.ip }}</span>
-            </td>
-            <td class="col-os">{{ c.os || '—' }}</td>
-            <td class="col-ports">
-              <span v-for="p in c.open_ports" :key="p" class="port-badge">{{ p }}</span>
-            </td>
-            <td class="col-status">
-              <span v-if="c.existing_host_id" class="badge badge-grey">Already in inventory</span>
-              <span v-else class="badge badge-blue">New</span>
             </td>
           </tr>
         </tbody>
       </table>
     </section>
+    <section v-else-if="store.isDone && store.candidates.length > 0" class="results-section card">
+      <p class="all-known">All discovered hosts are already in inventory.</p>
+    </section>
 
     <!-- Import bar (shown when done) -->
-    <div v-if="store.isDone && store.candidates.length > 0" class="import-bar card">
+    <div v-if="store.isDone && newCandidates.length > 0" class="import-bar card">
       <span class="import-count">{{ selected.size }} host{{ selected.size === 1 ? '' : 's' }} selected</span>
       <TButton variant="primary" :disabled="!importReady" @click="onImport">
         Import Selected
@@ -283,36 +295,51 @@ td {
   font-family: monospace;
 }
 
-.row-existing {
-  opacity: 0.6;
+.all-known {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0;
 }
 
-.port-badge {
-  display: inline-block;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  background: var(--accent-muted, #e0e7ff);
-  color: var(--accent);
-  font-size: 0.75rem;
-  margin-right: 0.25rem;
+.results-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
 }
 
-.badge {
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 500;
+.results-header .section-title {
+  margin-bottom: 0.25rem;
 }
 
-.badge-blue {
-  background: #dbeafe;
-  color: #1d4ed8;
+.info-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-elevated, #f8f9fa);
+  border-left: 3px solid var(--accent-strong, #3B82F6);
+  border-radius: 0 0.25rem 0.25rem 0;
 }
 
-.badge-grey {
-  background: #f1f5f9;
-  color: #64748b;
+.results-filter {
+  flex-shrink: 0;
+  width: 220px;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
 }
+
+.filter-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
 
 .hostname-input {
   width: 100%;
@@ -346,11 +373,4 @@ td {
   color: #991b1b;
 }
 
-.col-mac { min-width: 140px; font-size: 0.8rem; }
-.col-mdns { min-width: 140px; }
-.col-os { min-width: 100px; }
-
-.dimmed {
-  color: var(--text-muted);
-}
 </style>

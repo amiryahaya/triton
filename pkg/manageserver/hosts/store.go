@@ -39,8 +39,8 @@ type Store interface {
 	// tags with defaultColor for names that do not yet exist.
 	ResolveTagNames(ctx context.Context, names []string, defaultColor string) ([]uuid.UUID, error)
 
-	// ListByTag returns all hosts that have the given tag.
-	ListByTag(ctx context.Context, tagID uuid.UUID) ([]Host, error)
+	// ListByTags returns hosts that have ANY of the given tags (OR semantics).
+	ListByTags(ctx context.Context, tagIDs []uuid.UUID) ([]Host, error)
 
 	// CountByTag returns the number of hosts with the given tag.
 	CountByTag(ctx context.Context, tagID uuid.UUID) (int64, error)
@@ -50,4 +50,9 @@ type Store interface {
 
 	// BulkCreate inserts a batch of hosts in a single transaction.
 	BulkCreate(ctx context.Context, hosts []Host) ([]Host, error)
+
+	// GetByIDs returns the hosts whose IDs are in the supplied slice.
+	// An empty/nil slice returns an empty slice without error.
+	// IDs that do not exist are silently omitted (no ErrNotFound).
+	GetByIDs(ctx context.Context, ids []uuid.UUID) ([]Host, error)
 }

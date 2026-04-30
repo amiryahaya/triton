@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import type { ScanJob, ScanJobStatus, EnqueueReq, PortSurveyEnqueueReq } from '@triton/api-client';
+import type {
+  ScanJob, ScanJobStatus, EnqueueReq, PortSurveyEnqueueReq,
+  ScanBatch, BatchEnqueueReq, BatchEnqueueResp,
+  ScanSchedule, ScheduleReq,
+} from '@triton/api-client';
 import { useToast } from '@triton/ui';
 import { useApiClient } from './apiClient';
 
@@ -61,5 +65,77 @@ export const useScanJobsStore = defineStore('scanjobs', () => {
     if (pollHandle) { clearInterval(pollHandle); pollHandle = null; }
   }
 
-  return { items, selected, loading, filter, fetch, getDetail, enqueue, enqueuePortSurvey, requestCancel, startPolling, stopPolling };
+  // --- Batch state ---
+  const batches = ref<ScanBatch[]>([]);
+  const batchesLoading = ref(false);
+
+  async function fetchBatches(limit = 50) {
+    batchesLoading.value = true;
+    try {
+      const api = useApiClient().get();
+      batches.value = await api.listBatches({ limit });
+    } catch (e) {
+      useToast().error({ title: 'Failed to load batches', description: String(e) });
+    } finally {
+      batchesLoading.value = false;
+    }
+  }
+
+  async function enqueueBatch(req: BatchEnqueueReq): Promise<BatchEnqueueResp> {
+    const api = useApiClient().get();
+    const resp = await api.enqueueBatch(req);
+    await fetchBatches();
+    return resp;
+  }
+
+  // --- Schedule state ---
+  const schedules = ref<ScanSchedule[]>([]);
+  const schedulesLoading = ref(false);
+
+  async function fetchSchedules() {
+    schedulesLoading.value = true;
+    try {
+      const api = useApiClient().get();
+      schedules.value = await api.listSchedules();
+    } catch (e) {
+      useToast().error({ title: 'Failed to load schedules', description: String(e) });
+    } finally {
+      schedulesLoading.value = false;
+    }
+  }
+
+  async function createSchedule(req: ScheduleReq): Promise<ScanSchedule> {
+    const api = useApiClient().get();
+    const sched = await api.createSchedule(req);
+    schedules.value.unshift(sched);
+    return sched;
+  }
+
+  async function toggleSchedule(id: string, enabled: boolean) {
+    try {
+      const api = useApiClient().get();
+      const updated = await api.patchSchedule(id, { enabled });
+      const idx = schedules.value.findIndex(s => s.id === id);
+      if (idx >= 0) schedules.value[idx] = updated;
+    } catch (e) {
+      useToast().error({ title: 'Failed to update schedule', description: String(e) });
+    }
+  }
+
+  async function deleteSchedule(id: string) {
+    try {
+      const api = useApiClient().get();
+      await api.deleteSchedule(id);
+      schedules.value = schedules.value.filter(s => s.id !== id);
+    } catch (e) {
+      useToast().error({ title: 'Failed to delete schedule', description: String(e) });
+    }
+  }
+
+  return {
+    items, selected, loading, filter, fetch, getDetail, enqueue, enqueuePortSurvey, requestCancel, startPolling, stopPolling,
+    batches, batchesLoading, fetchBatches, enqueueBatch,
+    schedules, schedulesLoading, fetchSchedules,
+    createSchedule, toggleSchedule, deleteSchedule,
+  };
 });

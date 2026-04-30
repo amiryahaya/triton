@@ -496,8 +496,9 @@ func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "YES", isNullable, "host_id must be nullable after v6")
 
-	// After v16 there are exactly 2 FKs with SET NULL on manage_scan_jobs:
-	// host_id (loosened in v6; zone_id dropped in v9) and credentials_ref (added in v16).
+	// After v24 there are exactly 3 FKs with SET NULL on manage_scan_jobs:
+	// host_id (loosened in v6; zone_id dropped in v9), credentials_ref (added in v16),
+	// and batch_id (added in v24).
 	var setNullFKs int
 	err = s.QueryRowForTest(ctx, `
 		SELECT COUNT(*) FROM pg_constraint c
@@ -508,8 +509,8 @@ func TestMigrate_V6_LoosenScanJobFKs(t *testing.T) {
 		  AND c.contype = 'f'
 		  AND c.confdeltype = 'n'`).Scan(&setNullFKs)
 	require.NoError(t, err)
-	assert.Equal(t, 2, setNullFKs,
-		"manage_scan_jobs must have exactly 2 FKs with ON DELETE SET NULL (host_id from v6; credentials_ref from v16)")
+	assert.Equal(t, 3, setNullFKs,
+		"manage_scan_jobs must have exactly 3 FKs with ON DELETE SET NULL (host_id from v6; credentials_ref from v16; batch_id from v24)")
 
 	// End-to-end: create a host+job, delete the host → job survives with host_id=NULL.
 	hostID := uuid.Must(uuid.NewV7()).String()

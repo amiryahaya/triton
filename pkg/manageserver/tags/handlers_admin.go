@@ -70,7 +70,7 @@ func (h *AdminHandlers) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tag, err := h.Store.Create(r.Context(), Tag{
-		Name:  strings.TrimSpace(body.Name),
+		Name:  strings.ToLower(strings.TrimSpace(body.Name)),
 		Color: body.Color,
 	})
 	if errors.Is(err, ErrConflict) {
@@ -104,7 +104,7 @@ func (h *AdminHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	tag, err := h.Store.Update(r.Context(), Tag{
 		ID:    id,
-		Name:  strings.TrimSpace(body.Name),
+		Name:  strings.ToLower(strings.TrimSpace(body.Name)),
 		Color: body.Color,
 	})
 	if errors.Is(err, ErrNotFound) {

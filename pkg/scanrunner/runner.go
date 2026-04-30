@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/amiryahaya/triton/internal/runtime/limits"
 )
 
 // RunOne executes the full lifecycle for one scan job:
@@ -26,6 +28,23 @@ func RunOne(ctx context.Context, jobID uuid.UUID, manage *ManageClient, scanner 
 			return nil
 		}
 		return fmt.Errorf("runner: claim %s: %w", jobID, err)
+	}
+
+	// Apply per-job resource limits from the batch configuration (0/nil = unlimited).
+	var lim limits.Limits
+	if claim.MaxCPUPct != nil && *claim.MaxCPUPct > 0 {
+		lim.MaxCPUPercent = *claim.MaxCPUPct
+	}
+	if claim.MaxMemoryMB != nil && *claim.MaxMemoryMB > 0 {
+		lim.MaxMemoryBytes = int64(*claim.MaxMemoryMB) * 1024 * 1024
+	}
+	if claim.MaxDurationS != nil && *claim.MaxDurationS > 0 {
+		lim.MaxDuration = time.Duration(*claim.MaxDurationS) * time.Second
+	}
+	if lim.Enabled() {
+		var stop func()
+		ctx, stop = lim.Apply(ctx)
+		defer stop()
 	}
 
 	// All failures from here must be reported to the manage server.

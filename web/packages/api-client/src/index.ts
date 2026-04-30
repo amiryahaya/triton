@@ -78,6 +78,9 @@ export type {
   DiscoveryJob, DiscoveryCandidate, DiscoveryStatus,
   DiscoveryImportReq, DiscoveryImportResp,
   CredentialAuthType, Credential, CreateCredentialReq,
+  ScanBatch, BatchEnqueueReq, BatchEnqueueResp,
+  SkippedJob,
+  ScanSchedule, ScheduleReq, SchedulePatchReq,
 } from './manageServer.types';
 export type {
   Organisation,

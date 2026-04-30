@@ -120,3 +120,52 @@ type Store interface {
 	// Returns ErrAlreadyClaimed when the job is not in 'queued' status.
 	ClaimByID(ctx context.Context, id uuid.UUID, workerID string) (Job, error)
 }
+
+// ScheduleStore is the persistence boundary for recurring scan schedules.
+type ScheduleStore interface {
+	// CreateSchedule inserts a new schedule. The server validates cron_expr
+	// before calling; next_run_at is computed from cron_expr at insert time.
+	CreateSchedule(ctx context.Context, req ScheduleReq) (Schedule, error)
+
+	// ListSchedules returns all schedules for the tenant, ordered by created_at desc.
+	ListSchedules(ctx context.Context, tenantID uuid.UUID) ([]Schedule, error)
+
+	// PatchSchedule applies non-nil fields from req. If CronExpr changes,
+	// next_run_at is recomputed. Returns ErrNotFound when the schedule does not
+	// exist or does not belong to tenantID (prevents cross-tenant IDOR).
+	PatchSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID, req SchedulePatchReq) (Schedule, error)
+
+	// DeleteSchedule removes the schedule row. Existing batches that reference
+	// it will have schedule_id set to NULL (ON DELETE SET NULL). Returns
+	// ErrNotFound when the schedule does not exist or does not belong to tenantID
+	// (prevents cross-tenant IDOR).
+	DeleteSchedule(ctx context.Context, tenantID uuid.UUID, id uuid.UUID) error
+
+	// ClaimDueSchedules atomically claims all schedules where enabled=true AND
+	// next_run_at <= NOW() by advancing next_run_at to the next cron tick in
+	// a transaction with FOR UPDATE SKIP LOCKED so concurrent ticks cannot
+	// double-fire the same schedule.
+	ClaimDueSchedules(ctx context.Context) ([]Schedule, error)
+}
+
+// BatchStore is the persistence boundary for scan batches.
+type BatchStore interface {
+	// EnqueueBatch creates one manage_scan_batches row and one
+	// manage_scan_jobs row per spec, atomically. Returns the new batch ID
+	// and a count of jobs inserted. skipped is stored on the response but
+	// not persisted to DB.
+	EnqueueBatch(ctx context.Context, req BatchEnqueueReq, specs []JobSpec, skipped []SkippedJob) (BatchEnqueueResp, error)
+
+	// GetBatch returns a single batch by ID with an aggregated jobs_created
+	// count. Returns ErrNotFound when the batch does not exist.
+	GetBatch(ctx context.Context, id uuid.UUID) (Batch, error)
+
+	// ListBatches returns the most recent batches for a tenant, newest first.
+	// limit <= 0 falls back to 50.
+	ListBatches(ctx context.Context, tenantID uuid.UUID, limit int) ([]Batch, error)
+
+	// CountPendingJobs returns the number of manage_scan_jobs rows in
+	// queued or running state across all tenants. Used by EnqueueBatch to
+	// enforce the 10,000-job saturation cap.
+	CountPendingJobs(ctx context.Context) (int64, error)
+}

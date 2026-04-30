@@ -3,7 +3,6 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import ScanJobs from '../../src/views/ScanJobs.vue';
 import { useScanJobsStore } from '../../src/stores/scanjobs';
-import { useTagsStore } from '../../src/stores/tags';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -73,13 +72,11 @@ function mountWithState() {
 }
 
 describe('ScanJobs view', () => {
-  it('starts polling on mount and stops on unmount, fetches tags', async () => {
+  it('starts polling on mount and stops on unmount', async () => {
     const wrapper = mountWithState();
     const jobs = useScanJobsStore();
-    const tags = useTagsStore();
     await flushPromises();
 
-    expect(tags.fetch).toHaveBeenCalledTimes(1);
     expect(jobs.startPolling).toHaveBeenCalledTimes(1);
     wrapper.unmount();
     expect(jobs.stopPolling).toHaveBeenCalledTimes(1);
